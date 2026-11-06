@@ -25,6 +25,10 @@ type Api = {
   };
   undo: () => unknown;
   createPage: (page: { path: string; title: string }) => Promise<unknown>;
+  runAction: (request: unknown) => { ok: boolean; [key: string]: unknown };
+  startRun: (payload: { tool: string; prompt: string }) => { ok: boolean; run?: { id: string } };
+  finishRun: (id: string) => Promise<{ ok: boolean; run?: { files: string[]; highlighted: unknown[] } }>;
+  undoRun: (id: string) => { ok: boolean; problem?: string; clashes?: string[] };
   saveDraft: (drafts: Draft[]) => void;
   restoreDraft: (draft: Draft) => { ok: boolean; problem?: string };
   status: (message: string) => void;
@@ -146,14 +150,14 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
     );
 
     // 1.4: a change elsewhere in the same file merges instead of blocking.
-    const second = api.writeText(`Cauldron merge ${Date.now()}`);
+    const mergeFirst = api.writeText(`Cauldron merge ${Date.now()}`);
     const withNote = `${fs.readFileSync(file, 'utf8')}\n<!-- outside edit -->\n`;
     fs.writeFileSync(file, withNote, 'utf8');
     const third = api.writeText(`Cauldron merged ${Date.now()}`);
     const merged = fs.readFileSync(file, 'utf8');
     check(
       '1.4 edits elsewhere in the file merge cleanly',
-      second.ok && third.ok && merged.includes('<!-- outside edit -->'),
+      mergeFirst.ok && third.ok && merged.includes('<!-- outside edit -->'),
       third.ok ? '' : (third.problem ?? ''),
     );
 
@@ -176,6 +180,70 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
       );
       fs.writeFileSync(file, current, 'utf8');
     }
+
+    // 2.1: one set of actions, with the version stated on every write.
+    const listed = api.runAction({ action: 'listPages' }) as {
+      ok: boolean;
+      pages?: Array<{ page: string }>;
+    };
+    check('2.1 the shared actions list pages', listed.ok && (listed.pages?.length ?? 0) > 0);
+
+    const activeForAction = api.getSelection();
+    if (activeForAction) {
+      const target = {
+        file: path.relative(root, activeForAction.location.file),
+        line: activeForAction.location.line,
+        column: activeForAction.location.column,
+        name: activeForAction.location.name,
+      };
+      const fileText = fs.readFileSync(activeForAction.location.file, 'utf8');
+      const stale = api.runAction({
+        action: 'editElementText',
+        target,
+        value: `Action ${Date.now()}`,
+        baseHash: 'deliberately-wrong',
+      }) as { ok: boolean; merged?: boolean };
+      check('2.1 a write based on an old version still merges when the spot is untouched', stale.ok && stale.merged === true);
+      void fileText;
+      api.undo();
+    }
+
+    // 2.2: an agent run, reviewed and undone in one step.
+    const started = api.startRun({ tool: 'e2e', prompt: 'change the heading' });
+    const runId = started.run?.id ?? '';
+    const fileForRun = path.join(root, 'src/pages/index.astro');
+    const beforeRun = fs.readFileSync(fileForRun, 'utf8');
+    fs.writeFileSync(
+      fileForRun,
+      beforeRun.replace(/<h1([^>]*)>([\s\S]*?)<\/h1>/, '<h1$1>Run changed this</h1>'),
+      'utf8',
+    );
+    const finished = await api.finishRun(runId);
+    check(
+      '2.2 a run reports which files it changed',
+      finished.ok && (finished.run?.files.length ?? 0) === 1,
+      finished.run?.files.join(', ') ?? '',
+    );
+    const undoneRun = api.undoRun(runId);
+    check(
+      '2.2 a whole run is undone in one step',
+      undoneRun.ok && hashOf(fs.readFileSync(fileForRun, 'utf8')) === hashOf(beforeRun),
+      undoneRun.problem ?? '',
+    );
+
+    const secondRun = api.startRun({ tool: 'e2e', prompt: 'change it again' });
+    const secondId = secondRun.run?.id ?? '';
+    const baseForClash = fs.readFileSync(fileForRun, 'utf8');
+    fs.writeFileSync(fileForRun, `${baseForClash}\n<!-- run edit -->\n`, 'utf8');
+    await api.finishRun(secondId);
+    fs.writeFileSync(fileForRun, `${baseForClash}\n<!-- changed afterwards -->\n`, 'utf8');
+    const refusedUndo = api.undoRun(secondId);
+    check(
+      '2.2 undo refuses when files changed after the run',
+      !refusedUndo.ok && (refusedUndo.clashes?.length ?? 0) > 0,
+      refusedUndo.problem ?? '',
+    );
+    fs.writeFileSync(fileForRun, baseForClash, 'utf8');
 
     // 1.7: a new page shows up without a reload.
     const pageTitle = `Cauldron page ${Date.now()}`;

@@ -5,6 +5,8 @@ import { buildMenu } from '../app-menu';
 import { detectSite, startDevServer, type DevServer, type Site } from './site';
 import { Preview } from './preview';
 import { History } from './history';
+import { Runs, type Run } from './runs';
+import { runAction, actionCatalogue, type ActionRequest } from './actions';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
@@ -34,6 +36,8 @@ type Controller = {
   server: DevServer | null;
   selection: SelectionState | null;
   history: History;
+  runs: Runs;
+  beforeLocs: Array<{ loc: string; text: string }>;
   status: string[];
 };
 
@@ -44,6 +48,8 @@ const state: Controller = {
   server: null,
   selection: null,
   history: new History(),
+  runs: new Runs(),
+  beforeLocs: [],
   status: [],
 };
 
@@ -132,6 +138,61 @@ async function openSiteAt(root: string) {
   );
   await startPreview();
   return { site: detected };
+}
+
+/** Every element on the page with its text, used to see what a run changed. */
+function collectLocs(): Promise<Array<{ loc: string; text: string }>> {
+  const view = state.preview.webContents;
+  if (!view) return Promise.resolve([]);
+  return view
+    .executeJavaScript(
+      `(() => [...document.querySelectorAll('[data-astro-source-loc]')]
+        .map((el) => ({ loc: el.getAttribute('data-astro-source-loc') || '', text: (el.textContent || '').trim().slice(0, 160) }))
+        .filter((item) => item.text !== ''))()`,
+    )
+    .catch(() => []);
+}
+
+/** The Before/After toggle: outlines the parts of the page the run changed. */
+function highlightLocs(locs: string[], on: boolean): void {
+  const view = state.preview.webContents;
+  if (!view) return;
+  const css = on
+    ? locs
+        .map(
+          (loc) =>
+            `[data-astro-source-loc="${loc}"]{outline:2px solid #ffa99a !important;outline-offset:2px !important}`,
+        )
+        .join('\n')
+    : '';
+  void view
+    .executeJavaScript(
+      `(() => {
+        let style = document.getElementById('cauldron-highlight');
+        if (!style) {
+          style = document.createElement('style');
+          style.id = 'cauldron-highlight';
+          document.head.appendChild(style);
+        }
+        style.textContent = ${JSON.stringify(css)};
+        return true;
+      })()`,
+    )
+    .catch(() => undefined);
+}
+
+function runSummary(run: Run) {
+  return {
+    id: run.id,
+    tool: run.tool,
+    prompt: run.prompt,
+    status: run.status,
+    note: run.note,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    files: run.files.map((file) => file.file),
+    highlighted: run.highlighted,
+  };
 }
 
 function requireSite(): Site | { problem: string } {
@@ -323,6 +384,72 @@ function registerIpc(): void {
   ipcMain.handle('cauldron:restore-draft', (_event, draft: Draft) =>
     restoreDraft(draft),
   );
+
+  ipcMain.handle(
+    'cauldron:run-start',
+    (_event, payload: { tool: string; prompt: string }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      state.beforeLocs = [];
+      const run = state.runs.start(site.root, payload.tool, payload.prompt);
+      void collectLocs().then((locs) => {
+        state.beforeLocs = locs;
+      });
+      status(`Run started: ${payload.tool}`);
+      return { ok: true, run: runSummary(run) };
+    },
+  );
+
+  ipcMain.handle('cauldron:run-finish', async (_event, id: string) => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    const afterLocs = await collectLocs();
+    const before = new Map(state.beforeLocs.map((item) => [item.loc, item.text]));
+    const changed = afterLocs.filter((item) => before.get(item.loc) !== item.text);
+    const removed = state.beforeLocs.filter(
+      (item) => !afterLocs.some((current) => current.loc === item.loc),
+    );
+    const run = state.runs.finish(site.root, id);
+    if (!run) return { ok: false, problem: 'That run is not known.' };
+    state.runs.setHighlighted(id, [...changed, ...removed]);
+    state.preview.reload();
+    status(run.note);
+    return { ok: true, run: runSummary(run) };
+  });
+
+  ipcMain.handle('cauldron:run-undo', (_event, id: string) => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    const result = state.runs.undo(site.root, id);
+    if (!result.ok) {
+      status(result.problem);
+      return { ok: false, problem: result.problem, clashes: result.clashes };
+    }
+    state.preview.reload();
+    refreshSelectionFromDisk();
+    status('Run undone');
+    return { ok: true };
+  });
+
+  ipcMain.handle('cauldron:runs', () => state.runs.list().map(runSummary));
+
+  ipcMain.handle('cauldron:action-catalogue', () => actionCatalogue());
+
+  ipcMain.handle('cauldron:highlight', (_event, id: string, on: boolean) => {
+    const run = state.runs.get(id);
+    if (!run) return false;
+    highlightLocs(
+      run.highlighted.map((item) => item.loc),
+      on,
+    );
+    return true;
+  });
+
+  ipcMain.handle('cauldron:run-action', (_event, request: unknown) => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    return runAction(site.root, request as ActionRequest);
+  });
 
   registerPreviewIpc();
 }
@@ -629,6 +756,34 @@ export function start(): void {
           writeSelection({ kind: 'style', properties }),
         undo: () => undoLast(),
         createPage: (page: { path: string; title: string }) => createPage(page),
+        runAction: (request: unknown) =>
+          state.site ? runAction(state.site.root, request as ActionRequest) : { ok: false, problem: 'No site.' },
+        startRun: (payload: { tool: string; prompt: string }) => {
+          if (!state.site) return { ok: false };
+          state.beforeLocs = [];
+          const run = state.runs.start(state.site.root, payload.tool, payload.prompt);
+          void collectLocs().then((locs) => {
+            state.beforeLocs = locs;
+          });
+          return { ok: true, run: { id: run.id } };
+        },
+        finishRun: async (id: string) => {
+          if (!state.site) return { ok: false };
+          const afterLocs = await collectLocs();
+          const before = new Map(state.beforeLocs.map((item) => [item.loc, item.text]));
+          const changed = afterLocs.filter((item) => before.get(item.loc) !== item.text);
+          const run = state.runs.finish(state.site.root, id);
+          if (!run) return { ok: false };
+          state.runs.setHighlighted(id, changed);
+          return {
+            ok: true,
+            run: { files: run.files.map((file) => file.file), highlighted: run.highlighted },
+          };
+        },
+        undoRun: (id: string) =>
+          state.site
+            ? state.runs.undo(state.site.root, id)
+            : { ok: false, problem: 'No site.' },
         saveDraft: (drafts: Draft[]) => {
           if (state.site) saveDrafts(state.site.root, drafts);
         },

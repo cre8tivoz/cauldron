@@ -36,6 +36,15 @@ const api = {
   forceWrite: (operation: unknown) =>
     ipcRenderer.invoke('cauldron:force-write', operation),
 
+  startRun: (payload: { tool: string; prompt: string }) =>
+    ipcRenderer.invoke('cauldron:run-start', payload),
+  finishRun: (id: string) => ipcRenderer.invoke('cauldron:run-finish', id),
+  undoRun: (id: string) => ipcRenderer.invoke('cauldron:run-undo', id),
+  runs: () => ipcRenderer.invoke('cauldron:runs'),
+  highlight: (id: string, on: boolean) => ipcRenderer.invoke('cauldron:highlight', id, on),
+  runAction: (request: unknown) => ipcRenderer.invoke('cauldron:run-action', request),
+  actionCatalogue: () => ipcRenderer.invoke('cauldron:action-catalogue'),
+
   refreshSelection: () => ipcRenderer.invoke('cauldron:refresh-selection'),
   undo: () => ipcRenderer.invoke('cauldron:undo'),
   redo: () => ipcRenderer.invoke('cauldron:redo'),

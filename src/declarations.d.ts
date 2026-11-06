@@ -36,6 +36,18 @@ type CauldronDraft = {
   savedAt: number;
 };
 
+type CauldronRun = {
+  id: string;
+  tool: string;
+  prompt: string;
+  status: 'running' | 'finished' | 'failed';
+  note: string;
+  startedAt: number;
+  finishedAt: number | null;
+  files: string[];
+  highlighted: Array<{ loc: string; text: string }>;
+};
+
 type WriteOutcome = {
   ok: boolean;
   problem?: string;
@@ -74,6 +86,18 @@ type CauldronApi = {
   applyAttribute: (name: string, value: string | null) => Promise<WriteOutcome>;
   applyStyle: (properties: Record<string, string>) => Promise<WriteOutcome>;
   forceWrite: (operation: unknown) => Promise<WriteOutcome>;
+  startRun: (
+    payload: { tool: string; prompt: string },
+  ) => Promise<{ ok: boolean; run?: CauldronRun; problem?: string }>;
+  finishRun: (id: string) => Promise<{ ok: boolean; run?: CauldronRun; problem?: string }>;
+  undoRun: (
+    id: string,
+  ) => Promise<{ ok: boolean; problem?: string; clashes?: string[] }>;
+  runs: () => Promise<CauldronRun[]>;
+  highlight: (id: string, on: boolean) => Promise<boolean>;
+  runAction: (request: unknown) => Promise<{ ok: boolean; [key: string]: unknown }>;
+  actionCatalogue: () => Promise<Array<{ name: string; what: string }>>;
+
   refreshSelection: () => Promise<CauldronSelection | null>;
   undo: () => Promise<{ ok: boolean; problem?: string }>;
   redo: () => Promise<{ ok: boolean; problem?: string }>;
