@@ -2,11 +2,94 @@
 declare module '*.css';
 
 // This file is a plain script on purpose: the declarations below apply everywhere.
-interface CauldronBridge {
-  version: string;
-  platform: string;
-}
+type CauldronSite = {
+  root: string;
+  name: string;
+  astroVersion: string;
+  packageManager: 'npm' | 'pnpm' | 'yarn';
+  hasDependencies: boolean;
+};
+
+type CauldronSelection = {
+  id: string;
+  file: string;
+  line: number;
+  column: number;
+  name: string;
+  text: string;
+  textEditable: boolean;
+  attributes: Array<{ name: string; value: string }>;
+  style: Record<string, string>;
+  pageUrl: string;
+  domPath: string;
+  history: { canUndo: boolean; canRedo: boolean };
+};
+
+type CauldronDraft = {
+  key: string;
+  file: string;
+  line: number;
+  column: number;
+  name: string;
+  field: string;
+  value: string;
+  savedAt: number;
+};
+
+type WriteOutcome = {
+  ok: boolean;
+  problem?: string;
+  conflict?: { file: string; diskText: string; reason: string };
+  selection?: CauldronSelection;
+};
+
+type CauldronApi = {
+  openSiteDialog: () => Promise<
+    | { cancelled: true }
+    | { site: CauldronSite }
+    | { problem: string; detail: string }
+  >;
+  openSite: (root: string) => Promise<unknown>;
+  state: () => Promise<{
+    site: CauldronSite | null;
+    running: boolean;
+    url: string | null;
+    status: string[];
+    selection: CauldronSelection | null;
+    drafts: CauldronDraft[];
+  }>;
+  startPreview: () => Promise<
+    { url: string } | { problem: string; detail: string }
+  >;
+  stopPreview: () => Promise<boolean>;
+  reloadPreview: () => Promise<boolean>;
+  setPreviewBounds: (bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => Promise<boolean>;
+  pickMode: (on: boolean) => Promise<boolean>;
+  applyText: (value: string) => Promise<WriteOutcome>;
+  applyAttribute: (name: string, value: string | null) => Promise<WriteOutcome>;
+  applyStyle: (properties: Record<string, string>) => Promise<WriteOutcome>;
+  forceWrite: (operation: unknown) => Promise<WriteOutcome>;
+  refreshSelection: () => Promise<CauldronSelection | null>;
+  undo: () => Promise<{ ok: boolean; problem?: string }>;
+  redo: () => Promise<{ ok: boolean; problem?: string }>;
+  clearSelection: () => Promise<boolean>;
+  saveDrafts: (drafts: CauldronDraft[]) => Promise<boolean>;
+  discardDrafts: () => Promise<boolean>;
+  restoreDraft: (
+    draft: CauldronDraft,
+  ) => Promise<{ ok: boolean; problem?: string }>;
+  newPage: (page: {
+    path: string;
+    title: string;
+  }) => Promise<{ ok: true; file: string; url: string } | { problem: string }>;
+  on: (channel: string, callback: (payload: never) => void) => () => void;
+};
 
 interface Window {
-  cauldron?: CauldronBridge;
+  cauldron: CauldronApi;
 }
