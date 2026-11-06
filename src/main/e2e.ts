@@ -267,6 +267,12 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
       (report?.measured?.length ?? 0) > 0,
       `${report?.measured?.length ?? 0} measurements`,
     );
+    const axe = findings.find((finding) => finding.label.includes('axe'));
+    check(
+      '4.4 axe-core runs against WCAG 2.1 AA',
+      Boolean(axe),
+      axe?.detail ?? 'axe did not run',
+    );
 
     const failed = findings.filter(
       (finding) => finding.status === 'fail',

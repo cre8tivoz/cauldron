@@ -1070,6 +1070,7 @@ function harnessApi() {
       return result;
     },
     collections: () => (state.site ? readCollections(state.site.root) : []),
+    runs: () => state.runs.list(),
     qualityRun: async (payload: { pages?: string[] }) => {
       if (!state.site)
         return {

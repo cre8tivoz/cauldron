@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
 import type { DesignDirection } from './directions';
 
 /**
@@ -236,6 +236,40 @@ const PAGE_PROBE = `(async () => {
   return result;
 })()`;
 
+/** axe-core, the accessibility engine the taste tests name (plan 4.3 tests). */
+function axeSource(): string | null {
+  const candidates = [
+    path.join(app.getAppPath(), 'node_modules/axe-core/axe.min.js'),
+    path.join(process.cwd(), 'node_modules/axe-core/axe.min.js'),
+  ];
+  for (const file of candidates) {
+    try {
+      if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
+    } catch {
+      // Try the next place.
+    }
+  }
+  return null;
+}
+
+type AxeViolation = { id: string; impact: string; help: string; nodes: number };
+
+async function runAxe(window: BrowserWindow): Promise<AxeViolation[] | null> {
+  const source = axeSource();
+  if (!source) return null;
+  try {
+    await window.webContents.executeJavaScript(
+      `${source}\n;Boolean(window.axe)`,
+    );
+    return (await window.webContents.executeJavaScript(
+      `window.axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
+        .then((report) => report.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.length })))`,
+    )) as AxeViolation[];
+  } catch {
+    return null;
+  }
+}
+
 async function probe(
   window: BrowserWindow,
   url: string,
@@ -410,6 +444,25 @@ export async function checkSite(options: {
                     .join('; '),
             page,
           });
+
+          const axe = await runAxe(window);
+          if (axe) {
+            findings.push({
+              id: `axe-${page}`,
+              label: 'Automated accessibility (axe)',
+              status: axe.length === 0 ? 'pass' : 'fail',
+              detail:
+                axe.length === 0
+                  ? 'No axe violations against WCAG 2.1 A and AA.'
+                  : `${axe.length} rule(s) failed: ${axe
+                      .slice(0, 5)
+                      .map(
+                        (violation) => `${violation.id} (${violation.nodes}×)`,
+                      )
+                      .join(', ')}`,
+              page,
+            });
+          }
 
           const focusWithout = data.focusWithoutIndicator as string[];
           findings.push({
