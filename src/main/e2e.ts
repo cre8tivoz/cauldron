@@ -14,6 +14,12 @@ type Api = {
     replaceSelector?: string;
   }) => { ok: boolean; problem?: string; page?: string };
   collections?: () => CauldronCollections;
+  qualityRun?: (payload: { pages?: string[] }) => Promise<{
+    built: boolean;
+    findings: Array<{ label: string; status: string; detail: string }>;
+    measured: Array<{ label: string; value: string }>;
+    buildLog: string;
+  }>;
   entry?: (file: string) => Record<string, unknown> | { problem: string };
   saveEntry?: (payload: {
     file: string;
@@ -209,6 +215,67 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
     );
   } catch (error) {
     console.error('LIBRARY TEST ERROR', error);
+  } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** 4.4: the built site is measured, and the numbers are real. */
+export async function runQualityTest(root: string, api: Api): Promise<void> {
+  try {
+    await api.openSiteAt(root);
+    api.setDirection?.('long-lunch');
+    const report = await api.qualityRun?.({ pages: ['/'] });
+    check(
+      '4.4 the site builds before anything is measured',
+      Boolean(report?.built),
+      report?.buildLog?.slice(-300) ?? '',
+    );
+    const findings = report?.findings ?? [];
+    check(
+      '4.4 layout, accessibility, focus and links are measured',
+      findings.length >= 8,
+      `${findings.length} findings`,
+    );
+
+    const byId = (needle: string) =>
+      findings.filter((finding) =>
+        finding.label.toLowerCase().includes(needle),
+      );
+    check(
+      '4.4 every width is checked for overflow',
+      findings.filter((finding) => finding.label === 'No horizontal overflow')
+        .length === 3,
+    );
+    check(
+      '4.4 contrast is measured, not guessed',
+      byId('contrast').length > 0,
+      byId('contrast')[0]?.detail ?? '',
+    );
+    check(
+      '4.4 keyboard focus is measured',
+      byId('focus').length > 0,
+      byId('focus')[0]?.detail ?? '',
+    );
+    check(
+      '4.4 broken links are found',
+      byId('links').length > 0,
+      byId('links')[0]?.detail ?? '',
+    );
+    check(
+      '4.4 measured numbers are kept apart from opinion',
+      (report?.measured?.length ?? 0) > 0,
+      `${report?.measured?.length ?? 0} measurements`,
+    );
+
+    const failed = findings.filter(
+      (finding) => finding.status === 'fail',
+    ).length;
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed · ${failed} finding(s) failed on this site`,
+    );
+  } catch (error) {
+    console.error('QUALITY TEST ERROR', error);
   } finally {
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }

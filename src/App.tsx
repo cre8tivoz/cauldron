@@ -8,6 +8,8 @@ import { StatusBar } from './components/StatusBar';
 import { DesignPanel } from './components/DesignPanel';
 import { ContentPanel } from './components/ContentPanel';
 import { LibraryPanel } from './components/LibraryPanel';
+import { QualityPanel } from './components/QualityPanel';
+import { PublishPanel } from './components/PublishPanel';
 
 type PreviewState = { running: boolean; url: string | null };
 
@@ -32,9 +34,9 @@ export function App() {
     operation: unknown;
   } | null>(null);
   const [picking, setPicking] = useState(true);
-  const [view, setView] = useState<'build' | 'design' | 'content' | 'library'>(
-    'build',
-  );
+  const [view, setView] = useState<
+    'build' | 'design' | 'content' | 'library' | 'quality' | 'publish'
+  >('build');
   const [direction, setDirection] = useState<CauldronDirectionSummary | null>(
     null,
   );
@@ -302,6 +304,24 @@ export function App() {
         >
           D
         </button>
+        <button
+          className="rail-button"
+          type="button"
+          aria-current={view === 'quality' ? 'page' : undefined}
+          title="Quality checks"
+          onClick={() => setView('quality')}
+        >
+          Q
+        </button>
+        <button
+          className="rail-button"
+          type="button"
+          aria-current={view === 'publish' ? 'page' : undefined}
+          title="Publishing"
+          onClick={() => setView('publish')}
+        >
+          P
+        </button>
       </nav>
 
       <div className="workspace">
@@ -362,7 +382,20 @@ export function App() {
           </div>
         ) : null}
 
-        {view === 'library' ? (
+        {view === 'publish' ? (
+          <div className="panes">
+            <PublishPanel site={site} onBack={() => setView('build')} />
+          </div>
+        ) : view === 'quality' ? (
+          <div className="panes">
+            <QualityPanel
+              site={site}
+              direction={direction}
+              onBack={() => setView('build')}
+              onOpenDesign={() => setView('design')}
+            />
+          </div>
+        ) : view === 'library' ? (
           <div className="panes">
             <LibraryPanel site={site} onBack={() => setView('build')} />
           </div>

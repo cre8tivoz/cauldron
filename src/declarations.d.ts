@@ -55,6 +55,23 @@ type CauldronAgentEvent =
   | { type: 'done'; text: string }
   | { type: 'error'; text: string };
 
+type QualityFinding = {
+  id: string;
+  label: string;
+  status: 'pass' | 'fail' | 'unknown';
+  detail: string;
+  page?: string;
+  width?: number;
+};
+
+type QualityReport = {
+  built: boolean;
+  builtAt: string;
+  buildLog: string;
+  findings: QualityFinding[];
+  measured: Array<{ label: string; value: string }>;
+};
+
 type CauldronPiece = {
   id: string;
   name: string;
@@ -170,6 +187,22 @@ type CauldronApi = {
     baseHash: string;
     change: Record<string, string>;
   }) => Promise<{ ok: boolean; problem?: string; hash?: string }>;
+  repoState: () => Promise<{
+    isRepo: boolean;
+    branch: string;
+    changes: Array<{ status: string; file: string }>;
+    hasRemote: boolean;
+    lastCommit: string;
+  }>;
+  publish: (payload: { message: string; push: boolean }) => Promise<{
+    ok: boolean;
+    problem?: string;
+    details?: string;
+    committed?: number;
+    message?: string;
+  }>;
+  macBuild: () => Promise<{ zip: string | null; instructions: string }>;
+  qualityRun: (payload: { pages?: string[] }) => Promise<QualityReport>;
   library: () => Promise<{
     pieces: CauldronPiece[];
     links: Array<{ name: string; url: string; why: string }>;

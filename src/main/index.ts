@@ -22,6 +22,8 @@ import {
 import { startMcpServer, type McpHandle } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
+import { checkSite } from './quality';
+import { macBuildInfo, publish, repoState } from './publishing';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
@@ -595,6 +597,65 @@ function registerIpc(): void {
     },
   );
 
+  ipcMain.handle('cauldron:repo-state', () => {
+    const site = requireSite();
+    if ('problem' in site) return { isRepo: false, changes: [] };
+    return repoState(site.root);
+  });
+
+  ipcMain.handle(
+    'cauldron:publish',
+    (_event, payload: { message: string; push: boolean }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const result = publish(site.root, payload);
+      if (result.ok) {
+        status(
+          `Published: ${result.committed} file(s)${result.pushed ? ', pushed' : ''}.`,
+        );
+      } else {
+        status(result.problem);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle('cauldron:mac-build', () =>
+    macBuildInfo(
+      app.isPackaged ? path.dirname(app.getAppPath()) : process.cwd(),
+    ),
+  );
+
+  ipcMain.handle(
+    'cauldron:quality-run',
+    async (_event, payload: { pages?: string[] }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const direction = readDirection(site.root);
+      const pages =
+        payload?.pages && payload.pages.length > 0
+          ? payload.pages
+          : readCollections(site.root).length === 0
+            ? ['/']
+            : ['/'];
+      const report = await checkSite({
+        root: site.root,
+        direction,
+        pages,
+        onProgress: (message) => status(message),
+      });
+      const failed = report.findings.filter(
+        (finding) => finding.status === 'fail',
+      ).length;
+      status(
+        report.built
+          ? `Quality: ${failed} thing${failed === 1 ? '' : 's'} to fix.`
+          : 'The site does not build, so nothing could be checked.',
+      );
+      return report;
+    },
+  );
+
   ipcMain.handle('cauldron:library', () => ({
     pieces: LIBRARY.map((piece) => ({
       id: piece.id,
@@ -1009,6 +1070,21 @@ function harnessApi() {
       return result;
     },
     collections: () => (state.site ? readCollections(state.site.root) : []),
+    qualityRun: async (payload: { pages?: string[] }) => {
+      if (!state.site)
+        return {
+          built: false,
+          findings: [],
+          measured: [],
+          buildLog: '',
+          builtAt: '',
+        };
+      return checkSite({
+        root: state.site.root,
+        direction: readDirection(state.site.root),
+        pages: payload?.pages ?? ['/'],
+      });
+    },
     entry: (file: string) =>
       state.site ? readEntry(state.site.root, file) : { problem: 'No site.' },
     saveEntry: (payload: {
@@ -1190,6 +1266,11 @@ export function start(): void {
       );
       app.exit(sawUnexpectedError ? 1 : 0);
       return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_QUALITY_TEST) {
+      const { runQualityTest } = await import('./e2e');
+      await runQualityTest(E2E_SITE, harnessApi() as never);
     }
 
     if (E2E_SITE && process.env.CAULDRON_LIBRARY_TEST) {

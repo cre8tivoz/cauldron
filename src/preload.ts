@@ -65,6 +65,12 @@ const api = {
     change: Record<string, string>;
   }) => ipcRenderer.invoke('cauldron:save-entry', payload),
   library: () => ipcRenderer.invoke('cauldron:library'),
+  repoState: () => ipcRenderer.invoke('cauldron:repo-state'),
+  publish: (payload: { message: string; push: boolean }) =>
+    ipcRenderer.invoke('cauldron:publish', payload),
+  macBuild: () => ipcRenderer.invoke('cauldron:mac-build'),
+  qualityRun: (payload: { pages?: string[] }) =>
+    ipcRenderer.invoke('cauldron:quality-run', payload),
   addPiece: (payload: {
     pieceId: string;
     page: string;
