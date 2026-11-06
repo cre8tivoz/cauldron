@@ -1,0 +1,36 @@
+name: Task or bug
+description: Something to build, fix, or decide.
+labels: [needs-triage]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What should happen, in plain language.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What problem this solves. Link the plan or decision record if there is one.
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: How we'll know it works. Real behaviour, not "code written".
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        [
+          Setup,
+          Preview,
+          Editing,
+          Saving,
+          Agent,
+          Design taste,
+          Publishing,
+          Other,
+        ]

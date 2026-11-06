@@ -1,3 +1,7 @@
-// oxlint-disable eslint-plugin-unicorn/no-empty-file
-// See the Electron documentation for details on how to use preload scripts:
-// https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
+import { contextBridge } from 'electron';
+
+// The interface learns only these facts about the app it's running in.
+contextBridge.exposeInMainWorld('cauldron', {
+  version: process.env.npm_package_version ?? '',
+  platform: process.platform,
+});

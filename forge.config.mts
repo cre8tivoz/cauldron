@@ -9,6 +9,7 @@ const config: ForgeConfig = {
     asar: true,
     name: 'Cauldron',
     appBundleId: 'com.cre8tivoz.cauldron',
+    icon: 'build/icon',
   },
   rebuildConfig: {},
   // Mac first. Windows and Linux are parked until after the first Mac release.
