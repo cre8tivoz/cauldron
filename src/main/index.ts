@@ -1074,6 +1074,12 @@ function harnessApi() {
     },
     collections: () => (state.site ? readCollections(state.site.root) : []),
     runs: () => state.runs.list(),
+    repoState: () =>
+      state.site ? repoState(state.site.root) : { isRepo: false, changes: [] },
+    publish: (payload: { message: string; push: boolean }) =>
+      state.site
+        ? publish(state.site.root, payload)
+        : { ok: false, problem: 'No site.' },
     qualityRun: async (payload: { pages?: string[] }) => {
       if (!state.site)
         return {
@@ -1270,6 +1276,11 @@ export function start(): void {
       );
       app.exit(sawUnexpectedError ? 1 : 0);
       return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_PUBLISH_TEST) {
+      const { runPublishTest } = await import('./e2e');
+      await runPublishTest(E2E_SITE, harnessApi() as never);
     }
 
     if (E2E_SITE && process.env.CAULDRON_QUALITY_TEST) {

@@ -14,6 +14,17 @@ type Api = {
     replaceSelector?: string;
   }) => { ok: boolean; problem?: string; page?: string };
   collections?: () => CauldronCollections;
+  repoState?: () => {
+    isRepo: boolean;
+    changes: Array<{ file: string }>;
+    branch?: string;
+  };
+  publish?: (payload: { message: string; push: boolean }) => {
+    ok: boolean;
+    problem?: string;
+    committed?: number;
+    details?: string;
+  };
   qualityRun?: (payload: { pages?: string[] }) => Promise<{
     built: boolean;
     findings: Array<{ label: string; status: string; detail: string }>;
@@ -279,6 +290,106 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
   } catch (error) {
     console.error('LIBRARY TEST ERROR', error);
   } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** 5.1: publishing through the site's own Git repository, on a throwaway copy. */
+export async function runPublishTest(root: string, api: Api): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const scratch = path.join(
+    app.getPath('temp'),
+    `cauldron-publish-${Date.now()}`,
+  );
+  try {
+    // A throwaway repository, so nothing real is ever committed to.
+    fs.cpSync(root, scratch, {
+      recursive: true,
+      filter: (source) =>
+        !/[\\/](node_modules|\.git|dist|\.astro)$/.test(source),
+    });
+    const git = (args: string[]) =>
+      execFileSync('git', args, {
+        cwd: scratch,
+        encoding: 'utf8',
+        stdio: 'pipe',
+      });
+    git(['init', '-q']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Cauldron test']);
+    git(['add', '-A']);
+    git(['commit', '-q', '-m', 'Starting point']);
+
+    await api.openSiteAt(scratch);
+    const state = api.repoState?.();
+    check(
+      '5.1 the site is recognised as its own Git repository',
+      Boolean(state?.isRepo),
+      state?.branch ?? '',
+    );
+    check(
+      '5.1 nothing to publish on a clean tree',
+      (state?.changes.length ?? -1) === 0,
+      `${state?.changes.length ?? '?'} changes`,
+    );
+
+    const made = api.runAction({
+      action: 'createPage',
+      page: 'publish-check',
+      title: 'Publish check',
+    }) as {
+      ok?: boolean;
+      problem?: string;
+    };
+    check('5.1 a change is made', Boolean(made?.ok), made?.problem ?? '');
+    const changed = api.repoState?.();
+    check(
+      '5.1 the change is shown before publishing',
+      (changed?.changes.length ?? 0) > 0,
+      changed?.changes.map((c) => c.file).join(', '),
+    );
+
+    const noMessage = api.publish?.({ message: '   ', push: false });
+    check(
+      '5.1 a commit without a message is refused',
+      noMessage?.ok === false,
+      noMessage?.problem ?? '',
+    );
+
+    const published = api.publish?.({
+      message: 'Add the publish check page',
+      push: false,
+    });
+    check(
+      '5.1 publishing commits the change',
+      Boolean(published?.ok),
+      published?.problem ?? published?.details ?? '',
+    );
+    const lastCommit = git(['log', '-1', '--pretty=%s']).trim();
+    check(
+      '5.1 the commit is really there',
+      lastCommit === 'Add the publish check page',
+      lastCommit,
+    );
+
+    const again = api.publish?.({ message: 'Nothing to do', push: false });
+    check(
+      '5.1 publishing an unchanged site is refused',
+      again?.ok === false,
+      again?.problem ?? '',
+    );
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('PUBLISH TEST ERROR', error);
+  } finally {
+    try {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    } catch {
+      // Leaving a temp folder behind is better than failing the test.
+    }
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
 }
