@@ -5,6 +5,9 @@ import { Inspector } from './components/Inspector';
 import { PreviewStage } from './components/PreviewStage';
 import { Splitter } from './components/Splitter';
 import { StatusBar } from './components/StatusBar';
+import { DesignPanel } from './components/DesignPanel';
+import { ContentPanel } from './components/ContentPanel';
+import { LibraryPanel } from './components/LibraryPanel';
 
 type PreviewState = { running: boolean; url: string | null };
 
@@ -29,6 +32,12 @@ export function App() {
     operation: unknown;
   } | null>(null);
   const [picking, setPicking] = useState(true);
+  const [view, setView] = useState<'build' | 'design' | 'content' | 'library'>(
+    'build',
+  );
+  const [direction, setDirection] = useState<CauldronDirectionSummary | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [agentWidth, setAgentWidth] = useState(400);
   const [inspectorWidth, setInspectorWidth] = useState(300);
@@ -41,6 +50,8 @@ export function App() {
 
   // Load whatever the app already knows, then follow it.
   useEffect(() => {
+    void window.cauldron.direction().then(setDirection);
+
     void window.cauldron.state().then((state) => {
       setSite(state.site);
       setPreview({ running: state.running, url: state.url });
@@ -57,6 +68,7 @@ export function App() {
       };
       setSite(next.site);
       setDrafts(next.drafts ?? []);
+      void window.cauldron.direction().then(setDirection);
       setSelection(null);
       setProblem(null);
       setConflict(null);
@@ -257,15 +269,37 @@ export function App() {
         <button
           className="rail-button"
           type="button"
-          aria-current="page"
+          aria-current={view === 'build' ? 'page' : undefined}
           title="Sites"
+          onClick={() => setView('build')}
         >
           S
         </button>
-        <button className="rail-button" type="button" title="Library">
+        <button
+          className="rail-button"
+          type="button"
+          aria-current={view === 'content' ? 'page' : undefined}
+          title="Content"
+          onClick={() => setView('content')}
+        >
+          C
+        </button>
+        <button
+          className="rail-button"
+          type="button"
+          aria-current={view === 'library' ? 'page' : undefined}
+          title="Components"
+          onClick={() => setView('library')}
+        >
           L
         </button>
-        <button className="rail-button" type="button" title="Design">
+        <button
+          className="rail-button"
+          type="button"
+          aria-current={view === 'design' ? 'page' : undefined}
+          title="Design directions"
+          onClick={() => setView('design')}
+        >
           D
         </button>
       </nav>
@@ -328,68 +362,94 @@ export function App() {
           </div>
         ) : null}
 
-        <div className="panes">
-          {agentCollapsed ? null : (
-            <>
-              <div
-                className="agent-pane"
-                style={{ width: agentWidth, flex: `0 0 ${agentWidth}px` }}
-              >
-                <AgentPanel site={site} />
-              </div>
-              <Splitter
-                label="Resize agent column"
-                onResize={(delta) =>
-                  setAgentWidth((width) =>
-                    Math.min(AGENT_MAX, Math.max(AGENT_MIN, width + delta)),
-                  )
-                }
-              />
-            </>
-          )}
-
-          <PreviewStage
-            stageRef={stageRef}
-            site={site}
-            running={preview.running}
-            onOpen={openSite}
-          />
-
-          {inspectorCollapsed ? null : (
-            <>
-              <Splitter
-                label="Resize element panel"
-                onResize={(delta) =>
-                  setInspectorWidth((width) =>
-                    Math.min(
-                      INSPECTOR_MAX,
-                      Math.max(INSPECTOR_MIN, width - delta),
-                    ),
-                  )
-                }
-              />
-              <div
-                className="inspector-pane"
-                style={{
-                  width: inspectorWidth,
-                  flex: `0 0 ${inspectorWidth}px`,
-                }}
-              >
-                <Inspector
-                  selection={selection}
-                  problem={problem}
-                  conflict={conflict}
-                  onApplyText={applyText}
-                  onApplyAttribute={applyAttribute}
-                  onApplyStyle={applyStyle}
-                  onKeepMine={keepMine}
-                  onUseDisk={useDisk}
-                  onDraft={queueDraft}
+        {view === 'library' ? (
+          <div className="panes">
+            <LibraryPanel site={site} onBack={() => setView('build')} />
+          </div>
+        ) : view === 'content' ? (
+          <div className="panes">
+            <ContentPanel site={site} onBack={() => setView('build')} />
+          </div>
+        ) : view === 'design' ? (
+          <div className="panes">
+            <DesignPanel
+              site={site}
+              current={direction}
+              onChosen={(chosen) => {
+                setDirection(chosen);
+                setView('build');
+              }}
+              onBack={() => setView('build')}
+            />
+          </div>
+        ) : (
+          <div className="panes">
+            {agentCollapsed ? null : (
+              <>
+                <div
+                  className="agent-pane"
+                  style={{ width: agentWidth, flex: `0 0 ${agentWidth}px` }}
+                >
+                  <AgentPanel
+                    site={site}
+                    direction={direction}
+                    onOpenDesign={() => setView('design')}
+                  />
+                </div>
+                <Splitter
+                  label="Resize agent column"
+                  onResize={(delta) =>
+                    setAgentWidth((width) =>
+                      Math.min(AGENT_MAX, Math.max(AGENT_MIN, width + delta)),
+                    )
+                  }
                 />
-              </div>
-            </>
-          )}
-        </div>
+              </>
+            )}
+
+            <PreviewStage
+              stageRef={stageRef}
+              site={site}
+              running={preview.running}
+              onOpen={openSite}
+            />
+
+            {inspectorCollapsed ? null : (
+              <>
+                <Splitter
+                  label="Resize element panel"
+                  onResize={(delta) =>
+                    setInspectorWidth((width) =>
+                      Math.min(
+                        INSPECTOR_MAX,
+                        Math.max(INSPECTOR_MIN, width - delta),
+                      ),
+                    )
+                  }
+                />
+                <div
+                  className="inspector-pane"
+                  style={{
+                    width: inspectorWidth,
+                    flex: `0 0 ${inspectorWidth}px`,
+                  }}
+                >
+                  <Inspector
+                    selection={selection}
+                    problem={problem}
+                    conflict={conflict}
+                    onApplyText={applyText}
+                    onApplyAttribute={applyAttribute}
+                    onApplyStyle={applyStyle}
+                    onKeepMine={keepMine}
+                    onUseDisk={useDisk}
+                    onDraft={queueDraft}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         <div
           className="topbar"

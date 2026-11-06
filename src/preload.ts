@@ -7,6 +7,8 @@ const EVENTS = [
   'cauldron:selection',
   'cauldron:preview-height',
   'cauldron:drafts',
+  'cauldron:agent-event',
+  'cauldron:agent-done',
 ] as const;
 
 type EventName = (typeof EVENTS)[number];
@@ -41,9 +43,34 @@ const api = {
   finishRun: (id: string) => ipcRenderer.invoke('cauldron:run-finish', id),
   undoRun: (id: string) => ipcRenderer.invoke('cauldron:run-undo', id),
   runs: () => ipcRenderer.invoke('cauldron:runs'),
-  highlight: (id: string, on: boolean) => ipcRenderer.invoke('cauldron:highlight', id, on),
-  runAction: (request: unknown) => ipcRenderer.invoke('cauldron:run-action', request),
+  highlight: (id: string, on: boolean) =>
+    ipcRenderer.invoke('cauldron:highlight', id, on),
+  runAction: (request: unknown) =>
+    ipcRenderer.invoke('cauldron:run-action', request),
   actionCatalogue: () => ipcRenderer.invoke('cauldron:action-catalogue'),
+
+  directions: () => ipcRenderer.invoke('cauldron:directions'),
+  direction: () => ipcRenderer.invoke('cauldron:direction'),
+  setDirection: (id: string) =>
+    ipcRenderer.invoke('cauldron:set-direction', id),
+  agentSend: (payload: { tool: string; request: string }) =>
+    ipcRenderer.invoke('cauldron:agent-send', payload),
+  agentCancel: () => ipcRenderer.invoke('cauldron:agent-cancel'),
+  mcpInfo: () => ipcRenderer.invoke('cauldron:mcp-info'),
+  collections: () => ipcRenderer.invoke('cauldron:collections'),
+  entry: (file: string) => ipcRenderer.invoke('cauldron:entry', file),
+  saveEntry: (payload: {
+    file: string;
+    baseHash: string;
+    change: Record<string, string>;
+  }) => ipcRenderer.invoke('cauldron:save-entry', payload),
+  library: () => ipcRenderer.invoke('cauldron:library'),
+  addPiece: (payload: {
+    pieceId: string;
+    page: string;
+    mode: 'add' | 'replace';
+    replaceSelector?: string;
+  }) => ipcRenderer.invoke('cauldron:add-piece', payload),
 
   refreshSelection: () => ipcRenderer.invoke('cauldron:refresh-selection'),
   undo: () => ipcRenderer.invoke('cauldron:undo'),

@@ -10,15 +10,43 @@ import { hashOf, isInside, readFile, writeFileAtomic } from './files';
  * refused with a reason rather than applied.
  */
 
-export type Target = { file: string; line: number; column: number; name: string };
+export type Target = {
+  file: string;
+  line: number;
+  column: number;
+  name: string;
+};
 
 export type ActionRequest =
   | { action: 'listPages' }
   | { action: 'readPageOutline'; page: string }
-  | { action: 'editElementText'; target: Target; value: string; baseHash: string }
-  | { action: 'editElementAttribute'; target: Target; name: string; value: string | null; baseHash: string }
-  | { action: 'editElementStyle'; target: Target; properties: Record<string, string>; baseHash: string }
-  | { action: 'editCssRule'; file: string; selector: string; property: string; value: string; baseHash: string }
+  | {
+      action: 'editElementText';
+      target: Target;
+      value: string;
+      baseHash: string;
+    }
+  | {
+      action: 'editElementAttribute';
+      target: Target;
+      name: string;
+      value: string | null;
+      baseHash: string;
+    }
+  | {
+      action: 'editElementStyle';
+      target: Target;
+      properties: Record<string, string>;
+      baseHash: string;
+    }
+  | {
+      action: 'editCssRule';
+      file: string;
+      selector: string;
+      property: string;
+      value: string;
+      baseHash: string;
+    }
   | { action: 'createPage'; page: string; title: string };
 
 export type ActionOk = { ok: true; [key: string]: unknown };
@@ -43,10 +71,11 @@ export function listPages(root: string): Array<{ page: string; file: string }> {
       }
       if (!entry.name.endsWith('.astro')) continue;
       const relative = path.relative(pagesDir, full).replace(/\.astro$/, '');
-      const page = `/${relative.replace(/(^|\/)index$/, '$1').replace(/\/$/, '')}/`.replace(
-        /\/+/g,
-        '/',
-      );
+      const page =
+        `/${relative.replace(/(^|\/)index$/, '$1').replace(/\/$/, '')}/`.replace(
+          /\/+/g,
+          '/',
+        );
       found.push({ page, file: path.relative(root, full) });
     }
   };
@@ -65,9 +94,14 @@ export function readPageOutline(root: string, page: string): ActionResult {
   const file = candidates.find((candidate) => fs.existsSync(candidate));
   if (!file) return { ok: false, problem: `No page file for ${page}.` };
   const text = fs.readFileSync(file, 'utf8');
-  const headings = [...text.matchAll(/<(h[1-6])([^>]*)>([\s\S]*?)<\/\1>/gi)].map((match) => ({
+  const headings = [
+    ...text.matchAll(/<(h[1-6])([^>]*)>([\s\S]*?)<\/\1>/gi),
+  ].map((match) => ({
     level: Number(match[1].slice(1)),
-    text: match[3].replace(/<[^>]+>/g, '').trim().slice(0, 120),
+    text: match[3]
+      .replace(/<[^>]+>/g, '')
+      .trim()
+      .slice(0, 120),
   }));
   return {
     ok: true,
@@ -92,8 +126,10 @@ function writeChecked(
   expected: { text?: string; attributes?: Record<string, string> },
 ): ActionResult {
   const full = insideSite(root, file);
-  if (!full) return { ok: false, problem: 'That file is not inside the open site.' };
-  if (!fs.existsSync(full)) return { ok: false, problem: 'That file no longer exists.' };
+  if (!full)
+    return { ok: false, problem: 'That file is not inside the open site.' };
+  if (!fs.existsSync(full))
+    return { ok: false, problem: 'That file no longer exists.' };
 
   const disk = readFile(full);
   if (disk.hash !== baseHash) {
@@ -105,7 +141,11 @@ function writeChecked(
       expected,
     );
     if (!result.ok) {
-      return { ok: false, problem: result.reason, clash: { file, diskText: disk.text } };
+      return {
+        ok: false,
+        problem: result.reason,
+        clash: { file, diskText: disk.text },
+      };
     }
     writeFileAtomic(full, result.text);
     return {
@@ -117,9 +157,18 @@ function writeChecked(
     };
   }
 
-  const result = applyEdit(disk.text, { ...target, file: full }, operation, expected);
+  const result = applyEdit(
+    disk.text,
+    { ...target, file: full },
+    operation,
+    expected,
+  );
   if (!result.ok) {
-    return { ok: false, problem: result.reason, clash: { file, diskText: disk.text } };
+    return {
+      ok: false,
+      problem: result.reason,
+      clash: { file, diskText: disk.text },
+    };
   }
   writeFileAtomic(full, result.text);
   return { ok: true, file, hash: result.hash, text: result.text };
@@ -137,7 +186,8 @@ export function editCssRule(
   baseHash: string,
 ): ActionResult {
   const full = insideSite(root, file);
-  if (!full) return { ok: false, problem: 'That file is not inside the open site.' };
+  if (!full)
+    return { ok: false, problem: 'That file is not inside the open site.' };
   const disk = readFile(full);
   if (disk.hash !== baseHash) {
     return {
@@ -158,9 +208,13 @@ export function editCssRule(
   if (match) {
     const bodyStart = match.index + match[1].length;
     const bodyEnd = text.indexOf('}', bodyStart);
-    if (bodyEnd === -1) return { ok: false, problem: 'That rule is not closed.' };
+    if (bodyEnd === -1)
+      return { ok: false, problem: 'That rule is not closed.' };
     const body = text.slice(bodyStart, bodyEnd);
-    const propertyPattern = new RegExp(`(^|[;{]\\s*)${property}\\s*:[^;]*;`, 'm');
+    const propertyPattern = new RegExp(
+      `(^|[;{]\\s*)${property}\\s*:[^;]*;`,
+      'm',
+    );
     const nextBody = propertyPattern.test(body)
       ? body.replace(propertyPattern, `$1${declaration}`)
       : `${body.trimEnd()}${body.trimEnd().length > 0 ? '\n  ' : '\n  '}${declaration}\n`;
@@ -177,7 +231,10 @@ export function editCssRule(
 }
 
 /** Attributes as they exist in the file right now, for a checked write. */
-function expectedFor(file: string, target: Target): { text?: string; attributes?: Record<string, string> } {
+function expectedFor(
+  file: string,
+  target: Target,
+): { text?: string; attributes?: Record<string, string> } {
   const text = fs.readFileSync(file, 'utf8');
   const tag = findTag(text, { ...target, file });
   if (!tag) return {};
@@ -203,7 +260,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
 
     case 'editElementText': {
       const full = insideSite(root, request.target.file);
-      if (!full) return { ok: false, problem: 'That file is not inside the open site.' };
+      if (!full)
+        return { ok: false, problem: 'That file is not inside the open site.' };
       return writeChecked(
         root,
         request.target.file,
@@ -216,7 +274,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
 
     case 'editElementAttribute': {
       const full = insideSite(root, request.target.file);
-      if (!full) return { ok: false, problem: 'That file is not inside the open site.' };
+      if (!full)
+        return { ok: false, problem: 'That file is not inside the open site.' };
       return writeChecked(
         root,
         request.target.file,
@@ -229,7 +288,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
 
     case 'editElementStyle': {
       const full = insideSite(root, request.target.file);
-      if (!full) return { ok: false, problem: 'That file is not inside the open site.' };
+      if (!full)
+        return { ok: false, problem: 'That file is not inside the open site.' };
       return writeChecked(
         root,
         request.target.file,
@@ -253,11 +313,16 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
     case 'createPage': {
       const clean = request.page.replace(/^\/+/, '').replace(/\.astro$/, '');
       if (!/^[a-z0-9][a-z0-9\-/]*$/.test(clean)) {
-        return { ok: false, problem: 'Page addresses use lowercase letters, numbers and dashes.' };
+        return {
+          ok: false,
+          problem: 'Page addresses use lowercase letters, numbers and dashes.',
+        };
       }
       const file = path.join(root, 'src/pages', `${clean}.astro`);
-      if (!isInside(root, file)) return { ok: false, problem: 'That page would sit outside the site.' };
-      if (fs.existsSync(file)) return { ok: false, problem: 'A page already exists there.' };
+      if (!isInside(root, file))
+        return { ok: false, problem: 'That page would sit outside the site.' };
+      if (fs.existsSync(file))
+        return { ok: false, problem: 'A page already exists there.' };
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const title = request.title.trim() || clean;
       const body = `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`;
@@ -273,9 +338,12 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
 /** The catalogue the agent is given, so it uses the same actions as the interface. */
 export function actionCatalogue(): Array<{ name: string; what: string }> {
   return [
-    { name: 'listPages', what: 'List the site\'s pages and their files.' },
+    { name: 'listPages', what: "List the site's pages and their files." },
     { name: 'readPageOutline', what: 'Read the headings of one page.' },
-    { name: 'editElementText', what: 'Change the text of one element, given its file and position.' },
+    {
+      name: 'editElementText',
+      what: 'Change the text of one element, given its file and position.',
+    },
     { name: 'editElementAttribute', what: 'Change one setting on an element.' },
     { name: 'editElementStyle', what: 'Change inline styles on one element.' },
     { name: 'editCssRule', what: 'Set one declaration inside a CSS rule.' },

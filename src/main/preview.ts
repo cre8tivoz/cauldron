@@ -28,16 +28,23 @@ export class Preview {
     window.contentView.addChildView(this.view);
   }
 
+  /** Only a live view is safe to talk to; a closed window leaves a destroyed one behind. */
   get webContents() {
-    return this.view?.webContents ?? null;
+    const contents = this.view?.webContents;
+    if (!contents || contents.isDestroyed()) return null;
+    return contents;
+  }
+
+  get alive(): boolean {
+    return Boolean(this.webContents);
   }
 
   show(): void {
-    if (this.view) this.view.setVisible(true);
+    this.setVisible(true);
   }
 
   hide(): void {
-    if (this.view) this.view.setVisible(false);
+    this.setVisible(false);
   }
 
   setBounds(next: Rectangle): void {
@@ -55,18 +62,46 @@ export class Preview {
   }
 
   load(url: string): Promise<void> {
-    if (!this.view) return Promise.resolve();
-    return this.view.webContents.loadURL(url).catch(() => undefined);
+    const contents = this.webContents;
+    if (!contents) return Promise.resolve();
+    return contents.loadURL(url).catch(() => undefined);
   }
 
   reload(): void {
-    this.view?.webContents.reload();
+    this.webContents?.reload();
   }
 
-  destroy(): void {
+  setVisible(visible: boolean): void {
     if (!this.view) return;
-    if (this.window) this.window.contentView.removeChildView(this.view);
-    this.view.webContents.close();
+    try {
+      this.view.setVisible(visible);
+    } catch {
+      // The view went away with its window; nothing left to show.
+    }
+  }
+
+  /** Safe to call twice, and after the window has already closed. */
+  destroy(): void {
+    const view = this.view;
     this.view = null;
+    if (!view) return;
+
+    const window = this.window;
+    this.window = null;
+
+    if (window && !window.isDestroyed()) {
+      try {
+        window.contentView.removeChildView(view);
+      } catch {
+        // Already detached by the window closing.
+      }
+    }
+    if (!view.webContents.isDestroyed()) {
+      try {
+        view.webContents.close();
+      } catch {
+        // Nothing left to close.
+      }
+    }
   }
 }

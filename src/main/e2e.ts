@@ -7,6 +7,20 @@ import type { EditOperation, Location } from './edit';
 import type { Draft } from './recovery';
 
 type Api = {
+  addPiece?: (payload: {
+    pieceId: string;
+    page: string;
+    mode: 'add' | 'replace';
+    replaceSelector?: string;
+  }) => { ok: boolean; problem?: string; page?: string };
+  collections?: () => CauldronCollections;
+  entry?: (file: string) => Record<string, unknown> | { problem: string };
+  saveEntry?: (payload: {
+    file: string;
+    baseHash: string;
+    change: Record<string, string>;
+  }) => { ok: boolean; problem?: string; hash?: string };
+
   openSiteAt: (root: string) => Promise<unknown>;
   startPreview: () => Promise<unknown>;
   previewLoad: (url: string) => Promise<void>;
@@ -26,10 +40,34 @@ type Api = {
   undo: () => unknown;
   createPage: (page: { path: string; title: string }) => Promise<unknown>;
   runAction: (request: unknown) => { ok: boolean; [key: string]: unknown };
-  startRun: (payload: { tool: string; prompt: string }) => { ok: boolean; run?: { id: string } };
-  finishRun: (id: string) => Promise<{ ok: boolean; run?: { files: string[]; highlighted: unknown[] } }>;
-  undoRun: (id: string) => { ok: boolean; problem?: string; clashes?: string[] };
+  startRun: (payload: { tool: string; prompt: string }) => {
+    ok: boolean;
+    run?: { id: string };
+  };
+  finishRun: (
+    id: string,
+  ) => Promise<{
+    ok: boolean;
+    run?: { files: string[]; highlighted: unknown[] };
+  }>;
+  undoRun: (id: string) => {
+    ok: boolean;
+    problem?: string;
+    clashes?: string[];
+  };
   saveDraft: (drafts: Draft[]) => void;
+  setDirection?: (id: string) => { ok: boolean; problem?: string };
+  sendAgent?: (payload: {
+    tool: 'claude' | 'codex' | 'hermes';
+    request: string;
+  }) => {
+    ok: boolean;
+    runId?: string;
+    problem?: string;
+  };
+  waitForAgent?: (timeout: number) => Promise<{ ok: boolean; note?: string }>;
+  buildPromptText?: (request: string) => string;
+  mcpInfo?: () => Promise<{ url: string; code: string } | null>;
   restoreDraft: (draft: Draft) => { ok: boolean; problem?: string };
   status: (message: string) => void;
   site: () => Site | null;
@@ -80,6 +118,256 @@ async function waitFor(
     await wait(400);
   }
   return false;
+}
+
+export type AgentTestApi = {
+  openSiteAt: (root: string) => Promise<unknown>;
+  setDirection: (id: string) => { ok: boolean; problem?: string };
+  sendAgent: (payload: {
+    tool: 'claude' | 'codex' | 'hermes';
+    request: string;
+  }) => {
+    ok: boolean;
+    runId?: string;
+    problem?: string;
+  };
+  waitForAgent: (timeout: number) => Promise<{ ok: boolean; note?: string }>;
+  runs: () => Array<{
+    id: string;
+    tool: string;
+    status: string;
+    files: string[];
+  }>;
+  buildPromptText: (request: string) => string;
+  mcpInfo?: () => Promise<{ url: string; code: string } | null>;
+};
+
+type CauldronCollections = Array<{
+  name: string;
+  fields: Array<{ name: string; type: string }>;
+  entries: Array<{ id: string; file: string; hash: string }>;
+}>;
+
+/** 4.3: every starter piece drops into a real site, builds, and ships no JavaScript. */
+export async function runLibraryTest(root: string, api: Api): Promise<void> {
+  try {
+    await api.openSiteAt(root);
+    const { execFileSync } = await import('node:child_process');
+    const pages = api.runAction({ action: 'listPages' }) as {
+      pages?: Array<{ page: string }>;
+    };
+    const page = pages.pages?.[0]?.page ?? '/';
+    const pieces = [
+      'editorial-intro',
+      'newsletter-footer',
+      'glow-action',
+      'heading-reveal',
+      'woven-cloth',
+    ];
+
+    let allAdded = true;
+    for (const piece of pieces) {
+      const added = api.addPiece?.({ pieceId: piece, page, mode: 'add' });
+      if (!added?.ok) {
+        allAdded = false;
+        check(
+          `4.3 ${piece} adds to the page`,
+          false,
+          added?.problem ?? 'no result',
+        );
+      }
+    }
+    check('4.3 all five pieces copy into the site', allAdded);
+
+    check(
+      '4.3 pieces are plain Astro with no client JavaScript',
+      !fs
+        .readFileSync(path.join(root, 'src/pages/index.astro'), 'utf8')
+        .includes('client:'),
+    );
+
+    try {
+      execFileSync('npm', ['run', 'build'], {
+        cwd: root,
+        stdio: 'pipe',
+        timeout: 300000,
+      });
+      check('4.3 the site still builds with every piece in it', true);
+    } catch (error) {
+      check(
+        '4.3 the site still builds with every piece in it',
+        false,
+        String(error).slice(0, 200),
+      );
+    }
+
+    const built = fs.existsSync(path.join(root, 'dist'))
+      ? fs.readdirSync(path.join(root, 'dist'), { recursive: true }).length
+      : 0;
+    check('4.3 a real build was produced', built > 0, `${built} files in dist`);
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('LIBRARY TEST ERROR', error);
+  } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** 3.4: content forms come from the site's own definitions, and a stale form is refused. */
+export async function runContentTest(root: string, api: Api): Promise<void> {
+  try {
+    await api.openSiteAt(root);
+    const collections = api.collections?.() ?? [];
+    check(
+      "3.4 the site's content definitions are read",
+      collections.length > 0,
+      `${collections.length} collections`,
+    );
+
+    const collection = collections.find((item) => item.entries.length > 0);
+    check(
+      '3.4 entries are listed',
+      Boolean(collection),
+      collection?.name ?? 'none',
+    );
+    if (!collection) return;
+
+    const first = collection.entries[0];
+    const opened = api.entry?.(first.file) as
+      | { hash: string; values: Record<string, string> }
+      | { problem: string };
+    check(
+      '3.4 an entry opens as a form',
+      'hash' in opened,
+      'problem' in opened ? opened.problem : '',
+    );
+
+    if (!('hash' in opened)) return;
+    const field = collection.fields[0]?.name ?? 'title';
+    const marker = `Cauldron content ${Date.now()}`;
+    const saved = api.saveEntry?.({
+      file: first.file,
+      baseHash: opened.hash,
+      change: { field, value: marker },
+    });
+    check(
+      '3.4 one field saves into the entry',
+      Boolean(saved?.ok),
+      saved?.problem ?? '',
+    );
+
+    const after = api.entry?.(first.file) as {
+      hash: string;
+      values: Record<string, string>;
+    };
+    check(
+      '3.4 the saved value is in the file',
+      after.values[field] === marker,
+      after.values[field] ?? '',
+    );
+
+    const stale = api.saveEntry?.({
+      file: first.file,
+      baseHash: opened.hash,
+      change: { field, value: 'should not land' },
+    });
+    check(
+      '3.4 an out-of-date form is refused, not overwritten',
+      stale?.ok === false,
+      stale?.problem ?? '',
+    );
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('CONTENT TEST ERROR', error);
+  } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** A real agent job, end to end, with the taste rules and direction in its brief. */
+export async function runAgentTest(
+  root: string,
+  api: AgentTestApi,
+): Promise<void> {
+  try {
+    await api.openSiteAt(root);
+    const chosen = api.setDirection('long-lunch');
+    check('4.2 a design direction is saved into the site', chosen.ok);
+    const designFile = path.join(root, 'cauldron/DESIGN.md');
+    check(
+      '4.2 the site owns its design document and tokens',
+      fs.existsSync(designFile) &&
+        fs.existsSync(path.join(root, 'cauldron/tokens.css')),
+    );
+
+    const prompt = api.buildPromptText('Change the home page heading.');
+    check(
+      '4.1 the agent brief carries the taste rules',
+      prompt.includes('Taste rules'),
+    );
+    check(
+      '4.2 the agent brief carries the direction and its tokens',
+      prompt.includes('Long Lunch') && prompt.includes('var(--c-'),
+    );
+
+    const tool = (process.env.CAULDRON_AGENT_TOOL ?? 'claude') as
+      | 'claude'
+      | 'codex'
+      | 'hermes';
+    const marker = `Cauldron agent test ${Date.now()}`;
+    const started = api.sendAgent({
+      tool,
+      request: `On the home page only, change the main h1 heading text to exactly "${marker}". Change nothing else.`,
+    });
+    check(
+      `3.2 ${tool} is started by Cauldron`,
+      started.ok,
+      started.problem ?? '',
+    );
+
+    const finished = await api.waitForAgent(240000);
+    check(
+      '3.2 the agent job finishes and reports back',
+      finished.ok,
+      finished.note ?? '',
+    );
+
+    const [run] = api.runs();
+    check(
+      '2.2 the finished run lists the files it changed',
+      (run?.files.length ?? 0) > 0,
+      run?.files.join(', ') ?? 'none',
+    );
+
+    const page = fs.readFileSync(
+      path.join(root, 'src/pages/index.astro'),
+      'utf8',
+    );
+    check('3.2 the agent really changed the site', page.includes(marker));
+
+    const tokens = fs.readFileSync(
+      path.join(root, 'cauldron/tokens.css'),
+      'utf8',
+    );
+    check(
+      '4.2 direction tokens were written for the agent to use',
+      tokens.includes('--c-primary'),
+    );
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('AGENT TEST ERROR', error);
+  } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
 }
 
 export async function runEndToEnd(root: string, api: Api): Promise<void> {
@@ -186,7 +474,10 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
       ok: boolean;
       pages?: Array<{ page: string }>;
     };
-    check('2.1 the shared actions list pages', listed.ok && (listed.pages?.length ?? 0) > 0);
+    check(
+      '2.1 the shared actions list pages',
+      listed.ok && (listed.pages?.length ?? 0) > 0,
+    );
 
     const activeForAction = api.getSelection();
     if (activeForAction) {
@@ -203,7 +494,10 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
         value: `Action ${Date.now()}`,
         baseHash: 'deliberately-wrong',
       }) as { ok: boolean; merged?: boolean };
-      check('2.1 a write based on an old version still merges when the spot is untouched', stale.ok && stale.merged === true);
+      check(
+        '2.1 a write based on an old version still merges when the spot is untouched',
+        stale.ok && stale.merged === true,
+      );
       void fileText;
       api.undo();
     }
@@ -215,7 +509,10 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
     const beforeRun = fs.readFileSync(fileForRun, 'utf8');
     fs.writeFileSync(
       fileForRun,
-      beforeRun.replace(/<h1([^>]*)>([\s\S]*?)<\/h1>/, '<h1$1>Run changed this</h1>'),
+      beforeRun.replace(
+        /<h1([^>]*)>([\s\S]*?)<\/h1>/,
+        '<h1$1>Run changed this</h1>',
+      ),
       'utf8',
     );
     const finished = await api.finishRun(runId);
@@ -227,16 +524,25 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
     const undoneRun = api.undoRun(runId);
     check(
       '2.2 a whole run is undone in one step',
-      undoneRun.ok && hashOf(fs.readFileSync(fileForRun, 'utf8')) === hashOf(beforeRun),
+      undoneRun.ok &&
+        hashOf(fs.readFileSync(fileForRun, 'utf8')) === hashOf(beforeRun),
       undoneRun.problem ?? '',
     );
 
     const secondRun = api.startRun({ tool: 'e2e', prompt: 'change it again' });
     const secondId = secondRun.run?.id ?? '';
     const baseForClash = fs.readFileSync(fileForRun, 'utf8');
-    fs.writeFileSync(fileForRun, `${baseForClash}\n<!-- run edit -->\n`, 'utf8');
+    fs.writeFileSync(
+      fileForRun,
+      `${baseForClash}\n<!-- run edit -->\n`,
+      'utf8',
+    );
     await api.finishRun(secondId);
-    fs.writeFileSync(fileForRun, `${baseForClash}\n<!-- changed afterwards -->\n`, 'utf8');
+    fs.writeFileSync(
+      fileForRun,
+      `${baseForClash}\n<!-- changed afterwards -->\n`,
+      'utf8',
+    );
     const refusedUndo = api.undoRun(secondId);
     check(
       '2.2 undo refuses when files changed after the run',
@@ -244,6 +550,72 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
       refusedUndo.problem ?? '',
     );
     fs.writeFileSync(fileForRun, baseForClash, 'utf8');
+
+    // 3.3: outside agents connect locally, with a code.
+    const info = await api.mcpInfo?.();
+    if (info) {
+      const call = async (body: unknown, code = info.code) => {
+        const response = await fetch(info.url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-cauldron-code': code,
+          },
+          body: JSON.stringify(body),
+        });
+        return {
+          status: response.status,
+          body: (await response.json()) as Record<string, unknown>,
+        };
+      };
+
+      const hello = await call({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {},
+      });
+      check(
+        '3.3 an outside agent can connect on this computer',
+        hello.status === 200 &&
+          Boolean((hello.body.result as { serverInfo?: unknown })?.serverInfo),
+      );
+
+      const wrong = await call(
+        { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+        'wrong-code',
+      );
+      check('3.3 the wrong access code is refused', wrong.status === 401);
+
+      const list = await call({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/list',
+        params: {},
+      });
+      const tools = (list.body.result as { tools?: unknown[] })?.tools ?? [];
+      check(
+        '3.3 the outside connection offers the same actions',
+        tools.length >= 8,
+        `${tools.length} tools`,
+      );
+
+      const pages = await call({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'list_pages', arguments: {} },
+      });
+      const text =
+        (
+          (pages.body.result as { content?: Array<{ text?: string }> })
+            ?.content ?? []
+        )[0]?.text ?? '';
+      check(
+        '3.3 an outside agent can read the site',
+        text.includes('"ok": true'),
+      );
+    }
 
     // 1.7: a new page shows up without a reload.
     const pageTitle = `Cauldron page ${Date.now()}`;

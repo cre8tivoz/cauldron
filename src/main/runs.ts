@@ -122,7 +122,10 @@ export class Runs {
     run.note = note;
   }
 
-  setHighlighted(id: string, highlighted: Array<{ loc: string; text: string }>): void {
+  setHighlighted(
+    id: string,
+    highlighted: Array<{ loc: string; text: string }>,
+  ): void {
     const run = this.runs.find((item) => item.id === id);
     if (run) run.highlighted = highlighted;
   }
@@ -141,9 +144,14 @@ export class Runs {
     id: string,
   ): { ok: true } | { ok: false; problem: string; clashes: string[] } {
     const run = this.runs.find((item) => item.id === id);
-    if (!run) return { ok: false, problem: 'That run is not known.', clashes: [] };
+    if (!run)
+      return { ok: false, problem: 'That run is not known.', clashes: [] };
     if (run.status === 'running') {
-      return { ok: false, problem: 'That run has not finished yet.', clashes: [] };
+      return {
+        ok: false,
+        problem: 'That run has not finished yet.',
+        clashes: [],
+      };
     }
 
     const clashes: string[] = [];
@@ -182,12 +190,20 @@ export class Runs {
   }
 
   private persist(root: string, run: Run): void {
-    const dir = path.join(app.getPath('userData'), 'runs', hashOf(root).slice(0, 12));
+    const dir = path.join(
+      app.getPath('userData'),
+      'runs',
+      hashOf(root).slice(0, 12),
+    );
     fs.mkdirSync(dir, { recursive: true });
     const { files, ...rest } = run;
     fs.writeFileSync(
       path.join(dir, `${run.id}.json`),
-      JSON.stringify({ ...rest, files: files.map((file) => file.file) }, null, 2),
+      JSON.stringify(
+        { ...rest, files: files.map((file) => file.file) },
+        null,
+        2,
+      ),
       'utf8',
     );
   }

@@ -36,6 +36,57 @@ type CauldronDraft = {
   savedAt: number;
 };
 
+type CauldronDirectionSummary = {
+  id: string;
+  name: string;
+  forWhom: string;
+  learnedFrom: string;
+  colours: Record<string, string>;
+  fonts: { display: string; body: string };
+  character: string;
+  watch: string;
+};
+
+type CauldronAgentEvent =
+  | { type: 'session' }
+  | { type: 'text'; text: string }
+  | { type: 'tool'; name: string }
+  | { type: 'status'; text: string }
+  | { type: 'done'; text: string }
+  | { type: 'error'; text: string };
+
+type CauldronPiece = {
+  id: string;
+  name: string;
+  category: 'intro' | 'footer' | 'button' | 'heading' | 'background';
+  description: string;
+  licence: string;
+  source: string;
+  needsScript: boolean;
+  codeAllowed: boolean;
+  previewHtml: string;
+};
+
+type CauldronCollection = {
+  name: string;
+  schemaHash: string;
+  fields: Array<{
+    name: string;
+    type: 'text' | 'number' | 'boolean' | 'date' | 'list' | 'unknown';
+    options?: string[];
+    optional: boolean;
+  }>;
+  entries: Array<{ id: string; file: string; hash: string }>;
+};
+
+type CauldronEntry = {
+  file: string;
+  hash: string;
+  values: Record<string, string>;
+  text: string;
+  frontmatter: boolean;
+};
+
 type CauldronRun = {
   id: string;
   tool: string;
@@ -86,17 +137,54 @@ type CauldronApi = {
   applyAttribute: (name: string, value: string | null) => Promise<WriteOutcome>;
   applyStyle: (properties: Record<string, string>) => Promise<WriteOutcome>;
   forceWrite: (operation: unknown) => Promise<WriteOutcome>;
-  startRun: (
-    payload: { tool: string; prompt: string },
+  startRun: (payload: {
+    tool: string;
+    prompt: string;
+  }) => Promise<{ ok: boolean; run?: CauldronRun; problem?: string }>;
+  finishRun: (
+    id: string,
   ) => Promise<{ ok: boolean; run?: CauldronRun; problem?: string }>;
-  finishRun: (id: string) => Promise<{ ok: boolean; run?: CauldronRun; problem?: string }>;
   undoRun: (
     id: string,
   ) => Promise<{ ok: boolean; problem?: string; clashes?: string[] }>;
   runs: () => Promise<CauldronRun[]>;
   highlight: (id: string, on: boolean) => Promise<boolean>;
-  runAction: (request: unknown) => Promise<{ ok: boolean; [key: string]: unknown }>;
+  runAction: (
+    request: unknown,
+  ) => Promise<{ ok: boolean; [key: string]: unknown }>;
   actionCatalogue: () => Promise<Array<{ name: string; what: string }>>;
+
+  directions: () => Promise<CauldronDirectionSummary[]>;
+  direction: () => Promise<CauldronDirectionSummary | null>;
+  setDirection: (id: string) => Promise<{ ok: boolean; problem?: string }>;
+  agentSend: (payload: {
+    tool: string;
+    request: string;
+  }) => Promise<{ ok: boolean; runId?: string; problem?: string }>;
+  agentCancel: () => Promise<boolean>;
+  mcpInfo: () => Promise<{ url: string; code: string } | null>;
+  collections: () => Promise<{ collections: CauldronCollection[] }>;
+  entry: (file: string) => Promise<CauldronEntry | { problem: string }>;
+  saveEntry: (payload: {
+    file: string;
+    baseHash: string;
+    change: Record<string, string>;
+  }) => Promise<{ ok: boolean; problem?: string; hash?: string }>;
+  library: () => Promise<{
+    pieces: CauldronPiece[];
+    links: Array<{ name: string; url: string; why: string }>;
+  }>;
+  addPiece: (payload: {
+    pieceId: string;
+    page: string;
+    mode: 'add' | 'replace';
+    replaceSelector?: string;
+  }) => Promise<{
+    ok: boolean;
+    problem?: string;
+    page?: string;
+    runId?: string;
+  }>;
 
   refreshSelection: () => Promise<CauldronSelection | null>;
   undo: () => Promise<{ ok: boolean; problem?: string }>;
