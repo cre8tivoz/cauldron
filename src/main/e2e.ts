@@ -601,10 +601,13 @@ export async function runAgentTest(
     );
 
     const [run] = api.runs();
+    const runFiles = (run?.files ?? [])
+      .map((file) => (typeof file === 'string' ? file : file.file))
+      .join(', ');
     check(
       '2.2 the finished run lists the files it changed',
       (run?.files.length ?? 0) > 0,
-      run?.files.join(', ') ?? 'none',
+      runFiles || 'none',
     );
 
     const page = fs.readFileSync(
@@ -619,7 +622,8 @@ export async function runAgentTest(
     );
     check(
       '4.2 direction tokens were written for the agent to use',
-      tokens.includes('--c-primary'),
+      tokens.includes('--cauldron-c-primary') &&
+        !tokens.includes('--c-primary:'),
     );
 
     console.log(
