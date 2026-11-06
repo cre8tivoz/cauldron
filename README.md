@@ -6,7 +6,7 @@ A free, open-source desktop app for designing and building real Astro websites, 
 
 ## Run it
 
-Requires Node.js 22 or newer.
+Requires Node.js 26.13 (see `.nvmrc`) and npm 12.
 
 ```bash
 npm install

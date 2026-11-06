@@ -5,11 +5,7 @@
   --text: #1c1c1f;
   --muted: #55555c;
   --accent: #a13f33;
-  font-family:
-    'Source Sans 3',
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: 'Source Sans 3', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
