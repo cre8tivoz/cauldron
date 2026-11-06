@@ -990,6 +990,40 @@ function createWindow(): BrowserWindow {
 
 function harnessApi() {
   return {
+    mcpInfo: async () =>
+      state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
+    addPiece: (payload: {
+      pieceId: string;
+      page: string;
+      mode: 'add' | 'replace';
+      replaceSelector?: string;
+    }) => {
+      if (!state.site) return { ok: false, problem: 'No site.' };
+      const run = state.runs.start(
+        state.site.root,
+        'library',
+        `Add ${payload.pieceId}`,
+      );
+      const result = addPiece(state.site.root, payload);
+      state.runs.finish(state.site.root, run.id);
+      return result;
+    },
+    collections: () => (state.site ? readCollections(state.site.root) : []),
+    entry: (file: string) =>
+      state.site ? readEntry(state.site.root, file) : { problem: 'No site.' },
+    saveEntry: (payload: {
+      file: string;
+      baseHash: string;
+      change: Record<string, string>;
+    }) =>
+      state.site
+        ? saveEntry(
+            state.site.root,
+            payload.file,
+            payload.baseHash,
+            payload.change,
+          )
+        : { ok: false, problem: 'No site.' },
     openSiteAt,
     startPreview,
     previewLoad: (url: string) => state.preview.load(url),

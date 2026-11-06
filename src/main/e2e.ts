@@ -44,9 +44,7 @@ type Api = {
     ok: boolean;
     run?: { id: string };
   };
-  finishRun: (
-    id: string,
-  ) => Promise<{
+  finishRun: (id: string) => Promise<{
     ok: boolean;
     run?: { files: string[]; highlighted: unknown[] };
   }>;
