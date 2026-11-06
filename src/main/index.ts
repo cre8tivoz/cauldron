@@ -1231,9 +1231,9 @@ export function start(): void {
         app.exit(1);
       }, 15000);
       state.window?.webContents.on('did-finish-load', async () => {
-        const text: string = await state.window!.webContents.executeJavaScript(
-          "document.querySelector('#root')?.textContent ?? ''",
-        );
+        const rendered = (await state.window!.webContents.executeJavaScript(
+          "({ hasApp: Boolean(document.querySelector('#root .app')), hasRail: Boolean(document.querySelector('.rail')), text: (document.querySelector('#root')?.textContent ?? '').trim().length })",
+        )) as { hasApp: boolean; hasRail: boolean; text: number };
         clearTimeout(fail);
         const shot = process.env.CAULDRON_SHOT;
         if (shot) {
@@ -1242,7 +1242,7 @@ export function start(): void {
           fs.writeFileSync(shot, image.toPNG());
           console.log(`SMOKE SHOT: ${shot}`);
         }
-        if (text.includes('Cauldron')) {
+        if (rendered.hasApp && rendered.hasRail && rendered.text > 0) {
           console.log('SMOKE PASS: window created and interface rendered');
           app.exit(0);
         } else {
