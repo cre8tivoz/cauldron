@@ -330,6 +330,23 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
       (report?.measured?.length ?? 0) > 0,
       `${report?.measured?.length ?? 0} measurements`,
     );
+    const antiPatterns = [
+      'No pure black',
+      'No cards inside cards',
+      'No tired blue-purple gradients',
+    ];
+    check(
+      '4.1 the taste anti-patterns are checked automatically',
+      antiPatterns.every((label) =>
+        findings.some((finding) => finding.label === label),
+      ),
+      antiPatterns
+        .map((label) => {
+          const found = findings.find((finding) => finding.label === label);
+          return `${label}: ${found?.status ?? 'missing'}`;
+        })
+        .join(' · '),
+    );
     const axe = findings.find((finding) => finding.label.includes('axe'));
     check(
       '4.4 axe-core runs against WCAG 2.1 AA',

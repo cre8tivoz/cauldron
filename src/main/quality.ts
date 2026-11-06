@@ -248,6 +248,40 @@ const PAGE_PROBE = `(async () => {
     : 0;
   result.hierarchy = { headingSizes, bodySize };
 
+  // The taste anti-patterns, checked rather than assumed
+  const all = [...document.querySelectorAll('body *')].filter(visible);
+  result.pureBlack = all.filter((el) => {
+    const background = getComputedStyle(el).backgroundColor;
+    return background === 'rgb(0, 0, 0)' || getComputedStyle(el).color === 'rgb(0, 0, 0)';
+  }).length;
+
+  const cardLike = (el) => {
+    const style = getComputedStyle(el);
+    const radius = Number.parseFloat(style.borderTopLeftRadius) || 0;
+    const background = style.backgroundColor;
+    const hasBackground = background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent';
+    const hasBorder = Number.parseFloat(style.borderTopWidth) > 0;
+    return (hasBackground || hasBorder) && radius > 0;
+  };
+  result.cardsInCards = all.filter((el) => cardLike(el) && el.parentElement && cardLike(el.parentElement)).length;
+
+  const gradientTrouble = [];
+  for (const el of all.slice(0, 300)) {
+    const image = getComputedStyle(el).backgroundImage;
+    if (!image || !image.includes('gradient')) continue;
+    const stops = [...image.matchAll(/rgba?(([^)]+))/g)].map((m) => m[1].split(',').map(Number));
+    const blue = stops.filter(([, , b]) => b > 120);
+    const reddish = stops.filter(([r, , b]) => r > 90 && b > 90);
+    if (blue.length >= 2 && reddish.length >= 1) {
+      const hues = stops.map(([r, g, b]) => ({ r, g, b }));
+      const purple = hues.filter(({ r, g, b }) => b > 110 && r > 60 && r < 150 && g < 110);
+      if (purple.length >= 1) {
+        gradientTrouble.push(el.tagName.toLowerCase());
+      }
+    }
+  }
+  result.bluePurpleGradients = gradientTrouble.length;
+
   // Links
   result.links = [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')).filter(Boolean);
 
@@ -499,6 +533,42 @@ export async function checkSite(options: {
                         `${item.where} ${item.ratio}:1 (needs ${item.required}:1)`,
                     )
                     .join('; '),
+            page,
+          });
+
+          const pureBlack = data.pureBlack as number;
+          findings.push({
+            id: `black-${page}`,
+            label: 'No pure black',
+            status: pureBlack === 0 ? 'pass' : 'fail',
+            detail:
+              pureBlack === 0
+                ? 'No #000000 text or background.'
+                : `${pureBlack} element(s) use pure black.`,
+            page,
+          });
+
+          const cardsInCards = data.cardsInCards as number;
+          findings.push({
+            id: `cards-${page}`,
+            label: 'No cards inside cards',
+            status: cardsInCards === 0 ? 'pass' : 'fail',
+            detail:
+              cardsInCards === 0
+                ? 'No bordered or filled panel sits inside another.'
+                : `${cardsInCards} element(s) are a panel inside a panel.`,
+            page,
+          });
+
+          const gradientTrouble = data.bluePurpleGradients as number;
+          findings.push({
+            id: `gradient-${page}`,
+            label: 'No tired blue-purple gradients',
+            status: gradientTrouble === 0 ? 'pass' : 'fail',
+            detail:
+              gradientTrouble === 0
+                ? 'No blue-purple gradients.'
+                : `${gradientTrouble} gradient(s) run blue into purple.`,
             page,
           });
 
