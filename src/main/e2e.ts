@@ -602,7 +602,12 @@ export async function runAgentTest(
 
     const [run] = api.runs();
     const runFiles = (run?.files ?? [])
-      .map((file) => (typeof file === 'string' ? file : file.file))
+      .map((file) => {
+        const entry = file as unknown;
+        return typeof entry === 'string'
+          ? entry
+          : ((entry as { file?: string }).file ?? '');
+      })
       .join(', ');
     check(
       '2.2 the finished run lists the files it changed',
