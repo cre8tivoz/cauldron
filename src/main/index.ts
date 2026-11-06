@@ -1093,8 +1093,6 @@ function harnessApi() {
         },
       };
     },
-    mcpInfo: async () =>
-      state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
     setDirection: (id: string) => setDirectionTo(id),
     sendAgent: (payload: { tool: AgentTool; request: string }) =>
       sendAgent(payload),
