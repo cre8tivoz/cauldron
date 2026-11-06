@@ -220,6 +220,34 @@ const PAGE_PROBE = `(async () => {
   }
   result.focusWithoutIndicator = noIndicator;
 
+  // Spacing rhythm and hierarchy, for the taste checks
+  const spacingValues = new Set();
+  for (const el of [...document.querySelectorAll('body *')].slice(0, 400)) {
+    if (!visible(el)) continue;
+    const style = getComputedStyle(el);
+    for (const value of [
+      style.marginTop, style.marginBottom, style.marginLeft, style.marginRight,
+      style.paddingTop, style.paddingBottom, style.paddingLeft, style.paddingRight,
+      style.rowGap, style.columnGap,
+    ]) {
+      const number = Math.round(Number.parseFloat(value));
+      if (number > 0) spacingValues.add(number);
+    }
+  }
+  result.spacing = [...spacingValues].sort((a, b) => a - b);
+
+  const headingSizes = {};
+  for (const heading of headings) {
+    const size = Math.round(Number.parseFloat(getComputedStyle(heading).fontSize) * 10) / 10;
+    const key = 'h' + heading.tagName[1];
+    headingSizes[key] = Math.max(headingSizes[key] ?? 0, size);
+  }
+  const paragraphs = [...document.querySelectorAll('p')].filter(visible);
+  const bodySize = paragraphs.length
+    ? Math.max(...paragraphs.map((p) => Number.parseFloat(getComputedStyle(p).fontSize)))
+    : 0;
+  result.hierarchy = { headingSizes, bodySize };
+
   // Links
   result.links = [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')).filter(Boolean);
 
@@ -252,9 +280,18 @@ function axeSource(): string | null {
   return null;
 }
 
-type AxeViolation = { id: string; impact: string; help: string; nodes: number };
+type AxeViolation = {
+  id: string;
+  impact: string;
+  help: string;
+  nodes: number;
+  where: string[];
+};
 
-async function runAxe(window: BrowserWindow): Promise<AxeViolation[] | null> {
+export async function runAxe(
+  window: BrowserWindow,
+  context = 'document',
+): Promise<AxeViolation[] | null> {
   const source = axeSource();
   if (!source) return null;
   try {
@@ -262,12 +299,32 @@ async function runAxe(window: BrowserWindow): Promise<AxeViolation[] | null> {
       `${source}\n;Boolean(window.axe)`,
     );
     return (await window.webContents.executeJavaScript(
-      `window.axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
-        .then((report) => report.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.length })))`,
+      `window.axe.run(${context}, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
+        .then((report) => report.violations.map((v) => ({
+          id: v.id,
+          impact: v.impact,
+          help: v.help,
+          nodes: v.nodes.length,
+          where: v.nodes.slice(0, 6).map((n) => n.target.join(' ') + ' — ' + (n.any[0]?.message ?? '')),
+        })))`,
     )) as AxeViolation[];
   } catch {
     return null;
   }
+}
+
+/** Loads a page in a headless window, for tests that need to look at the built site. */
+export function inspectionWindow(): BrowserWindow {
+  return new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
 }
 
 async function probe(
@@ -444,6 +501,53 @@ export async function checkSite(options: {
                     .join('; '),
             page,
           });
+
+          if (options.direction) {
+            const spacing = new Set(
+              options.direction.spacing.map((step) => Math.round(step)),
+            );
+            const used = data.spacing as number[];
+            const offRhythm = used.filter(
+              (value) =>
+                ![...spacing].some((token) => Math.abs(token - value) <= 1),
+            );
+            findings.push({
+              id: `spacing-${page}`,
+              label: 'Spacing follows the direction',
+              status: offRhythm.length === 0 ? 'pass' : 'fail',
+              detail:
+                offRhythm.length === 0
+                  ? `Every one of ${used.length} spacing values is on the scale.`
+                  : `Off the rhythm: ${offRhythm.slice(0, 8).join('px, ')}px`,
+              page,
+            });
+
+            const hierarchy = data.hierarchy as {
+              headingSizes: Record<string, number>;
+              bodySize: number;
+            };
+            const levels = [1, 2, 3, 4, 5, 6]
+              .map((level) => hierarchy.headingSizes[`h${level}`])
+              .filter((size): size is number => typeof size === 'number');
+            const outOfOrder = levels.some(
+              (size, index) => index > 0 && size >= levels[index - 1],
+            );
+            const headingsLargerThanBody =
+              levels.length === 0 ||
+              hierarchy.bodySize === 0 ||
+              levels[levels.length - 1] > hierarchy.bodySize;
+            findings.push({
+              id: `hierarchy-${page}`,
+              label: 'The hierarchy is clear',
+              status: !outOfOrder && headingsLargerThanBody ? 'pass' : 'fail',
+              detail: outOfOrder
+                ? `Headings do not step down in size: ${levels.join('px, ')}px`
+                : headingsLargerThanBody
+                  ? `Headings ${levels.join('/')}px, body ${hierarchy.bodySize}px.`
+                  : `Body text (${hierarchy.bodySize}px) is not smaller than the smallest heading.`,
+              page,
+            });
+          }
 
           const axe = await runAxe(window);
           if (axe) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 type Props = {
+  direction: CauldronDirectionSummary | null;
   selection: CauldronSelection | null;
   problem: string | null;
   conflict: { file: string; reason: string; operation: unknown } | null;
@@ -30,7 +31,62 @@ const STYLE_FIELDS = [
   'display',
 ];
 
+/** Which style properties can use the direction's tokens, and how they map (plan 4.2). */
+const TOKEN_STYLES: Record<
+  string,
+  (
+    direction: CauldronDirectionSummary,
+  ) => Array<{ label: string; value: string }>
+> = {
+  color: (direction) =>
+    Object.entries(direction.colours).map(([name, value]) => ({
+      label: `${name} ${value}`,
+      value: `var(--cauldron-c-${name})`,
+    })),
+  'background-color': (direction) =>
+    Object.entries(direction.colours).map(([name, value]) => ({
+      label: `${name} ${value}`,
+      value: `var(--cauldron-c-${name})`,
+    })),
+  'font-family': (direction) => [
+    {
+      label: `display — ${direction.fonts.display}`,
+      value: 'var(--cauldron-font-display)',
+    },
+    {
+      label: `body — ${direction.fonts.body}`,
+      value: 'var(--cauldron-font-body)',
+    },
+  ],
+  'font-size': (direction) =>
+    direction.typeScale.map((size, index) => ({
+      label: `size-${index + 1} · ${size}px`,
+      value: `var(--cauldron-size-${index + 1})`,
+    })),
+  padding: (direction) =>
+    direction.spacing.map((step, index) => ({
+      label: `space-${index} · ${step}px`,
+      value: `var(--cauldron-space-${index})`,
+    })),
+  margin: (direction) =>
+    direction.spacing.map((step, index) => ({
+      label: `space-${index} · ${step}px`,
+      value: `var(--cauldron-space-${index})`,
+    })),
+  gap: (direction) =>
+    direction.spacing.map((step, index) => ({
+      label: `space-${index} · ${step}px`,
+      value: `var(--cauldron-space-${index})`,
+    })),
+  'border-radius': (direction) =>
+    direction.radii.map((radius, index) => ({
+      label: `radius-${index} · ${radius}px`,
+      value: `var(--cauldron-radius-${index})`,
+    })),
+};
+
 export function Inspector({
+  direction,
   selection,
   problem,
   conflict,
@@ -204,6 +260,34 @@ export function Inspector({
 
         <div className="section">
           <h3>Styles</h3>
+          {direction ? (
+            <div style={{ marginBottom: 8 }}>
+              <p className="hint">
+                From this site's direction — pick one to stay on-brand.
+              </p>
+              {Object.keys(TOKEN_STYLES).map((property) => (
+                <div className="field" key={`token-${property}`}>
+                  <label htmlFor={`token-${property}`}>{property}</label>
+                  <select
+                    id={`token-${property}`}
+                    defaultValue=""
+                    onChange={(event) => {
+                      if (event.target.value !== '')
+                        onApplyStyle({ [property]: event.target.value });
+                      event.target.value = '';
+                    }}
+                  >
+                    <option value="">Choose a token…</option>
+                    {TOKEN_STYLES[property](direction).map((token) => (
+                      <option key={token.value} value={token.value}>
+                        {token.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {styleEntries.length === 0 && extraStyles.length === 0 ? (
             <p className="hint">No inline styles yet. Add one below.</p>
           ) : null}

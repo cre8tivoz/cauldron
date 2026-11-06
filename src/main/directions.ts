@@ -316,16 +316,16 @@ export function findDirection(id: string): DesignDirection | null {
 
 export function tokensCss(direction: DesignDirection): string {
   const colours = Object.entries(direction.colours)
-    .map(([name, value]) => `  --c-${name}: ${value};`)
+    .map(([name, value]) => `  --cauldron-c-${name}: ${value};`)
     .join('\n');
   const sizes = direction.typeScale
-    .map((size, index) => `  --size-${index + 1}: ${size / 16}rem;`)
+    .map((size, index) => `  --cauldron-size-${index + 1}: ${size / 16}rem;`)
     .join('\n');
   const spacing = direction.spacing
-    .map((step, index) => `  --space-${index}: ${step / 16}rem;`)
+    .map((step, index) => `  --cauldron-space-${index}: ${step / 16}rem;`)
     .join('\n');
   const radii = direction.radii
-    .map((radius, index) => `  --radius-${index}: ${radius}px;`)
+    .map((radius, index) => `  --cauldron-radius-${index}: ${radius}px;`)
     .join('\n');
 
   return `/* ${direction.name} — chosen in Cauldron. The site owns this file. */
@@ -334,11 +334,11 @@ ${colours}
 ${sizes}
 ${spacing}
 ${radii}
-  --font-display: '${direction.fonts.display.family}', Georgia, serif;
-  --font-body: '${direction.fonts.body.family}', ui-sans-serif, sans-serif;
-  --motion-quick: ${direction.motion.quick};
-  --motion-settle: ${direction.motion.settle};
-  --motion-easing: ${direction.motion.easing};
+  --cauldron-font-display: '${direction.fonts.display.family}', Georgia, serif;
+  --cauldron-font-body: '${direction.fonts.body.family}', ui-sans-serif, sans-serif;
+  --cauldron-motion-quick: ${direction.motion.quick};
+  --cauldron-motion-settle: ${direction.motion.settle};
+  --cauldron-motion-easing: ${direction.motion.easing};
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -397,10 +397,15 @@ Everything stops under \`prefers-reduced-motion: reduce\`.
 
 ${direction.watch}
 
+## Token names
+
+Every token is prefixed \`cauldron-\` so it cannot collide with a variable your site already
+defines (many sites use short names like \`--c-bg\`).
+
 ## How to use this
 
-Read \`cauldron/tokens.css\` and use \`var(--c-…)\`, \`var(--size-…)\`, \`var(--space-…)\` and
-\`var(--radius-…)\` everywhere. Do not hard-code a colour, size or spacing value.
+Read \`cauldron/tokens.css\` and use \`var(--cauldron-c-…)\`, \`var(--cauldron-size-…)\`, \`var(--cauldron-space-…)\` and
+\`var(--cauldron-radius-…)\` everywhere. Do not hard-code a colour, size or spacing value.
 `;
 }
 

@@ -43,6 +43,9 @@ type CauldronDirectionSummary = {
   learnedFrom: string;
   colours: Record<string, string>;
   fonts: { display: string; body: string };
+  typeScale: number[];
+  spacing: number[];
+  radii: number[];
   character: string;
   watch: string;
 };

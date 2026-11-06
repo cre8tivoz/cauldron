@@ -715,6 +715,9 @@ function registerIpc(): void {
       forWhom: direction.forWhom,
       learnedFrom: direction.learnedFrom,
       colours: direction.colours,
+      typeScale: direction.typeScale,
+      spacing: direction.spacing,
+      radii: direction.radii,
       fonts: {
         display: direction.fonts.display.family,
         body: direction.fonts.body.family,

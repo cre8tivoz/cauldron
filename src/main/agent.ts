@@ -50,7 +50,7 @@ Radii (px): ${direction.radii.join(', ')}
 Motion: ${direction.motion.quick} and ${direction.motion.settle}, ${direction.motion.easing}, nothing under prefers-reduced-motion.
 
 The full document is in cauldron/DESIGN.md and the CSS variables are in cauldron/tokens.css.
-Use var(--c-…), var(--size-…), var(--space-…) and var(--radius-…) for every colour, size,
+Use var(--cauldron-c-…), var(--cauldron-size-…), var(--cauldron-space-…) and var(--cauldron-radius-…) for every colour, size,
 spacing and corner. Do not hard-code any of them. Watch out for: ${direction.watch}`
     : 'No design direction has been chosen for this site yet.';
 

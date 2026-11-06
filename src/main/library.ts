@@ -31,6 +31,11 @@ function piece(
   markup: string,
   styles: string,
 ): LibraryPiece {
+  // Scoped site rules like section[data-astro-cid] outrank a single class, so every
+  // selector here carries the class twice and the piece keeps its own colours.
+  const doubled = `.cauldron-${id}.cauldron-${id}`;
+  const strongStyles = styles.split(`.cauldron-${id}`).join(doubled);
+
   const astro = `---
 // ${name} — Cauldron starter set.
 // Look adapted from ThreeUI Community (MIT, Copyright (c) 2026 Meng To).
@@ -45,7 +50,7 @@ ${markup
 </section>
 
 <style>
-${styles}
+${strongStyles}
 </style>
 `;
   return {
@@ -77,55 +82,55 @@ export const LIBRARY: LibraryPiece[] = [
   <a class="action" href="/contact/">Start a conversation</a>
 </div>`,
     `.cauldron-editorial-intro {
-  background: var(--c-bg);
-  color: var(--c-ink);
-  padding: var(--space-8) var(--space-5);
+  background: var(--cauldron-c-bg);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-8) var(--cauldron-space-5);
 }
 .cauldron-editorial-intro .wrap {
   max-width: 62ch;
   margin-inline: auto;
 }
 .cauldron-editorial-intro .label {
-  font-family: var(--font-body);
-  font-size: var(--size-1);
+  font-family: var(--cauldron-font-body);
+  font-size: var(--cauldron-size-1);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--c-muted);
-  margin: 0 0 var(--space-3);
+  color: var(--cauldron-c-muted);
+  margin: 0 0 var(--cauldron-space-3);
 }
 .cauldron-editorial-intro h2 {
-  font-family: var(--font-display);
-  font-size: var(--size-8);
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-8);
   line-height: 1.05;
   letter-spacing: -0.02em;
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--cauldron-space-4);
 }
 .cauldron-editorial-intro .lede {
-  font-family: var(--font-body);
-  font-size: var(--size-4);
+  font-family: var(--cauldron-font-body);
+  font-size: var(--cauldron-size-4);
   line-height: 1.6;
-  color: var(--c-muted);
-  margin: 0 0 var(--space-5);
+  color: var(--cauldron-c-muted);
+  margin: 0 0 var(--cauldron-space-5);
 }
 .cauldron-editorial-intro .action {
-  font-family: var(--font-body);
-  font-size: var(--size-2);
-  color: var(--c-primary);
+  font-family: var(--cauldron-font-body);
+  font-size: var(--cauldron-size-2);
+  color: var(--cauldron-c-primary);
   text-decoration: none;
   border-bottom: 1px solid currentColor;
   padding-bottom: 2px;
-  transition: opacity var(--motion-quick) var(--motion-easing);
+  transition: opacity var(--cauldron-motion-quick) var(--cauldron-motion-easing);
 }
 .cauldron-editorial-intro .action:hover {
   opacity: 0.7;
 }
 .cauldron-editorial-intro .action:focus-visible {
-  outline: 2px solid var(--c-primary);
+  outline: 2px solid var(--cauldron-c-primary);
   outline-offset: 3px;
 }
 @media (max-width: 640px) {
   .cauldron-editorial-intro h2 {
-    font-size: var(--size-6);
+    font-size: var(--cauldron-size-6);
   }
 }`,
   ),
@@ -149,68 +154,68 @@ export const LIBRARY: LibraryPiece[] = [
   </form>
 </div>`,
     `.cauldron-newsletter-footer {
-  background: var(--c-surface);
-  color: var(--c-ink);
-  border-top: 1px solid var(--c-line);
-  padding: var(--space-7) var(--space-5);
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  border-top: 1px solid var(--cauldron-c-line);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
 }
 .cauldron-newsletter-footer .inner {
   max-width: 72ch;
   margin-inline: auto;
   display: grid;
-  gap: var(--space-4);
+  gap: var(--cauldron-space-4);
 }
 .cauldron-newsletter-footer h2 {
-  font-family: var(--font-display);
-  font-size: var(--size-5);
-  margin: 0 0 var(--space-2);
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
 }
 .cauldron-newsletter-footer p {
-  font-family: var(--font-body);
-  color: var(--c-muted);
+  font-family: var(--cauldron-font-body);
+  color: var(--cauldron-c-muted);
   margin: 0;
 }
 .cauldron-newsletter-footer label {
   display: block;
-  font-size: var(--size-1);
-  color: var(--c-muted);
-  margin-bottom: var(--space-2);
+  font-size: var(--cauldron-size-1);
+  color: var(--cauldron-c-muted);
+  margin-bottom: var(--cauldron-space-2);
 }
 .cauldron-newsletter-footer .row {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--cauldron-space-2);
   flex-wrap: wrap;
 }
 .cauldron-newsletter-footer input {
   flex: 1 1 16rem;
   min-width: 0;
   font: inherit;
-  color: var(--c-ink);
-  background: var(--c-bg);
-  border: 1px solid var(--c-line);
-  border-radius: var(--radius-1);
-  padding: var(--space-2) var(--space-3);
+  color: var(--cauldron-c-ink);
+  background: var(--cauldron-c-bg);
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-1);
+  padding: var(--cauldron-space-2) var(--cauldron-space-3);
 }
 .cauldron-newsletter-footer input:focus-visible {
-  outline: 2px solid var(--c-primary);
+  outline: 2px solid var(--cauldron-c-primary);
   outline-offset: 1px;
 }
 .cauldron-newsletter-footer button {
   font: inherit;
   font-weight: 600;
-  color: var(--c-bg);
-  background: var(--c-primary);
-  border: 1px solid var(--c-primary);
-  border-radius: var(--radius-1);
-  padding: var(--space-2) var(--space-4);
+  color: var(--cauldron-c-surface);
+  background: var(--cauldron-c-primary);
+  border: 1px solid var(--cauldron-c-primary);
+  border-radius: var(--cauldron-radius-1);
+  padding: var(--cauldron-space-2) var(--cauldron-space-4);
   cursor: pointer;
-  transition: background var(--motion-quick) var(--motion-easing);
+  transition: background var(--cauldron-motion-quick) var(--cauldron-motion-easing);
 }
 .cauldron-newsletter-footer button:hover {
-  background: var(--c-primary-deep, var(--c-primary));
+  background: var(--cauldron-c-primary-deep, var(--cauldron-c-primary));
 }
 .cauldron-newsletter-footer button:focus-visible {
-  outline: 2px solid var(--c-ink);
+  outline: 2px solid var(--cauldron-c-ink);
   outline-offset: 2px;
 }
 @media (min-width: 720px) {
@@ -230,8 +235,8 @@ export const LIBRARY: LibraryPiece[] = [
   <a class="glow" href="/contact/">Book a chat</a>
 </div>`,
     `.cauldron-glow-action {
-  background: var(--c-bg);
-  padding: var(--space-6) var(--space-5);
+  background: var(--cauldron-c-bg);
+  padding: var(--cauldron-space-6) var(--cauldron-space-5);
   display: grid;
   place-items: center;
 }
@@ -243,7 +248,7 @@ export const LIBRARY: LibraryPiece[] = [
   content: '';
   position: absolute;
   inset: -14% -8%;
-  background: var(--c-primary);
+  background: var(--cauldron-c-primary);
   filter: blur(28px);
   opacity: 0.35;
   border-radius: 999px;
@@ -253,25 +258,25 @@ export const LIBRARY: LibraryPiece[] = [
   position: relative;
   z-index: 1;
   display: inline-block;
-  font-family: var(--font-body);
-  font-size: var(--size-3);
+  font-family: var(--cauldron-font-body);
+  font-size: var(--cauldron-size-3);
   font-weight: 600;
-  color: var(--c-bg);
-  background: var(--c-primary);
-  border: 1px solid var(--c-primary);
+  color: var(--cauldron-c-surface);
+  background: var(--cauldron-c-primary);
+  border: 1px solid var(--cauldron-c-primary);
   border-radius: 999px;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--cauldron-space-3) var(--cauldron-space-5);
   text-decoration: none;
   transition:
-    transform var(--motion-quick) var(--motion-easing),
-    box-shadow var(--motion-quick) var(--motion-easing);
+    transform var(--cauldron-motion-quick) var(--cauldron-motion-easing),
+    box-shadow var(--cauldron-motion-quick) var(--cauldron-motion-easing);
 }
 .cauldron-glow-action .glow:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
 }
 .cauldron-glow-action .glow:focus-visible {
-  outline: 2px solid var(--c-ink);
+  outline: 2px solid var(--cauldron-c-ink);
   outline-offset: 3px;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -291,13 +296,13 @@ export const LIBRARY: LibraryPiece[] = [
   <span style="--i: 1">so it lasts.</span>
 </h2>`,
     `.cauldron-heading-reveal {
-  background: var(--c-bg);
-  color: var(--c-ink);
-  padding: var(--space-7) var(--space-5);
+  background: var(--cauldron-c-bg);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
 }
 .cauldron-heading-reveal .reveal {
-  font-family: var(--font-display);
-  font-size: clamp(var(--size-6), 7vw, var(--size-9));
+  font-family: var(--cauldron-font-display);
+  font-size: clamp(var(--cauldron-size-6), 7vw, var(--cauldron-size-9));
   line-height: 1.02;
   letter-spacing: -0.03em;
   margin: 0;
@@ -306,7 +311,7 @@ export const LIBRARY: LibraryPiece[] = [
 }
 .cauldron-heading-reveal .reveal span {
   display: block;
-  animation: cauldron-rise 700ms var(--motion-easing) both;
+  animation: cauldron-rise 700ms var(--cauldron-motion-easing) both;
   animation-delay: calc(var(--i) * 90ms);
 }
 @keyframes cauldron-rise {
@@ -337,36 +342,36 @@ export const LIBRARY: LibraryPiece[] = [
   <p>Woven from paper and thread.</p>
 </div>`,
     `.cauldron-woven-cloth {
-  padding: var(--space-8) var(--space-5);
-  background: var(--c-bg);
+  padding: var(--cauldron-space-8) var(--cauldron-space-5);
+  background: var(--cauldron-c-bg);
 }
 .cauldron-woven-cloth .cloth {
   min-height: 320px;
   display: grid;
   place-items: center;
-  color: var(--c-ink);
-  border: 1px solid var(--c-line);
-  border-radius: var(--radius-2);
+  color: var(--cauldron-c-ink);
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
   background-image:
     repeating-linear-gradient(
       45deg,
-      color-mix(in srgb, var(--c-ink) 6%, transparent) 0 1px,
+      color-mix(in srgb, var(--cauldron-c-ink) 6%, transparent) 0 1px,
       transparent 1px 7px
     ),
     repeating-linear-gradient(
       -45deg,
-      color-mix(in srgb, var(--c-ink) 4%, transparent) 0 1px,
+      color-mix(in srgb, var(--cauldron-c-ink) 4%, transparent) 0 1px,
       transparent 1px 7px
     ),
     radial-gradient(
       120% 90% at 20% 0%,
-      color-mix(in srgb, var(--c-surface) 70%, transparent),
+      color-mix(in srgb, var(--cauldron-c-surface) 70%, transparent),
       transparent 60%
     );
 }
 .cauldron-woven-cloth p {
-  font-family: var(--font-display);
-  font-size: var(--size-4);
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
   letter-spacing: 0.02em;
   margin: 0;
   opacity: 0.9;
@@ -425,16 +430,16 @@ export function piecePreview(piece_: LibraryPiece): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root {
-    --c-bg: #f8f4e9; --c-surface: #fffdf7; --c-ink: #2a1712; --c-muted: #6b5a52;
-    --c-primary: #b84b30; --c-primary-deep: #5f1d1a; --c-line: #e3d9c8;
-    --font-display: Georgia, serif; --font-body: -apple-system, BlinkMacSystemFont, sans-serif;
-    --size-1: 0.8125rem; --size-2: 0.9375rem; --size-3: 1.0625rem; --size-4: 1.25rem;
-    --size-5: 1.5625rem; --size-6: 1.9375rem; --size-7: 2.4375rem; --size-8: 3.0625rem;
-    --size-9: 3.8125rem;
-    --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
-    --space-5: 1.5rem; --space-6: 2rem; --space-7: 3rem; --space-8: 4rem;
-    --radius-0: 0px; --radius-1: 4px; --radius-2: 10px;
-    --motion-quick: 140ms; --motion-settle: 240ms; --motion-easing: cubic-bezier(0.2,0.7,0.3,1);
+    --cauldron-c-bg: #f8f4e9; --cauldron-c-surface: #fffdf7; --cauldron-c-ink: #2a1712; --cauldron-c-muted: #6b5a52;
+    --cauldron-c-primary: #b84b30; --cauldron-c-primary-deep: #5f1d1a; --cauldron-c-line: #e3d9c8;
+    --cauldron-font-display: Georgia, serif; --cauldron-font-body: -apple-system, BlinkMacSystemFont, sans-serif;
+    --cauldron-size-1: 0.8125rem; --cauldron-size-2: 0.9375rem; --cauldron-size-3: 1.0625rem; --cauldron-size-4: 1.25rem;
+    --cauldron-size-5: 1.5625rem; --cauldron-size-6: 1.9375rem; --cauldron-size-7: 2.4375rem; --cauldron-size-8: 3.0625rem;
+    --cauldron-size-9: 3.8125rem;
+    --cauldron-space-1: 0.25rem; --cauldron-space-2: 0.5rem; --cauldron-space-3: 0.75rem; --cauldron-space-4: 1rem;
+    --cauldron-space-5: 1.5rem; --cauldron-space-6: 2rem; --cauldron-space-7: 3rem; --cauldron-space-8: 4rem;
+    --cauldron-radius-0: 0px; --cauldron-radius-1: 4px; --cauldron-radius-2: 10px;
+    --cauldron-motion-quick: 140ms; --cauldron-motion-settle: 240ms; --cauldron-motion-easing: cubic-bezier(0.2,0.7,0.3,1);
   }
   body { margin: 0; background: #fff; }
   section { max-width: 100%; }
@@ -491,6 +496,20 @@ export function addPiece(
     if (next.startsWith('---\n'))
       next = next.replace(/^---\n/, `---\n${importLine}`);
     else next = `---\n${importLine}---\n${next}`;
+  }
+
+  // The piece is written in the site's direction, so the page has to load the tokens.
+  const tokensFile = path.join(root, 'cauldron/tokens.css');
+  if (fs.existsSync(tokensFile) && !next.includes('cauldron/tokens.css')) {
+    let relative = path
+      .relative(path.dirname(pageFile), tokensFile)
+      .split(path.sep)
+      .join('/');
+    if (!relative.startsWith('.')) relative = `./${relative}`;
+    const tokensImport = `import '${relative}';\n`;
+    if (next.startsWith('---\n'))
+      next = next.replace(/^---\n/, `---\n${tokensImport}`);
+    else next = `---\n${tokensImport}---\n${next}`;
   }
 
   if (options.mode === 'replace' && options.replaceSelector) {

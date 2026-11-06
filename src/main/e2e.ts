@@ -156,6 +156,7 @@ type CauldronCollections = Array<{
 export async function runLibraryTest(root: string, api: Api): Promise<void> {
   try {
     await api.openSiteAt(root);
+    api.setDirection?.('long-lunch');
     const { execFileSync } = await import('node:child_process');
     const pages = api.runAction({ action: 'listPages' }) as {
       pages?: Array<{ page: string }>;
@@ -209,6 +210,68 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
       ? fs.readdirSync(path.join(root, 'dist'), { recursive: true }).length
       : 0;
     check('4.3 a real build was produced', built > 0, `${built} files in dist`);
+
+    // Adopting the direction and passing accessibility, in the built page.
+    const { serveDist, inspectionWindow, runAxe } = await import('./quality');
+    const { findDirection } = await import('./directions');
+    const direction = findDirection('long-lunch');
+    const server = await serveDist(path.join(root, 'dist'));
+    const window = inspectionWindow();
+    try {
+      await window.loadURL(server.url);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const count = (await window.webContents.executeJavaScript(
+        `document.querySelectorAll('section[class^="cauldron-"]').length`,
+      )) as number;
+      check(
+        '4.3 every piece is on the built page',
+        count >= 5,
+        `${count} pieces`,
+      );
+
+      const adopted = (await window.webContents.executeJavaScript(
+        `(() => {
+          const heading = document.querySelector('.cauldron-editorial-intro h2');
+          const glow = document.querySelector('.cauldron-glow-action .glow');
+          if (!heading || !glow) return null;
+          return {
+            font: getComputedStyle(heading).fontFamily,
+            size: getComputedStyle(heading).fontSize,
+            background: getComputedStyle(glow).backgroundColor,
+          };
+        })()`,
+      )) as { font: string; size: string; background: string } | null;
+
+      check(
+        '4.3 the pieces use the site direction tokens',
+        Boolean(adopted) &&
+          adopted!.font
+            .toLowerCase()
+            .includes(direction?.fonts.display.family.toLowerCase() ?? ''),
+        adopted ? `${adopted.font} at ${adopted.size}` : 'nothing found',
+      );
+
+      const violations = await runAxe(
+        window,
+        `[...document.querySelectorAll('section[class^="cauldron-"]')]`,
+      );
+      check(
+        '4.3 the added pieces pass the accessibility checks',
+        violations !== null && violations.length === 0,
+        violations
+          ? violations
+              .map(
+                (violation) =>
+                  `${violation.id}: ${violation.where.join(' | ')}`,
+              )
+              .join('; ') || 'no axe violations'
+          : 'axe did not run',
+      );
+    } finally {
+      if (!window.isDestroyed()) window.destroy();
+      server.close();
+    }
 
     console.log(
       `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
@@ -384,7 +447,7 @@ export async function runAgentTest(
     );
     check(
       '4.2 the agent brief carries the direction and its tokens',
-      prompt.includes('Long Lunch') && prompt.includes('var(--c-'),
+      prompt.includes('Long Lunch') && prompt.includes('var(--cauldron-c-'),
     );
 
     const tool = (process.env.CAULDRON_AGENT_TOOL ?? 'claude') as

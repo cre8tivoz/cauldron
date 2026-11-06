@@ -468,6 +468,7 @@ export function App() {
                   }}
                 >
                   <Inspector
+                    direction={direction}
                     selection={selection}
                     problem={problem}
                     conflict={conflict}
