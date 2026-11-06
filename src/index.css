@@ -1,0 +1,46 @@
+:root {
+  color-scheme: light dark;
+  --canvas: #f3f3f4;
+  --panel: #ffffff;
+  --text: #1c1c1f;
+  --muted: #55555c;
+  --accent: #a13f33;
+  font-family:
+    'Source Sans 3',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0b0b0c;
+    --panel: #111214;
+    --text: #ededee;
+    --muted: #a8a8ae;
+    --accent: #ffa99a;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+
+.shell h1 {
+  margin: 0;
+  font-size: 40px;
+  color: var(--accent);
+}
+
+.shell p {
+  color: var(--muted);
+}
