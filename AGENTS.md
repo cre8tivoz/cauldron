@@ -23,6 +23,19 @@ Before implementation, read the relevant local ticket and its exact plan/accepta
 7. **Current versions only.** Before adding a package, check its latest release. Don't start from something out of date.
 8. **The website preview can never reach the editor.** A site, or a script in one, gets no editing powers (`CAULDRON-ASTRO-PLAN.md` 1.8).
 
+## Approved tickets only
+
+Product development is limited to approved tickets **11–31** in `.scratch/cauldron-v1/issues/`, indexed by `.scratch/cauldron-v1/spec.md`. No other development, features, cleanup, refactoring or speculative improvements are authorised while these tickets remain incomplete. Follow their blocking dependencies, prioritising content corruption and unsafe undo. Publishing the tickets does not lift the existing implementation pause; Billy must explicitly resume development.
+
+For every ticket:
+
+- Work only within its approved scope and acceptance criteria.
+- Record any issues encountered, the action taken and the outcome in that ticket. State explicitly if no issues arose.
+- Record actual verification evidence, including the tested revision and remaining limitations. Passing unrelated checks is not completion.
+- Mark it **done** only when all its acceptance criteria are verified. Failed, blocked or unverified work remains open; human judgement stays with Billy where required.
+
+Record and report unexpected out-of-scope findings without acting on them or expanding a ticket. Completing this ticket set does not authorise unrelated follow-on work.
+
 ## Decisions
 
 Recorded in `docs/adr/`. Read them before proposing anything that contradicts one. Vocabulary is fixed in `GLOSSARY.md`.
