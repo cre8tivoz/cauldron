@@ -1,7 +1,7 @@
 # Cauldron v1 — source pointers and issue index
 
 Status: needs-triage
-Execution: documentation reconciliation only; application development is paused.
+Execution: ticket 11 authorised and done (7 Nov 2026); application development is paused again until Billy decides how to approach the remaining tickets.
 
 ## Authority
 
@@ -35,7 +35,7 @@ Release depends on all applicable acceptance evidence, including the measured re
 
 Billy approved tickets **11–30** and the separate retrospective safeguard **31** through the to-tickets approval form. These child tickets link back to the original findings **00–10**, which remain unchanged. The agreed plan still defines scope; the [review](../../docs/cauldron-code-review.md) establishes faults and missing evidence. Other [retrospective](../../docs/cauldron-retro.md) proposals do not become authorised environment changes merely by being mentioned.
 
-**Application development remains paused.** Readiness labels do not resume implementation. Start with content-file corruption (**11**) and unsafe/incomplete run undo (**12**) when implementation is explicitly resumed. Follow each ticket's actual blocking links; numerical order is not an additional dependency. Ticket **29** requires Billy's blind judgement and is `ready-for-human`; the other approved tickets are `ready-for-agent` subject to their blockers and the implementation pause.
+**Application development remains paused.** Readiness labels do not resume implementation. Start with content-file corruption (**11**) and unsafe/incomplete run undo (**12**) when implementation is explicitly resumed. Follow each ticket's actual blocking links; numerical order is not an additional dependency. Billy authorised ticket **11** on 7 Nov 2026; it is done and development is paused again. Ticket **29** requires Billy's blind judgement and is `ready-for-human`; the other approved tickets are `ready-for-agent` subject to their blockers and the implementation pause.
 
 ### Protect people's work
 

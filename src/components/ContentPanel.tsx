@@ -208,67 +208,87 @@ export function ContentPanel({ site, onBack }: Props) {
                 </>
               ) : (
                 <>
-                  {currentCollection?.fields.map((field) => (
-                    <div className="field" key={field.name}>
-                      <label htmlFor={`content-${field.name}`}>
-                        {field.name}
-                        {field.optional ? ' (optional)' : ''}
-                      </label>
-                      {field.options ? (
-                        <select
-                          id={`content-${field.name}`}
-                          value={values[field.name] ?? ''}
-                          onChange={(event) => {
-                            setValues((current) => ({
-                              ...current,
-                              [field.name]: event.target.value,
-                            }));
-                            keepDraft(field.name, event.target.value);
-                          }}
-                        >
-                          <option value="">—</option>
-                          {field.options.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          id={`content-${field.name}`}
-                          type={
-                            field.type === 'number'
-                              ? 'number'
-                              : field.type === 'date'
-                                ? 'date'
-                                : 'text'
-                          }
-                          value={values[field.name] ?? ''}
-                          onChange={(event) => {
-                            setValues((current) => ({
-                              ...current,
-                              [field.name]: event.target.value,
-                            }));
-                            keepDraft(field.name, event.target.value);
-                          }}
-                        />
-                      )}
-                      <span className="notice-actions">
-                        <button
-                          className="button"
-                          type="button"
-                          onClick={() =>
-                            void save({
-                              field: field.name,
-                              value: values[field.name] ?? '',
-                            })
-                          }
-                        >
-                          Save {field.name}
-                        </button>
-                      </span>
-                    </div>
-                  ))}
+                  {currentCollection?.fields.map((field) => {
+                    const plainTextOnly =
+                      field.type === 'unknown' ||
+                      (field.type === 'list' && !field.options);
+                    return (
+                      <div className="field" key={field.name}>
+                        <label htmlFor={`content-${field.name}`}>
+                          {field.name}
+                          {field.optional ? ' (optional)' : ''}
+                        </label>
+                        {field.options ? (
+                          <select
+                            id={`content-${field.name}`}
+                            value={values[field.name] ?? ''}
+                            onChange={(event) => {
+                              setValues((current) => ({
+                                ...current,
+                                [field.name]: event.target.value,
+                              }));
+                              keepDraft(field.name, event.target.value);
+                            }}
+                          >
+                            <option value="">—</option>
+                            {field.options.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        ) : plainTextOnly ? (
+                          <span className="hint">
+                            This field needs plain-text editing to keep its
+                            structure.
+                          </span>
+                        ) : (
+                          <input
+                            id={`content-${field.name}`}
+                            type={
+                              field.type === 'number'
+                                ? 'number'
+                                : field.type === 'date'
+                                  ? 'date'
+                                  : 'text'
+                            }
+                            value={values[field.name] ?? ''}
+                            onChange={(event) => {
+                              setValues((current) => ({
+                                ...current,
+                                [field.name]: event.target.value,
+                              }));
+                              keepDraft(field.name, event.target.value);
+                            }}
+                          />
+                        )}
+                        <span className="notice-actions">
+                          {plainTextOnly ? (
+                            <button
+                              className="button"
+                              type="button"
+                              onClick={() => setAsText(entry.text)}
+                            >
+                              Edit as plain text
+                            </button>
+                          ) : (
+                            <button
+                              className="button"
+                              type="button"
+                              onClick={() =>
+                                void save({
+                                  field: field.name,
+                                  value: values[field.name] ?? '',
+                                })
+                              }
+                            >
+                              Save {field.name}
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
                   {currentCollection &&
                   currentCollection.fields.length === 0 ? (
                     <p className="hint">

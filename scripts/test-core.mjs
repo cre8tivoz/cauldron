@@ -180,7 +180,8 @@ try {
     assert.equal(result.text, source.replace('title="x"', ''));
   });
   const { addPiece } = await import('../src/main/library.ts');
-  const { readEntry, saveEntry } = await import('../src/main/content.ts');
+  const { readCollections, readEntry, saveEntry } =
+    await import('../src/main/content.ts');
   test('4.3 failed replacement leaves every existing file alone', () => {
     fs.writeFileSync(file, base);
     const result = addPiece(root, {
@@ -262,6 +263,235 @@ try {
         schemaHash: opened.schemaHash,
       }).ok,
       false,
+    );
+  });
+
+  // Each case below gets its own site so the checks above cannot leak in state.
+  const freshSite = (label) => {
+    const site = fs.mkdtempSync(path.join(root, `content-${label}-`));
+    fs.mkdirSync(path.join(site, 'src/content/posts'), { recursive: true });
+    return site;
+  };
+
+  test('3.4 a schema-less block list is refused and the rest of the file is intact', () => {
+    const site = freshSite('block-list');
+    const entry = 'src/content/posts/hello.md';
+    const text = '---\ntitle: Hello\ntags:\n  - one\n  - two\n---\nBody\n';
+    fs.writeFileSync(path.join(site, entry), text);
+
+    const fields = readCollections(site).find(
+      (collection) => collection.name === 'posts',
+    ).fields;
+    assert.deepEqual(
+      fields.map((field) => [field.name, field.type]),
+      [
+        ['title', 'text'],
+        ['tags', 'unknown'],
+      ],
+    );
+
+    const opened = readEntry(site, entry);
+    assert.equal(opened.hash, hashOf(text));
+    const refused = saveEntry(site, entry, opened.hash, {
+      field: 'tags',
+      value: 'replacement',
+      schemaHash: opened.schemaHash,
+    });
+    assert.equal(refused.ok, false);
+    assert.match(refused.problem ?? '', /plain-text/);
+    assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), text);
+
+    const saved = saveEntry(site, entry, opened.hash, {
+      field: 'title',
+      value: 'Hello again',
+      schemaHash: opened.schemaHash,
+    });
+    assert.equal(saved.ok, true);
+    assert.equal(
+      fs.readFileSync(path.join(site, entry), 'utf8'),
+      '---\ntitle: "Hello again"\ntags:\n  - one\n  - two\n---\nBody\n',
+    );
+  });
+
+  test('3.4 a block list is refused even when the definition calls it text', () => {
+    const site = freshSite('block-list-text');
+    fs.writeFileSync(
+      path.join(site, 'src/content.config.ts'),
+      [
+        "import { defineCollection, z } from 'astro:content';",
+        '',
+        'const posts = defineCollection({',
+        '  schema: z.object({',
+        '    title: z.string(),',
+        '    tags: z.string(),',
+        '  }),',
+        '});',
+        '',
+      ].join('\n'),
+    );
+    const entry = 'src/content/posts/hello.md';
+    const text = '---\ntitle: Hello\ntags:\n  - one\n  - two\n---\nBody\n';
+    fs.writeFileSync(path.join(site, entry), text);
+    assert.equal(
+      readCollections(site).find((collection) => collection.name === 'posts')
+        .fields[1].type,
+      'text',
+    );
+
+    const opened = readEntry(site, entry);
+    const refused = saveEntry(site, entry, opened.hash, {
+      field: 'tags',
+      value: 'replacement',
+      schemaHash: opened.schemaHash,
+    });
+    assert.equal(refused.ok, false);
+    assert.match(refused.problem ?? '', /plain-text/);
+    assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), text);
+  });
+
+  test('3.4 nested and multi-line definitions stay one field each', () => {
+    const site = freshSite('nested');
+    fs.writeFileSync(
+      path.join(site, 'src/content.config.ts'),
+      [
+        "import { defineCollection, z } from 'astro:content';",
+        '',
+        'const posts = defineCollection({',
+        '  schema: z.object({',
+        '    title: z.string(),',
+        '    slug: z',
+        '      .string()',
+        '      .optional(),',
+        '    author: z.object({',
+        '      name: z.string(),',
+        '    }),',
+        '  }),',
+        '});',
+        '',
+      ].join('\n'),
+    );
+    const entry = 'src/content/posts/hello.md';
+    const text = '---\ntitle: Hello\nauthor:\n  name: Ada\n---\nBody\n';
+    fs.writeFileSync(path.join(site, entry), text);
+
+    const fields = readCollections(site).find(
+      (collection) => collection.name === 'posts',
+    ).fields;
+    assert.deepEqual(
+      fields.map((field) => [field.name, field.type, field.optional]),
+      [
+        ['title', 'text', false],
+        ['slug', 'text', true],
+        ['author', 'unknown', false],
+      ],
+    );
+
+    const opened = readEntry(site, entry);
+    const refused = saveEntry(site, entry, opened.hash, {
+      field: 'author',
+      value: 'Ada',
+      schemaHash: opened.schemaHash,
+    });
+    assert.equal(refused.ok, false);
+    assert.match(refused.problem ?? '', /plain-text/);
+    assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), text);
+  });
+
+  test('3.4 a collection without a schema does not take the next collection’s fields', () => {
+    const site = freshSite('two-collections');
+    fs.mkdirSync(path.join(site, 'src/content/notes'), { recursive: true });
+    fs.writeFileSync(
+      path.join(site, 'src/content.config.ts'),
+      [
+        "import { defineCollection, z } from 'astro:content';",
+        "import { glob } from 'astro/loaders';",
+        '',
+        'const posts = defineCollection({',
+        "  loader: glob({ pattern: '**/*.md', base: './src/content/posts' }),",
+        '});',
+        '',
+        'const notes = defineCollection({',
+        "  loader: glob({ pattern: '**/*.md', base: './src/content/notes' }),",
+        '  schema: z.object({',
+        '    note: z.string(),',
+        '  }),',
+        '});',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(site, 'src/content/posts/hello.md'),
+      '---\ntitle: Hello\n---\nBody\n',
+    );
+    fs.writeFileSync(
+      path.join(site, 'src/content/notes/first.md'),
+      '---\nnote: Keep\n---\nBody\n',
+    );
+
+    const collections = readCollections(site);
+    const posts = collections.find((collection) => collection.name === 'posts');
+    const notes = collections.find((collection) => collection.name === 'notes');
+    assert.deepEqual(
+      posts.fields.map((field) => field.name),
+      ['title'],
+    );
+    assert.deepEqual(
+      notes.fields.map((field) => field.name),
+      ['note'],
+    );
+  });
+
+  test('3.4 a field set twice is refused rather than half-rewritten', () => {
+    const site = freshSite('duplicate-key');
+    const entry = 'src/content/posts/hello.md';
+    const text = '---\ntitle: One\ntitle: Two\n---\nBody\n';
+    fs.writeFileSync(path.join(site, entry), text);
+    const opened = readEntry(site, entry);
+
+    const refused = saveEntry(site, entry, opened.hash, {
+      field: 'title',
+      value: 'Three',
+      schemaHash: opened.schemaHash,
+    });
+    assert.equal(refused.ok, false);
+    assert.match(refused.problem ?? '', /plain-text/);
+    assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), text);
+  });
+
+  test('3.4 plain-text save refuses a stale disk edit', () => {
+    const site = freshSite('stale-text');
+    const entry = 'src/content/posts/hello.md';
+    fs.writeFileSync(path.join(site, entry), '---\ntitle: Hello\n---\nBody\n');
+    const opened = readEntry(site, entry);
+    const outside = '---\ntitle: Outside\n---\nOutside body\n';
+    fs.writeFileSync(path.join(site, entry), outside);
+
+    const refused = saveEntry(site, entry, opened.hash, {
+      text: '---\ntitle: Mine\n---\nMine\n',
+    });
+    assert.equal(refused.ok, false);
+    assert.match(refused.problem ?? '', /changed/);
+    assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), outside);
+  });
+
+  test('3.4 dollar sequences in a value are saved literally', () => {
+    const site = freshSite('dollar');
+    const entry = 'src/content/posts/hello.md';
+    const text = '---\ntitle: Hello\n---\nBody stays exactly as written.\n';
+    fs.writeFileSync(path.join(site, entry), text);
+    const opened = readEntry(site, entry);
+    const value = "Costs $5 $& $' $` $$";
+    assert.equal(
+      saveEntry(site, entry, opened.hash, {
+        field: 'title',
+        value,
+        schemaHash: opened.schemaHash,
+      }).ok,
+      true,
+    );
+    assert.equal(
+      fs.readFileSync(path.join(site, entry), 'utf8'),
+      `---\ntitle: ${JSON.stringify(value)}\n---\nBody stays exactly as written.\n`,
     );
   });
 } finally {
