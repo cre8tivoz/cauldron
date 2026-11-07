@@ -2,6 +2,10 @@
 
 Issues and specs for this repo live as markdown files in `.scratch/`.
 
+## Current effort
+
+`.scratch/cauldron-v1/spec.md` links the agreed source documents and the retrospective finding records under `issues/`. These records were created during the documentation audit after checkpoint `82fc6c6`. Earlier implementation had no local tickets; do not backdate these records or imply it followed a ticket frontier. All records currently have `Status: needs-triage`; implementation remains paused. The consolidated requirement/evidence and issue/risk register is `docs/plan-verification.md`.
+
 ## Conventions
 
 - One feature per directory: `.scratch/<feature-slug>/`

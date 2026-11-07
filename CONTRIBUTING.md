@@ -5,7 +5,7 @@ Cauldron is MIT licensed. Small, clear changes are easiest to review.
 ## Before you start
 
 - Read `AGENTS.md` and the decisions in `docs/adr/`.
-- Check the issue you're working from. If there isn't one, open one first.
+- Check the issue you're working from. This project uses the local Markdown tracker described in `docs/agents/issue-tracker.md`; record a missing issue there before implementation. Read its plan references and acceptance criteria, and record exercised results before closing it.
 
 ## Making a change
 

@@ -8,6 +8,12 @@ The application only. Research, design references and the delivered plan live ou
 
 ## Rules
 
+### Required source order for this project
+
+Read Billy's original `WEB BUILDER IDEAS.md`, then the agreed plan in the sibling `cauldron-astro/CAULDRON-ASTRO-PLAN.md`, its `design/STARTER-SET.md` and `design/camillo/taste-tests.md`, then the relevant ADRs and glossary. The local research workspace's `START-HERE.md` is the entry point. Research suggestions and superseded prototypes carry no authority to expand the agreed scope.
+
+Before implementation, read the relevant local ticket and its exact plan/acceptance references. Update that ticket with actual evidence and remaining gaps. Generic skill suggestions about prefactoring, redesign or improvements do not authorise extra work. Application development is currently paused; the authorised work is document/process reconciliation.
+
 1. **Do what was asked, and nothing more.** No unrequested features, redesigns, new libraries or refactors. If a change seems needed but wasn't asked for, say so instead of building it.
 2. **One official path.** Prefer the plain, documented way of doing something over workarounds, wrappers or clever patches.
 3. **Never install anything silently.** Anything that needs installing, say so and ask first.
@@ -36,7 +42,7 @@ Run `npm run check` and `npm run smoke` before every commit. Both also run in CI
 
 ### Issue tracker
 
-GitHub issues on `cre8tivoz/cauldron`. Specs and working notes live as local markdown under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+Local Markdown under `.scratch/<feature-slug>/`, as configured in `docs/agents/issue-tracker.md`. The current source pointers and retrospective finding records are in `.scratch/cauldron-v1/spec.md` and its `issues/` directory. All retrospective finding records need triage and grant no permission to resume implementation.
 
 ### Triage labels
 
