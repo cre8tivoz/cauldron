@@ -32,6 +32,25 @@ export type McpHandle = {
 export type McpCall = { tool: string; ok: boolean; at: number };
 const calls: McpCall[] = [];
 
+/**
+ * Harness hook: when CAULDRON_MCP_LOG names a file, record what actually
+ * reached the connection (start, every request, close). Off unless asked; it
+ * exists so a run that reports a missing connection can be told apart from a
+ * run the connection never saw.
+ */
+function note(entry: Record<string, unknown>): void {
+  const file = process.env.CAULDRON_MCP_LOG;
+  if (!file) return;
+  try {
+    fs.appendFileSync(
+      file,
+      `${JSON.stringify({ at: Date.now(), ...entry })}\n`,
+    );
+  } catch {
+    // A diagnostic log never changes what the connection does.
+  }
+}
+
 export function mcpCalls(): McpCall[] {
   return [...calls];
 }
@@ -251,6 +270,13 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const given =
       request.headers['x-cauldron-code'] ?? url.searchParams.get('code');
+    note({
+      event: 'request',
+      method: request.method,
+      path: url.pathname,
+      authorised: given === code,
+      agent: String(request.headers['user-agent'] ?? ''),
+    });
 
     if (request.method !== 'POST' || url.pathname !== '/mcp') {
       send(404, { error: 'Use POST /mcp' });
@@ -296,6 +322,7 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
         return;
       }
       const id = message.id ?? null;
+      note({ event: 'message', method: message.method ?? '', id });
       const reply = (result: unknown) =>
         send(200, { jsonrpc: '2.0', id, result });
       const fail = (code_: number, text: string) =>
@@ -393,11 +420,15 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
+      note({ event: 'start', port, root: options.root, tools: tools.length });
       resolve({
         url: `http://127.0.0.1:${port}/mcp`,
         code,
         port,
-        close: () => server.close(),
+        close: () => {
+          note({ event: 'close', port });
+          server.close();
+        },
       });
     });
   });

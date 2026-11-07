@@ -57,3 +57,27 @@ Ticket breakdown approved by Billy through the to-tickets approval form. Impleme
 **Limitations:** feedback run needs a live agent CLI; no commit made; manual visual review of the panel not done.
 
 **Not done (blocks this ticket):** sending the quality report back to an agent as a fix request does not yet work end to end. On the final code, real Codex started without Cauldron's tools connected, replied that the connection was missing and changed nothing (feedback test 9/12, honest failure). Earlier runs that evening did load the connection, so it is intermittent; the cause in Codex 0.152 is unknown. The brief now tells the agent to report a missing connection instead of guessing, Codex gets a 60 s start-up allowance, and the test's checks were tightened to the fixture's Go button and to a real file change (two had passed falsely before). The flawed practice page is now kept in `scripts/fixtures/quality-fixture.astro` and installed by both quality tests. Other criteria met: quality test 15/15, project checks 89 PASS.
+
+### Progress record — 8 Nov 2026 (ticket 23 remainder)
+
+**Revision:** on committed `c33fc6a`, plus one diagnostic hook (below). Real Codex run, no fixtures standing in for the agent.
+
+**Investigation (cause not established).** The following checks succeeded, but they did not reproduce or explain the earlier failing session:
+
+- The exact command Cauldron builds (`codex exec <brief> --json -c mcp_servers.cauldron.url=… -c http_headers=… -c startup_timeout_sec=60 -c default_tools_approval_mode="approve" -C <site> --skip-git-repo-check --sandbox workspace-write`) was replayed ten times against a stand-in MCP server on 127.0.0.1 (invalid model, so no model cost). The server received `initialize`, `notifications/initialized` and `tools/list` on all ten runs. `codex mcp get cauldron` with the same overrides shows `transport: streamable_http`, `enabled: true`, header present.
+- The Cauldron side now records what reaches `/mcp` when `CAULDRON_MCP_LOG` names a file. In the passing run the server logged `start` (port 62968, 9 tools), then `codex-mcp-client/0.152.0` posting `initialize`, `notifications/initialized`, `tools/list` and four `tools/call`s. Nothing closed it.
+- Codex's own rollout for the failing 9/12 run shows no `cauldron` MCP tool calls at all — the turn was over in 5.9 s — while the passing run's rollout shows `McpToolCall server=cauldron` directly (`read_design`, `list_pages`, `read_page_outline`, `edit_element_style`). Absence of tool calls does not prove that the tools were unavailable or establish whether the fault was in Codex or Cauldron.
+
+**Change.** `src/main/mcp.ts`: an off-by-default request log (`CAULDRON_MCP_LOG`) that records server start/close and each request's method, authorisation and client name. It changes nothing when unset; it exists so a future "connection missing" report can be classified as never-connected or connected-but-unused, which this ticket could not previously tell apart. `startup_timeout_sec=60` stays, as a harmless allowance.
+
+**Real proof.** `npm run package`; disposable copy of `rudeboycoffee` under `…/scratch/b23finish/site` (copy's `.git` removed), fresh user data dir, hidden test window, `CAULDRON_QUALITY_FEEDBACK_TEST=1 CAULDRON_AGENT_TOOL=codex`. Log `…/b23finish/run1.log`, MCP log `…/b23finish/mcp.log`, argv `…/b23finish/agent-args.log`.
+
+- Feedback test **12/12 PASS**, app exit 0.
+- Before: `/quality-fixture/ at 375px`, `Go 4.2:1` — measured failure.
+- Codex reply: changed `src/pages/quality-fixture.astro`, Go button text colour to `var(--cauldron-c-ink)`; the copy's fixture file contains `style="color: var(--cauldron-c-ink)"` on `button.go`. Original site untouched (files still June-dated).
+- Actions served: `read_design`, `list_pages`, `read_page_outline`, `edit_element_style`.
+- After remeasure: `Checked 1 button(s) at 4.5:1; lowest 16.8:1`.
+
+**Checks.** `npm run typecheck` exits 0; agent/core unit tests pass (including the brief and Codex-timeout tests). `npm run lint` still stops at `oxfmt --check` on the pre-existing **untracked** `.scratch/cauldron-v1/next-session.md`; that file was deliberately left untouched, and `src/main/mcp.ts` passes `oxfmt --check` and `oxlint` on its own.
+
+**Still open.** One real run now proves the complete feedback path can work. It does not fix or explain the previous intermittent failures, so ticket 23 remains in progress. No source change repaired the launch path, and no automatic retry was added. Root cause and reliability remain unverified; attributing this to upstream Codex would be premature.
