@@ -1,6 +1,13 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { applyEdit, findTag, findClosingTag, type EditOperation } from './edit';
+import {
+  applyEdit,
+  findTag,
+  findClosingTag,
+  decodeEntities,
+  escapeText,
+  type EditOperation,
+} from './edit';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 
 /**
@@ -25,6 +32,7 @@ export type ActionRequest =
       target: Target;
       value: string;
       baseHash: string;
+      expected?: { text?: string; attributes?: Record<string, string> };
     }
   | {
       action: 'editElementAttribute';
@@ -32,12 +40,14 @@ export type ActionRequest =
       name: string;
       value: string | null;
       baseHash: string;
+      expected?: { text?: string; attributes?: Record<string, string> };
     }
   | {
       action: 'editElementStyle';
       target: Target;
       properties: Record<string, string>;
       baseHash: string;
+      expected?: { text?: string; attributes?: Record<string, string> };
     }
   | {
       action: 'editCssRule';
@@ -46,6 +56,7 @@ export type ActionRequest =
       property: string;
       value: string;
       baseHash: string;
+      expected?: { text?: string; attributes?: Record<string, string> };
     }
   | { action: 'createPage'; page: string; title: string };
 
@@ -91,7 +102,9 @@ export function readPageOutline(root: string, page: string): ActionResult {
     path.join(root, 'src/pages', relative, 'index.astro'),
     path.join(root, 'src/pages', `${relative.replace(/\/$/, '')}.astro`),
   ];
-  const file = candidates.find((candidate) => fs.existsSync(candidate));
+  const file = candidates.find(
+    (candidate) => isInside(root, candidate) && fs.existsSync(candidate),
+  );
   if (!file) return { ok: false, problem: `No page file for ${page}.` };
   const text = fs.readFileSync(file, 'utf8');
   const headings = [
@@ -124,6 +137,7 @@ function writeChecked(
   operation: EditOperation,
   target: Target,
   expected: { text?: string; attributes?: Record<string, string> },
+  hasOriginal = false,
 ): ActionResult {
   const full = insideSite(root, file);
   if (!full)
@@ -132,28 +146,14 @@ function writeChecked(
     return { ok: false, problem: 'That file no longer exists.' };
 
   const disk = readFile(full);
-  if (disk.hash !== baseHash) {
-    // The file moved on. If our spot is untouched we can still merge; otherwise refuse.
-    const result = applyEdit(
-      disk.text,
-      { ...target, file: full },
-      operation,
-      expected,
-    );
-    if (!result.ok) {
-      return {
-        ok: false,
-        problem: result.reason,
-        clash: { file, diskText: disk.text },
-      };
-    }
-    writeFileAtomic(full, result.text);
+  if (disk.hash !== baseHash && !hasOriginal) {
+    // A hash alone cannot prove which element was unchanged. Never manufacture
+    // an expected value from the new disk version and call that a safe merge.
     return {
-      ok: true,
-      file,
-      hash: result.hash,
-      merged: true,
-      text: result.text,
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+      clash: { file, diskText: disk.text },
     };
   }
 
@@ -245,7 +245,7 @@ function expectedFor(
   const close = findClosingTag(text, tag);
   const inner = close ? text.slice(tag.tagEnd, close.start) : '';
   return {
-    text: /<[a-zA-Z]/.test(inner) ? undefined : inner.trim(),
+    text: /<[a-zA-Z]/.test(inner) ? undefined : decodeEntities(inner.trim()),
     attributes,
   };
 }
@@ -268,7 +268,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         request.baseHash,
         { kind: 'text', value: request.value },
         request.target,
-        expectedFor(full, request.target),
+        request.expected ?? expectedFor(full, request.target),
+        Boolean(request.expected),
       );
     }
 
@@ -282,7 +283,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         request.baseHash,
         { kind: 'attribute', name: request.name, value: request.value },
         request.target,
-        expectedFor(full, request.target),
+        request.expected ?? expectedFor(full, request.target),
+        Boolean(request.expected),
       );
     }
 
@@ -296,7 +298,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         request.baseHash,
         { kind: 'style', properties: request.properties },
         request.target,
-        expectedFor(full, request.target),
+        request.expected ?? expectedFor(full, request.target),
+        Boolean(request.expected),
       );
     }
 
@@ -324,7 +327,7 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
       if (fs.existsSync(file))
         return { ok: false, problem: 'A page already exists there.' };
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      const title = request.title.trim() || clean;
+      const title = escapeText(request.title.trim() || clean);
       const body = `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`;
       fs.writeFileSync(file, body, 'utf8');
       return { ok: true, file: path.relative(root, file) };

@@ -12,6 +12,7 @@ type CauldronSite = {
 
 type CauldronSelection = {
   id: string;
+  baseHash: string;
   file: string;
   line: number;
   column: number;
@@ -33,6 +34,8 @@ type CauldronDraft = {
   name: string;
   field: string;
   value: string;
+  baseHash?: string;
+  schemaHash?: string;
   savedAt: number;
 };
 
@@ -52,7 +55,7 @@ type CauldronDirectionSummary = {
 
 type CauldronAgentEvent =
   | { type: 'session' }
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; delta?: boolean }
   | { type: 'tool'; name: string }
   | { type: 'status'; text: string }
   | { type: 'done'; text: string }
@@ -105,6 +108,7 @@ type CauldronEntry = {
   values: Record<string, string>;
   text: string;
   frontmatter: boolean;
+  schemaHash: string;
 };
 
 type CauldronRun = {
@@ -177,6 +181,11 @@ type CauldronApi = {
   directions: () => Promise<CauldronDirectionSummary[]>;
   direction: () => Promise<CauldronDirectionSummary | null>;
   setDirection: (id: string) => Promise<{ ok: boolean; problem?: string }>;
+  referenceDirection: (url: string) => Promise<{
+    ok: boolean;
+    problem?: string;
+    direction?: CauldronDirectionSummary;
+  }>;
   agentSend: (payload: {
     tool: string;
     request: string;
@@ -226,6 +235,13 @@ type CauldronApi = {
   undo: () => Promise<{ ok: boolean; problem?: string }>;
   redo: () => Promise<{ ok: boolean; problem?: string }>;
   clearSelection: () => Promise<boolean>;
+  contentDraft: (payload: {
+    file: string;
+    field: string;
+    value: string | null;
+    baseHash: string;
+    schemaHash: string;
+  }) => Promise<boolean>;
   saveDrafts: (drafts: CauldronDraft[]) => Promise<boolean>;
   discardDrafts: () => Promise<boolean>;
   restoreDraft: (

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { app } from 'electron';
 import { hashOf } from './files';
 import type { Site } from './site';
-import type { EditOperation, Location } from './edit';
+import type { Location } from './edit';
 import type { Draft } from './recovery';
 
 type Api = {
@@ -42,6 +42,7 @@ type Api = {
   startPreview: () => Promise<unknown>;
   previewLoad: (url: string) => Promise<void>;
   previewHtml: () => Promise<string>;
+  previewBridgeAbsent: () => Promise<boolean>;
   previewClick: (selector: string) => Promise<unknown>;
   previewClickLeaf: () => Promise<unknown>;
   getSelection: () => { location: Location } | null;
@@ -154,6 +155,9 @@ export type AgentTestApi = {
     files: string[];
   }>;
   buildPromptText: (request: string) => string;
+  agentReply: () => string;
+  settleRenderer: () => Promise<void>;
+  agentTools: () => string[];
   mcpInfo?: () => Promise<{ url: string; code: string } | null>;
 };
 
@@ -263,6 +267,28 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
         adopted ? `${adopted.font} at ${adopted.size}` : 'nothing found',
       );
 
+      const { measureTaste } = await import('./taste-check');
+      const taste = await measureTaste(
+        window,
+        direction!,
+        '/',
+        'section[class^="cauldron-"]',
+      );
+      check(
+        '4.3 the added pieces pass the approved direction and state checks',
+        taste.every((finding) => finding.status === 'pass'),
+        taste
+          .filter((finding) => finding.status !== 'pass')
+          .map((finding) => `${finding.label}: ${finding.detail}`)
+          .join('; ') || 'all measured checks passed',
+      );
+      for (const width of [375, 768, 1280]) {
+        window.setContentSize(width, 900);
+        const overflow = await window.webContents.executeJavaScript(
+          `document.documentElement.scrollWidth > innerWidth + 2`,
+        );
+        check(`4.3 added pieces do not overflow at ${width}px`, !overflow);
+      }
       const violations = await runAxe(
         window,
         `[...document.querySelectorAll('section[class^="cauldron-"]')]`,
@@ -289,6 +315,7 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
     );
   } catch (error) {
     console.error('LIBRARY TEST ERROR', error);
+    check('LIBRARY TEST ERROR', false, String(error));
   } finally {
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
@@ -349,6 +376,26 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
       changed?.changes.map((c) => c.file).join(', '),
     );
 
+    const { saveDrafts, clearDrafts } = await import('./recovery');
+    saveDrafts(scratch, [
+      {
+        key: 'publish-unsaved',
+        file: 'src/pages/publish-check.astro',
+        line: 1,
+        column: 1,
+        name: 'content',
+        field: 'content:text',
+        value: 'unsaved content',
+        savedAt: Date.now(),
+      },
+    ]);
+    const pending = api.publish?.({ message: 'Must not commit', push: false });
+    check(
+      '5.1 unsaved content blocks publishing',
+      pending?.ok === false && Boolean(pending.problem?.includes('unsaved')),
+      pending?.problem ?? '',
+    );
+    clearDrafts(scratch);
     const noMessage = api.publish?.({ message: '   ', push: false });
     check(
       '5.1 a commit without a message is refused',
@@ -378,12 +425,43 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
       again?.ok === false,
       again?.problem ?? '',
     );
+    const remote = `${scratch}-remote.git`;
+    try {
+      execFileSync('git', ['init', '--bare', '-q', remote]);
+      git(['remote', 'add', 'origin', remote]);
+      fs.writeFileSync(
+        path.join(scratch, 'publish-proof.txt'),
+        'Real local-remote push check.',
+      );
+      const pushed = api.publish?.({
+        message: 'Prove remote publication',
+        push: true,
+      });
+      check(
+        '5.1 publishing pushes to the existing remote',
+        Boolean(pushed?.ok),
+        pushed?.problem ?? '',
+      );
+      const branch = git(['branch', '--show-current']).trim();
+      const remoteHead = execFileSync(
+        'git',
+        ['--git-dir', remote, 'rev-parse', `refs/heads/${branch}`],
+        { encoding: 'utf8' },
+      ).trim();
+      check(
+        '5.1 the remote contains the exact published commit',
+        remoteHead === git(['rev-parse', 'HEAD']).trim(),
+      );
+    } finally {
+      fs.rmSync(remote, { recursive: true, force: true });
+    }
 
     console.log(
       `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
     );
   } catch (error) {
     console.error('PUBLISH TEST ERROR', error);
+    check('PUBLISH TEST ERROR', false, String(error));
   } finally {
     try {
       fs.rmSync(scratch, { recursive: true, force: true });
@@ -433,8 +511,9 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
     );
     check(
       '4.4 broken links are found',
-      byId('links').length > 0,
-      byId('links')[0]?.detail ?? '',
+      findings.some((finding) => finding.label === 'Internal links work'),
+      findings.find((finding) => finding.label === 'Internal links work')
+        ?.detail ?? '',
     );
     check(
       '4.4 measured numbers are kept apart from opinion',
@@ -473,6 +552,7 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
     );
   } catch (error) {
     console.error('QUALITY TEST ERROR', error);
+    check('QUALITY TEST ERROR', false, String(error));
   } finally {
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
@@ -499,7 +579,7 @@ export async function runContentTest(root: string, api: Api): Promise<void> {
 
     const first = collection.entries[0];
     const opened = api.entry?.(first.file) as
-      | { hash: string; values: Record<string, string> }
+      | { hash: string; schemaHash: string; values: Record<string, string> }
       | { problem: string };
     check(
       '3.4 an entry opens as a form',
@@ -513,7 +593,7 @@ export async function runContentTest(root: string, api: Api): Promise<void> {
     const saved = api.saveEntry?.({
       file: first.file,
       baseHash: opened.hash,
-      change: { field, value: marker },
+      change: { field, value: marker, schemaHash: opened.schemaHash },
     });
     check(
       '3.4 one field saves into the entry',
@@ -547,6 +627,7 @@ export async function runContentTest(root: string, api: Api): Promise<void> {
     );
   } catch (error) {
     console.error('CONTENT TEST ERROR', error);
+    check('CONTENT TEST ERROR', false, String(error));
   } finally {
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
@@ -585,7 +666,7 @@ export async function runAgentTest(
     const marker = `Cauldron agent test ${Date.now()}`;
     const started = api.sendAgent({
       tool,
-      request: `On the home page only, change the main h1 heading text to exactly "${marker}". Change nothing else.`,
+      request: `${tool === 'claude' ? "First use Cauldron's list_pages MCP tool to inspect the site. " : ''}On the home page only, change the main h1 heading text to exactly "${marker}". Change nothing else.`,
     });
     check(
       `3.2 ${tool} is started by Cauldron`,
@@ -630,14 +711,209 @@ export async function runAgentTest(
       tokens.includes('--cauldron-c-primary') &&
         !tokens.includes('--c-primary:'),
     );
+    if (tool === 'claude')
+      check(
+        '3.3 Claude really calls Cauldron over MCP',
+        api
+          .agentTools()
+          .some(
+            (name) => name.includes('cauldron') && name.includes('list_pages'),
+          ),
+        api.agentTools().join(', '),
+      );
+    const continued = api.sendAgent({
+      tool,
+      request:
+        'Without reading or changing any files, reply with exactly the heading text from my previous request.',
+    });
+    check(
+      '3.2 the conversation can be resumed',
+      continued.ok,
+      continued.problem ?? '',
+    );
+    if (continued.ok) {
+      const done = await api.waitForAgent(240000);
+      check(
+        '3.2 the resumed agent remembers the previous request',
+        done.ok && api.agentReply().includes(marker),
+        api.agentReply().slice(-200),
+      );
+    }
 
     console.log(
       `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
     );
   } catch (error) {
     console.error('AGENT TEST ERROR', error);
+    check('AGENT TEST ERROR', false, String(error));
   } finally {
+    // agent-done also refreshes the renderer's run list. Complete that IPC
+    // round-trip before destroying its sending frame.
+    await api.settleRenderer();
     app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** The actual renderer IPC, tab lifecycle, minimum window and reference-URL path. */
+export async function runUiTest(
+  root: string,
+  window: import('electron').BrowserWindow,
+  preview: import('./preview').Preview,
+  open: (root: string) => Promise<unknown>,
+): Promise<void> {
+  try {
+    await open(root);
+    await wait(800);
+    await window.webContents.executeJavaScript(
+      `window.__auditErrors = []; window.addEventListener('error', e => window.__auditErrors.push(e.message)); window.addEventListener('unhandledrejection', e => window.__auditErrors.push(String(e.reason)));`,
+    );
+    const chosen = await window.webContents.executeJavaScript(`(async () => {
+      await window.cauldron.setDirection('long-lunch');
+      const direction = await window.cauldron.direction();
+      return typeof direction.fonts.display === 'string' && direction.id === 'long-lunch';
+    })()`);
+    check('3.1 saved direction returns renderer-safe fonts', chosen);
+    await open(root);
+    await wait(500);
+    for (const title of [
+      'Content',
+      'Components',
+      'Design directions',
+      'Quality checks',
+      'Publishing',
+    ]) {
+      await window.webContents.executeJavaScript(
+        `document.querySelector('button[title="${title}"]').click()`,
+      );
+      await wait(250);
+      check(
+        `3.1 ${title} is not covered by the native preview`,
+        preview.getBounds().width === 0,
+      );
+    }
+    await window.webContents.executeJavaScript(
+      `document.querySelector('button[title="Sites"]').click()`,
+    );
+    await wait(300);
+    window.setSize(1280, 800);
+    await wait(300);
+    const dimensions = await window.webContents.executeJavaScript(
+      `({ width: innerWidth, scroll: document.documentElement.scrollWidth, stage: document.querySelector('.stage').getBoundingClientRect().width })`,
+    );
+    check(
+      '3.1 Build restores the preview bounds at 1280 × 800',
+      dimensions.stage > 0 &&
+        preview.getBounds().width > 0 &&
+        dimensions.scroll <= dimensions.width,
+    );
+    const errors = await window.webContents.executeJavaScript(
+      'window.__auditErrors',
+    );
+    check(
+      '3.1 reopening a directed site and switching tools causes no renderer errors',
+      errors.length === 0,
+      errors.join('; '),
+    );
+    const http = await import('node:http');
+    const server = http.createServer((_request, response) =>
+      response.end(
+        '<!doctype html><html><head><title>Measured reference</title><style>body{background:#fefefe;color:#123456;font-family:Georgia;padding:24px}h1{font-size:48px}a{color:#234567}</style></head><body><h1>A real rendered reference</h1><a href="/">Link</a></body></html>',
+      ),
+    );
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    try {
+      const port = (server.address() as import('node:net').AddressInfo).port;
+      const result = await window.webContents.executeJavaScript(
+        `window.cauldron.referenceDirection('http://127.0.0.1:${port}/')`,
+      );
+      check(
+        '4.2 a reference URL is measured through the real renderer action',
+        result.ok &&
+          result.direction.colours.ink === '#123456' &&
+          result.direction.typeScale.includes(48),
+      );
+      const loaded = await window.webContents.executeJavaScript(
+        'window.cauldron.direction()',
+      );
+      check(
+        '4.2 measured direction survives disk reload',
+        loaded?.id === result.direction?.id && loaded?.fonts.body === 'Georgia',
+      );
+    } finally {
+      server.close();
+    }
+    const image = await window.webContents.capturePage();
+    fs.writeFileSync(path.join(root, 'audit-ui.png'), image.toPNG());
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    check('UI TEST ERROR', false, String(error));
+  } finally {
+    app.exit(results.length > 0 && results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** Negative controls for the approved automatic taste bar, not a provider-generated site. */
+export async function runTasteTest(): Promise<void> {
+  const { createServer } = await import('node:http');
+  const { measureTaste } = await import('./taste-check');
+  const { inspectionWindow } = await import('./quality');
+  const { findDirection } = await import('./directions');
+  const direction = findDirection('long-lunch')!;
+  const window = inspectionWindow();
+  const server = createServer((_request, response) =>
+    response.end(`<!doctype html><html><head><meta charset="utf-8"><style>
+    body{background:#ffffff;color:#000000;font-family:Arial;padding:3px}
+    h1,p,button{font-family:Arial;font-size:19px}
+    .panel{border:1px solid #000;border-radius:7px;padding:3px}
+    .gradient{background:linear-gradient(90deg,#2563eb,#7c3aed)}
+    @keyframes move{to{transform:translateX(2px)}}
+    .motion{animation:move 1s infinite}
+    button{width:20px;overflow:hidden;white-space:nowrap;outline:none}
+  </style></head><body><h1>Negative control</h1><div class="panel"><div class="panel gradient"><p class="motion">Deliberately bad styles</p></div></div><button>🚀 A deliberately truncated label</button></body></html>`),
+  );
+  try {
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const port = (server.address() as import('node:net').AddressInfo).port;
+    await window.loadURL(`http://127.0.0.1:${port}/`);
+    const findings = await measureTaste(window, direction, '/negative-control');
+    for (const label of [
+      'No unchosen default fonts',
+      'No pure black',
+      'No cards inside cards',
+      'No tired blue-purple gradients',
+      'No unchosen generic SaaS accents',
+      'First fonts match the direction',
+      'Colours follow the direction',
+      'Spacing follows the direction',
+      'Type sizes use the direction',
+      'Radii follow the direction',
+      'Tokens rather than hard-coded values',
+      'No emoji used as interface icons',
+      'Labels are not truncated',
+      'Motion respects reduced-motion',
+    ]) {
+      const found = findings.find((finding) => finding.label === label);
+      check(
+        `4.1 negative control: ${label}`,
+        found?.status === 'fail',
+        found?.detail ?? 'not measured',
+      );
+    }
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    check('TASTE TEST ERROR', false, String(error));
+  } finally {
+    server.close();
+    if (!window.isDestroyed()) window.destroy();
+    app.exit(results.length > 0 && results.every((r) => r.ok) ? 0 : 1);
   }
 }
 
@@ -653,22 +929,23 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
 
     const loaded = await waitFor(async () => {
       const html = await api.previewHtml();
-      return html.includes('data-astro-source-loc');
+      return (
+        html.includes('data-cauldron-source-loc') ||
+        html.includes('data-astro-source-loc')
+      );
     }, 45000);
     check('1.1 live preview renders the site', loaded);
     if (!loaded) throw new Error('preview never rendered');
 
     const isolated = await api.previewClick('body');
     void isolated;
-    const hasBridge = await api.previewHtml();
     check(
-      '1.8 the preview has no bridge to the app',
-      !hasBridge.includes('window.cauldron') &&
-        (await api.previewClick('body'), true),
+      '1.8 the live preview has neither the editing bridge nor Node access',
+      await api.previewBridgeAbsent(),
     );
 
     const picked = await api.previewClickLeaf();
-    void picked;
+    console.log('PICK', JSON.stringify(picked));
     const selected = await waitFor(async () => Boolean(api.getSelection()));
     check('1.2 clicking an element selects it', selected);
     const selection = api.getSelection();
@@ -766,8 +1043,9 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
         baseHash: 'deliberately-wrong',
       }) as { ok: boolean; merged?: boolean };
       check(
-        '2.1 a write based on an old version still merges when the spot is untouched',
-        stale.ok && stale.merged === true,
+        '2.1 a write without a valid base version is refused',
+        !stale.ok &&
+          fs.readFileSync(activeForAction.location.file, 'utf8') === fileText,
       );
       void fileText;
       api.undo();
@@ -910,6 +1188,7 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
         column: active.location.column,
         name: active.location.name,
         field: 'text',
+        baseHash: hashOf(fs.readFileSync(active.location.file, 'utf8')),
         value: `Draft text ${Date.now()}`,
         savedAt: Date.now(),
       };
@@ -944,6 +1223,7 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
     );
   } catch (error) {
     console.error('E2E ERROR', error);
+    check('E2E ERROR', false, String(error));
   } finally {
     const failed = results.filter((r) => !r.ok).length;
     app.exit(failed === 0 ? 0 : 1);

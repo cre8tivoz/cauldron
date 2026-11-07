@@ -29,7 +29,12 @@ function git(root: string, args: string[]) {
 
 export function repoState(root: string): RepoState {
   const inside = git(root, ['rev-parse', '--is-inside-work-tree']);
-  if (inside.status !== 0) {
+  const top = git(root, ['rev-parse', '--show-toplevel']);
+  if (
+    inside.status !== 0 ||
+    !top.stdout ||
+    fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(root)
+  ) {
     return {
       isRepo: false,
       branch: '',
@@ -68,7 +73,7 @@ export function publish(
   root: string,
   options: { message: string; push: boolean },
 ): PublishResult {
-  if (git(root, ['rev-parse', '--is-inside-work-tree']).status !== 0) {
+  if (!repoState(root).isRepo) {
     return {
       ok: false,
       problem:
@@ -129,7 +134,33 @@ export function publish(
           'Committed locally. This site has no remote, so nothing was pushed.',
       };
     }
-    const push = git(root, ['push']);
+    const upstream = git(root, [
+      'rev-parse',
+      '--abbrev-ref',
+      '--symbolic-full-name',
+      '@{u}',
+    ]);
+    const remotes = (git(root, ['remote']).stdout ?? '')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    const remote = remotes.includes('origin')
+      ? 'origin'
+      : remotes.length === 1
+        ? remotes[0]
+        : null;
+    if (upstream.status !== 0 && (!remote || state.branch === 'HEAD'))
+      return {
+        ok: false,
+        problem:
+          'Committed locally. Choose a remote and branch in Git before pushing.',
+      };
+    const push = git(
+      root,
+      upstream.status === 0
+        ? ['push']
+        : ['push', '--set-upstream', remote!, state.branch],
+    );
     if (push.status !== 0) {
       return {
         ok: false,

@@ -269,6 +269,17 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
         return;
       }
 
+      if (!message || typeof message !== 'object' || Array.isArray(message)) {
+        send(400, {
+          jsonrpc: '2.0',
+          id: null,
+          error: {
+            code: -32600,
+            message: 'Expected a JSON-RPC request object.',
+          },
+        });
+        return;
+      }
       const id = message.id ?? null;
       const reply = (result: unknown) =>
         send(200, { jsonrpc: '2.0', id, result });
@@ -330,11 +341,26 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
             fail(-32602, `Unknown tool: ${name}`);
             return;
           }
-          const result = options.run(actionRequest);
-          reply({
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-            isError: !result.ok,
-          });
+          try {
+            const result = options.run(actionRequest);
+            reply({
+              content: [
+                { type: 'text', text: JSON.stringify(result, null, 2) },
+              ],
+              isError: !result.ok,
+            });
+          } catch (error) {
+            console.error('Outside-agent action failed:', error);
+            reply({
+              content: [
+                {
+                  type: 'text',
+                  text: `The action was refused: ${(error as Error).message}`,
+                },
+              ],
+              isError: true,
+            });
+          }
           return;
         }
         default:

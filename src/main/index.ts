@@ -6,7 +6,12 @@ import { detectSite, startDevServer, type DevServer, type Site } from './site';
 import { Preview } from './preview';
 import { History } from './history';
 import { Runs, type Run } from './runs';
-import { runAction, actionCatalogue, type ActionRequest } from './actions';
+import {
+  runAction,
+  listPages,
+  actionCatalogue,
+  type ActionRequest,
+} from './actions';
 import {
   runAgent,
   buildPrompt,
@@ -23,11 +28,13 @@ import { startMcpServer, type McpHandle } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
 import { checkSite } from './quality';
+import { directionFromUrl } from './reference';
 import { macBuildInfo, publish, repoState } from './publishing';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
   applyEdit,
+  escapeText,
   snapshotElement,
   type EditOperation,
   type ElementSnapshot,
@@ -85,6 +92,7 @@ function send(channel: string, payload: unknown): void {
 }
 
 function status(message: string): void {
+  if (E2E_SITE) console.log(`STATUS ${message}`);
   state.status = [...state.status.slice(-80), message];
   send('cauldron:status', message);
 }
@@ -104,6 +112,7 @@ function selectionView() {
     column: selection.location.column,
     name: selection.location.name,
     text: selection.snapshot.text,
+    baseHash: hashOf(selection.snapshot.sourceText),
     textEditable: selection.snapshot.textEditable,
     attributes: selection.snapshot.attributes,
     style: selection.snapshot.style,
@@ -143,8 +152,22 @@ async function startPreview(): Promise<
     return server;
   }
   state.server = server;
+  server.process.once('exit', (code) => {
+    if (state.server !== server) return;
+    void stopPreview();
+    status(
+      `The Astro preview stopped (code ${code ?? 'unknown'}). Start it again to continue.`,
+    );
+  });
   state.preview.show();
-  await state.preview.load(server.url);
+  try {
+    await state.preview.load(server.url);
+  } catch (error) {
+    await stopPreview();
+    const problem = `The preview could not load: ${(error as Error).message}`;
+    status(problem);
+    return { problem, detail: server.url };
+  }
   await startMcp(site);
   send('cauldron:preview', { running: true, url: server.url });
   status(`Preview running at ${server.url}`);
@@ -159,7 +182,7 @@ async function startMcp(site: Site): Promise<void> {
     state.mcp = await startMcpServer({
       root: site.root,
       siteName: site.name,
-      run: (request) => runAction(site.root, request),
+      run: (request) => sharedAction(request),
       readSelection: () => selectionView(),
       readDesign: () => readDirection(site.root),
     });
@@ -172,6 +195,11 @@ async function startMcp(site: Site): Promise<void> {
 }
 
 async function openSiteAt(root: string) {
+  if (state.agent)
+    return {
+      problem:
+        'Finish or cancel the current agent job before opening another site.',
+    };
   const detected = detectSite(root);
   if ('problem' in detected) {
     status(detected.problem);
@@ -182,12 +210,15 @@ async function openSiteAt(root: string) {
   state.site = detected;
   state.selection = null;
   state.history = new History();
+  state.runs = new Runs();
   send('cauldron:site', { site: detected, drafts: loadDrafts(detected.root) });
   status(
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
   );
-  await startPreview();
-  return { site: detected };
+  const preview = await startPreview();
+  return 'problem' in preview
+    ? { site: detected, ...preview }
+    : { site: detected };
 }
 
 /** Every element on the page with its text, used to see what a run changed. */
@@ -196,8 +227,8 @@ function collectLocs(): Promise<Array<{ loc: string; text: string }>> {
   if (!view) return Promise.resolve([]);
   return view
     .executeJavaScript(
-      `(() => [...document.querySelectorAll('[data-astro-source-loc]')]
-        .map((el) => ({ loc: el.getAttribute('data-astro-source-loc') || '', text: (el.textContent || '').trim().slice(0, 160) }))
+      `(() => [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')]
+        .map((el) => ({ loc: el.getAttribute('data-cauldron-source-loc') || el.getAttribute('data-astro-source-loc') || '', text: JSON.stringify([(el.textContent || '').trim().slice(0, 160), ...['color','backgroundColor','fontSize','fontFamily','padding','margin','display','borderRadius'].map((key) => getComputedStyle(el)[key])]) }))
         .filter((item) => item.text !== ''))()`,
     )
     .catch(() => []);
@@ -211,7 +242,7 @@ function highlightLocs(locs: string[], on: boolean): void {
     ? locs
         .map(
           (loc) =>
-            `[data-astro-source-loc="${loc}"]{outline:2px solid #ffa99a !important;outline-offset:2px !important}`,
+            `[data-cauldron-source-loc="${loc}"],[data-astro-source-loc="${loc}"]{outline:2px solid #ffa99a !important;outline-offset:2px !important}`,
         )
         .join('\n')
     : '';
@@ -243,6 +274,42 @@ function runSummary(run: Run) {
     files: run.files.map((file) => file.file),
     highlighted: run.highlighted,
   };
+}
+
+function sharedAction(request: ActionRequest) {
+  const site = state.site;
+  if (!site) return { ok: false as const, problem: 'No site is open.' };
+  const relative =
+    'target' in request
+      ? request.target.file
+      : 'file' in request
+        ? request.file
+        : null;
+  const full = relative ? path.resolve(site.root, relative) : null;
+  const before =
+    full && isInside(site.root, full) && fs.existsSync(full)
+      ? readFile(full)
+      : null;
+  const result = runAction(site.root, request);
+  if (result.ok && before && full) {
+    const after = readFile(full);
+    if (before.hash !== after.hash)
+      state.history.record({
+        file: full,
+        location:
+          'target' in request
+            ? { ...request.target, file: full }
+            : { file: full, line: 1, column: 1, name: 'source' },
+        operation: { kind: 'text', value: '' },
+        before: before.text,
+        after: after.text,
+        beforeHash: before.hash,
+        afterHash: after.hash,
+        label: request.action,
+      });
+    refreshSelectionFromDisk();
+  }
+  return result;
 }
 
 function requireSite(): Site | { problem: string } {
@@ -290,10 +357,42 @@ function writeSelection(
       )?.value ?? '';
   }
 
-  const result = applyEdit(disk.text, selection.location, operation, {
-    text: selection.snapshot.text,
-    attributes,
-  });
+  const expected = { text: selection.snapshot.text, attributes };
+  const common = {
+    target: selection.location,
+    baseHash: hashOf(selection.snapshot.sourceText),
+    expected,
+  };
+  const action: ActionRequest =
+    operation.kind === 'text'
+      ? { ...common, action: 'editElementText', value: operation.value }
+      : operation.kind === 'attribute'
+        ? {
+            ...common,
+            action: 'editElementAttribute',
+            name: operation.name,
+            value: operation.value,
+          }
+        : {
+            ...common,
+            action: 'editElementStyle',
+            properties: operation.properties,
+          };
+  const outcome = runAction(site.root, action);
+  const result = outcome.ok
+    ? {
+        ok: true as const,
+        text: outcome.text as string,
+        hash: outcome.hash as string,
+        snapshot: snapshotElement(outcome.text as string, selection.location)!,
+      }
+    : {
+        ok: false as const,
+        reason: outcome.problem,
+        conflict: outcome.clash
+          ? { diskText: outcome.clash.diskText ?? disk.text }
+          : undefined,
+      };
 
   if (!result.ok) {
     if (result.conflict && options.force) {
@@ -329,7 +428,7 @@ function writeSelection(
     return { ok: false, problem: result.reason };
   }
 
-  const hash = writeFileAtomic(selection.location.file, result.text);
+  const hash = readFile(selection.location.file).hash;
   if (hash !== result.hash) {
     return { ok: false, problem: 'The file changed while it was being saved.' };
   }
@@ -386,6 +485,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
   });
 
   state.beforeLocs = [];
+  lastAgentEvents = [];
   const run = state.runs.start(site.root, payload.tool, payload.request);
   state.agentRunId = run.id;
   void collectLocs().then((locs) => {
@@ -403,7 +503,10 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
     root: site.root,
     prompt,
     sessionId: sessions[payload.tool],
+    mcp: state.mcp ?? undefined,
     onEvent: (event) => {
+      if (state.agentRunId !== run.id) return;
+      lastAgentEvents.push(event);
       if (event.type === 'session') {
         const next = {
           ...state.sessions.get(site.root),
@@ -422,8 +525,25 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
   return { ok: true, runId: run.id };
 }
 
+/** Editing IPC is accepted only from the app's main frame, never the site preview. */
+function handle(
+  channel: string,
+  listener: Parameters<typeof ipcMain.handle>[1],
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    const editor = state.window?.webContents;
+    if (
+      !editor ||
+      event.sender !== editor ||
+      event.senderFrame !== editor.mainFrame
+    )
+      throw new Error('The website preview has no editing powers.');
+    return listener(event, ...args);
+  });
+}
+
 function registerIpc(): void {
-  ipcMain.handle('cauldron:open-site-dialog', async () => {
+  handle('cauldron:open-site-dialog', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
       title: 'Open an Astro site',
@@ -433,11 +553,11 @@ function registerIpc(): void {
     return openSiteAt(result.filePaths[0]);
   });
 
-  ipcMain.handle('cauldron:open-site', async (_event, root: string) =>
+  handle('cauldron:open-site', async (_event, root: string) =>
     openSiteAt(root),
   );
 
-  ipcMain.handle('cauldron:site-state', () => ({
+  handle('cauldron:site-state', () => ({
     site: state.site,
     running: Boolean(state.server),
     url: state.server?.url ?? null,
@@ -446,69 +566,105 @@ function registerIpc(): void {
     drafts: state.site ? loadDrafts(state.site.root) : [],
   }));
 
-  ipcMain.handle('cauldron:start-preview', () => startPreview());
-  ipcMain.handle('cauldron:stop-preview', async () => {
+  handle('cauldron:start-preview', () => startPreview());
+  handle('cauldron:stop-preview', async () => {
     await stopPreview();
     return true;
   });
 
-  ipcMain.handle('cauldron:refresh-selection', () => {
+  handle('cauldron:refresh-selection', () => {
     refreshSelectionFromDisk();
     return selectionView();
   });
 
-  ipcMain.handle('cauldron:selection-clear', () => {
+  handle('cauldron:selection-clear', () => {
     state.selection = null;
     pushSelection();
     return true;
   });
 
-  ipcMain.handle('cauldron:apply-text', (_event, value: string) =>
+  handle('cauldron:apply-text', (_event, value: string) =>
     writeSelection({ kind: 'text', value }),
   );
 
-  ipcMain.handle(
+  handle(
     'cauldron:apply-attribute',
     (_event, name: string, value: string | null) =>
       writeSelection({ kind: 'attribute', name, value }),
   );
 
-  ipcMain.handle(
-    'cauldron:apply-style',
-    (_event, properties: Record<string, string>) =>
-      writeSelection({ kind: 'style', properties }),
+  handle('cauldron:apply-style', (_event, properties: Record<string, string>) =>
+    writeSelection({ kind: 'style', properties }),
   );
 
-  ipcMain.handle('cauldron:force-write', (_event, operation: EditOperation) =>
+  handle('cauldron:force-write', (_event, operation: EditOperation) =>
     writeSelection(operation, { force: true }),
   );
 
-  ipcMain.handle('cauldron:undo', () => undoLast());
-  ipcMain.handle('cauldron:redo', () => redoLast());
+  handle('cauldron:undo', () => undoLast());
+  handle('cauldron:redo', () => redoLast());
 
-  ipcMain.handle('cauldron:save-drafts', (_event, drafts: Draft[]) => {
+  handle('cauldron:save-drafts', (_event, drafts: Draft[]) => {
     if (!state.site) return false;
-    saveDrafts(state.site.root, drafts);
+    const content = loadDrafts(state.site.root).filter(
+      (draft) => draft.name === 'content',
+    );
+    saveDrafts(state.site.root, [...content, ...drafts]);
     return true;
   });
 
-  ipcMain.handle('cauldron:discard-drafts', () => {
+  handle(
+    'cauldron:content-draft',
+    (
+      _event,
+      payload: {
+        file: string;
+        field: string;
+        value: string | null;
+        baseHash: string;
+        schemaHash: string;
+      },
+    ) => {
+      if (!state.site) return false;
+      const key = `content:${payload.file}:${payload.field}`;
+      const drafts = loadDrafts(state.site.root).filter(
+        (draft) => draft.key !== key,
+      );
+      if (payload.value !== null)
+        drafts.push({
+          key,
+          file: payload.file,
+          field: `content:${payload.field}`,
+          value: payload.value,
+          baseHash: payload.baseHash,
+          schemaHash: payload.schemaHash,
+          name: 'content',
+          line: 1,
+          column: 1,
+          savedAt: Date.now(),
+        });
+      saveDrafts(state.site.root, drafts);
+      send('cauldron:drafts', { drafts });
+      return true;
+    },
+  );
+
+  handle('cauldron:discard-drafts', () => {
     if (!state.site) return false;
     clearDrafts(state.site.root);
     send('cauldron:drafts', { drafts: [] });
     return true;
   });
 
-  ipcMain.handle(
-    'cauldron:new-page',
-    (_event, page: { path: string; title: string }) => createPage(page),
+  handle('cauldron:new-page', (_event, page: { path: string; title: string }) =>
+    createPage(page),
   );
 
-  ipcMain.handle('cauldron:restore-draft', (_event, draft: Draft) =>
+  handle('cauldron:restore-draft', (_event, draft: Draft) =>
     restoreDraft(draft),
   );
 
-  ipcMain.handle(
+  handle(
     'cauldron:run-start',
     (_event, payload: { tool: string; prompt: string }) => {
       const site = requireSite();
@@ -523,7 +679,7 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle('cauldron:run-finish', async (_event, id: string) => {
+  handle('cauldron:run-finish', async (_event, id: string) => {
     const site = requireSite();
     if ('problem' in site) return site;
     const afterLocs = await collectLocs();
@@ -544,7 +700,7 @@ function registerIpc(): void {
     return { ok: true, run: runSummary(run) };
   });
 
-  ipcMain.handle('cauldron:run-undo', (_event, id: string) => {
+  handle('cauldron:run-undo', (_event, id: string) => {
     const site = requireSite();
     if ('problem' in site) return site;
     const result = state.runs.undo(site.root, id);
@@ -558,23 +714,23 @@ function registerIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.handle('cauldron:runs', () => state.runs.list().map(runSummary));
+  handle('cauldron:runs', () => state.runs.list().map(runSummary));
 
-  ipcMain.handle('cauldron:action-catalogue', () => actionCatalogue());
+  handle('cauldron:action-catalogue', () => actionCatalogue());
 
-  ipcMain.handle('cauldron:collections', () => {
+  handle('cauldron:collections', () => {
     const site = requireSite();
     if ('problem' in site) return { collections: [] };
     return { collections: readCollections(site.root) };
   });
 
-  ipcMain.handle('cauldron:entry', (_event, file: string) => {
+  handle('cauldron:entry', (_event, file: string) => {
     const site = requireSite();
     if ('problem' in site) return site;
     return readEntry(site.root, file);
   });
 
-  ipcMain.handle(
+  handle(
     'cauldron:save-entry',
     (
       _event,
@@ -597,13 +753,13 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle('cauldron:repo-state', () => {
+  handle('cauldron:repo-state', () => {
     const site = requireSite();
     if ('problem' in site) return { isRepo: false, changes: [] };
     return repoState(site.root);
   });
 
-  ipcMain.handle(
+  handle(
     'cauldron:publish',
     (_event, payload: { message: string; push: boolean }) => {
       const site = requireSite();
@@ -620,13 +776,13 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle('cauldron:mac-build', () =>
+  handle('cauldron:mac-build', () =>
     macBuildInfo(
       app.isPackaged ? path.dirname(app.getAppPath()) : process.cwd(),
     ),
   );
 
-  ipcMain.handle(
+  handle(
     'cauldron:quality-run',
     async (_event, payload: { pages?: string[] }) => {
       const site = requireSite();
@@ -635,9 +791,9 @@ function registerIpc(): void {
       const pages =
         payload?.pages && payload.pages.length > 0
           ? payload.pages
-          : readCollections(site.root).length === 0
-            ? ['/']
-            : ['/'];
+          : listPages(site.root)
+              .map((item) => item.page)
+              .filter((page) => !page.includes('['));
       const report = await checkSite({
         root: site.root,
         direction,
@@ -656,7 +812,7 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle('cauldron:library', () => ({
+  handle('cauldron:library', () => ({
     pieces: LIBRARY.map((piece) => ({
       id: piece.id,
       name: piece.name,
@@ -671,7 +827,7 @@ function registerIpc(): void {
     links: LINKS_SHELF,
   }));
 
-  ipcMain.handle(
+  handle(
     'cauldron:add-piece',
     async (
       _event,
@@ -704,11 +860,11 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle('cauldron:mcp-info', () =>
+  handle('cauldron:mcp-info', () =>
     state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
   );
 
-  ipcMain.handle('cauldron:directions', () =>
+  handle('cauldron:directions', () =>
     DIRECTIONS.map((direction) => ({
       id: direction.id,
       name: direction.name,
@@ -727,11 +883,49 @@ function registerIpc(): void {
     })),
   );
 
-  ipcMain.handle('cauldron:direction', () =>
-    state.site ? readDirection(state.site.root) : null,
-  );
+  handle('cauldron:direction', () => {
+    const direction = state.site ? readDirection(state.site.root) : null;
+    return direction
+      ? {
+          ...direction,
+          fonts: {
+            display: direction.fonts.display.family,
+            body: direction.fonts.body.family,
+          },
+        }
+      : null;
+  });
 
-  ipcMain.handle('cauldron:set-direction', (_event, id: string) => {
+  handle('cauldron:reference-direction', async (_event, url: string) => {
+    const site = requireSite();
+    if ('problem' in site) return { ok: false, problem: site.problem };
+    try {
+      const direction = await directionFromUrl(url);
+      if (state.site?.root !== site.root)
+        return {
+          ok: false,
+          problem: 'The open site changed. Nothing was saved.',
+        };
+      const result = writeDirection(site.root, direction);
+      return result.ok
+        ? {
+            ok: true,
+            direction: {
+              ...direction,
+              fonts: {
+                display: direction.fonts.display.family,
+                body: direction.fonts.body.family,
+              },
+            },
+          }
+        : result;
+    } catch (error) {
+      console.error('Reference direction failed:', error);
+      return { ok: false, problem: (error as Error).message };
+    }
+  });
+
+  handle('cauldron:set-direction', (_event, id: string) => {
     const result = setDirectionTo(id);
     if ('ok' in result && result.ok) {
       status(
@@ -741,22 +935,19 @@ function registerIpc(): void {
     return result;
   });
 
-  ipcMain.handle(
+  handle(
     'cauldron:agent-send',
     (_event, payload: { tool: AgentTool; request: string }) =>
       sendAgent(payload),
   );
 
-  ipcMain.handle('cauldron:agent-cancel', () => {
+  handle('cauldron:agent-cancel', () => {
     state.agent?.cancel();
-    state.agent = null;
-    if (state.agentRunId) state.runs.fail(state.agentRunId, 'Cancelled.');
-    state.agentRunId = null;
-    send('cauldron:agent-event', { type: 'status', text: 'Cancelled.' });
+    send('cauldron:agent-event', { type: 'status', text: 'Cancelling…' });
     return true;
   });
 
-  ipcMain.handle('cauldron:highlight', (_event, id: string, on: boolean) => {
+  handle('cauldron:highlight', (_event, id: string, on: boolean) => {
     const run = state.runs.get(id);
     if (!run) return false;
     highlightLocs(
@@ -766,10 +957,10 @@ function registerIpc(): void {
     return true;
   });
 
-  ipcMain.handle('cauldron:run-action', (_event, request: unknown) => {
+  handle('cauldron:run-action', (_event, request: unknown) => {
     const site = requireSite();
     if ('problem' in site) return site;
-    return runAction(site.root, request as ActionRequest);
+    return sharedAction(request as ActionRequest);
   });
 
   registerPreviewIpc();
@@ -791,7 +982,7 @@ async function createPage(page: { path: string; title: string }) {
   if (fs.existsSync(file))
     return { problem: 'A page already exists at that address.' };
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const title = page.title.trim() || clean;
+  const title = escapeText(page.title.trim() || clean);
   fs.writeFileSync(
     file,
     `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`,
@@ -799,6 +990,27 @@ async function createPage(page: { path: string; title: string }) {
   );
   const url = new URL(`/${clean}/`, state.server?.url ?? 'http://127.0.0.1/')
     .href;
+  // Astro 6's route watcher is asynchronous. Wait for the new route, then
+  // navigate once; loading its temporary 404 does not subscribe to HMR.
+  let ready = false;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      /* The dev server may still be updating its route table. */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (!ready)
+    return {
+      ok: false,
+      problem:
+        'The page was created, but Astro has not made its preview ready yet.',
+    };
   await state.preview.load(url);
   status(`Created ${path.relative(site.root, file)}`);
   return { ok: true, file: path.relative(site.root, file), url };
@@ -812,6 +1024,35 @@ function restoreDraft(draft: Draft): { ok: boolean; problem?: string } {
   if (!isInside(site.root, file))
     return { ok: false, problem: 'That draft is not from this site.' };
   const disk = readFile(file);
+  if (!draft.baseHash || disk.hash !== draft.baseHash) {
+    return {
+      ok: false,
+      problem:
+        'The draft is kept, but its original file version no longer matches. Nothing was overwritten.',
+    };
+  }
+  if (draft.name === 'content') {
+    const result = saveEntry(
+      site.root,
+      draft.file,
+      draft.baseHash,
+      draft.field === 'content:text'
+        ? { text: draft.value }
+        : {
+            field: draft.field.replace(/^content:/, ''),
+            value: draft.value,
+            schemaHash: draft.schemaHash,
+          },
+    );
+    if (result.ok) {
+      const remaining = loadDrafts(site.root).filter(
+        (item) => item.key !== draft.key,
+      );
+      saveDrafts(site.root, remaining);
+      send('cauldron:drafts', { drafts: remaining });
+    }
+    return result;
+  }
   const location: Location = {
     file,
     line: draft.line,
@@ -842,24 +1083,29 @@ function restoreDraft(draft: Draft): { ok: boolean; problem?: string } {
 }
 
 function registerPreviewIpc(): void {
-  ipcMain.handle('cauldron:preview-bounds', (_event, bounds) => {
+  handle('cauldron:preview-bounds', (_event, bounds) => {
     state.preview.setBounds(bounds);
     return true;
   });
 
-  ipcMain.handle('cauldron:preview-reload', () => {
+  handle('cauldron:preview-reload', () => {
     state.preview.reload();
     return true;
   });
 
-  ipcMain.handle('cauldron:pick-mode', (_event, on: boolean) => {
+  handle('cauldron:pick-mode', (_event, on: boolean) => {
     state.preview.webContents?.send('preview:mode', on);
     return true;
   });
 
   ipcMain.on(
     'preview:report',
-    (_event, report: { kind: string; payload: unknown }) => {
+    (event, report: { kind: string; payload: unknown }) => {
+      if (
+        event.sender !== state.preview.webContents ||
+        event.senderFrame !== event.sender.mainFrame
+      )
+        return;
       if (report.kind === 'height') {
         send('cauldron:preview-height', report.payload);
         return;
@@ -919,6 +1165,7 @@ function handlePick(payload: unknown): void {
   pushSelection();
 }
 
+let lastAgentEvents: Array<{ type: string; text?: string; name?: string }> = [];
 let agentDoneWaiter:
   | ((result: { ok: boolean; runId?: string; note?: string }) => void)
   | null = null;
@@ -970,7 +1217,7 @@ async function finishAgentRun(note: string): Promise<void> {
   state.preview.reload();
   status(run.note);
   send('cauldron:agent-done', { runId: id, note: run.note });
-  agentDoneWaiter?.({ ok: true, runId: id, note: run.note });
+  agentDoneWaiter?.({ ok: !note, runId: id, note: run.note });
   agentDoneWaiter = null;
 }
 
@@ -1027,6 +1274,7 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -1043,6 +1291,7 @@ function createWindow(): BrowserWindow {
   state.preview.attach(window, path.join(__dirname, 'preview-preload.js'));
 
   window.on('closed', () => {
+    state.agent?.cancel();
     state.window = null;
     // The view goes with the window; tear it down once, safely.
     state.preview.destroy();
@@ -1113,6 +1362,10 @@ function harnessApi() {
     openSiteAt,
     startPreview,
     previewLoad: (url: string) => state.preview.load(url),
+    previewBridgeAbsent: () =>
+      state.preview.webContents?.executeJavaScript(
+        'typeof window.cauldron === "undefined" && typeof window.require === "undefined" && typeof window.process === "undefined"',
+      ),
     previewHtml: () =>
       state.preview.webContents?.executeJavaScript(
         'document.documentElement.outerHTML',
@@ -1125,7 +1378,7 @@ function harnessApi() {
       state.preview.webContents?.executeJavaScript(
         `(() => {
                 const wanted = ['H1','H2','H3','H4','P','LI','A','SPAN','BUTTON'];
-                const els = [...document.querySelectorAll('[data-astro-source-loc]')].filter((el) =>
+                const els = [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')].filter((el) =>
                   el.children.length === 0 &&
                   el.textContent.trim().length > 2 &&
                   wanted.includes(el.tagName)
@@ -1144,7 +1397,7 @@ function harnessApi() {
     createPage: (page: { path: string; title: string }) => createPage(page),
     runAction: (request: unknown) =>
       state.site
-        ? runAction(state.site.root, request as ActionRequest)
+        ? sharedAction(request as ActionRequest)
         : { ok: false, problem: 'No site.' },
     startRun: (payload: { tool: string; prompt: string }) => {
       if (!state.site) return { ok: false };
@@ -1183,6 +1436,22 @@ function harnessApi() {
     sendAgent: (payload: { tool: AgentTool; request: string }) =>
       sendAgent(payload),
     waitForAgent: (timeout: number) => waitForAgentDone(timeout),
+    settleRenderer: async () => {
+      const contents = state.window?.webContents;
+      if (!contents || contents.isDestroyed()) return;
+      await contents.executeJavaScript(
+        `new Promise(resolve => setTimeout(resolve, 0)).then(() => window.cauldron.runs())`,
+      );
+    },
+    agentReply: () =>
+      lastAgentEvents
+        .filter((event) => event.type === 'text')
+        .map((event) => event.text ?? '')
+        .join('\n'),
+    agentTools: () =>
+      lastAgentEvents
+        .filter((event) => event.type === 'tool')
+        .map((event) => event.name ?? ''),
     buildPromptText: (request: string) => {
       const site = state.site;
       const direction = site ? readDirection(site.root) : null;
@@ -1278,34 +1547,52 @@ export function start(): void {
       return;
     }
 
+    if (E2E_SITE && process.env.CAULDRON_TASTE_TEST) {
+      const { runTasteTest } = await import('./e2e');
+      await runTasteTest();
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_UI_TEST) {
+      const { runUiTest } = await import('./e2e');
+      await runUiTest(E2E_SITE, state.window!, state.preview, openSiteAt);
+      return;
+    }
+
     if (E2E_SITE && process.env.CAULDRON_PUBLISH_TEST) {
       const { runPublishTest } = await import('./e2e');
       await runPublishTest(E2E_SITE, harnessApi() as never);
+      return;
     }
 
     if (E2E_SITE && process.env.CAULDRON_QUALITY_TEST) {
       const { runQualityTest } = await import('./e2e');
       await runQualityTest(E2E_SITE, harnessApi() as never);
+      return;
     }
 
     if (E2E_SITE && process.env.CAULDRON_LIBRARY_TEST) {
       const { runLibraryTest } = await import('./e2e');
       await runLibraryTest(E2E_SITE, harnessApi() as never);
+      return;
     }
 
     if (E2E_SITE && process.env.CAULDRON_CONTENT_TEST) {
       const { runContentTest } = await import('./e2e');
       await runContentTest(E2E_SITE, harnessApi() as never);
+      return;
     }
 
     if (E2E_SITE && process.env.CAULDRON_AGENT_TEST) {
       const { runAgentTest } = await import('./e2e');
       await runAgentTest(E2E_SITE, harnessApi() as never);
+      return;
     }
 
     if (E2E_SITE) {
       const { runEndToEnd } = await import('./e2e');
       await runEndToEnd(E2E_SITE, harnessApi() as never);
+      return;
     }
 
     app.on('activate', () => {

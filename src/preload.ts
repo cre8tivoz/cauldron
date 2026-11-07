@@ -51,6 +51,8 @@ const api = {
 
   directions: () => ipcRenderer.invoke('cauldron:directions'),
   direction: () => ipcRenderer.invoke('cauldron:direction'),
+  referenceDirection: (url: string) =>
+    ipcRenderer.invoke('cauldron:reference-direction', url),
   setDirection: (id: string) =>
     ipcRenderer.invoke('cauldron:set-direction', id),
   agentSend: (payload: { tool: string; request: string }) =>
@@ -83,6 +85,13 @@ const api = {
   redo: () => ipcRenderer.invoke('cauldron:redo'),
   clearSelection: () => ipcRenderer.invoke('cauldron:selection-clear'),
 
+  contentDraft: (payload: {
+    file: string;
+    field: string;
+    value: string | null;
+    baseHash: string;
+    schemaHash: string;
+  }) => ipcRenderer.invoke('cauldron:content-draft', payload),
   saveDrafts: (drafts: unknown[]) =>
     ipcRenderer.invoke('cauldron:save-drafts', drafts),
   discardDrafts: () => ipcRenderer.invoke('cauldron:discard-drafts'),

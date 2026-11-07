@@ -45,13 +45,23 @@ export function ContentPanel({ site, onBack }: Props) {
     collection.entries.some((item) => item.file === openFile),
   );
 
+  const keepDraft = (field: string, value: string | null) => {
+    if (entry && openFile)
+      void window.cauldron.contentDraft({
+        file: openFile,
+        field,
+        value,
+        baseHash: entry.hash,
+        schemaHash: entry.schemaHash,
+      });
+  };
   const save = async (change: Record<string, string>) => {
     if (!openFile || !entry) return;
     setProblem(null);
     const result = await window.cauldron.saveEntry({
       file: openFile,
       baseHash: entry.hash,
-      change,
+      change: { ...change, schemaHash: entry.schemaHash },
     });
     if (!result.ok) {
       setProblem(
@@ -59,6 +69,7 @@ export function ContentPanel({ site, onBack }: Props) {
       );
       return;
     }
+    keepDraft(change.field ?? 'text', null);
     setSaved('Saved.');
     await open(openFile);
   };
@@ -168,7 +179,10 @@ export function ContentPanel({ site, onBack }: Props) {
                   <textarea
                     rows={18}
                     value={asText}
-                    onChange={(event) => setAsText(event.target.value)}
+                    onChange={(event) => {
+                      setAsText(event.target.value);
+                      keepDraft('text', event.target.value);
+                    }}
                     style={{
                       width: '100%',
                       fontFamily:
@@ -204,12 +218,13 @@ export function ContentPanel({ site, onBack }: Props) {
                         <select
                           id={`content-${field.name}`}
                           value={values[field.name] ?? ''}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setValues((current) => ({
                               ...current,
                               [field.name]: event.target.value,
-                            }))
-                          }
+                            }));
+                            keepDraft(field.name, event.target.value);
+                          }}
                         >
                           <option value="">—</option>
                           {field.options.map((option) => (
@@ -229,12 +244,13 @@ export function ContentPanel({ site, onBack }: Props) {
                                 : 'text'
                           }
                           value={values[field.name] ?? ''}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setValues((current) => ({
                               ...current,
                               [field.name]: event.target.value,
-                            }))
-                          }
+                            }));
+                            keepDraft(field.name, event.target.value);
+                          }}
                         />
                       )}
                       <span className="notice-actions">

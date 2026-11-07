@@ -64,7 +64,7 @@ export class Preview {
   load(url: string): Promise<void> {
     const contents = this.webContents;
     if (!contents) return Promise.resolve();
-    return contents.loadURL(url).catch(() => undefined);
+    return contents.loadURL(url);
   }
 
   reload(): void {

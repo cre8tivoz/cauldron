@@ -19,7 +19,8 @@
     "lint:fix": "oxlint --fix && oxfmt --write",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "check": "npm run typecheck && npm run lint"
+    "test": "node scripts/test-core.mjs && node scripts/test-agent.mjs",
+    "check": "npm run typecheck && npm run lint && npm test"
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",

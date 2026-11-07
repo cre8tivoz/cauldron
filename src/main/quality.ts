@@ -4,6 +4,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { BrowserWindow, app } from 'electron';
 import type { DesignDirection } from './directions';
+import { measureTaste } from './taste-check';
 
 /**
  * Quality checks on the built site (plan 4.4): layout overflow, keyboard use,
@@ -108,6 +109,7 @@ export function serveDist(
 
 /** Everything a page can tell us about itself, measured in a real browser. */
 const PAGE_PROBE = `(async () => {
+  await document.fonts.ready;
   const result = {};
 
   const text = (el) => (el.textContent || '').replace(/\\s+/g, ' ').trim();
@@ -329,6 +331,13 @@ export async function runAxe(
   const source = axeSource();
   if (!source) return null;
   try {
+    await window.webContents.executeJavaScript(`(async () => {
+      await document.fonts.ready;
+      await Promise.race([
+        Promise.allSettled(document.getAnimations().filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime)).map(animation => animation.finished)),
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]);
+    })()`);
     await window.webContents.executeJavaScript(
       `${source}\n;Boolean(window.axe)`,
     );
@@ -536,62 +545,7 @@ export async function checkSite(options: {
             page,
           });
 
-          const pureBlack = data.pureBlack as number;
-          findings.push({
-            id: `black-${page}`,
-            label: 'No pure black',
-            status: pureBlack === 0 ? 'pass' : 'fail',
-            detail:
-              pureBlack === 0
-                ? 'No #000000 text or background.'
-                : `${pureBlack} element(s) use pure black.`,
-            page,
-          });
-
-          const cardsInCards = data.cardsInCards as number;
-          findings.push({
-            id: `cards-${page}`,
-            label: 'No cards inside cards',
-            status: cardsInCards === 0 ? 'pass' : 'fail',
-            detail:
-              cardsInCards === 0
-                ? 'No bordered or filled panel sits inside another.'
-                : `${cardsInCards} element(s) are a panel inside a panel.`,
-            page,
-          });
-
-          const gradientTrouble = data.bluePurpleGradients as number;
-          findings.push({
-            id: `gradient-${page}`,
-            label: 'No tired blue-purple gradients',
-            status: gradientTrouble === 0 ? 'pass' : 'fail',
-            detail:
-              gradientTrouble === 0
-                ? 'No blue-purple gradients.'
-                : `${gradientTrouble} gradient(s) run blue into purple.`,
-            page,
-          });
-
           if (options.direction) {
-            const spacing = new Set(
-              options.direction.spacing.map((step) => Math.round(step)),
-            );
-            const used = data.spacing as number[];
-            const offRhythm = used.filter(
-              (value) =>
-                ![...spacing].some((token) => Math.abs(token - value) <= 1),
-            );
-            findings.push({
-              id: `spacing-${page}`,
-              label: 'Spacing follows the direction',
-              status: offRhythm.length === 0 ? 'pass' : 'fail',
-              detail:
-                offRhythm.length === 0
-                  ? `Every one of ${used.length} spacing values is on the scale.`
-                  : `Off the rhythm: ${offRhythm.slice(0, 8).join('px, ')}px`,
-              page,
-            });
-
             const hierarchy = data.hierarchy as {
               headingSizes: Record<string, number>;
               bodySize: number;
@@ -620,6 +574,14 @@ export async function checkSite(options: {
           }
 
           const axe = await runAxe(window);
+          if (!axe)
+            findings.push({
+              id: `axe-${page}`,
+              label: 'Automated accessibility (axe)',
+              status: 'unknown',
+              detail: 'axe could not run; accessibility is not verified.',
+              page,
+            });
           if (axe) {
             findings.push({
               id: `axe-${page}`,
@@ -638,18 +600,6 @@ export async function checkSite(options: {
             });
           }
 
-          const focusWithout = data.focusWithoutIndicator as string[];
-          findings.push({
-            id: `focus-${page}`,
-            label: 'Focus is visible on controls',
-            status: focusWithout.length === 0 ? 'pass' : 'fail',
-            detail:
-              focusWithout.length === 0
-                ? `Checked ${data.focusableCount} controls.`
-                : `${focusWithout.length} control(s) show no focus change: ${focusWithout.slice(0, 5).join(', ')}`,
-            page,
-          });
-
           measured.push({
             label: `Load (${page})`,
             value: `${(data.timing as { load: number } | null)?.load ?? 0}ms`,
@@ -664,55 +614,35 @@ export async function checkSite(options: {
           });
 
           if (options.direction) {
-            const scale = new Set(
-              options.direction.typeScale.map(
-                (size) => Math.round(size * 100) / 100,
-              ),
-            );
-            const used = data.type as number[];
-            const offScale = used.filter(
-              (size) =>
-                ![...scale].some((token) => Math.abs(token - size) < 0.6),
-            );
-            findings.push({
-              id: `type-${page}`,
-              label: 'Type sizes use the direction',
-              status: offScale.length === 0 ? 'pass' : 'fail',
-              detail:
-                offScale.length === 0
-                  ? 'Every size is on the scale.'
-                  : `Off the scale: ${offScale.slice(0, 6).join('px, ')}px`,
-              page,
-            });
-
-            const families = (data.families as string[]).map((family) =>
-              family.toLowerCase(),
-            );
-            const named = [
-              options.direction.fonts.display.family.toLowerCase(),
-              options.direction.fonts.body.family.toLowerCase(),
-            ];
-            const defaultFonts = ['inter', 'roboto', 'arial', 'system-ui'];
-            const lazy = families.filter(
-              (family) =>
-                defaultFonts.includes(family) && !named.includes(family),
-            );
-            findings.push({
-              id: `fonts-${page}`,
-              label: 'Fonts follow the direction',
-              status: lazy.length === 0 ? 'pass' : 'fail',
-              detail:
-                lazy.length === 0
-                  ? `Using ${families.join(', ')}.`
-                  : `A default font is in use that the direction does not name: ${lazy.join(', ')}`,
-              page,
-            });
+            try {
+              findings.push(
+                ...(await measureTaste(window, options.direction, page)),
+              );
+            } catch (error) {
+              findings.push({
+                id: `taste-${page}`,
+                label: 'Taste checks',
+                status: 'unknown',
+                detail: String(error),
+                page,
+              });
+            }
           }
 
           const links = data.links as string[];
-          const internal = links.filter(
-            (href) => href.startsWith('/') && !href.startsWith('//'),
-          );
+          const internal = links
+            .map((href) => {
+              try {
+                return new URL(href, url);
+              } catch {
+                return null;
+              }
+            })
+            .filter(
+              (link): link is URL =>
+                Boolean(link) && link!.origin === new URL(server.url).origin,
+            )
+            .map((link) => link.pathname + link.search + link.hash);
           const broken: string[] = [];
           for (const href of [...new Set(internal)].slice(0, 60)) {
             try {

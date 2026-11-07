@@ -23,8 +23,20 @@ export function writeFileAtomic(file: string, text: string): string {
 }
 
 export function isInside(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
+  // Resolve existing ancestors as well as the target, including files not created yet.
+  const real = (file: string): string => {
+    const absolute = path.resolve(file);
+    if (fs.existsSync(absolute)) return fs.realpathSync(absolute);
+    const parent = path.dirname(absolute);
+    return parent === absolute
+      ? absolute
+      : path.join(real(parent), path.basename(absolute));
+  };
+  const relative = path.relative(real(root), real(target));
   return (
-    relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
   );
 }

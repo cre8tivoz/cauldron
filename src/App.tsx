@@ -68,6 +68,8 @@ export function App() {
         site: CauldronSite | null;
         drafts: CauldronDraft[];
       };
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+      draftValues.current.clear();
       setSite(next.site);
       setDrafts(next.drafts ?? []);
       void window.cauldron.direction().then(setDirection);
@@ -134,7 +136,17 @@ export function App() {
       observer.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [agentWidth, inspectorWidth, agentCollapsed, inspectorCollapsed]);
+  }, [agentWidth, inspectorWidth, agentCollapsed, inspectorCollapsed, view]);
+
+  useEffect(() => {
+    if (view !== 'build')
+      void window.cauldron.setPreviewBounds({
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      });
+  }, [view]);
 
   useEffect(() => {
     void window.cauldron.pickMode(picking);
@@ -153,6 +165,7 @@ export function App() {
         name: selection.name,
         field,
         value,
+        baseHash: selection.baseHash,
         savedAt: Date.now(),
       });
       if (draftTimer.current) clearTimeout(draftTimer.current);
@@ -191,6 +204,8 @@ export function App() {
         setConflict(null);
         if (result.selection) setSelection(result.selection);
         draftValues.current.clear();
+        if (draftTimer.current) clearTimeout(draftTimer.current);
+        await window.cauldron.saveDrafts([]);
         return;
       }
       if (result.conflict) {

@@ -127,13 +127,16 @@ export function startDevServer(
     });
 
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (result: DevServer | Problem) => {
       if (settled) return;
       settled = true;
+      if (timer) clearTimeout(timer);
       resolve(result);
     };
 
     const onLine = (raw: string) => {
+      // oxlint-disable-next-line no-control-regex -- Astro may emit ANSI colour codes.
       const line = raw.replace(/\u001b\[[0-9;]*m/g, '').trimEnd();
       if (!line) return;
       onOutput(line);
@@ -180,7 +183,9 @@ export function startDevServer(
       });
     });
 
-    setTimeout(() => {
+    timer = setTimeout(() => {
+      if (settled) return;
+      child.kill('SIGTERM');
       finish({
         problem: 'The Astro dev server took too long to start.',
         detail: 'Nothing was ready after 60 seconds.',

@@ -21,6 +21,43 @@ export type HistoryState = { canUndo: boolean; canRedo: boolean };
  * One history for everything that writes a file, so Undo means the same thing
  * whether the change came from the inspector, a page action or (later) an agent run.
  */
+/** Reapply a single surgical change only when its original context is unambiguous. */
+function mergeRegion(
+  base: string,
+  wanted: string,
+  disk: string,
+): string | null {
+  if (disk === base) return wanted;
+  let start = 0;
+  while (
+    start < base.length &&
+    start < wanted.length &&
+    base[start] === wanted[start]
+  )
+    start++;
+  let end = base.length;
+  let wantedEnd = wanted.length;
+  while (
+    end > start &&
+    wantedEnd > start &&
+    base[end - 1] === wanted[wantedEnd - 1]
+  ) {
+    end--;
+    wantedEnd--;
+  }
+  const left = base.slice(Math.max(0, start - 80), start);
+  const right = base.slice(end, end + 80);
+  const region = left + base.slice(start, end) + right;
+  if (!region) return null;
+  const at = disk.indexOf(region);
+  if (at < 0 || disk.indexOf(region, at + 1) >= 0) return null;
+  return (
+    disk.slice(0, at + left.length) +
+    wanted.slice(start, wantedEnd) +
+    disk.slice(at + left.length + end - start)
+  );
+}
+
 export class History {
   private changes: Change[] = [];
   private cursor = 0;
@@ -52,15 +89,16 @@ export class History {
     } catch {
       return { problem: 'The file being undone no longer exists.' };
     }
-    if (disk.hash !== change.afterHash) {
+    const restored = mergeRegion(change.after, change.before, disk.text);
+    if (restored === null) {
       return {
         problem:
           'That change cannot be undone because the file has changed since. Nothing was overwritten.',
       };
     }
-    writeFileAtomic(change.file, change.before);
+    writeFileAtomic(change.file, restored);
     this.cursor -= 1;
-    return { change, diskText: change.before };
+    return { change, diskText: restored };
   }
 
   redo(): { change: Change } | { problem: string } {
@@ -72,13 +110,14 @@ export class History {
     } catch {
       return { problem: 'The file being redone no longer exists.' };
     }
-    if (disk.hash !== change.beforeHash) {
+    const restored = mergeRegion(change.before, change.after, disk.text);
+    if (restored === null) {
       return {
         problem:
           'That change cannot be redone because the file has changed since. Nothing was overwritten.',
       };
     }
-    writeFileAtomic(change.file, change.after);
+    writeFileAtomic(change.file, restored);
     this.cursor += 1;
     return { change };
   }

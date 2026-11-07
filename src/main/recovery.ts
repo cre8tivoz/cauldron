@@ -11,6 +11,8 @@ export type Draft = {
   name: string;
   field: string;
   value: string;
+  baseHash?: string;
+  schemaHash?: string;
   savedAt: number;
 };
 

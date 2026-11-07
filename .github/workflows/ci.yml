@@ -18,4 +18,30 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm test
       - run: npm run smoke
+      - run: npm run make
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Cauldron-Mac-${{ github.sha }}
+          path: out/make/zip/darwin/arm64/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  separate-mac-launch:
+    needs: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: Cauldron-Mac-${{ github.sha }}
+          path: download
+      - name: Unzip and launch the actual download on a fresh Mac
+        shell: python
+        run: |
+          import glob, os, pathlib, subprocess
+          archive, = glob.glob('download/*.zip')
+          destination = pathlib.Path(os.environ['RUNNER_TEMP']) / 'Cauldron-first-launch'
+          subprocess.run(['/usr/bin/ditto', '-x', '-k', archive, str(destination)], check=True)
+          executable, = destination.glob('**/Cauldron.app/Contents/MacOS/Cauldron')
+          subprocess.run([str(executable)], env={**os.environ, 'CAULDRON_SMOKE': '1'}, timeout=60, check=True)

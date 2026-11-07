@@ -19,6 +19,8 @@ export function LibraryPanel({ site, onBack }: Props) {
   const [page, setPage] = useState('/');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [replaceTag, setReplaceTag] = useState('');
+  const [lastRun, setLastRun] = useState<string | null>(null);
 
   useEffect(() => {
     void window.cauldron.library().then((result) => {
@@ -35,19 +37,21 @@ export function LibraryPanel({ site, onBack }: Props) {
     });
   }, [site?.root]);
 
-  const add = async (piece: CauldronPiece) => {
+  const add = async (piece: CauldronPiece, mode: 'add' | 'replace' = 'add') => {
     setBusy(piece.id);
     setMessage(null);
     const result = await window.cauldron.addPiece({
       pieceId: piece.id,
       page,
-      mode: 'add',
+      mode,
+      replaceSelector: mode === 'replace' ? replaceTag.trim() : undefined,
     });
     setBusy(null);
     if (!result.ok) {
       setMessage(result.problem ?? 'That piece could not be added.');
       return;
     }
+    setLastRun(result.runId ?? null);
     setMessage(
       `${piece.name} was copied into the site and placed on ${result.page}.`,
     );
@@ -89,6 +93,30 @@ export function LibraryPanel({ site, onBack }: Props) {
       </div>
 
       {!site ? <p className="hint">Open a site first.</p> : null}
+      <label className="field" style={{ marginTop: 12 }}>
+        Replace component tag (for example Editorialintro)
+        <input
+          value={replaceTag}
+          onChange={(event) => setReplaceTag(event.target.value)}
+        />
+      </label>
+      {lastRun ? (
+        <button
+          className="button"
+          type="button"
+          onClick={async () => {
+            const result = await window.cauldron.undoRun(lastRun);
+            setMessage(
+              result.ok
+                ? 'Library change undone.'
+                : (result.problem ?? 'Undo refused.'),
+            );
+            if (result.ok) setLastRun(null);
+          }}
+        >
+          Undo library change
+        </button>
+      ) : null}
       {message ? (
         <div className="notice" style={{ marginTop: 12 }}>
           {message}
@@ -146,6 +174,14 @@ export function LibraryPanel({ site, onBack }: Props) {
                 disabled={!site || busy === piece.id}
               >
                 {busy === piece.id ? 'Adding…' : `Add to ${page}`}
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={() => void add(piece, 'replace')}
+                disabled={!site || busy !== null || !replaceTag.trim()}
+              >
+                Replace {replaceTag.trim() || 'a component'}
               </button>
             </div>
           </div>

@@ -328,7 +328,16 @@ export function tokensCss(direction: DesignDirection): string {
     .map((radius, index) => `  --cauldron-radius-${index}: ${radius}px;`)
     .join('\n');
 
-  return `/* ${direction.name} — chosen in Cauldron. The site owns this file. */
+  const families = [direction.fonts.display, direction.fonts.body]
+    .filter((font) => font.package.startsWith('@fontsource/'))
+    .map(
+      (font) =>
+        `family=${encodeURIComponent(font.family).replace(/%20/g, '+')}:wght@${font.weights.join(';')}`,
+    );
+  const fontImport = families.length
+    ? `@import url('https://fonts.googleapis.com/css2?${[...new Set(families)].join('&')}&display=swap');\n`
+    : '';
+  return `${fontImport}/* ${direction.name} — chosen in Cauldron. The site owns this file. */
 :root {
 ${colours}
 ${sizes}
@@ -450,7 +459,16 @@ export function readDirection(root: string): DesignDirection | null {
       fs.readFileSync(path.join(root, 'cauldron/design.json'), 'utf8'),
     ) as {
       id?: string;
+      tokens?: DesignDirection;
     };
+    if (
+      parsed.tokens &&
+      parsed.tokens.id === parsed.id &&
+      Array.isArray(parsed.tokens.typeScale) &&
+      parsed.tokens.fonts?.display?.family &&
+      parsed.tokens.colours
+    )
+      return parsed.tokens;
     return parsed.id ? findDirection(parsed.id) : null;
   } catch {
     return null;

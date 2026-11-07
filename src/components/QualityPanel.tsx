@@ -20,7 +20,7 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
   const run = async () => {
     setRunning(true);
     setMessage(null);
-    const result = await window.cauldron.qualityRun({ pages: ['/'] });
+    const result = await window.cauldron.qualityRun({});
     setRunning(false);
     setReport(result);
     if (!result.built)
@@ -44,6 +44,8 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
 
   const failures =
     report?.findings.filter((finding) => finding.status === 'fail') ?? [];
+  const unknown =
+    report?.findings.filter((finding) => finding.status === 'unknown') ?? [];
   const passes =
     report?.findings.filter((finding) => finding.status === 'pass') ?? [];
 
@@ -93,10 +95,12 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
         <>
           <h3 style={{ fontSize: 13, marginTop: 18 }}>
             {failures.length === 0
-              ? 'Everything measured passes'
+              ? unknown.length
+                ? `${unknown.length} checks could not be verified`
+                : 'Everything measured passes'
               : `${failures.length} to fix`}
           </h3>
-          {failures.map((finding) => (
+          {[...failures, ...unknown].map((finding) => (
             <div
               className="notice bad"
               key={finding.id}

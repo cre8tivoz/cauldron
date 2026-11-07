@@ -6,7 +6,7 @@ export type AgentTool = 'claude' | 'codex' | 'hermes';
 
 export type AgentEvent =
   | { type: 'session'; sessionId: string }
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; delta?: boolean }
   | { type: 'tool'; name: string }
   | { type: 'status'; text: string }
   | { type: 'done'; text: string }
@@ -100,6 +100,8 @@ function normaliseClaude(line: string): AgentEvent[] {
   } catch {
     return events;
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    return events;
   const item = parsed as {
     type?: string;
     subtype?: string;
@@ -107,6 +109,7 @@ function normaliseClaude(line: string): AgentEvent[] {
     result?: string;
     api_error?: string;
     api_error_status?: number;
+    error?: string;
     message?: {
       content?: Array<{ type?: string; text?: string; name?: string }>;
     };
@@ -119,8 +122,17 @@ function normaliseClaude(line: string): AgentEvent[] {
     item.type === 'text' &&
     typeof (item as { text?: string }).text === 'string'
   ) {
-    events.push({ type: 'text', text: (item as { text: string }).text });
+    events.push({
+      type: 'text',
+      text: (item as { text: string }).text,
+      delta: true,
+    });
   }
+  if (
+    item.type === 'tool_use' &&
+    typeof (item as { name?: string }).name === 'string'
+  )
+    events.push({ type: 'tool', name: (item as { name: string }).name });
   if (item.type === 'assistant' && item.message?.content) {
     for (const block of item.message.content) {
       if (block.type === 'text' && block.text)
@@ -135,7 +147,8 @@ function normaliseClaude(line: string): AgentEvent[] {
     if (typeof exitCode === 'number' && exitCode !== 0) {
       events.push({
         type: 'error',
-        text: asText || `The agent stopped with code ${exitCode}.`,
+        text:
+          asText || item.error || `The agent stopped with code ${exitCode}.`,
       });
       return events;
     }
@@ -169,6 +182,8 @@ function normaliseJsonLines(line: string): AgentEvent[] {
   } catch {
     return events;
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    return events;
   const item = parsed as Record<string, unknown> & {
     msg?: Record<string, unknown>;
     session_id?: string;
@@ -176,7 +191,9 @@ function normaliseJsonLines(line: string): AgentEvent[] {
   if (typeof item.session_id === 'string')
     events.push({ type: 'session', sessionId: item.session_id });
 
-  const message = (item.msg ?? item) as Record<string, unknown>;
+  if (item.type === 'thread.started' && typeof item.thread_id === 'string')
+    events.push({ type: 'session', sessionId: item.thread_id });
+  const message = (item.item ?? item.msg ?? item) as Record<string, unknown>;
   const type = String(message.type ?? item.type ?? '');
   if (type.includes('session') && typeof message.id === 'string') {
     events.push({ type: 'session', sessionId: message.id });
@@ -189,10 +206,13 @@ function normaliseJsonLines(line: string): AgentEvent[] {
   if (text) events.push({ type: 'text', text });
   const name = (typeof message.name === 'string' && message.name) || '';
   if (name) events.push({ type: 'tool', name });
-  if (type.includes('error'))
+  if (type.includes('error') || type.includes('failed'))
     events.push({
       type: 'error',
-      text: text || 'The agent reported an error.',
+      text:
+        text ||
+        (item.error as { message?: string } | undefined)?.message ||
+        'The agent reported an error.',
     });
   return events;
 }
@@ -202,6 +222,7 @@ export function runAgent(options: {
   root: string;
   prompt: string;
   sessionId?: string;
+  mcp?: { url: string; code: string };
   onEvent: (event: AgentEvent) => void;
 }): AgentHandle {
   const { tool, root, prompt, sessionId, onEvent } = options;
@@ -220,6 +241,21 @@ export function runAgent(options: {
       '--permission-mode',
       'acceptEdits',
     ];
+    if (options.mcp)
+      args.push(
+        '--mcp-config',
+        JSON.stringify({
+          mcpServers: {
+            cauldron: {
+              type: 'http',
+              url: options.mcp.url,
+              headers: { 'x-cauldron-code': options.mcp.code },
+            },
+          },
+        }),
+        '--allowedTools',
+        'mcp__cauldron__*',
+      );
     if (sessionId) args.push('--resume', sessionId);
   } else if (tool === 'codex') {
     command = 'codex';
@@ -234,7 +270,14 @@ export function runAgent(options: {
       'workspace-write',
     ];
     if (sessionId)
-      args = ['exec', 'resume', sessionId, prompt, '--json', '-C', root];
+      args = [
+        'exec',
+        'resume',
+        sessionId,
+        prompt,
+        '--json',
+        '--skip-git-repo-check',
+      ];
   } else {
     command = 'hermes';
     args = ['chat', '-q', prompt, '--format', 'stream-json', '-Q'];
@@ -247,64 +290,69 @@ export function runAgent(options: {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const parse =
-    tool === 'claude' || tool === 'hermes'
-      ? normaliseClaude
-      : normaliseJsonLines;
-  let finished = false;
+  const parse = tool === 'codex' ? normaliseJsonLines : normaliseClaude;
+  let terminal: Extract<AgentEvent, { type: 'done' | 'error' }> | null = null;
   let saidSomething = '';
   let buffer = '';
+  let cancelled = false;
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const events = parse(line);
+    for (const event of events) {
+      if (event.type === 'done' || event.type === 'error') {
+        if (terminal?.type !== 'error') terminal = event;
+      } else {
+        if (event.type === 'text')
+          saidSomething = event.delta ? saidSomething + event.text : event.text;
+        onEvent(event);
+      }
+    }
+  };
   child.stdout?.setEncoding('utf8');
   child.stdout?.on('data', (chunk: string) => {
     buffer += chunk;
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const events = parse(line);
-      if (events.length === 0) {
-        saidSomething = line;
-        onEvent({ type: 'text', text: line });
-      }
-      for (const event of events) {
-        if (event.type === 'done' || event.type === 'error') finished = true;
-        if (event.type === 'text') saidSomething = event.text;
-        onEvent(event);
-      }
-    }
+    for (const line of lines) consume(line);
   });
-
   child.stderr?.setEncoding('utf8');
+  let stderr = '';
   child.stderr?.on('data', (chunk: string) => {
-    const text = chunk.trim();
-    if (text) onEvent({ type: 'status', text });
+    stderr = (stderr + chunk).slice(-2000);
+    if (chunk.trim()) onEvent({ type: 'status', text: chunk.trim() });
   });
-
   child.on('error', (error) => {
-    onEvent({
+    terminal = {
       type: 'error',
       text: `${command} could not start: ${error.message}`,
-    });
+    };
   });
-
-  child.on('exit', (code) => {
-    if (code !== 0) {
+  // close follows stdout/stderr draining; a result event is not proof the process exited.
+  child.on('close', (code) => {
+    consume(buffer);
+    if (cancelled) onEvent({ type: 'error', text: 'Cancelled.' });
+    else if (terminal?.type === 'error') onEvent(terminal);
+    else if (code !== 0)
       onEvent({
         type: 'error',
-        text: `${command} stopped with code ${code ?? 'unknown'}.`,
+        text: `${command} stopped with code ${code ?? 'unknown'}. ${stderr.trim()}`,
       });
-      return;
-    }
-    if (!finished) {
-      // The tool ended cleanly but never said it was done: close the run anyway.
-      onEvent({ type: 'done', text: saidSomething || `${command} finished.` });
-    }
+    else
+      onEvent(
+        terminal ?? {
+          type: 'done',
+          text: saidSomething || `${command} finished.`,
+        },
+      );
   });
 
   return {
     cancel: () => {
+      cancelled = true;
       child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 2000).unref();
+      setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+      }, 2000).unref();
     },
   };
 }

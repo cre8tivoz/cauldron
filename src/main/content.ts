@@ -81,14 +81,6 @@ function parseFields(schemaText: string): ContentField[] {
   return fields;
 }
 
-function collectionNames(schemaText: string): string[] {
-  return [
-    ...schemaText.matchAll(
-      /^const\s+([A-Za-z_][\w]*)\s*=\s*defineCollection/gm,
-    ),
-  ].map((match) => match[1]);
-}
-
 function frontmatterFields(file: string): ContentField[] {
   const text = fs.readFileSync(file, 'utf8');
   const match = /^---\n([\s\S]*?)\n---/.exec(text);
@@ -172,6 +164,7 @@ export type ContentEntry = {
   values: Record<string, string>;
   text: string;
   frontmatter: boolean;
+  schemaHash: string;
 };
 
 function parseFrontmatter(text: string): Record<string, string> {
@@ -181,7 +174,16 @@ function parseFrontmatter(text: string): Record<string, string> {
   for (const line of match[1].split('\n')) {
     const item = /^([A-Za-z_][\w]*)\s*:\s*(.*)$/.exec(line);
     if (!item) continue;
-    values[item[1]] = item[2].replace(/^['"]|['"]$/g, '');
+    const raw = item[2].trim();
+    if (raw.startsWith('"')) {
+      try {
+        values[item[1]] = JSON.parse(raw) as string;
+      } catch {
+        values[item[1]] = raw;
+      }
+    } else if (raw.startsWith("'") && raw.endsWith("'")) {
+      values[item[1]] = raw.slice(1, -1).replace(/''/g, "'");
+    } else values[item[1]] = raw;
   }
   return values;
 }
@@ -202,6 +204,10 @@ export function readEntry(
     values: frontmatter ? parseFrontmatter(disk.text) : {},
     text: disk.text,
     frontmatter,
+    schemaHash: schemaFiles(root)
+      .filter((file) => fs.existsSync(file))
+      .map((file) => hashOf(fs.readFileSync(file, 'utf8')))
+      .join(':'),
   };
 }
 
@@ -210,7 +216,12 @@ export function saveEntry(
   root: string,
   file: string,
   baseHash: string,
-  change: { field?: string; value?: string; text?: string },
+  change: {
+    field?: string;
+    value?: string;
+    text?: string;
+    schemaHash?: string;
+  },
 ): { ok: boolean; problem?: string; hash?: string } {
   const full = path.join(root, file);
   if (!isInside(root, full))
@@ -230,12 +241,57 @@ export function saveEntry(
   }
 
   const field = change.field ?? '';
-  const value = change.value ?? '';
+  if (!/^[A-Za-z_][\w]*$/.test(field))
+    return { ok: false, problem: 'Unknown field. Use plain-text editing.' };
+  const schemaHash = schemaFiles(root)
+    .filter((file) => fs.existsSync(file))
+    .map((file) => hashOf(fs.readFileSync(file, 'utf8')))
+    .join(':');
+  if (change.schemaHash !== schemaHash)
+    return {
+      ok: false,
+      problem: 'The content definition changed. Reload the form before saving.',
+    };
+  const definition = readCollections(root)
+    .find((collection) =>
+      collection.entries.some((entry) => entry.file === file),
+    )
+    ?.fields.find((item) => item.name === field);
+  let value = JSON.stringify(change.value ?? '');
+  if (definition?.type === 'number') {
+    if (!/^-?\d+(\.\d+)?$/.test(change.value ?? ''))
+      return { ok: false, problem: 'Enter a valid number.' };
+    value = change.value!;
+  } else if (definition?.type === 'boolean') {
+    if (!/^(true|false)$/.test(change.value ?? ''))
+      return { ok: false, problem: 'Enter true or false.' };
+    value = change.value!;
+  } else if (
+    definition?.type === 'unknown' ||
+    (definition?.type === 'list' && !definition.options)
+  ) {
+    return {
+      ok: false,
+      problem: 'This field needs plain-text editing to preserve its structure.',
+    };
+  } else if (
+    definition?.options &&
+    !definition.options.includes(change.value ?? '')
+  ) {
+    return { ok: false, problem: 'Choose one of the defined options.' };
+  }
   const match = /^---\n([\s\S]*?)\n---/.exec(disk.text);
   if (!match)
     return { ok: false, problem: 'This entry has no frontmatter to edit.' };
 
   const body = match[1];
+  const existing = new RegExp(`^${field}\\s*:\\s*(.*)$`, 'm').exec(body);
+  if (existing && /^[>|]|^\[|^\{/.test(existing[1])) {
+    return {
+      ok: false,
+      problem: 'This structured field needs plain-text editing.',
+    };
+  }
   const linePattern = new RegExp(`^${field}\\s*:.*$`, 'm');
   const line = `${field}: ${value}`;
   const nextBody = linePattern.test(body)

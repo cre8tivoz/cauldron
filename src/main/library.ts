@@ -34,12 +34,20 @@ function piece(
   // Scoped site rules like section[data-astro-cid] outrank a single class, so every
   // selector here carries the class twice and the piece keeps its own colours.
   const doubled = `.cauldron-${id}.cauldron-${id}`;
-  const strongStyles = styles.split(`.cauldron-${id}`).join(doubled);
+  const common = `
+.cauldron-${id} { font-family: var(--cauldron-font-body); font-size: var(--cauldron-size-3); }
+.cauldron-${id}, .cauldron-${id} * { border-radius: var(--cauldron-radius-0); }
+.cauldron-${id} p, .cauldron-${id} label, .cauldron-${id} input, .cauldron-${id} button { font-family: var(--cauldron-font-body); }
+.cauldron-${id} input:hover { border-color: var(--cauldron-c-primary); }
+.cauldron-${id} button:disabled, .cauldron-${id} input:disabled { opacity: .45; cursor: not-allowed; }
+`;
+  const strongStyles = (common + styles).split(`.cauldron-${id}`).join(doubled);
 
   const astro = `---
 // ${name} — Cauldron starter set.
 // Look adapted from ThreeUI Community (MIT, Copyright (c) 2026 Meng To).
 // Plain Astro, no client-side JavaScript. Edit freely: this file belongs to your site.
+${id === 'newsletter-footer' ? 'const emailId = `cauldron-email-${crypto.randomUUID()}`;' : ''}
 ---
 
 <section class="cauldron-${id}">
@@ -64,7 +72,7 @@ ${strongStyles}
     needsScript: false,
     codeAllowed: true,
     astro,
-    styles,
+    styles: common + styles,
     markup,
   };
 }
@@ -118,7 +126,7 @@ export const LIBRARY: LibraryPiece[] = [
   color: var(--cauldron-c-primary);
   text-decoration: none;
   border-bottom: 1px solid currentColor;
-  padding-bottom: 2px;
+  padding-bottom: var(--cauldron-space-2);
   transition: opacity var(--cauldron-motion-quick) var(--cauldron-motion-easing);
 }
 .cauldron-editorial-intro .action:hover {
@@ -146,9 +154,9 @@ export const LIBRARY: LibraryPiece[] = [
     <p>Nothing else. No noise, no weekly nagging.</p>
   </div>
   <form class="form" action="/" method="post">
-    <label for="cauldron-news-email">Email address</label>
+    <label for={emailId}>Email address</label>
     <div class="row">
-      <input id="cauldron-news-email" name="email" type="email" autocomplete="email" required />
+      <input id={emailId} name="email" type="email" autocomplete="email" required />
       <button type="submit">Join</button>
     </div>
   </form>
@@ -251,7 +259,7 @@ export const LIBRARY: LibraryPiece[] = [
   background: var(--cauldron-c-primary);
   filter: blur(28px);
   opacity: 0.35;
-  border-radius: 999px;
+  border-radius: var(--cauldron-radius-4);
   z-index: 0;
 }
 .cauldron-glow-action .glow {
@@ -264,7 +272,7 @@ export const LIBRARY: LibraryPiece[] = [
   color: var(--cauldron-c-surface);
   background: var(--cauldron-c-primary);
   border: 1px solid var(--cauldron-c-primary);
-  border-radius: 999px;
+  border-radius: var(--cauldron-radius-4);
   padding: var(--cauldron-space-3) var(--cauldron-space-5);
   text-decoration: none;
   transition:
@@ -273,7 +281,7 @@ export const LIBRARY: LibraryPiece[] = [
 }
 .cauldron-glow-action .glow:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--cauldron-c-ink) 12%, transparent);
 }
 .cauldron-glow-action .glow:focus-visible {
   outline: 2px solid var(--cauldron-c-ink);
@@ -302,12 +310,12 @@ export const LIBRARY: LibraryPiece[] = [
 }
 .cauldron-heading-reveal .reveal {
   font-family: var(--cauldron-font-display);
-  font-size: clamp(var(--cauldron-size-6), 7vw, var(--cauldron-size-9));
+  font-size: var(--cauldron-size-9);
   line-height: 1.02;
   letter-spacing: -0.03em;
   margin: 0;
   display: grid;
-  gap: 0.1em;
+  gap: var(--cauldron-space-2);
 }
 .cauldron-heading-reveal .reveal span {
   display: block;
@@ -323,6 +331,9 @@ export const LIBRARY: LibraryPiece[] = [
     opacity: 1;
     transform: none;
   }
+}
+@media (max-width: 640px) {
+  .cauldron-heading-reveal .reveal { font-size: var(--cauldron-size-6); }
 }
 @media (prefers-reduced-motion: reduce) {
   .cauldron-heading-reveal .reveal span {
@@ -438,7 +449,7 @@ export function piecePreview(piece_: LibraryPiece): string {
     --cauldron-size-9: 3.8125rem;
     --cauldron-space-1: 0.25rem; --cauldron-space-2: 0.5rem; --cauldron-space-3: 0.75rem; --cauldron-space-4: 1rem;
     --cauldron-space-5: 1.5rem; --cauldron-space-6: 2rem; --cauldron-space-7: 3rem; --cauldron-space-8: 4rem;
-    --cauldron-radius-0: 0px; --cauldron-radius-1: 4px; --cauldron-radius-2: 10px;
+    --cauldron-radius-0: 0px; --cauldron-radius-1: 4px; --cauldron-radius-2: 10px; --cauldron-radius-4: 999px;
     --cauldron-motion-quick: 140ms; --cauldron-motion-settle: 240ms; --cauldron-motion-easing: cubic-bezier(0.2,0.7,0.3,1);
   }
   body { margin: 0; background: #fff; }
@@ -446,7 +457,7 @@ export function piecePreview(piece_: LibraryPiece): string {
 </style>
 <style>${piece_.styles}</style>
 </head>
-<body><section class="cauldron-${piece_.id}">${piece_.markup}</section></body></html>`;
+<body><section class="cauldron-${piece_.id}">${piece_.markup.replaceAll('{emailId}', '"cauldron-news-email-preview"')}</section></body></html>`;
 }
 
 export type AddResult =
@@ -485,12 +496,18 @@ export function addPiece(
   if (!isInside(root, componentFile))
     return { ok: false, problem: 'That path is outside the site.' };
 
-  fs.mkdirSync(path.dirname(componentFile), { recursive: true });
-  fs.writeFileSync(componentFile, piece_.astro, 'utf8');
-
+  if (options.mode === 'replace' && !options.replaceSelector) {
+    return { ok: false, problem: 'Choose the component tag to replace first.' };
+  }
   const original = fs.readFileSync(pageFile, 'utf8');
   let next = original;
-  const importLine = `import ${componentName} from '../components/${componentName}.astro';\n`;
+  let componentImport = path
+    .relative(path.dirname(pageFile), componentFile)
+    .split(path.sep)
+    .join('/');
+  if (!componentImport.startsWith('.'))
+    componentImport = `./${componentImport}`;
+  const importLine = `import ${componentName} from '${componentImport}';\n`;
 
   if (!new RegExp(`import\\s+${componentName}\\s+from`).test(next)) {
     if (next.startsWith('---\n'))
@@ -533,6 +550,11 @@ export function addPiece(
     next = `${next}\n<${componentName} />\n`;
   }
 
+  // Re-adding must not overwrite the site's own edits to an existing component.
+  if (!fs.existsSync(componentFile)) {
+    fs.mkdirSync(path.dirname(componentFile), { recursive: true });
+    fs.writeFileSync(componentFile, piece_.astro, 'utf8');
+  }
   fs.writeFileSync(pageFile, next, 'utf8');
   return {
     ok: true,
@@ -547,7 +569,10 @@ function resolvePage(root: string, page: string): string | null {
   const candidates = [
     path.join(root, 'src/pages', `${clean}.astro`),
     path.join(root, 'src/pages', clean, 'index.astro'),
-    path.join(root, 'src/pages/index.astro'),
   ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  return (
+    candidates.find(
+      (candidate) => isInside(root, candidate) && fs.existsSync(candidate),
+    ) ?? null
+  );
 }

@@ -21,6 +21,13 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [showing, setShowing] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement | null>(null);
+  const [connection, setConnection] = useState<{
+    url: string;
+    code: string;
+  } | null>(null);
+  useEffect(() => {
+    void window.cauldron.mcpInfo().then(setConnection);
+  }, [site?.root]);
 
   const refresh = useCallback(async () => {
     setRuns(await window.cauldron.runs());
@@ -58,10 +65,16 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
           ]);
           return;
         }
-        setLines((current) => [
-          ...current,
-          { kind: 'agent', text: event.text },
-        ]);
+        if (event.type === 'done') return;
+        setLines((current) => {
+          const last = current.at(-1);
+          if (event.delta && last?.kind === 'agent')
+            return [
+              ...current.slice(0, -1),
+              { kind: 'agent', text: last.text + event.text },
+            ];
+          return [...current, { kind: 'agent', text: event.text }];
+        });
       },
     );
 
@@ -142,6 +155,41 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
         style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
       >
         {!site ? <p className="hint">Open a site to work on it.</p> : null}
+        {site ? (
+          <details
+            className="hint"
+            onToggle={() => {
+              void window.cauldron.mcpInfo().then(setConnection);
+            }}
+          >
+            <summary>Connect an outside agent</summary>
+            {connection ? (
+              <>
+                <p>
+                  Local MCP HTTP connection. Only works while this site is open.
+                </p>
+                <label>
+                  URL
+                  <input
+                    readOnly
+                    value={connection.url}
+                    style={{ width: '100%' }}
+                  />
+                </label>
+                <label>
+                  Access code (x-cauldron-code header)
+                  <input
+                    readOnly
+                    value={connection.code}
+                    style={{ width: '100%' }}
+                  />
+                </label>
+              </>
+            ) : (
+              <p>Start the site preview to enable the connection.</p>
+            )}
+          </details>
+        ) : null}
 
         {site && !direction ? (
           <div className="notice">

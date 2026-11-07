@@ -11,6 +11,8 @@ type Props = {
 export function DesignPanel({ site, current, onChosen, onBack }: Props) {
   const [directions, setDirections] = useState<CauldronDirectionSummary[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [url, setUrl] = useState('');
+  const [measuring, setMeasuring] = useState(false);
 
   useEffect(() => {
     void window.cauldron.directions().then(setDirections);
@@ -40,6 +42,37 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
       </div>
 
       {!site ? <p className="hint">Open a site first.</p> : null}
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setMeasuring(true);
+          setMessage(null);
+          try {
+            const result = await window.cauldron.referenceDirection(url);
+            if (result.ok && result.direction) onChosen(result.direction);
+            else
+              setMessage(
+                result.problem ?? 'The reference could not be measured.',
+              );
+          } finally {
+            setMeasuring(false);
+          }
+        }}
+        style={{ display: 'flex', gap: 8, marginTop: 16 }}
+      >
+        <input
+          aria-label="Reference URL"
+          type="url"
+          value={url}
+          required
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder="https://reference.example"
+          style={{ flex: 1 }}
+        />
+        <button className="button" disabled={!site || measuring}>
+          {measuring ? 'Measuring…' : 'Use a reference URL'}
+        </button>
+      </form>
       {message ? (
         <div className="notice good" style={{ marginTop: 12 }}>
           {message}

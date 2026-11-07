@@ -5,6 +5,41 @@ import { ipcRenderer } from 'electron';
 
 let picking = true;
 
+// Astro 6 moves its annotations into the toolbar's private WeakMap after load.
+// Preserve the compiler's original annotations under our own DOM names first;
+// never restore Astro's names or interfere with its toolbar.
+const annotations = ['data-astro-source-file', 'data-astro-source-loc'];
+const preserve = (element: Element) => {
+  for (const attribute of annotations) {
+    const value = element.getAttribute(attribute);
+    if (value)
+      element.setAttribute(attribute.replace('astro', 'cauldron'), value);
+  }
+};
+new MutationObserver((records) => {
+  for (const record of records) {
+    if (record.type === 'attributes') {
+      const element = record.target as Element;
+      const attribute = record.attributeName!;
+      const value = element.getAttribute(attribute) ?? record.oldValue;
+      if (value)
+        element.setAttribute(attribute.replace('astro', 'cauldron'), value);
+    } else {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        preserve(node);
+        node.querySelectorAll('[data-astro-source-file]').forEach(preserve);
+      }
+    }
+  }
+}).observe(document, {
+  childList: true,
+  subtree: true,
+  attributes: true,
+  attributeFilter: annotations,
+  attributeOldValue: true,
+});
+
 ipcRenderer.on('preview:mode', (_event, on: boolean) => {
   picking = Boolean(on);
 });
@@ -46,17 +81,24 @@ window.addEventListener('DOMContentLoaded', () => {
       event.preventDefault();
       event.stopPropagation();
 
-      const element = target.closest('[data-astro-source-file]');
+      const element = target.closest(
+        '[data-cauldron-source-file], [data-astro-source-file]',
+      );
       if (!element) {
         ipcRenderer.send('preview:report', { kind: 'pick', payload: null });
         return;
       }
-      const loc = element.getAttribute('data-astro-source-loc') ?? '';
+      const loc =
+        element.getAttribute('data-cauldron-source-loc') ??
+        element.getAttribute('data-astro-source-loc') ??
+        '';
       const [line, column] = loc.split(':').map((value) => Number(value));
       ipcRenderer.send('preview:report', {
         kind: 'pick',
         payload: {
-          file: element.getAttribute('data-astro-source-file'),
+          file:
+            element.getAttribute('data-cauldron-source-file') ??
+            element.getAttribute('data-astro-source-file'),
           line,
           column,
           name: element.tagName.toLowerCase(),
