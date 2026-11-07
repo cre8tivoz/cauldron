@@ -22,6 +22,41 @@ export function writeFileAtomic(file: string, text: string): string {
   return hashOf(text);
 }
 
+/**
+ * Creates a new file atomically without ever overwriting an existing one.
+ * The content lands in a unique temporary sibling first; publishing it with a
+ * hard link fails with EEXIST if the destination appeared in the meantime.
+ * The temporary file is removed on every path, including a failed write.
+ */
+export function createFileAtomic(file: string, text: string): string {
+  const temp = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.cauldron-${process.pid}-${crypto
+      .randomBytes(6)
+      .toString('hex')}`,
+  );
+  let tempIsOurs = true;
+  try {
+    try {
+      fs.writeFileSync(temp, text, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        tempIsOurs = false;
+      throw error;
+    }
+    fs.linkSync(temp, file);
+  } finally {
+    if (tempIsOurs) {
+      try {
+        fs.unlinkSync(temp);
+      } catch {
+        // Already gone, or never fully created; nothing else to clean up.
+      }
+    }
+  }
+  return hashOf(text);
+}
+
 export function isInside(root: string, target: string): boolean {
   // Resolve existing ancestors as well as the target, including files not created yet.
   const real = (file: string): string => {

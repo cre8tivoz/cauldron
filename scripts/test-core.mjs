@@ -39,9 +39,13 @@ registerHooks({
     return next(specifier, context);
   },
 });
-const { runAction } = await import('../src/main/actions.ts');
+const { runAction, actionCatalogue } = await import('../src/main/actions.ts');
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
+// Ticket 27/28: the outside-agent connection must offer the same source actions.
+const mcpModule = await import('../src/main/mcp.ts').catch((error) => ({
+  error,
+}));
 // Ticket 13 modules: imported leniently so a missing implementation fails a test
 // rather than aborting the whole run.
 const draftSchedule = await import('../src/draft-schedule.ts').catch(
@@ -1624,5 +1628,448 @@ test('24 the focus check’s contrast maths uses the approved 3:1 bar', () => {
   assert.deepEqual(tasteChange.parseColour('rgb(51, 51, 51)'), [51, 51, 51, 1]);
   assert.deepEqual(tasteChange.parseColour('#333'), [51, 51, 51, 1]);
 });
+
+// Tickets 27/28: a whole-site brief needs bounded, version-checked access to
+// page/component/layout markup and design CSS. These actions are whole-file
+// reads and writes, never a general filesystem tool.
+const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-source-'));
+const pagesDir = path.join(sourceRoot, 'src/pages');
+fs.mkdirSync(pagesDir, { recursive: true });
+fs.mkdirSync(path.join(sourceRoot, 'src/components'), { recursive: true });
+fs.mkdirSync(path.join(sourceRoot, 'src/layouts'), { recursive: true });
+fs.mkdirSync(path.join(sourceRoot, 'src/styles'), { recursive: true });
+const sourceFile = path.join(pagesDir, 'index.astro');
+
+test('27/28 catalogue offers bounded source actions with the version contract', () => {
+  const catalogue = actionCatalogue();
+  const names = catalogue.map((entry) => entry.name);
+  assert.ok(names.includes('readSource'), 'readSource is not in the catalogue');
+  assert.ok(
+    names.includes('writeSource'),
+    'writeSource is not in the catalogue',
+  );
+  assert.match(
+    catalogue.find((entry) => entry.name === 'writeSource').what,
+    /baseHash/i,
+  );
+});
+
+test('27/28 readSource returns the exact bytes and hash of a page', () => {
+  const bytes = '---\nconst x = "  keep  ";\n---\n<h1>  Hi  </h1>\n';
+  fs.writeFileSync(sourceFile, bytes);
+  const read = runAction(sourceRoot, {
+    action: 'readSource',
+    file: 'src/pages/index.astro',
+  });
+  assert.equal(read.ok, true, read.problem);
+  assert.equal(read.exists, true);
+  assert.equal(read.content, bytes);
+  assert.equal(read.hash, hashOf(bytes));
+});
+
+test('27/28 readSource states creation clearly when the file is absent', () => {
+  const read = runAction(sourceRoot, {
+    action: 'readSource',
+    file: 'src/pages/not-yet.astro',
+  });
+  assert.equal(read.ok, true, read.problem);
+  assert.equal(read.exists, false);
+  assert.equal(read.content, null);
+  assert.equal(read.hash, null);
+});
+
+test('27/28 writeSource replaces the exact bytes when the hash matches', () => {
+  const base = '<h1>Old</h1>\n';
+  fs.writeFileSync(sourceFile, base);
+  const read = runAction(sourceRoot, {
+    action: 'readSource',
+    file: 'src/pages/index.astro',
+  });
+  const content = '<h1>New</h1>\n<!--   odd spacing kept   -->\n';
+  const wrote = runAction(sourceRoot, {
+    action: 'writeSource',
+    file: 'src/pages/index.astro',
+    content,
+    baseHash: read.hash,
+  });
+  assert.equal(wrote.ok, true, wrote.problem);
+  assert.equal(wrote.created, false);
+  assert.equal(wrote.hash, hashOf(content));
+  assert.equal(fs.readFileSync(sourceFile, 'utf8'), content);
+});
+
+test('27/28 writeSource refuses a stale hash and leaves the file alone', () => {
+  const base = '<h1>Base</h1>\n';
+  fs.writeFileSync(sourceFile, base);
+  const read = runAction(sourceRoot, {
+    action: 'readSource',
+    file: 'src/pages/index.astro',
+  });
+  const outside = '<h1>Outside edit</h1>\n';
+  fs.writeFileSync(sourceFile, outside);
+  const wrote = runAction(sourceRoot, {
+    action: 'writeSource',
+    file: 'src/pages/index.astro',
+    content: '<h1>Stale</h1>\n',
+    baseHash: read.hash,
+  });
+  assert.equal(wrote.ok, false);
+  assert.ok(wrote.clash, 'a stale write must report the disk version');
+  assert.equal(wrote.clash.diskText, outside);
+  assert.equal(fs.readFileSync(sourceFile, 'utf8'), outside);
+});
+
+test('27/28 create needs an explicit null hash and never clobbers', () => {
+  const file = 'src/components/Hero.astro';
+  const content = '<section class="hero">Built by the agent</section>\n';
+  const created = runAction(sourceRoot, {
+    action: 'writeSource',
+    file,
+    content,
+    baseHash: null,
+  });
+  assert.equal(created.ok, true, created.problem);
+  assert.equal(created.created, true);
+  assert.equal(fs.readFileSync(path.join(sourceRoot, file), 'utf8'), content);
+  assert.equal(
+    fs
+      .readdirSync(path.join(sourceRoot, 'src/components'))
+      .filter((name) => name.startsWith('.Hero.astro.cauldron-')).length,
+    0,
+    'atomic create left a temporary file behind',
+  );
+  const again = runAction(sourceRoot, {
+    action: 'writeSource',
+    file,
+    content: '<section>clobbered</section>\n',
+    baseHash: null,
+  });
+  assert.equal(again.ok, false);
+  assert.equal(fs.readFileSync(path.join(sourceRoot, file), 'utf8'), content);
+});
+
+test('27/28 creating an absent file with a string hash is refused', () => {
+  const file = 'src/layouts/Base.astro';
+  const wrote = runAction(sourceRoot, {
+    action: 'writeSource',
+    file,
+    content: '<slot />\n',
+    baseHash: hashOf('something that is not on disk'),
+  });
+  assert.equal(wrote.ok, false);
+  assert.equal(fs.existsSync(path.join(sourceRoot, file)), false);
+});
+
+test('27/28 source paths allow nested design folders', () => {
+  const nested = [
+    'src/pages/blog/post.astro',
+    'src/components/ui/Button.astro',
+    'src/styles/blocks/hero.css',
+  ];
+  for (const file of nested) {
+    const wrote = runAction(sourceRoot, {
+      action: 'writeSource',
+      file,
+      content: '<h1>Nested</h1>\n',
+      baseHash: null,
+    });
+    assert.equal(wrote.ok, true, `${file}: ${wrote.problem}`);
+    const read = runAction(sourceRoot, { action: 'readSource', file });
+    assert.equal(read.content, '<h1>Nested</h1>\n');
+  }
+});
+
+test('27/28 source paths reject traversal and absolute paths', () => {
+  for (const file of [
+    '../outside.astro',
+    'src/pages/../../outside.astro',
+    'src/../package.json',
+    path.join(sourceRoot, 'src/pages/index.astro'),
+    '/tmp/outside.astro',
+  ]) {
+    const read = runAction(sourceRoot, { action: 'readSource', file });
+    assert.equal(read.ok, false, `read allowed ${file}`);
+    const wrote = runAction(sourceRoot, {
+      action: 'writeSource',
+      file,
+      content: '<h1>x</h1>\n',
+      baseHash: null,
+    });
+    assert.equal(wrote.ok, false, `write allowed ${file}`);
+  }
+});
+
+test('27/28 source paths reject other extensions and private files', () => {
+  for (const file of [
+    'src/pages/site.css',
+    'src/styles/main.astro',
+    'src/pages/notes.md',
+    'src/pages/app.ts',
+    'package.json',
+    'cauldron/tokens.css',
+    '.env',
+  ]) {
+    const read = runAction(sourceRoot, { action: 'readSource', file });
+    assert.equal(read.ok, false, `read allowed ${file}`);
+    const wrote = runAction(sourceRoot, {
+      action: 'writeSource',
+      file,
+      content: 'x',
+      baseHash: null,
+    });
+    assert.equal(wrote.ok, false, `write allowed ${file}`);
+  }
+});
+
+test('27/28 a symlink cannot be used to read or write outside the site', () => {
+  const outside = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-outside-')),
+    'secret.astro',
+  );
+  fs.writeFileSync(outside, 'outside content\n');
+  const link = path.join(pagesDir, 'link.astro');
+  fs.symlinkSync(outside, link);
+  const read = runAction(sourceRoot, {
+    action: 'readSource',
+    file: 'src/pages/link.astro',
+  });
+  assert.equal(read.ok, false);
+  const wrote = runAction(sourceRoot, {
+    action: 'writeSource',
+    file: 'src/pages/link.astro',
+    content: 'changed\n',
+    baseHash: hashOf('outside content\n'),
+  });
+  assert.equal(wrote.ok, false);
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'outside content\n');
+});
+
+test('27/28 undo of a created source deletes it and redo recreates it', () => {
+  const full = path.join(sourceRoot, 'src/pages/made.astro');
+  const content = '<h1>Made</h1>\n';
+  fs.writeFileSync(full, content);
+  const history = new History();
+  history.record({
+    file: full,
+    location: { file: full, line: 1, column: 1, name: 'source' },
+    operation: { kind: 'text', value: '' },
+    before: '',
+    after: content,
+    beforeHash: '',
+    afterHash: hashOf(content),
+    label: 'writeSource',
+    created: true,
+  });
+  const undone = history.undo();
+  assert.ok(!('problem' in undone), undone.problem);
+  assert.equal(fs.existsSync(full), false, 'undo left an empty file behind');
+  const redone = history.redo();
+  assert.ok(!('problem' in redone), redone.problem);
+  assert.equal(fs.readFileSync(full, 'utf8'), content);
+});
+
+test('27/28 undo of a created source refuses an outside-modified file', () => {
+  const full = path.join(sourceRoot, 'src/pages/changed.astro');
+  const content = '<h1>Made</h1>\n';
+  fs.writeFileSync(full, content);
+  const history = new History();
+  history.record({
+    file: full,
+    location: { file: full, line: 1, column: 1, name: 'source' },
+    operation: { kind: 'text', value: '' },
+    before: '',
+    after: content,
+    beforeHash: '',
+    afterHash: hashOf(content),
+    label: 'writeSource',
+    created: true,
+  });
+  const outside = '<h1>Outside changed it</h1>\n';
+  fs.writeFileSync(full, outside);
+  const undone = history.undo();
+  assert.ok('problem' in undone);
+  assert.equal(fs.readFileSync(full, 'utf8'), outside);
+});
+
+test('27/28 redo of a created source refuses to clobber a new file', () => {
+  const full = path.join(sourceRoot, 'src/pages/recreated.astro');
+  const content = '<h1>Made</h1>\n';
+  fs.writeFileSync(full, content);
+  const history = new History();
+  history.record({
+    file: full,
+    location: { file: full, line: 1, column: 1, name: 'source' },
+    operation: { kind: 'text', value: '' },
+    before: '',
+    after: content,
+    beforeHash: '',
+    afterHash: hashOf(content),
+    label: 'writeSource',
+    created: true,
+  });
+  assert.ok(!('problem' in history.undo()));
+  const collision = '<h1>Someone else made this</h1>\n';
+  fs.writeFileSync(full, collision);
+  const redone = history.redo();
+  assert.ok('problem' in redone);
+  assert.equal(fs.readFileSync(full, 'utf8'), collision);
+});
+
+test('27/28 redo refuses a created file whose ancestor became a symlink', () => {
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-scope-redo-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-scope-out-'));
+  const pages = path.join(site, 'src/pages');
+  fs.mkdirSync(pages, { recursive: true });
+  const full = path.join(pages, 'moved.astro');
+  const content = '<h1>Made</h1>\n';
+  fs.writeFileSync(full, content);
+  const history = new History();
+  history.record({
+    file: full,
+    location: { file: full, line: 1, column: 1, name: 'source' },
+    operation: { kind: 'text', value: '' },
+    before: '',
+    after: content,
+    beforeHash: '',
+    afterHash: hashOf(content),
+    label: 'writeSource',
+    created: true,
+    root: site,
+  });
+  assert.ok(!('problem' in history.undo()));
+  fs.rmSync(pages, { recursive: true });
+  fs.symlinkSync(outside, pages);
+  const redone = history.redo();
+  assert.ok('problem' in redone);
+  assert.equal(fs.existsSync(path.join(outside, 'moved.astro')), false);
+});
+
+test('27/28 undo refuses a created file whose ancestor became a symlink', () => {
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-scope-undo-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-scope-out-'));
+  const pages = path.join(site, 'src/pages');
+  fs.mkdirSync(pages, { recursive: true });
+  const full = path.join(pages, 'swapped.astro');
+  const content = '<h1>Made</h1>\n';
+  fs.writeFileSync(full, content);
+  const history = new History();
+  history.record({
+    file: full,
+    location: { file: full, line: 1, column: 1, name: 'source' },
+    operation: { kind: 'text', value: '' },
+    before: '',
+    after: content,
+    beforeHash: '',
+    afterHash: hashOf(content),
+    label: 'writeSource',
+    created: true,
+    root: site,
+  });
+  const elsewhere = path.join(outside, 'swapped.astro');
+  fs.renameSync(full, elsewhere);
+  fs.rmSync(pages, { recursive: true });
+  fs.symlinkSync(outside, pages);
+  const undone = history.undo();
+  assert.ok('problem' in undone);
+  assert.equal(fs.readFileSync(elsewhere, 'utf8'), content);
+});
+
+test('27/28 run undo replaces a page and deletes a created file, leaving outside work', () => {
+  const { Runs } = runsApi();
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-run-source-'));
+  fs.mkdirSync(path.join(site, 'src/pages'), { recursive: true });
+  fs.mkdirSync(path.join(site, 'src/styles'), { recursive: true });
+  const page = path.join(site, 'src/pages/index.astro');
+  const outsideFile = path.join(site, 'src/pages/outside.astro');
+  fs.writeFileSync(page, '<h1>Old</h1>\n');
+  fs.writeFileSync(outsideFile, '<h1>Outside kept</h1>\n');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'build a page');
+  fs.writeFileSync(page, '<h1>Run page</h1>\n');
+  const created = path.join(site, 'src/styles/run.css');
+  fs.writeFileSync(created, 'body { margin: 0; }\n');
+  const finished = runs.finish(site, run.id, {
+    claimed: ['src/pages/index.astro', 'src/styles/run.css'],
+  });
+  assert.equal(finished.files.length, 2);
+  assert.deepEqual(runs.undo(site, run.id), { ok: true });
+  assert.equal(fs.readFileSync(page, 'utf8'), '<h1>Old</h1>\n');
+  assert.equal(fs.existsSync(created), false);
+  assert.equal(fs.readFileSync(outsideFile, 'utf8'), '<h1>Outside kept</h1>\n');
+});
+
+// Async round-trip through the real MCP handler: tools/list must show the
+// source pair, and write_source's null hash must survive toRequest unchanged.
+await (async () => {
+  const name = '27/28 MCP offers source actions and keeps the null-create hash';
+  try {
+    if (mcpModule.error) throw mcpModule.error;
+    let seen = null;
+    const server = await mcpModule.startMcpServer({
+      root: sourceRoot,
+      siteName: 'Source test',
+      run: (request) => {
+        seen = request;
+        return { ok: true, file: request.file };
+      },
+      readSelection: () => ({}),
+      readDesign: () => ({}),
+    });
+    const post = async (payload) => {
+      const response = await fetch(server.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-cauldron-code': server.code,
+        },
+        body: JSON.stringify(payload),
+      });
+      return response.json();
+    };
+    try {
+      const listed = await post({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      });
+      const tools = listed.result.tools;
+      const names = tools.map((tool) => tool.name);
+      assert.ok(names.includes('read_source'), 'read_source is not offered');
+      assert.ok(names.includes('write_source'), 'write_source is not offered');
+      const write = tools.find((tool) => tool.name === 'write_source');
+      assert.deepEqual(write.inputSchema.properties.baseHash.type, [
+        'string',
+        'null',
+      ]);
+      assert.ok(write.inputSchema.required.includes('baseHash'));
+      const called = await post({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'write_source',
+          arguments: {
+            file: 'src/pages/made-by-agent.astro',
+            content: '<h1>Agent</h1>\n',
+            baseHash: null,
+          },
+        },
+      });
+      assert.equal(called.result.isError, false);
+      assert.deepEqual(seen, {
+        action: 'writeSource',
+        file: 'src/pages/made-by-agent.astro',
+        content: '<h1>Agent</h1>\n',
+        baseHash: null,
+      });
+    } finally {
+      server.close();
+    }
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    failures++;
+    console.error(`FAIL ${name}: ${error.message}`);
+  }
+})();
 
 process.exitCode = failures ? 1 : 0;

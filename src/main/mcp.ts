@@ -197,6 +197,47 @@ export function toolsFor(siteName: string): ToolDefinition[] {
         required: ['page', 'title'],
       },
     },
+    {
+      name: 'read_source',
+      description:
+        'Read the exact raw text of one .astro file under src/pages, src/layouts or src/components, or one .css file under src/styles. Returns its hash for write_source. A file that does not exist returns null content and a null hash.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description:
+              'Path relative to the site, e.g. src/pages/about.astro or src/styles/global.css',
+          },
+        },
+        required: ['file'],
+      },
+    },
+    {
+      name: 'write_source',
+      description:
+        'Replace the whole raw text of one allowed source file, exactly as given. baseHash must be the exact hash read_source returned. Pass baseHash null only to create a file that does not exist; a stale or missing hash is refused and nothing is overwritten.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file: {
+            type: 'string',
+            description:
+              'Path relative to the site, under src/pages, src/layouts or src/components (.astro) or src/styles (.css)',
+          },
+          content: {
+            type: 'string',
+            description: 'The complete new file text, written byte-for-byte.',
+          },
+          baseHash: {
+            type: ['string', 'null'],
+            description:
+              'The hash from read_source, or null to create a new file.',
+          },
+        },
+        required: ['file', 'content', 'baseHash'],
+      },
+    },
   ];
 }
 
@@ -247,6 +288,17 @@ function toRequest(
         action: 'createPage',
         page: String(args.page ?? ''),
         title: String(args.title ?? ''),
+      };
+    case 'read_source':
+      return { action: 'readSource', file: String(args.file ?? '') };
+    case 'write_source':
+      // Leave type checking to the action so an agent gets a structured reason
+      // rather than a dropped tool call. null is the only creation signal.
+      return {
+        action: 'writeSource',
+        file: String(args.file ?? ''),
+        content: args.content as string,
+        baseHash: args.baseHash === null ? null : (args.baseHash as string),
       };
     default:
       return null;

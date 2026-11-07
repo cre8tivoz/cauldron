@@ -132,6 +132,7 @@ type Api = {
     label: string;
     runId?: string;
     afterHash: string;
+    created?: boolean;
   }>;
   /** Ticket 17: stand in for the active Cauldron-started agent run. */
   tagAgentRun?: (id: string | null) => void;
@@ -219,6 +220,12 @@ export type AgentTestApi = {
   agentReply: () => string;
   settleRenderer: () => Promise<void>;
   agentTools: () => string[];
+  qualityRun?: (payload: { pages?: string[] }) => Promise<{
+    built: boolean;
+    buildLog?: string;
+    findings?: Array<{ label: string; status: string; detail: string }>;
+    measured?: Array<{ label: string; value: string }>;
+  }>;
   mcpInfo?: () => Promise<{ url: string; code: string } | null>;
   mcpServed?: () => Array<{ tool: string; ok: boolean; at: number }>;
   startPreview?: () => Promise<unknown>;
@@ -1922,7 +1929,69 @@ export async function runContentTest(root: string, api: Api): Promise<void> {
   }
 }
 
-/** A real agent job, end to end, with the taste rules and direction in its brief. */
+/**
+ * Tickets 27-28: run one real brief through the app's own agent path and leave
+ * the site as the agent built it. The brief text comes from the file named by
+ * CAULDRON_BRIEF_FILE, so the same text can be used for both conditions.
+ */
+export async function runBriefTest(
+  root: string,
+  api: AgentTestApi,
+): Promise<void> {
+  try {
+    const file = process.env.CAULDRON_BRIEF_FILE ?? '';
+    const request = fs.readFileSync(file, 'utf8').trim();
+    const opened = await api.openSiteAt(root);
+    check('brief site opened', !(opened as { problem?: string })?.problem);
+    const direction = process.env.CAULDRON_BRIEF_DIRECTION;
+    if (direction) {
+      const chosen = api.setDirection(direction);
+      check(
+        `brief direction ${direction} saved`,
+        chosen.ok,
+        chosen.problem ?? '',
+      );
+    }
+    const started = api.sendAgent({ tool: 'codex', request });
+    check('brief agent started', started.ok, started.problem ?? '');
+    if (!started.ok) return;
+    const timeout = Number(process.env.CAULDRON_BRIEF_TIMEOUT ?? '900000');
+    const finished = await api.waitForAgent(timeout);
+    check('brief agent finished', finished.ok, finished.note ?? '');
+    console.log('BRIEF REPLY START\n' + api.agentReply() + '\nBRIEF REPLY END');
+    console.log(
+      'BRIEF MCP CALLS: ' +
+        (api.mcpCalls?.() ?? []).map((call) => call.name).join(', '),
+    );
+    for (const run of api.runs()) {
+      console.log(
+        `BRIEF RUN ${run.id} ${run.tool} ${run.status} ${run.note ?? ''} FILES ${run.files.join(', ')}`,
+      );
+    }
+    if (process.env.CAULDRON_BRIEF_MEASURE) {
+      const pages = (process.env.CAULDRON_QUALITY_PAGES ?? '/')
+        .split(',')
+        .map((page) => page.trim())
+        .filter(Boolean);
+      const report = await api.qualityRun?.({ pages });
+      const target = process.env.CAULDRON_BRIEF_REPORT;
+      if (target && report)
+        fs.writeFileSync(target, JSON.stringify(report, null, 2));
+      check(
+        'brief output builds and is measured',
+        Boolean(report?.built),
+        report?.buildLog?.slice(-300) ?? '',
+      );
+    }
+  } catch (error) {
+    console.error('BRIEF TEST ERROR', error);
+    check('BRIEF TEST ERROR', false, String(error));
+  } finally {
+    await api.settleRenderer();
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
 export async function runAgentTest(
   root: string,
   api: AgentTestApi,
@@ -4969,6 +5038,68 @@ export async function runActionsParityTest(
           baseHash: hash(),
         }),
       '#330033',
+    );
+
+    // (d) whole-file source actions: create, version-checked replace, undo delete.
+    const sourceName = `src/components/Parity${stamp}.astro`;
+    const sourceFull = path.join(root, sourceName);
+    const sourceText = `<section>Parity ${stamp}</section>\n`;
+    const sourceCreated = await mcpTool(info.url, info.code, 'write_source', {
+      file: sourceName,
+      content: sourceText,
+      baseHash: null,
+    });
+    check(
+      '17d MCP write_source creates a component',
+      !sourceCreated.refused &&
+        !sourceCreated.isError &&
+        fs.existsSync(sourceFull) &&
+        fs.readFileSync(sourceFull, 'utf8') === sourceText,
+      sourceCreated.text.slice(0, 160),
+    );
+    check(
+      '17d the created source is one history entry tagged to the connection',
+      last()?.runId === 'agent-connection' &&
+        last()?.created === true &&
+        last()?.label === 'writeSource',
+      JSON.stringify(last()),
+    );
+    const sourceRead = await mcpTool(info.url, info.code, 'read_source', {
+      file: sourceName,
+    });
+    const sourceHash = (JSON.parse(sourceRead.text) as { hash: string }).hash;
+    const replacedText = `<section>Replaced ${stamp}</section>\n`;
+    const sourceReplaced = await mcpTool(info.url, info.code, 'write_source', {
+      file: sourceName,
+      content: replacedText,
+      baseHash: sourceHash,
+    });
+    check(
+      '17d MCP write_source replaces with the exact hash',
+      !sourceReplaced.isError &&
+        fs.readFileSync(sourceFull, 'utf8') === replacedText,
+      sourceReplaced.text.slice(0, 160),
+    );
+    const staleSource = await mcpTool(info.url, info.code, 'write_source', {
+      file: sourceName,
+      content: '<section>stale</section>\n',
+      baseHash: sourceHash,
+    });
+    check(
+      '17d a stale source hash is refused and nothing is written',
+      staleSource.isError &&
+        fs.readFileSync(sourceFull, 'utf8') === replacedText,
+      staleSource.text.slice(0, 160),
+    );
+    await api.undo();
+    check(
+      '17d undo restores the created file text',
+      fs.readFileSync(sourceFull, 'utf8') === sourceText,
+    );
+    const undoSourced = (await api.undo()) as { ok?: boolean };
+    check(
+      '17d undo deletes the created source file',
+      Boolean(undoSourced?.ok) && !fs.existsSync(sourceFull),
     );
 
     // The correct agent run: an MCP write during a real run carries its id.

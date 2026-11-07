@@ -8,7 +8,13 @@ import {
   escapeText,
   type EditOperation,
 } from './edit';
-import { hashOf, isInside, readFile, writeFileAtomic } from './files';
+import {
+  createFileAtomic,
+  hashOf,
+  isInside,
+  readFile,
+  writeFileAtomic,
+} from './files';
 
 /**
  * One set of actions for everything that changes a site: the visual controls,
@@ -58,7 +64,14 @@ export type ActionRequest =
       baseHash: string;
       expected?: { text?: string; attributes?: Record<string, string> };
     }
-  | { action: 'createPage'; page: string; title: string };
+  | { action: 'createPage'; page: string; title: string }
+  | { action: 'readSource'; file: string }
+  | {
+      action: 'writeSource';
+      file: string;
+      content: string;
+      baseHash: string | null;
+    };
 
 export type ActionOk = { ok: true; [key: string]: unknown };
 export type ActionProblem = {
@@ -69,6 +82,133 @@ export type ActionProblem = {
 export type ActionResult = ActionOk | ActionProblem;
 
 const TEXT_FILES = /\.(astro|md|mdx|html|css|ts|tsx|js)$/;
+
+/**
+ * Whole-site briefs need to write page, layout and component markup, plus the
+ * design stylesheet. That is deliberately narrower than a filesystem tool: only
+ * these roots, only these extensions, never package files, scripts or assets.
+ */
+const SOURCE_PATHS =
+  /^(?:src\/(?:pages|layouts|components)\/(?:[^/]+\/)*[^/]+\.astro|src\/styles\/(?:[^/]+\/)*[^/]+\.css)$/;
+
+/** A whole source file, bigger than any real Astro page, is refused. */
+const MAX_SOURCE_BYTES = 512 * 1024;
+
+function sourceAt(
+  root: string,
+  file: string,
+): { full: string } | { problem: string } {
+  if (typeof file !== 'string' || file.trim() === '')
+    return { problem: 'Give a file path relative to the site.' };
+  if (path.isAbsolute(file))
+    return {
+      problem: 'Use a path relative to the site, not an absolute path.',
+    };
+  if (file.includes('\\'))
+    return { problem: 'Use forward slashes in the file path.' };
+  const parts = file.split('/');
+  if (
+    parts.some(
+      (part) =>
+        part === '' || part === '.' || part === '..' || part.startsWith('.'),
+    )
+  )
+    return { problem: 'That path is not a plain file inside the site.' };
+  if (!SOURCE_PATHS.test(file))
+    return {
+      problem:
+        'Only .astro files under src/pages, src/layouts or src/components, and .css files under src/styles, can be read or written.',
+    };
+  const full = path.join(root, ...parts);
+  if (!isInside(root, full))
+    return { problem: 'That file is not inside the open site.' };
+  if (fs.existsSync(full)) {
+    const stat = fs.lstatSync(full);
+    if (stat.isSymbolicLink())
+      return { problem: 'A symlinked source file cannot be read or written.' };
+    if (!stat.isFile()) return { problem: 'That path is not a file.' };
+  }
+  return { full };
+}
+
+/** The exact text of one allowed source file, plus the hash a write must state. */
+export function readSource(root: string, file: string): ActionResult {
+  const checked = sourceAt(root, file);
+  if ('problem' in checked) return { ok: false, problem: checked.problem };
+  const { full } = checked;
+  if (!fs.existsSync(full))
+    // Missing is not an error: it is the explicit creation case. The null hash
+    // is what writeSource requires before it will create the file.
+    return { ok: true, file, exists: false, content: null, hash: null };
+  const disk = readFile(full);
+  if (Buffer.byteLength(disk.text, 'utf8') > MAX_SOURCE_BYTES)
+    return { ok: false, problem: 'That file is too large to read as source.' };
+  return { ok: true, file, exists: true, content: disk.text, hash: disk.hash };
+}
+
+/**
+ * Replaces a whole source file exactly as provided. An existing file needs its
+ * exact current hash; a new file needs an explicit null hash and is created
+ * without ever clobbering a file that appeared in the meantime.
+ */
+export function writeSource(
+  root: string,
+  file: string,
+  content: string,
+  baseHash: string | null,
+): ActionResult {
+  const checked = sourceAt(root, file);
+  if ('problem' in checked) return { ok: false, problem: checked.problem };
+  if (typeof content !== 'string')
+    return { ok: false, problem: 'The new source must be text.' };
+  if (Buffer.byteLength(content, 'utf8') > MAX_SOURCE_BYTES)
+    return { ok: false, problem: 'That source is too large to write.' };
+  const { full } = checked;
+
+  if (!fs.existsSync(full)) {
+    if (baseHash !== null)
+      return {
+        ok: false,
+        problem:
+          'That file does not exist. Read it again; to create a new file, baseHash must be null.',
+      };
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    // Parents may have resolved through a changed ancestor; re-check before publishing.
+    const afterMkdir = sourceAt(root, file);
+    if ('problem' in afterMkdir)
+      return { ok: false, problem: afterMkdir.problem };
+    try {
+      // Atomic and exclusive: a file that appeared after the check above is never overwritten.
+      createFileAtomic(full, content);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        return {
+          ok: false,
+          problem:
+            'A file appeared there while this was being saved. Nothing was overwritten.',
+        };
+      throw error;
+    }
+    return { ok: true, file, hash: hashOf(content), created: true };
+  }
+
+  if (typeof baseHash !== 'string')
+    return {
+      ok: false,
+      problem:
+        'That file already exists. Read it and pass its exact hash; a null hash is only for creating a new file.',
+    };
+  const disk = readFile(full);
+  if (disk.hash !== baseHash)
+    return {
+      ok: false,
+      problem:
+        'That file changed since it was read. Read it again before writing.',
+      clash: { file, diskText: disk.text },
+    };
+  writeFileAtomic(full, content);
+  return { ok: true, file, hash: hashOf(content), created: false };
+}
 
 export function listPages(root: string): Array<{ page: string; file: string }> {
   const pagesDir = path.join(root, 'src/pages');
@@ -341,6 +481,12 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
       return { ok: true, file: path.relative(root, file) };
     }
 
+    case 'readSource':
+      return readSource(root, request.file);
+
+    case 'writeSource':
+      return writeSource(root, request.file, request.content, request.baseHash);
+
     default:
       return { ok: false, problem: 'Unknown action.' };
   }
@@ -359,6 +505,14 @@ export function actionCatalogue(): Array<{ name: string; what: string }> {
     { name: 'editElementStyle', what: 'Change inline styles on one element.' },
     { name: 'editCssRule', what: 'Set one declaration inside a CSS rule.' },
     { name: 'createPage', what: 'Create a new page in the site.' },
+    {
+      name: 'readSource',
+      what: 'Read the exact text and hash of one .astro page, layout or component, or one .css file under src/styles. A file that does not exist returns a null hash, ready for creation.',
+    },
+    {
+      name: 'writeSource',
+      what: 'Replace a whole allowed source file. baseHash must be the exact hash readSource returned; pass null only to create a file that does not exist. A stale hash is refused and no file is overwritten.',
+    },
   ];
 }
 

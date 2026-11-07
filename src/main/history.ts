@@ -1,4 +1,6 @@
-import { readFile, writeFileAtomic } from './files';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createFileAtomic, isInside, readFile, writeFileAtomic } from './files';
 import type { EditOperation, Location } from './edit';
 
 export type Change = {
@@ -13,6 +15,17 @@ export type Change = {
   label: string;
   at: number;
   runId?: string;
+  /**
+   * A file this history created. Undo deletes it rather than writing an empty
+   * file; redo recreates it only when the path is still absent.
+   */
+  created?: boolean;
+  /**
+   * The site root a created file belongs to. New records always set it; undo
+   * and redo re-check containment so a swapped ancestor cannot move work
+   * outside the site. Older records without it keep their previous behaviour.
+   */
+  root?: string;
 };
 
 export type HistoryState = { canUndo: boolean; canRedo: boolean };
@@ -58,6 +71,12 @@ function mergeRegion(
   );
 }
 
+/** Created files may only be deleted or recreated inside the site that made them. */
+function outOfScope(change: Change): string | null {
+  if (!change.root || isInside(change.root, change.file)) return null;
+  return 'That file is no longer inside the site it was created in. Nothing was changed.';
+}
+
 export class History {
   private changes: Change[] = [];
   private cursor = 0;
@@ -83,6 +102,24 @@ export class History {
   undo(): { change: Change; diskText: string } | { problem: string } {
     const change = this.changes[this.cursor - 1];
     if (!change) return { problem: 'There is nothing to undo.' };
+    if (change.created) {
+      const scope = outOfScope(change);
+      if (scope) return { problem: scope };
+      let disk;
+      try {
+        disk = readFile(change.file);
+      } catch {
+        return { problem: 'The file being undone no longer exists.' };
+      }
+      if (disk.hash !== change.afterHash) {
+        return {
+          problem: 'That new file has been changed since. Nothing was deleted.',
+        };
+      }
+      fs.rmSync(change.file);
+      this.cursor -= 1;
+      return { change, diskText: '' };
+    }
     let disk;
     try {
       disk = readFile(change.file);
@@ -104,6 +141,33 @@ export class History {
   redo(): { change: Change } | { problem: string } {
     const change = this.changes[this.cursor];
     if (!change) return { problem: 'There is nothing to redo.' };
+    if (change.created) {
+      const scope = outOfScope(change);
+      if (scope) return { problem: scope };
+      if (fs.existsSync(change.file)) {
+        return {
+          problem:
+            'That file exists again, so redoing the creation would overwrite it. Nothing was overwritten.',
+        };
+      }
+      fs.mkdirSync(path.dirname(change.file), { recursive: true });
+      // Creating parents may resolve a swapped ancestor; check again before publishing.
+      const afterMkdir = outOfScope(change);
+      if (afterMkdir) return { problem: afterMkdir };
+      try {
+        createFileAtomic(change.file, change.after);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+          return {
+            problem:
+              'That file appeared again, so redoing the creation would overwrite it. Nothing was overwritten.',
+          };
+        }
+        throw error;
+      }
+      this.cursor += 1;
+      return { change };
+    }
     let disk;
     try {
       disk = readFile(change.file);

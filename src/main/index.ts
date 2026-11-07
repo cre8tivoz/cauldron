@@ -486,27 +486,49 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
       ? readFile(full)
       : null;
   const result = runAction(site.root, request);
-  if (result.ok && fromAgent && full) claimForRun(state.agentRunId, full);
-  if (result.ok && before && full) {
-    const after = readFile(full);
-    if (before.hash !== after.hash)
+  if (result.ok && fromAgent && full && request.action !== 'readSource')
+    claimForRun(state.agentRunId, full);
+  if (result.ok && full) {
+    const exists = fs.existsSync(full);
+    if (before && exists) {
+      const after = readFile(full);
+      if (before.hash !== after.hash)
+        state.history.record({
+          file: full,
+          location:
+            'target' in request
+              ? { ...request.target, file: full }
+              : { file: full, line: 1, column: 1, name: 'source' },
+          operation: { kind: 'text', value: '' },
+          before: before.text,
+          after: after.text,
+          beforeHash: before.hash,
+          afterHash: after.hash,
+          label: request.action,
+          // Agent-connection writes are never the person's own edits, even when
+          // an outside agent writes outside a Cauldron-started run.
+          runId: fromAgent
+            ? (state.agentRunId ?? 'agent-connection')
+            : undefined,
+        });
+    } else if (!before && exists) {
+      // A newly created source file: undo must remove it, not write it empty.
+      const after = readFile(full);
       state.history.record({
         file: full,
-        location:
-          'target' in request
-            ? { ...request.target, file: full }
-            : { file: full, line: 1, column: 1, name: 'source' },
+        location: { file: full, line: 1, column: 1, name: 'source' },
         operation: { kind: 'text', value: '' },
-        before: before.text,
+        before: '',
         after: after.text,
-        beforeHash: before.hash,
+        beforeHash: '',
         afterHash: after.hash,
         label: request.action,
-        // Agent-connection writes are never the person's own edits, even when
-        // an outside agent writes outside a Cauldron-started run.
+        created: true,
+        root: site.root,
         runId: fromAgent ? (state.agentRunId ?? 'agent-connection') : undefined,
       });
-    refreshSelectionFromDisk();
+    }
+    if (before || exists) refreshSelectionFromDisk();
   }
   return result;
 }
@@ -1561,7 +1583,16 @@ function refreshSelectionFromDisk(): void {
     pushSelection();
     return;
   }
-  const disk = readFile(selection.location.file);
+  let disk: { text: string; hash: string };
+  try {
+    disk = readFile(selection.location.file);
+  } catch {
+    // Undoing a created file removes it; a selection pointing at it must clear
+    // rather than fail.
+    state.selection = null;
+    pushSelection();
+    return;
+  }
   const snapshot = snapshotElement(disk.text, selection.location);
   if (snapshot) selection.snapshot = snapshot;
   pushSelection();
@@ -1624,6 +1655,7 @@ function harnessApi() {
         label: change.label,
         runId: change.runId,
         afterHash: change.afterHash,
+        created: change.created ?? false,
       })),
     // Ticket 17: a real agent run sets state.agentRunId in sendAgent; the
     // harness needs the same tagging without launching a provider.
@@ -1988,6 +2020,12 @@ export function start(): void {
     if (E2E_SITE && process.env.CAULDRON_HERMES_TEST) {
       const { runHermesProofTest } = await import('./e2e');
       await runHermesProofTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_BRIEF_TEST) {
+      const { runBriefTest } = await import('./e2e');
+      await runBriefTest(E2E_SITE, harnessApi() as never);
       return;
     }
 
