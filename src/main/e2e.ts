@@ -3053,6 +3053,113 @@ export async function runUiTest(
         preview.getBounds().width > 0 &&
         dimensions.scroll <= dimensions.width,
     );
+    // The agreed workspace has to keep working while the columns are resized
+    // and collapsed. Both go through the real controls: keyboard on the
+    // splitter, and the collapse buttons.
+    const layout = () =>
+      window.webContents.executeJavaScript(`(() => {
+        const rect = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+        const style = getComputedStyle(document.documentElement);
+        return {
+          inner: innerWidth,
+          scroll: document.documentElement.scrollWidth,
+          stage: rect(document.querySelector('.stage')),
+          agent: rect(document.querySelector('.agent-pane')),
+          inspector: rect(document.querySelector('.inspector-pane')),
+          font: getComputedStyle(document.body).fontFamily,
+          accent: style.getPropertyValue('--accent').trim(),
+          dark: matchMedia('(prefers-color-scheme: dark)').matches,
+        };
+      })()`);
+    const agrees = (
+      stage: { x: number; y: number; width: number; height: number } | null,
+    ) =>
+      Boolean(stage) &&
+      Math.abs(preview.getBounds().x - stage!.x) <= 2 &&
+      Math.abs(preview.getBounds().y - stage!.y) <= 2 &&
+      Math.abs(preview.getBounds().width - stage!.width) <= 2 &&
+      Math.abs(preview.getBounds().height - stage!.height) <= 2;
+    for (const [width, height] of [
+      [1280, 800],
+      [1440, 900],
+    ]) {
+      window.setSize(width, height);
+      await wait(400);
+      const before = await layout();
+      check(
+        `3.1 workspace ${width} × ${height} fits without overflow`,
+        before.stage !== null &&
+          before.scroll <= before.inner &&
+          before.agent !== null &&
+          before.inspector !== null,
+        `stage=${JSON.stringify(before.stage)} scroll=${before.scroll} inner=${before.inner}`,
+      );
+      check(
+        `3.1 preview tracks the stage at ${width} × ${height}`,
+        agrees(before.stage),
+        `preview=${JSON.stringify(preview.getBounds())} stage=${JSON.stringify(before.stage)}`,
+      );
+      await window.webContents.executeJavaScript(
+        `(() => { const el = document.querySelector('[aria-label="Resize agent column"]'); el.focus(); el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); return true; })()`,
+      );
+      await wait(250);
+      const widerAgent = await layout();
+      check(
+        `3.1 agent column resizes and the preview follows at ${width} × ${height}`,
+        widerAgent.agent !== null &&
+          widerAgent.agent.width > before.agent!.width + 8 &&
+          agrees(widerAgent.stage),
+        `agent ${before.agent?.width} → ${widerAgent.agent?.width}; preview=${JSON.stringify(preview.getBounds())}`,
+      );
+      await window.webContents.executeJavaScript(
+        `(() => { const el = document.querySelector('[aria-label="Resize element panel"]'); el.focus(); el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); return true; })()`,
+      );
+      await wait(250);
+      const widerInspector = await layout();
+      check(
+        `3.1 element column resizes and the preview follows at ${width} × ${height}`,
+        widerInspector.inspector !== null &&
+          widerInspector.inspector.width > widerAgent.inspector!.width + 8 &&
+          agrees(widerInspector.stage),
+        `inspector ${widerAgent.inspector?.width} → ${widerInspector.inspector?.width}; preview=${JSON.stringify(preview.getBounds())}`,
+      );
+      await window.webContents.executeJavaScript(
+        `(() => { for (const label of ['Agent', 'Element']) { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim().startsWith(label + ' ')); if (b) b.click(); } return true; })()`,
+      );
+      await wait(300);
+      const collapsed = await layout();
+      check(
+        `3.1 both columns collapse and the preview fills the space at ${width} × ${height}`,
+        collapsed.agent === null &&
+          collapsed.inspector === null &&
+          collapsed.stage !== null &&
+          collapsed.stage.width > widerInspector.stage!.width &&
+          agrees(collapsed.stage),
+        `stage ${widerInspector.stage?.width} → ${collapsed.stage?.width}; preview=${JSON.stringify(preview.getBounds())}`,
+      );
+      await window.webContents.executeJavaScript(
+        `(() => { for (const label of ['Agent', 'Element']) { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim().startsWith(label + ' ')); if (b) b.click(); } return true; })()`,
+      );
+      await wait(300);
+      const restored = await layout();
+      check(
+        `3.1 both columns expand again at ${width} × ${height}`,
+        restored.agent !== null &&
+          restored.inspector !== null &&
+          agrees(restored.stage),
+        `agent=${restored.agent?.width} inspector=${restored.inspector?.width}`,
+      );
+    }
+    window.setSize(1280, 800);
+    await wait(300);
+    const look = await layout();
+    check(
+      '3.1 Coral, Source Sans 3 and the Mac system theme are kept',
+      /Source Sans 3/.test(look.font) &&
+        (look.dark ? look.accent === '#ffa99a' : look.accent === '#a13f33'),
+      `font=${look.font} accent=${look.accent} dark=${look.dark}`,
+    );
+
     const errors = await window.webContents.executeJavaScript(
       'window.__auditErrors',
     );
