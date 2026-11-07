@@ -15,7 +15,7 @@ registerHooks({
     return next(s.startsWith('.') && !path.extname(s) ? `${s}.ts` : s, c);
   },
 });
-const { runAgent, writeHermesConnection, hermesPickupWaitMs } =
+const { runAgent, writeHermesConnection, hermesPickupWaitMs, buildPrompt } =
   await import('../src/main/agent.ts');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-agent-fixtures-'));
 // Never touch the real Hermes profile from a fixture run.
@@ -261,6 +261,62 @@ try {
       assert.equal(events.at(-1).type, 'error');
       assert.match(events.at(-1).text, /stream disconnected/);
     },
+  );
+  // Ticket 23: a real Codex run once declined the job because the brief said
+  // "use Cauldron's actions" without saying where they come from, so the agent
+  // tried to drive the app's own interface instead. The brief now says both.
+  try {
+    const prompt = buildPrompt({
+      request: 'Make the Go button on the quality fixture readable.',
+      siteName: 'Fixture site',
+      direction: null,
+      selection: null,
+      catalogue: [
+        { name: 'editCssRule', what: 'Set one declaration inside a CSS rule.' },
+      ],
+    });
+    assert.match(prompt, /server called cauldron/i);
+    assert.match(prompt, /Do not open, click or otherwise drive the Cauldron/);
+    assert.ok(
+      prompt.includes("say plainly that Cauldron's connection is missing"),
+      prompt.slice(0, 1200),
+    );
+    assert.ok(
+      prompt.includes('editCssRule: Set one declaration inside a CSS rule.'),
+    );
+    console.log(
+      'PASS 4.4 the brief names Cauldron’s actions and rules out the app UI',
+    );
+  } catch (error) {
+    failed += 1;
+    console.error(
+      `FAIL 4.4 the brief names Cauldron’s actions and rules out the app UI: ${error.message}`,
+    );
+  }
+  // Ticket 23: Codex silently drops a server it could not reach in time, and
+  // the job then runs without the actions. Give the connection room to start.
+  const codexArgs = path.join(dir, 'codex-args.json');
+  await test(
+    '3.3 Codex is given time to reach Cauldron’s connection',
+    'codex',
+    `
+      const fs = require('node:fs');
+      fs.writeFileSync(${JSON.stringify(codexArgs)}, JSON.stringify(process.argv.slice(2)));
+      console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'ok'}}));
+    `,
+    () => {
+      const argv = JSON.parse(fs.readFileSync(codexArgs, 'utf8'));
+      assert.ok(
+        argv.includes('mcp_servers.cauldron.startup_timeout_sec=60'),
+        argv.join(' '),
+      );
+      assert.ok(
+        argv.some((arg) => arg.startsWith('mcp_servers.cauldron.url=')),
+        argv.join(' '),
+      );
+    },
+    undefined,
+    { mcp: { url: 'http://127.0.0.1:9/mcp', code: 'fixture-code' } },
   );
   // Ticket 20: Hermes gets the Cauldron profile, its connection and the same
   // streamed event shape. The record is what the fixture was actually handed.

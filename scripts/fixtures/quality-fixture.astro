@@ -1,0 +1,93 @@
+---
+// Deliberate quality fixture for ticket 23. It uses the Long Lunch direction's
+// own colours and type scale, with two deliberate faults: pale button text
+// (#7a7a7a on the surface colour) and a near-invisible focus ring.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quality fixture</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=Karla:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --q-bg: #f8f4e9;
+        --q-surface: #fffdf7;
+        --q-ink: #2a1712;
+        --q-muted: #6b5a52;
+        --q-primary: #b84b30;
+        --q-line: #e3d9c8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--q-bg);
+        color: var(--q-ink);
+        font-family: 'Karla', sans-serif;
+        font-size: 17px;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 48px 24px;
+      }
+      h1 {
+        font-family: 'Fraunces', serif;
+        font-size: 49px;
+        font-weight: 700;
+        margin: 0 0 16px;
+      }
+      p {
+        font-size: 17px;
+        line-height: 1.6;
+        margin: 0 0 24px;
+      }
+      a {
+        color: var(--q-primary);
+        font-size: 17px;
+      }
+      button.go {
+        font-family: 'Karla', sans-serif;
+        font-size: 20px;
+        font-weight: 700;
+        color: #7a7a7a;
+        background: var(--q-surface);
+        border: 1px solid var(--q-line);
+        border-radius: 4px;
+        padding: 12px 16px;
+        margin: 0 0 0 8px;
+      }
+      button.go:focus-visible {
+        outline: 2px solid #f4f4f4;
+        outline-offset: 2px;
+      }
+      @media (max-width: 800px) {
+        h1 {
+          font-size: 73px;
+        }
+        main {
+          padding: 13px 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Fixture</h1>
+      <p>
+        A deliberately small page used to prove the quality measurements catch a
+        pale button and a focus ring nobody can see.
+      </p>
+      <a href="/">Home</a>
+      <button class="go" type="button">Go</button>
+    </main>
+  </body>
+</html>

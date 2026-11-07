@@ -1,6 +1,12 @@
 /// <reference types="@electron-forge/plugin-vite/forge-vite-env" />
 declare module '*.css';
 
+// Vite hands the file over as text at build time (`?raw`).
+declare module '*?raw' {
+  const text: string;
+  export default text;
+}
+
 // This file is a plain script on purpose: the declarations below apply everywhere.
 type CauldronSite = {
   root: string;
@@ -64,10 +70,12 @@ type CauldronAgentEvent =
 type QualityFinding = {
   id: string;
   label: string;
-  status: 'pass' | 'fail' | 'unknown';
+  status: 'pass' | 'fail' | 'unknown' | 'info';
+  kind: 'measured' | 'failure' | 'opinion';
   detail: string;
   page?: string;
   width?: number;
+  scope?: 'site' | 'change';
 };
 
 type QualityReport = {

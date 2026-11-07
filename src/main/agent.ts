@@ -128,8 +128,14 @@ When the direction deliberately breaks one of these, the direction wins; say so 
 explain the risk in one sentence.
 
 ## What you may use
-The same actions the interface uses:
+The same actions the interface uses. They reach you as tools on Cauldron's own connection (the
+server called cauldron), so call them as tools — for example edit_css_rule or edit_element_style:
 ${catalogue}
+
+Make every change through those actions. Do not open, click or otherwise drive the Cauldron
+desktop app's own interface — the person is already using it, and it is not a way to edit the
+site. If the actions are not offered to you, say plainly that Cauldron's connection is missing and
+stop: do not substitute another way of editing and do not report the job as done.
 
 Prefer editing the site's existing files with its own tokens and components over adding new
 libraries. Do not install packages without saying so first.
@@ -392,6 +398,11 @@ export function runAgent(options: {
           `mcp_servers.cauldron.url=${JSON.stringify(options.mcp.url)}`,
           '-c',
           `mcp_servers.cauldron.http_headers={ "x-cauldron-code" = ${JSON.stringify(options.mcp.code)} }`,
+          // A busy app (a build, a measurement) must not make the connection
+          // look broken: Codex drops a server it could not reach in time, and
+          // then the job silently runs without Cauldron's actions.
+          '-c',
+          'mcp_servers.cauldron.startup_timeout_sec=60',
           // codex exec has nobody to answer an approval prompt, so the
           // Cauldron actions are pre-approved for this run only.
           '-c',

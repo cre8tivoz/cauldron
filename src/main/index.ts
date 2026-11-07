@@ -138,6 +138,41 @@ function relativeFile(file: string): string {
   return path.relative(state.site.root, file) || file;
 }
 
+/**
+ * The files the last finished agent run wrote, as text, so the quality checks
+ * can judge the agent's output rather than the whole site (ticket 24). Binary
+ * files carry no style to judge and are left out.
+ */
+function lastRunChanges(): Array<{
+  file: string;
+  before: string | null;
+  after: string | null;
+}> {
+  const run: Run | undefined = state.runs
+    .list()
+    .find(
+      (item) =>
+        item.status === 'finished' &&
+        item.files.some((file) => file.ownership === 'run'),
+    );
+  if (!run) return [];
+  const text = (value: Buffer | null) =>
+    value ? value.toString('utf8') : null;
+  return run.files
+    .filter(
+      (file) =>
+        file.ownership === 'run' &&
+        !/\.(png|jpe?g|gif|webp|avif|ico|pdf|zip|woff2?|ttf|otf|mp4|webm|mp3)$/i.test(
+          file.file,
+        ),
+    )
+    .map((file) => ({
+      file: file.file,
+      before: text(file.before),
+      after: text(file.after),
+    }));
+}
+
 function selectionView() {
   const selection = state.selection;
   if (!selection) return null;
@@ -1057,6 +1092,7 @@ function registerIpc(): void {
         root: site.root,
         direction,
         pages,
+        changed: lastRunChanges(),
         onProgress: (message) => status(message),
       });
       const failed = report.findings.filter(
@@ -1607,7 +1643,7 @@ function harnessApi() {
       );
       const result = addPiece(state.site.root, payload);
       state.runs.finish(state.site.root, run.id);
-      return result;
+      return { ...result, runId: run.id };
     },
     collections: () => (state.site ? readCollections(state.site.root) : []),
     runs: () => state.runs.list(),
@@ -1630,6 +1666,7 @@ function harnessApi() {
         root: state.site.root,
         direction: directionFor(state.site.root),
         pages: payload?.pages ?? ['/'],
+        changed: lastRunChanges(),
       });
     },
     entry: (file: string) =>
@@ -1884,6 +1921,12 @@ export function start(): void {
       return;
     }
 
+    if (E2E_SITE && process.env.CAULDRON_CHANGE_TASTE_TEST) {
+      const { runChangeTasteTest } = await import('./e2e');
+      await runChangeTasteTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
     if (E2E_SITE && process.env.CAULDRON_UI_TEST) {
       const { runUiTest } = await import('./e2e');
       await runUiTest(E2E_SITE, state.window!, state.preview, openSiteAt);
@@ -1910,6 +1953,16 @@ export function start(): void {
     if (E2E_SITE && process.env.CAULDRON_QUALITY_TEST) {
       const { runQualityTest } = await import('./e2e');
       await runQualityTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_QUALITY_FEEDBACK_TEST) {
+      const { runQualityFeedbackTest } = await import('./e2e');
+      await runQualityFeedbackTest(
+        E2E_SITE,
+        state.window!,
+        harnessApi() as never,
+      );
       return;
     }
 

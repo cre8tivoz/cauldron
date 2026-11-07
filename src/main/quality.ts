@@ -2,24 +2,48 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow } from 'electron';
+// The accessibility engine is bundled at build time: the packaged app has no
+// node_modules on disk, so reading it from there never worked outside development.
+import axeScript from 'axe-core/axe.min.js?raw';
 import type { DesignDirection } from './directions';
 import { measureTaste } from './taste-check';
+import {
+  BUTTON_CONTRAST,
+  contrastRatio,
+  round1,
+  textContrastRequired,
+} from './contrast';
+import {
+  changedPages,
+  changedSelectors,
+  changedStyleText,
+  checkTasteOfCss,
+  type ChangedText,
+} from './taste-change';
 
 /**
  * Quality checks on the built site (plan 4.4): layout overflow, keyboard use,
  * automated accessibility basics, broken links, speed, and how closely the page
  * follows the site's own design direction. Measured results are kept separate
- * from opinion.
+ * from check execution failures and from design opinion.
  */
 
 export type Finding = {
   id: string;
   label: string;
-  status: 'pass' | 'fail' | 'unknown';
+  /** Measured checks pass or fail; info is a judgement, not a measurement. */
+  status: 'pass' | 'fail' | 'unknown' | 'info';
+  /** Measured result, a check that could not run, or a design opinion. */
+  kind: 'measured' | 'failure' | 'opinion';
   detail: string;
   page?: string;
   width?: number;
+  /**
+   * `site` is a whole-site diagnostic; `change` judges only what an agent run
+   * added or changed (design/camillo/taste-tests.md).
+   */
+  scope?: 'site' | 'change';
 };
 
 export type Report = {
@@ -29,6 +53,61 @@ export type Report = {
   measured: Array<{ label: string; value: string }>;
   buildLog: string;
 };
+
+export type ContrastNode = {
+  where: string;
+  color: string;
+  background: string;
+  fontSize: number;
+  fontWeight: number;
+};
+
+export type ButtonNode = {
+  where: string;
+  name: string;
+  color: string;
+  background: string;
+};
+
+/** Every text node is judged, at 4.5:1, or 3:1 for large text. */
+export function summariseTextContrast(nodes: ContrastNode[]): {
+  checked: number;
+  failures: Array<{ where: string; ratio: number; required: number }>;
+  lowest: number;
+} {
+  const judged = nodes.map((node) => ({
+    where: node.where,
+    ratio: round1(contrastRatio(node.color, node.background)),
+    required: textContrastRequired(node.fontSize, node.fontWeight),
+  }));
+  return {
+    checked: judged.length,
+    failures: judged.filter((node) => node.ratio < node.required),
+    lowest: judged.length
+      ? round1(Math.min(...judged.map((node) => node.ratio)))
+      : 0,
+  };
+}
+
+/** Button text is held to 4.5:1 whatever its size. */
+export function summariseButtonContrast(nodes: ButtonNode[]): {
+  checked: number;
+  failures: Array<{ where: string; name: string; ratio: number }>;
+  lowest: number;
+} {
+  const judged = nodes.map((node) => ({
+    where: node.where,
+    name: node.name,
+    ratio: round1(contrastRatio(node.color, node.background)),
+  }));
+  return {
+    checked: judged.length,
+    failures: judged.filter((node) => node.ratio < BUTTON_CONTRAST),
+    lowest: judged.length
+      ? round1(Math.min(...judged.map((node) => node.ratio)))
+      : 0,
+  };
+}
 
 const WIDTHS = [375, 768, 1280];
 
@@ -109,8 +188,12 @@ export function serveDist(
 
 /** Everything a page can tell us about itself, measured in a real browser. */
 const PAGE_PROBE = `(async () => {
-  await document.fonts.ready;
+  await Promise.race([
+    document.fonts.ready,
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
   const result = {};
+  result.fontsReady = document.fonts.status === 'loaded';
 
   const text = (el) => (el.textContent || '').replace(/\\s+/g, ' ').trim();
   const visible = (el) => {
@@ -149,52 +232,66 @@ const PAGE_PROBE = `(async () => {
   });
   result.controlsWithoutName = nameless.length;
 
-  // Contrast of the text people actually read
+  // Contrast inputs, collected as computed colours. The approved thresholds
+  // (4.5:1 text, 4.5:1 buttons, 3:1 focus) are applied in the main process so
+  // they can be tested without a browser.
   const parse = (value) => {
     const match = /rgba?\\(([^)]+)\\)/.exec(value || '');
     if (!match) return null;
     const parts = match[1].split(',').map((n) => Number(n.trim()));
     return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
   };
-  const lum = (c) => {
-    const channel = (v) => {
-      const s = v / 255;
-      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-    };
-    return 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
-  };
   const backgroundOf = (el) => {
     let node = el;
     while (node) {
       const colour = parse(getComputedStyle(node).backgroundColor);
-      if (colour && colour.a > 0.5) return colour;
+      if (colour && colour.a > 0.5) return getComputedStyle(node).backgroundColor;
       node = node.parentElement;
     }
-    return { r: 255, g: 255, b: 255, a: 1 };
+    return 'rgb(255, 255, 255)';
   };
-  const ratio = (a, b) => {
-    const la = lum(a);
-    const lb = lum(b);
-    const light = Math.max(la, lb);
-    const dark = Math.min(la, lb);
-    return (light + 0.05) / (dark + 0.05);
-  };
-  const readable = [...document.querySelectorAll('p, li, h1, h2, h3, a, button, span')]
-    .filter((el) => visible(el) && text(el).length > 12)
-    .slice(0, 60);
-  result.contrast = readable.map((el) => {
+  const label = (el) =>
+    el.tagName.toLowerCase() +
+    (typeof el.className === 'string' && el.className
+      ? '.' + el.className.split(' ')[0]
+      : '');
+  const ownText = (el) =>
+    [...el.childNodes].some(
+      (node) => node.nodeType === 3 && node.textContent.trim(),
+    );
+  const textElements = [...document.querySelectorAll('body *')].filter(
+    (el) => visible(el) && ownText(el),
+  );
+  result.textNodeCount = textElements.length;
+  result.textNodes = textElements.slice(0, 800).map((el) => {
     const style = getComputedStyle(el);
-    const colour = parse(style.color);
-    if (!colour) return null;
-    const size = Number.parseFloat(style.fontSize);
-    const bold = Number(style.fontWeight) >= 700;
-    const large = size >= 24 || (bold && size >= 18.66);
     return {
-      where: el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className ? '.' + el.className.split(' ')[0] : ''),
-      ratio: Math.round(ratio(colour, backgroundOf(el)) * 100) / 100,
-      required: large ? 3 : 4.5,
+      where: label(el),
+      color: style.color,
+      background: backgroundOf(el),
+      fontSize: Number.parseFloat(style.fontSize) || 0,
+      fontWeight: Number(style.fontWeight) || 400,
     };
-  }).filter(Boolean);
+  });
+
+  const buttons = [
+    ...document.querySelectorAll(
+      'button, [role="button"], input[type="submit"], input[type="button"], a[class*="button"], a[class*="btn"]',
+    ),
+  ].filter(visible);
+  result.buttonNodes = buttons.map((el) => {
+    const style = getComputedStyle(el);
+    return {
+      where: label(el),
+      name: (el.getAttribute('aria-label') || text(el) || el.value || '').slice(0, 40),
+      color: style.color,
+      background: backgroundOf(el),
+    };
+  });
+
+  // Keyboard reachability and focus contrast are measured with real Tab key
+  // events in taste-check.ts, because programmatic focus cannot see
+  // :focus-visible. Nothing is sampled for them here.
 
   // Type and colour, to compare with the site's direction
   result.type = [...new Set([...document.querySelectorAll('h1, h2, h3, p, button, a')]
@@ -206,21 +303,6 @@ const PAGE_PROBE = `(async () => {
   result.colours = [...new Set([...document.querySelectorAll('body *')]
     .filter((el) => visible(el))
     .map((el) => getComputedStyle(el).color + '|' + getComputedStyle(el).backgroundColor))].slice(0, 80);
-
-  // Keyboard: every control reachable, and visible when focused
-  const focusables = [...document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-    .filter((el) => visible(el) && !el.hasAttribute('disabled'));
-  result.focusableCount = focusables.length;
-  const noIndicator = [];
-  for (const el of focusables.slice(0, 40)) {
-    const before = getComputedStyle(el);
-    const beforeOutline = before.outlineStyle + before.outlineWidth + before.boxShadow;
-    el.focus();
-    const after = getComputedStyle(el);
-    const afterOutline = after.outlineStyle + after.outlineWidth + after.boxShadow;
-    if (beforeOutline === afterOutline) noIndicator.push(el.tagName.toLowerCase());
-  }
-  result.focusWithoutIndicator = noIndicator;
 
   // Spacing rhythm and hierarchy, for the taste checks
   const spacingValues = new Set();
@@ -302,18 +384,7 @@ const PAGE_PROBE = `(async () => {
 
 /** axe-core, the accessibility engine the taste tests name (plan 4.3 tests). */
 function axeSource(): string | null {
-  const candidates = [
-    path.join(app.getAppPath(), 'node_modules/axe-core/axe.min.js'),
-    path.join(process.cwd(), 'node_modules/axe-core/axe.min.js'),
-  ];
-  for (const file of candidates) {
-    try {
-      if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
-    } catch {
-      // Try the next place.
-    }
-  }
-  return null;
+  return axeScript || null;
 }
 
 type AxeViolation = {
@@ -396,10 +467,14 @@ export async function checkSite(options: {
   root: string;
   direction: DesignDirection | null;
   pages: string[];
+  /** The files the last agent run changed, for judging its output alone. */
+  changed?: ChangedText[];
   onProgress?: (message: string) => void;
 }): Promise<Report> {
   const findings: Finding[] = [];
   const measured: Array<{ label: string; value: string }> = [];
+  const add = (finding: Omit<Finding, 'kind'> & { kind?: Finding['kind'] }) =>
+    findings.push({ kind: 'measured', ...finding });
 
   options.onProgress?.('Building the site…');
   const built = buildSite(options.root);
@@ -414,6 +489,7 @@ export async function checkSite(options: {
           id: 'build',
           label: 'The site builds',
           status: 'fail',
+          kind: 'measured',
           detail: built.log.slice(-600) || 'The build failed.',
         },
       ],
@@ -421,268 +497,417 @@ export async function checkSite(options: {
   }
 
   const server = await serveDist(built.dist);
-  const window = new BrowserWindow({
-    show: false,
-    width: 1280,
-    height: 900,
-    webPreferences: {
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
+  const window = inspectionWindow();
 
   try {
     for (const page of options.pages) {
       const url = new URL(page.replace(/^\/+/, ''), server.url).href;
+      // The desktop pass fills this in; page-wide checks that cannot change with
+      // the viewport (structure, links) use it after the widths are done.
+      let desktop: Record<string, unknown> | null = null;
+
       for (const width of WIDTHS) {
         options.onProgress?.(`Checking ${page} at ${width}px…`);
         const data = await probe(window, url, width);
         if (!data) {
-          findings.push({
+          add({
             id: `load-${page}-${width}`,
             label: 'The page loads',
             status: 'unknown',
-            detail: 'The page did not respond.',
+            kind: 'failure',
+            detail: 'The page did not respond, so nothing on it was measured.',
             page,
             width,
           });
           continue;
         }
+        if (width === 1280) desktop = data;
 
         const overflow = data.overflow as {
           scrollWidth: number;
           clientWidth: number;
           offenders: string[];
         };
-        findings.push({
+        const overflowing = overflow.scrollWidth > overflow.clientWidth + 2;
+        add({
           id: `overflow-${page}-${width}`,
           label: 'No horizontal overflow',
-          status:
-            overflow.scrollWidth > overflow.clientWidth + 2 ? 'fail' : 'pass',
-          detail:
-            overflow.scrollWidth > overflow.clientWidth + 2
-              ? `Page is ${overflow.scrollWidth - overflow.clientWidth}px wider than the window. ${overflow.offenders.join(', ')}`
-              : 'Fits the window.',
+          status: overflowing ? 'fail' : 'pass',
+          detail: overflowing
+            ? `Page is ${overflow.scrollWidth - overflow.clientWidth}px wider than the window. ${overflow.offenders.join(', ')}`
+            : 'Fits the window.',
           page,
           width,
         });
 
         if (width === 1280) {
-          const imagesWithoutAlt = data.imagesWithoutAlt as number;
-          findings.push({
-            id: `alt-${page}`,
-            label: 'Images have alternative text',
-            status: imagesWithoutAlt === 0 ? 'pass' : 'fail',
-            detail:
-              imagesWithoutAlt === 0
-                ? 'Every image has an alt.'
-                : `${imagesWithoutAlt} image(s) have no alt.`,
-            page,
-          });
-
-          const unlabelled = data.unlabelledFields as number;
-          findings.push({
-            id: `labels-${page}`,
-            label: 'Form fields are labelled',
-            status: unlabelled === 0 ? 'pass' : 'fail',
-            detail:
-              unlabelled === 0
-                ? 'Every field has a label.'
-                : `${unlabelled} field(s) have no label.`,
-            page,
-          });
-
-          const h1Count = data.h1Count as number;
-          const headings = data.headings as Array<{ level: number }>;
-          const skipped = headings.some((heading, index) =>
-            index > 0 ? heading.level - headings[index - 1].level > 1 : false,
-          );
-          findings.push({
-            id: `headings-${page}`,
-            label: 'Headings are in order',
-            status: h1Count === 1 && !skipped ? 'pass' : 'fail',
-            detail: `${h1Count} h1, ${headings.length} headings${skipped ? ', with a level skipped' : ''}.`,
-            page,
-          });
-
-          findings.push({
-            id: `lang-${page}`,
-            label: 'The page says what language it is',
-            status: data.hasLang && data.hasMain ? 'pass' : 'fail',
-            detail: `${data.hasLang ? 'lang set' : 'no lang'}, ${data.hasMain ? 'main landmark' : 'no main landmark'}.`,
-            page,
-          });
-
-          const controlsWithoutName = data.controlsWithoutName as number;
-          findings.push({
-            id: `names-${page}`,
-            label: 'Buttons and links say what they do',
-            status: controlsWithoutName === 0 ? 'pass' : 'fail',
-            detail:
-              controlsWithoutName === 0
-                ? 'Every control has a name.'
-                : `${controlsWithoutName} control(s) have no accessible name.`,
-            page,
-          });
-
-          const contrast = data.contrast as Array<{
-            where: string;
-            ratio: number;
-            required: number;
-          }>;
-          const failing = contrast.filter((item) => item.ratio < item.required);
-          findings.push({
-            id: `contrast-${page}`,
-            label: 'Text has enough contrast',
-            status: failing.length === 0 ? 'pass' : 'fail',
-            detail:
-              failing.length === 0
-                ? `Checked ${contrast.length} pieces of text.`
-                : failing
-                    .slice(0, 4)
-                    .map(
-                      (item) =>
-                        `${item.where} ${item.ratio}:1 (needs ${item.required}:1)`,
-                    )
-                    .join('; '),
-            page,
-          });
-
-          if (options.direction) {
-            const hierarchy = data.hierarchy as {
-              headingSizes: Record<string, number>;
-              bodySize: number;
-            };
-            const levels = [1, 2, 3, 4, 5, 6]
-              .map((level) => hierarchy.headingSizes[`h${level}`])
-              .filter((size): size is number => typeof size === 'number');
-            const outOfOrder = levels.some(
-              (size, index) => index > 0 && size >= levels[index - 1],
-            );
-            const headingsLargerThanBody =
-              levels.length === 0 ||
-              hierarchy.bodySize === 0 ||
-              levels[levels.length - 1] > hierarchy.bodySize;
-            findings.push({
-              id: `hierarchy-${page}`,
-              label: 'The hierarchy is clear',
-              status: !outOfOrder && headingsLargerThanBody ? 'pass' : 'fail',
-              detail: outOfOrder
-                ? `Headings do not step down in size: ${levels.join('px, ')}px`
-                : headingsLargerThanBody
-                  ? `Headings ${levels.join('/')}px, body ${hierarchy.bodySize}px.`
-                  : `Body text (${hierarchy.bodySize}px) is not smaller than the smallest heading.`,
-              page,
-            });
-          }
-
-          let axe: AxeViolation[] | null = null;
-          let axeProblem = '';
-          try {
-            axe = await runAxe(window);
-          } catch (error) {
-            axeProblem = error instanceof Error ? error.message : String(error);
-          }
-          if (axeProblem)
-            findings.push({
-              id: `axe-${page}`,
-              label: 'Automated accessibility (axe)',
-              status: 'fail',
-              detail: `${axeProblem} Accessibility is not verified.`,
-              page,
-            });
-          else if (!axe)
-            findings.push({
-              id: `axe-${page}`,
-              label: 'Automated accessibility (axe)',
-              status: 'unknown',
-              detail: 'axe could not run; accessibility is not verified.',
-              page,
-            });
-          if (axe) {
-            findings.push({
-              id: `axe-${page}`,
-              label: 'Automated accessibility (axe)',
-              status: axe.length === 0 ? 'pass' : 'fail',
-              detail:
-                axe.length === 0
-                  ? 'No axe violations against WCAG 2.1 A and AA.'
-                  : `${axe.length} rule(s) failed: ${axe
-                      .slice(0, 5)
-                      .map(
-                        (violation) => `${violation.id} (${violation.nodes}×)`,
-                      )
-                      .join(', ')}`,
-              page,
-            });
-          }
-
-          measured.push({
-            label: `Load (${page})`,
-            value: `${(data.timing as { load: number } | null)?.load ?? 0}ms`,
-          });
-          measured.push({
-            label: `Scripts (${page})`,
-            value: String(data.scripts),
-          });
-          measured.push({
-            label: `HTML size (${page})`,
-            value: `${Math.round((data.htmlBytes as number) / 1024)}kb`,
-          });
-
-          if (options.direction) {
-            try {
-              findings.push(
-                ...(await measureTaste(window, options.direction, page)),
-              );
-            } catch (error) {
-              findings.push({
-                id: `taste-${page}`,
-                label: 'Taste checks',
-                status: 'unknown',
-                detail: String(error),
-                page,
-              });
-            }
-          }
-
-          const links = data.links as string[];
-          const internal = links
-            .map((href) => {
-              try {
-                return new URL(href, url);
-              } catch {
-                return null;
-              }
-            })
-            .filter(
-              (link): link is URL =>
-                Boolean(link) && link!.origin === new URL(server.url).origin,
-            )
-            .map((link) => link.pathname + link.search + link.hash);
-          const broken: string[] = [];
-          for (const href of [...new Set(internal)].slice(0, 60)) {
-            try {
-              const response = await fetch(new URL(href, server.url).href);
-              if (response.status >= 400)
-                broken.push(`${href} (${response.status})`);
-            } catch {
-              broken.push(href);
-            }
-          }
-          findings.push({
-            id: `links-${page}`,
-            label: 'Internal links work',
-            status: broken.length === 0 ? 'pass' : 'fail',
-            detail:
-              broken.length === 0
-                ? `Checked ${internal.length} internal links.`
-                : `Broken: ${broken.slice(0, 5).join(', ')}`,
+          const fontsReady = Boolean(data.fontsReady);
+          add({
+            id: `fonts-${page}`,
+            label: 'Fonts were ready before measuring',
+            status: fontsReady ? 'pass' : 'unknown',
+            kind: fontsReady ? 'measured' : 'failure',
+            detail: fontsReady
+              ? 'The page reported its fonts loaded before any measurement.'
+              : 'The fonts did not finish loading within five seconds, so text size, spacing and contrast may have been measured on a fallback font.',
             page,
           });
         }
+
+        const text = summariseTextContrast(data.textNodes as ContrastNode[]);
+        const totalText = Number(data.textNodeCount ?? text.checked);
+        add({
+          id: `contrast-${page}-${width}`,
+          label: 'Text has enough contrast',
+          status: text.failures.length === 0 ? 'pass' : 'fail',
+          detail:
+            text.failures.length === 0
+              ? `Checked ${text.checked}${
+                  totalText > text.checked ? ` of ${totalText}` : ''
+                } text nodes; lowest ${text.lowest}:1.`
+              : `${text.failures.length} of ${text.checked} text nodes are under their threshold: ${text.failures
+                  .slice(0, 4)
+                  .map(
+                    (failure) =>
+                      `${failure.where} ${failure.ratio}:1 (needs ${failure.required}:1)`,
+                  )
+                  .join('; ')}`,
+          page,
+          width,
+        });
+
+        const buttons = summariseButtonContrast(
+          data.buttonNodes as ButtonNode[],
+        );
+        add({
+          id: `buttons-${page}-${width}`,
+          label: 'Button text has enough contrast',
+          status: buttons.failures.length === 0 ? 'pass' : 'fail',
+          detail:
+            buttons.checked === 0
+              ? 'No buttons on this page.'
+              : buttons.failures.length === 0
+                ? `Checked ${buttons.checked} button(s) at 4.5:1; lowest ${buttons.lowest}:1.`
+                : `${buttons.failures.length} of ${buttons.checked} button(s) are under 4.5:1: ${buttons.failures
+                    .slice(0, 4)
+                    .map(
+                      (failure) =>
+                        `${failure.name || failure.where} ${failure.ratio}:1`,
+                    )
+                    .join('; ')}`,
+          page,
+          width,
+        });
+
+        let axe: AxeViolation[] | null = null;
+        let axeProblem = '';
+        try {
+          axe = await runAxe(window);
+        } catch (error) {
+          axeProblem = error instanceof Error ? error.message : String(error);
+        }
+        if (axeProblem) {
+          add({
+            id: `axe-${page}-${width}`,
+            label: 'Automated accessibility (axe)',
+            status: 'unknown',
+            kind: 'failure',
+            detail: `${axeProblem} Accessibility is not verified.`,
+            page,
+            width,
+          });
+        } else if (!axe) {
+          add({
+            id: `axe-${page}-${width}`,
+            label: 'Automated accessibility (axe)',
+            status: 'unknown',
+            kind: 'failure',
+            detail: 'axe could not run; accessibility is not verified.',
+            page,
+            width,
+          });
+        } else {
+          add({
+            id: `axe-${page}-${width}`,
+            label: 'Automated accessibility (axe)',
+            status: axe.length === 0 ? 'pass' : 'fail',
+            detail:
+              axe.length === 0
+                ? 'No axe violations against WCAG 2.1 A and AA.'
+                : `${axe.length} rule(s) failed: ${axe
+                    .slice(0, 5)
+                    .map((violation) => `${violation.id} (${violation.nodes}×)`)
+                    .join(', ')}`,
+            page,
+            width,
+          });
+        }
+
+        measured.push({
+          label: `Load (${page} at ${width}px)`,
+          value: `${(data.timing as { load: number } | null)?.load ?? 0}ms`,
+        });
+        measured.push({
+          label: `Scripts (${page} at ${width}px)`,
+          value: String(data.scripts),
+        });
+        measured.push({
+          label: `HTML size (${page} at ${width}px)`,
+          value: `${Math.round((data.htmlBytes as number) / 1024)}kb`,
+        });
+
+        if (options.direction) {
+          try {
+            findings.push(
+              ...(await measureTaste(window, options.direction, page, {
+                scope: 'body',
+                width,
+                kind: 'site',
+              })),
+            );
+          } catch (error) {
+            add({
+              id: `taste-${page}-${width}`,
+              label: 'Taste checks',
+              status: 'unknown',
+              kind: 'failure',
+              detail: `The taste checks could not run: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              page,
+              width,
+            });
+          }
+        }
       }
+
+      const data = desktop;
+      if (!data) continue;
+
+      const imagesWithoutAlt = data.imagesWithoutAlt as number;
+      add({
+        id: `alt-${page}`,
+        label: 'Images have alternative text',
+        status: imagesWithoutAlt === 0 ? 'pass' : 'fail',
+        detail:
+          imagesWithoutAlt === 0
+            ? 'Every image has an alt.'
+            : `${imagesWithoutAlt} image(s) have no alt.`,
+        page,
+      });
+
+      const unlabelled = data.unlabelledFields as number;
+      add({
+        id: `labels-${page}`,
+        label: 'Form fields are labelled',
+        status: unlabelled === 0 ? 'pass' : 'fail',
+        detail:
+          unlabelled === 0
+            ? 'Every field has a label.'
+            : `${unlabelled} field(s) have no label.`,
+        page,
+      });
+
+      const h1Count = data.h1Count as number;
+      const headings = data.headings as Array<{ level: number }>;
+      const skipped = headings.some((heading, index) =>
+        index > 0 ? heading.level - headings[index - 1].level > 1 : false,
+      );
+      add({
+        id: `headings-${page}`,
+        label: 'Headings are in order',
+        status: h1Count === 1 && !skipped ? 'pass' : 'fail',
+        detail: `${h1Count} h1, ${headings.length} headings${skipped ? ', with a level skipped' : ''}.`,
+        page,
+      });
+
+      add({
+        id: `lang-${page}`,
+        label: 'The page says what language it is',
+        status: data.hasLang && data.hasMain ? 'pass' : 'fail',
+        detail: `${data.hasLang ? 'lang set' : 'no lang'}, ${data.hasMain ? 'main landmark' : 'no main landmark'}.`,
+        page,
+      });
+
+      const controlsWithoutName = data.controlsWithoutName as number;
+      add({
+        id: `names-${page}`,
+        label: 'Buttons and links say what they do',
+        status: controlsWithoutName === 0 ? 'pass' : 'fail',
+        detail:
+          controlsWithoutName === 0
+            ? 'Every control has a name.'
+            : `${controlsWithoutName} control(s) have no accessible name.`,
+        page,
+      });
+
+      if (options.direction) {
+        const hierarchy = data.hierarchy as {
+          headingSizes: Record<string, number>;
+          bodySize: number;
+        };
+        const levels = [1, 2, 3, 4, 5, 6]
+          .map((level) => hierarchy.headingSizes[`h${level}`])
+          .filter((size): size is number => typeof size === 'number');
+        const outOfOrder = levels.some(
+          (size, index) => index > 0 && size >= levels[index - 1],
+        );
+        const headingsLargerThanBody =
+          levels.length === 0 ||
+          hierarchy.bodySize === 0 ||
+          levels[levels.length - 1] > hierarchy.bodySize;
+        add({
+          id: `hierarchy-${page}`,
+          label: 'The hierarchy is clear',
+          status: !outOfOrder && headingsLargerThanBody ? 'pass' : 'fail',
+          detail: outOfOrder
+            ? `Headings do not step down in size: ${levels.join('px, ')}px`
+            : headingsLargerThanBody
+              ? `Headings ${levels.join('/')}px, body ${hierarchy.bodySize}px.`
+              : `Body text (${hierarchy.bodySize}px) is not smaller than the smallest heading.`,
+          page,
+        });
+      }
+
+      const links = data.links as string[];
+      const internal = links
+        .map((href) => {
+          try {
+            return new URL(href, url);
+          } catch {
+            return null;
+          }
+        })
+        .filter(
+          (link): link is URL =>
+            Boolean(link) && link!.origin === new URL(server.url).origin,
+        )
+        .map((link) => link.pathname + link.search + link.hash);
+      const broken: string[] = [];
+      for (const href of [...new Set(internal)].slice(0, 60)) {
+        try {
+          const response = await fetch(new URL(href, server.url).href);
+          if (response.status >= 400)
+            broken.push(`${href} (${response.status})`);
+        } catch {
+          broken.push(href);
+        }
+      }
+      add({
+        id: `links-${page}`,
+        label: 'Internal links work',
+        status: broken.length === 0 ? 'pass' : 'fail',
+        detail:
+          broken.length === 0
+            ? `Checked ${internal.length} internal links.`
+            : `Broken: ${broken.slice(0, 5).join(', ')}`,
+        page,
+      });
+    }
+
+    // The approved taste test that cannot be automated (4.1 #13) stays a
+    // person's judgement, and is shown as opinion rather than a measurement.
+    findings.push({
+      id: 'opinion-ai-look',
+      label: 'The overall “AI look” is a person’s call',
+      status: 'info',
+      kind: 'opinion',
+      detail:
+        'No automatic measurement can decide whether a page feels generic. Camillo or Billy reviews the built page (approved taste test 4.1 #13).',
+    });
+    // The run's own output, judged against the site's tokens (ticket 24). The
+    // whole-site findings above stay as diagnostics; these are the ones that
+    // describe what the agent actually wrote.
+    if (options.direction && options.changed && options.changed.length > 0) {
+      const direction = options.direction;
+      const touched = changedPages(options.changed);
+      const chosen =
+        touched.pages.length > 0
+          ? touched.shared
+            ? [...new Set([...touched.pages, ...options.pages])]
+            : touched.pages
+          : options.pages;
+      const pages = chosen.filter((page) => !page.includes('[')).slice(0, 4);
+      const selectors = changedSelectors(options.changed);
+      const scope = selectors.join(', ');
+      const label = pages[0] ?? '/';
+
+      options.onProgress?.("Judging the agent's own changes…");
+      for (const { file, css } of changedStyleText(options.changed)) {
+        if (!css.trim()) continue;
+        findings.push(...checkTasteOfCss(css, direction, `${label} (${file})`));
+      }
+
+      if (selectors.length === 0) {
+        findings.push({
+          id: 'change-scope',
+          label: 'Agent changes: the run’s output was found in the built page',
+          status: 'unknown',
+          kind: 'failure',
+          detail: `${options.changed.length} file(s) changed, but none added a class, id or style rule that the built page can be narrowed to. Nothing was judged as the agent's own work.`,
+          scope: 'change',
+        });
+      }
+      let matched = 0;
+      for (const page of selectors.length === 0 ? [] : pages) {
+        const url = new URL(page.replace(/^\/+/, ''), server.url).href;
+        for (const width of WIDTHS) {
+          options.onProgress?.(
+            `Judging the agent's changes on ${page} at ${width}px…`,
+          );
+          const loaded = await probe(window, url, width);
+          if (!loaded) {
+            findings.push({
+              id: `change-taste-${page}-${width}`,
+              label: 'Agent changes: the page loads',
+              status: 'unknown',
+              kind: 'failure',
+              detail:
+                'The page did not respond, so the changes were not judged.',
+              page,
+              width,
+              scope: 'change',
+            });
+            continue;
+          }
+          // A page that does not carry the change has nothing to judge.
+          const found = (await window.webContents.executeJavaScript(
+            `document.querySelectorAll(${JSON.stringify(scope)}).length`,
+          )) as number;
+          if (!found) continue;
+          matched += found;
+          try {
+            findings.push(
+              ...(await measureTaste(window, direction, page, {
+                scope,
+                declarations: false,
+                width,
+                kind: 'change',
+              })),
+            );
+          } catch (error) {
+            findings.push({
+              id: `change-taste-${page}-${width}`,
+              label: 'Agent changes: taste checks',
+              status: 'unknown',
+              kind: 'failure',
+              detail: `${String(error)} (selectors: ${selectors.slice(0, 6).join(', ')})`,
+              page,
+              width,
+              scope: 'change',
+            });
+          }
+        }
+      }
+      if (selectors.length > 0 && matched === 0)
+        findings.push({
+          id: 'change-scope',
+          label: 'Agent changes: the run’s output was found in the built page',
+          status: 'unknown',
+          kind: 'failure',
+          detail: `The run added ${selectors.slice(0, 6).join(', ')}, but nothing on the built pages carried it, so its output was not judged.`,
+          scope: 'change',
+        });
     }
   } finally {
     server.close();

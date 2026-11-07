@@ -51,6 +51,14 @@ const draftRestore = await import('../src/draft-restore.ts').catch(() => null);
 // Ticket 14 modules: imported leniently so a missing implementation fails a test.
 const recovery = await import('../src/main/recovery.ts').catch(() => null);
 const directions = await import('../src/main/directions.ts').catch(() => null);
+// Ticket 23: contrast thresholds and how measured, failed and opinion results
+// are told apart.
+const contrast = await import('../src/main/contrast.ts').catch(() => null);
+const qualityRules = await import('../src/main/quality.ts').catch(() => null);
+// Ticket 24: judging the agent's own changes, not the whole site.
+const tasteChange = await import('../src/main/taste-change.ts').catch(
+  () => null,
+);
 // Ticket 14 case 7: an accessibility-check exception must be reported, not
 // discarded. A window whose page scripts fail stands in for a broken check.
 const axeOutcome = await (async () => {
@@ -312,6 +320,67 @@ try {
     const edited = fs.readFileSync(component, 'utf8');
     assert.equal(addPiece(root, options).ok, true);
     assert.equal(fs.readFileSync(component, 'utf8'), edited);
+  });
+  test('4.3 a piece is placed inside the page, never after its layout', () => {
+    const page = path.join(root, 'src/pages/layout-page.astro');
+    fs.writeFileSync(
+      page,
+      '---\nimport Base from "../layouts/Base.astro";\n---\n<Base title="Hello">\n  <section>\n    <h1>Hello</h1>\n  </section>\n</Base>\n',
+    );
+    assert.equal(
+      addPiece(root, {
+        pieceId: 'glow-action',
+        page: '/layout-page/',
+        mode: 'add',
+      }).ok,
+      true,
+    );
+    const text = fs.readFileSync(page, 'utf8');
+    assert.ok(
+      text.indexOf('<Glowingcalltoaction />') < text.indexOf('</Base>'),
+      'the piece belongs inside the page body',
+    );
+    assert.ok(text.endsWith('</Base>\n'), 'the layout still closes the page');
+  });
+  test('4.3 replacing a piece drops the import of the piece it replaced', () => {
+    const page = path.join(root, 'src/pages/replace-page.astro');
+    fs.writeFileSync(page, '---\n---\n<main>\n  <h1>Hi</h1>\n</main>\n');
+    assert.equal(
+      addPiece(root, {
+        pieceId: 'editorial-intro',
+        page: '/replace-page/',
+        mode: 'add',
+      }).ok,
+      true,
+    );
+    assert.ok(
+      fs
+        .readFileSync(page, 'utf8')
+        .includes(
+          "import Editorialintro from '../components/Editorialintro.astro';",
+        ),
+    );
+    assert.equal(
+      addPiece(root, {
+        pieceId: 'glow-action',
+        page: '/replace-page/',
+        mode: 'replace',
+        replaceSelector: 'Editorialintro',
+      }).ok,
+      true,
+    );
+    const replaced = fs.readFileSync(page, 'utf8');
+    assert.ok(replaced.includes('<Glowingcalltoaction />'));
+    assert.equal(
+      replaced.includes('Editorialintro'),
+      false,
+      'a page must not import a component it no longer renders',
+    );
+    assert.ok(
+      replaced.includes(
+        "import Glowingcalltoaction from '../components/Glowingcalltoaction.astro';",
+      ),
+    );
   });
   test('3.4 a colon or newline in text cannot corrupt frontmatter', () => {
     fs.mkdirSync(path.join(root, 'src/content/posts'), { recursive: true });
@@ -1236,6 +1305,324 @@ test('2.2 a removal beside a change keeps each on its own element', () => {
     comparison.removed.map((element) => element.tag),
     ['p'],
   );
+});
+
+test('4.4 text contrast uses the approved size and weight thresholds', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  assert.equal(contrast.textContrastRequired(17, 400), 4.5);
+  assert.equal(contrast.textContrastRequired(24, 400), 3);
+  assert.equal(contrast.textContrastRequired(20, 700), 3);
+  assert.equal(contrast.textContrastRequired(18, 700), 4.5);
+});
+
+test('4.4 a pale focus ring fails instead of counting as visible', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  const verdict = contrast.judgeFocus({
+    where: 'button.go',
+    outlineStyle: 'solid',
+    outlineWidth: 2,
+    outlineColor: 'rgb(244, 244, 244)',
+    boxShadow: 'none',
+    background: 'rgb(255, 255, 255)',
+    parentBackground: 'rgb(248, 244, 233)',
+    beforeBackground: 'rgb(255, 255, 255)',
+  });
+  assert.equal(verdict.state, 'low-contrast');
+  assert.ok(verdict.ratio < 3, `ratio was ${verdict.ratio}`);
+});
+
+test('4.4 no focus indicator at all is still a failure', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  const verdict = contrast.judgeFocus({
+    where: 'a',
+    outlineStyle: 'none',
+    outlineWidth: 0,
+    outlineColor: 'rgb(0, 0, 0)',
+    boxShadow: 'none',
+    background: 'rgba(0, 0, 0, 0)',
+    parentBackground: 'rgb(255, 255, 255)',
+    beforeBackground: 'rgba(0, 0, 0, 0)',
+  });
+  assert.equal(verdict.state, 'missing');
+});
+
+test('4.4 a strong focus ring passes the 3:1 threshold', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  const verdict = contrast.judgeFocus({
+    where: 'button',
+    outlineStyle: 'solid',
+    outlineWidth: 2,
+    outlineColor: 'rgb(42, 23, 18)',
+    boxShadow: 'none',
+    background: 'rgb(248, 244, 233)',
+    parentBackground: 'rgb(248, 244, 233)',
+    beforeBackground: 'rgb(248, 244, 233)',
+  });
+  assert.equal(verdict.state, 'ok');
+  assert.ok(verdict.ratio >= 3, `ratio was ${verdict.ratio}`);
+});
+
+test('4.4 a translucent text colour is measured over its background', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  const ratio = contrast.contrastRatio('rgba(0, 0, 0, 0.5)', '#ffffff');
+  assert.ok(ratio > 3.5 && ratio < 4.5, `ratio was ${ratio}`);
+});
+
+test('4.4 button text is held to 4.5:1 even when it looks like large text', () => {
+  assert.ok(qualityRules, 'the quality report module is missing');
+  const text = qualityRules.summariseTextContrast([
+    {
+      where: 'p.headline',
+      color: '#7a7a7a',
+      background: '#ffffff',
+      fontSize: 20,
+      fontWeight: 700,
+    },
+  ]);
+  const buttons = qualityRules.summariseButtonContrast([
+    {
+      where: 'button.go',
+      name: 'Go',
+      color: '#7a7a7a',
+      background: '#ffffff',
+    },
+  ]);
+  assert.equal(text.failures.length, 0, 'large bold text should allow 3:1');
+  assert.equal(
+    buttons.failures.length,
+    1,
+    'button text must still reach 4.5:1',
+  );
+  assert.ok(buttons.failures[0].ratio > 3 && buttons.failures[0].ratio < 4.5);
+});
+
+test('4.4 every text node is judged, including short labels past the first sixty', () => {
+  assert.ok(qualityRules, 'the quality report module is missing');
+  const nodes = Array.from({ length: 80 }, (_, index) => ({
+    where: `p.text-${index}`,
+    color: '#2a1712',
+    background: '#f8f4e9',
+    fontSize: 17,
+    fontWeight: 400,
+  }));
+  nodes[70] = {
+    ...nodes[70],
+    where: 'button.go',
+    color: '#999999',
+    background: '#ffffff',
+  };
+  const summary = qualityRules.summariseTextContrast(nodes);
+  assert.equal(summary.checked, 80);
+  assert.deepEqual(
+    summary.failures.map((failure) => failure.where),
+    ['button.go'],
+  );
+});
+
+test('4.4 an offset focus ring is judged against the page behind it', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  const verdict = contrast.judgeFocus({
+    where: 'a.btn-primary',
+    outlineStyle: 'solid',
+    outlineWidth: 2,
+    outlineColor: 'rgb(200, 255, 0)',
+    outlineOffset: 3,
+    boxShadow: 'none',
+    background: 'rgb(200, 255, 0)',
+    parentBackground: 'rgb(13, 13, 13)',
+    beforeBackground: 'rgb(200, 255, 0)',
+  });
+  assert.equal(verdict.state, 'ok');
+});
+
+test('24 changed output: only the class and id names a run added are judged', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const changed = [
+    {
+      file: 'src/components/Booking.astro',
+      before: '<section class="card"><h2>Old</h2></section>',
+      after:
+        '<section class="card booking-callout" id="booking"><h2>New</h2><a class="booking-link" href="#">Book</a></section>',
+    },
+  ];
+  const selectors = tasteChange.changedSelectors(changed);
+  assert.ok(selectors.includes('.booking-callout'), selectors.join(', '));
+  assert.ok(selectors.includes('.booking-link'), selectors.join(', '));
+  assert.ok(selectors.includes('#booking'), selectors.join(', '));
+  assert.ok(
+    !selectors.includes('.card'),
+    'an existing class was treated as the run’s own',
+  );
+});
+
+test('24 changed output: the CSS judged is the CSS the run wrote', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const css = tasteChange.changedStyleText([
+    {
+      file: 'src/components/Booking.astro',
+      before: null,
+      after: '<style>.booking{color:#2563eb}</style><p>hi</p>',
+    },
+    {
+      file: 'src/styles/extra.css',
+      before: 'a{color:red}',
+      after: '.more{padding:13px}',
+    },
+    { file: 'public/photo.png', before: null, after: 'not really a png' },
+    { file: 'README.md', before: null, after: '# notes only' },
+  ]);
+  assert.deepEqual(
+    css.map((item) => item.file),
+    ['src/components/Booking.astro', 'src/styles/extra.css'],
+  );
+  assert.match(css[0].css, /\.booking\{color:#2563eb\}/);
+  assert.match(css[1].css, /padding:13px/);
+});
+
+test('24 changed output: off-brand declarations in the agent’s CSS fail', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const direction = directions.findDirection('long-lunch');
+  const findings = tasteChange.checkTasteOfCss(
+    `.booking { color: #2563eb; background: #ffffff; padding: 13px; border-radius: 7px; font-size: 19px; }
+     .booking-hero { background: linear-gradient(90deg, #2563eb, #7c3aed); }`,
+    direction,
+    '/booking',
+  );
+  const failed = findings
+    .filter((finding) => finding.status === 'fail')
+    .map((finding) => finding.label);
+  for (const expected of [
+    'No unchosen generic SaaS accents',
+    'No tired blue-purple gradients',
+    'Spacing follows the direction',
+    'Type sizes use the direction',
+    'Radii follow the direction',
+    'Colours follow the direction',
+    'Tokens rather than hard-coded values',
+  ])
+    assert.ok(
+      failed.some((label) => label.includes(expected)),
+      `${expected} did not fail: ${failed.join(', ')}`,
+    );
+  assert.ok(
+    findings.every(
+      (finding) =>
+        finding.scope === 'change' &&
+        finding.label.startsWith('Agent changes: '),
+    ),
+    'a changed-output finding was not labelled as the agent’s',
+  );
+});
+
+test('24 changed output: an on-brand change using the direction’s tokens passes', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const direction = directions.findDirection('long-lunch');
+  const findings = tasteChange.checkTasteOfCss(
+    `.booking { background: var(--cauldron-c-surface); color: var(--cauldron-c-ink); padding: var(--cauldron-space-4); border-radius: var(--cauldron-radius-2); font-size: var(--cauldron-size-3); }`,
+    direction,
+    '/booking',
+  );
+  assert.deepEqual(
+    findings
+      .filter((finding) => finding.status === 'fail')
+      .map((finding) => `${finding.label}: ${finding.detail}`),
+    [],
+  );
+});
+
+// A direction shaped like the one a reference URL produces: measured colours and
+// scales, fonts that were named but not licensed or downloaded.
+const measuredDirection = {
+  id: 'reference-abc123',
+  name: 'Measured reference',
+  forWhom: 'This site',
+  learnedFrom: 'http://127.0.0.1/',
+  colours: {
+    bg: '#fbf7f2',
+    ink: '#333333',
+    primary: '#0f5132',
+    'reference-1': '#fbf7f2',
+  },
+  fonts: {
+    display: {
+      family: 'Georgia',
+      package: 'Reference font — supply your own licensed font files',
+      weights: [400, 700],
+    },
+    body: {
+      family: 'Verdana',
+      package: 'Reference font — supply your own licensed font files',
+      weights: [400, 700],
+    },
+  },
+  typeScale: [16, 48],
+  spacing: [0, 24],
+  radii: [0, 8],
+  motion: { quick: '0ms', settle: '0ms', easing: 'linear' },
+  character: 'Measured.',
+  watch: 'Supply the font files.',
+};
+
+test('24 reference URL: the measured direction becomes usable site tokens', () => {
+  const tokens = directions.tokensCss(measuredDirection);
+  assert.match(tokens, /--cauldron-c-ink: #333333/);
+  assert.match(tokens, /--cauldron-c-reference-1: #fbf7f2/);
+  assert.match(tokens, /--cauldron-size-2: 3rem/);
+  assert.ok(
+    !/fonts\.googleapis/.test(tokens),
+    'a font that was measured, not licensed, must not be fetched from Google',
+  );
+});
+
+test('24 reference URL: the checks use the measured direction’s tokens', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const accepted = tasteChange.checkTasteOfCss(
+    `.callout { background: var(--cauldron-c-bg); color: var(--cauldron-c-ink); padding: var(--cauldron-space-1); border-radius: var(--cauldron-radius-1); font-size: var(--cauldron-size-1); }`,
+    measuredDirection,
+    '/',
+  );
+  assert.deepEqual(
+    accepted
+      .filter((finding) => finding.status === 'fail')
+      .map((finding) => finding.label),
+    [],
+  );
+  const stray = tasteChange.checkTasteOfCss(
+    `.callout { color: #b84b30 }`,
+    measuredDirection,
+    '/',
+  );
+  assert.equal(
+    stray.find((finding) => finding.label.includes('Colours follow'))?.status,
+    'fail',
+    'a colour outside the measured palette was accepted',
+  );
+});
+
+test('24 changed output: a run’s page is found even when it also changed a component', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const result = tasteChange.changedPages([
+    { file: 'src/components/Booking.astro', before: null, after: '' },
+    { file: 'src/pages/booking.astro', before: null, after: '' },
+  ]);
+  assert.deepEqual(result.pages, ['/booking']);
+  assert.equal(result.shared, true);
+  const home = tasteChange.changedPages([
+    { file: 'src/pages/index.astro', before: null, after: '' },
+  ]);
+  assert.deepEqual(home.pages, ['/']);
+  assert.equal(home.shared, false);
+});
+
+test('24 the focus check’s contrast maths uses the approved 3:1 bar', () => {
+  assert.ok(tasteChange, 'taste-change could not be imported');
+  const near = tasteChange.contrastRatio([254, 254, 253], [255, 255, 255]);
+  assert.ok(near < 1.1, `a near-white ring measured ${near}:1`);
+  const visible = tasteChange.contrastRatio([42, 23, 18], [255, 253, 247]);
+  assert.ok(visible >= 3, `the direction’s ink measured ${visible}:1`);
+  assert.ok(tasteChange.contrastRatio([0, 0, 0], [255, 255, 255]) > 20);
+  assert.deepEqual(tasteChange.parseColour('rgb(51, 51, 51)'), [51, 51, 51, 1]);
+  assert.deepEqual(tasteChange.parseColour('#333'), [51, 51, 51, 1]);
 });
 
 process.exitCode = failures ? 1 : 0;

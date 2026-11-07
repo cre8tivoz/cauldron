@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { app } from 'electron';
 import { hashOf } from './files';
+import { LIBRARY } from './library';
+import type { BrowserWindow } from 'electron';
 import type { Site } from './site';
 import type { Location } from './edit';
 import type { Draft } from './recovery';
@@ -14,7 +16,13 @@ type Api = {
     page: string;
     mode: 'add' | 'replace';
     replaceSelector?: string;
-  }) => { ok: boolean; problem?: string; page?: string };
+  }) => {
+    ok: boolean;
+    problem?: string;
+    page?: string;
+    componentFile?: string;
+    runId?: string;
+  };
   collections?: () => CauldronCollections;
   repoState?: () => {
     isRepo: boolean;
@@ -29,7 +37,16 @@ type Api = {
   };
   qualityRun?: (payload: { pages?: string[] }) => Promise<{
     built: boolean;
-    findings: Array<{ label: string; status: string; detail: string }>;
+    findings: Array<{
+      id?: string;
+      label: string;
+      status: string;
+      kind?: string;
+      detail: string;
+      page?: string;
+      width?: number;
+      scope?: 'site' | 'change';
+    }>;
     measured: Array<{ label: string; value: string }>;
     buildLog: string;
   }>;
@@ -103,6 +120,10 @@ type Api = {
     problem?: string;
   };
   waitForAgent?: (timeout: number) => Promise<{ ok: boolean; note?: string }>;
+  /** Ticket 23: the Cauldron actions an outside agent actually asked for. */
+  mcpServed?: () => Array<{ tool: string; ok: boolean; at: number }>;
+  /** Ticket 23: every event the agent run reported, to explain a failure. */
+  agentEvents?: () => Array<{ type: string; text: string; name: string }>;
   buildPromptText?: (request: string) => string;
   mcpInfo?: () => Promise<{ url: string; code: string } | null>;
   /** Ticket 17: what shared history holds, so a test can see labels and run tags. */
@@ -216,147 +237,642 @@ type CauldronCollections = Array<{
   entries: Array<{ id: string; file: string; hash: string }>;
 }>;
 
-/** 4.3: every starter piece drops into a real site, builds, and ships no JavaScript. */
+/** Folders a library run is not judged on: build output and dependencies. */
+const LIBRARY_SKIP = new Set([
+  'node_modules',
+  'dist',
+  '.git',
+  '.astro',
+  '.vercel',
+]);
+
+function hashTree(root: string): Map<string, string> {
+  const hashes = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (LIBRARY_SKIP.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile())
+        hashes.set(
+          path.relative(root, full),
+          crypto
+            .createHash('sha256')
+            .update(fs.readFileSync(full))
+            .digest('hex'),
+        );
+    }
+  };
+  walk(root);
+  return hashes;
+}
+
+function treeDiff(
+  before: Map<string, string>,
+  after: Map<string, string>,
+): string[] {
+  const names = new Set([...before.keys(), ...after.keys()]);
+  return [...names]
+    .filter((name) => before.get(name) !== after.get(name))
+    .sort();
+}
+
+const warningLines = (log: string): string[] =>
+  log
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /\bWARN(ING)?\b/i.test(line));
+
+function buildSite(root: string): {
+  ok: boolean;
+  log: string;
+  warnings: string[];
+} {
+  const result = spawnSync('npm', ['run', 'build'], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 300000,
+  });
+  const log = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  return { ok: result.status === 0, log, warnings: warningLines(log) };
+}
+
+function builtPage(root: string, page: string): string {
+  const clean = page.replace(/^\/+|\/+$/g, '');
+  const file = path.join(
+    root,
+    'dist',
+    clean === '' ? 'index.html' : `${clean}/index.html`,
+  );
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+}
+
+/** Every script tag the page carries, so a piece cannot slip JavaScript in. */
+function scriptTags(html: string): string[] {
+  return [...html.matchAll(/<script\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .sort();
+}
+
+function jsFiles(root: string): string[] {
+  const dist = path.join(root, 'dist');
+  if (!fs.existsSync(dist)) return [];
+  return (fs.readdirSync(dist, { recursive: true }) as string[])
+    .filter((file) => /\.(js|mjs)$/.test(file))
+    .sort();
+}
+
+/**
+ * 4.3: every approved piece, in a real site, against all nine checks — drop in,
+ * build, plain Astro, direction, accessibility, overflow, keyboard, licence and
+ * replace-then-undo. Each piece is added to its own real page and undone, so the
+ * site is back to its own bytes at the end of every round.
+ */
 export async function runLibraryTest(root: string, api: Api): Promise<void> {
+  const siteName = path.basename(root);
   try {
     await api.openSiteAt(root);
     api.setDirection?.('long-lunch');
-    const { execFileSync } = await import('node:child_process');
-    const pages = api.runAction({ action: 'listPages' }) as {
-      pages?: Array<{ page: string }>;
-    };
-    const page = pages.pages?.[0]?.page ?? '/';
-    const pieces = [
-      'editorial-intro',
-      'newsletter-footer',
-      'glow-action',
-      'heading-reveal',
-      'woven-cloth',
-    ];
-
-    let allAdded = true;
-    for (const piece of pieces) {
-      const added = api.addPiece?.({ pieceId: piece, page, mode: 'add' });
-      if (!added?.ok) {
-        allAdded = false;
-        check(
-          `4.3 ${piece} adds to the page`,
-          false,
-          added?.problem ?? 'no result',
-        );
-      }
-    }
-    check('4.3 all five pieces copy into the site', allAdded);
+    const { findDirection } = await import('./directions');
+    const { serveDist, inspectionWindow, runAxe } = await import('./quality');
+    const { measureTaste } = await import('./taste-check');
+    const direction = findDirection('long-lunch');
 
     check(
-      '4.3 pieces are plain Astro with no client JavaScript',
-      !fs
-        .readFileSync(path.join(root, 'src/pages/index.astro'), 'utf8')
-        .includes('client:'),
+      `4.3 ${siteName}: the starter set is five pieces, each with source, licence and code-allowed status`,
+      LIBRARY.length === 5 &&
+        LIBRARY.every(
+          (piece) =>
+            piece.source.length > 0 &&
+            /MIT/.test(piece.licence) &&
+            piece.codeAllowed &&
+            !piece.needsScript,
+        ),
+      LIBRARY.map(
+        (piece) => `${piece.id}: ${piece.source}, ${piece.licence}`,
+      ).join(' | '),
     );
 
-    try {
-      execFileSync('npm', ['run', 'build'], {
-        cwd: root,
-        stdio: 'pipe',
-        timeout: 300000,
-      });
-      check('4.3 the site still builds with every piece in it', true);
-    } catch (error) {
-      check(
-        '4.3 the site still builds with every piece in it',
-        false,
-        String(error).slice(0, 200),
-      );
-    }
+    const listed = api.runAction({ action: 'listPages' }) as {
+      pages?: Array<{ page: string }>;
+    };
+    const pages = (listed.pages ?? [])
+      .map((item) => item.page)
+      .filter((page) => !page.includes('[') && page !== '/404/');
+    check(
+      `4.3 ${siteName}: real pages are available to hold the pieces`,
+      pages.length > 0,
+      `${pages.join(', ')}${pages.length < LIBRARY.length ? ' (fewer than five, so pages are reused)' : ''}`,
+    );
 
-    const built = fs.existsSync(path.join(root, 'dist'))
-      ? fs.readdirSync(path.join(root, 'dist'), { recursive: true }).length
-      : 0;
-    check('4.3 a real build was produced', built > 0, `${built} files in dist`);
+    const baseline = buildSite(root);
+    check(
+      `4.3 ${siteName}: the site builds before any piece is added`,
+      baseline.ok,
+      baseline.ok ? 'no errors' : baseline.log.slice(-300),
+    );
+    check(
+      `4.3 ${siteName}: the site builds with no warnings before any piece is added`,
+      baseline.warnings.length === 0,
+      baseline.warnings.slice(0, 3).join(' | ') || 'no warnings',
+    );
+    const baselineJs = jsFiles(root);
 
-    // Adopting the direction and passing accessibility, in the built page.
-    const { serveDist, inspectionWindow, runAxe } = await import('./quality');
-    const { findDirection } = await import('./directions');
-    const direction = findDirection('long-lunch');
-    const server = await serveDist(path.join(root, 'dist'));
-    const window = inspectionWindow();
-    try {
-      await window.loadURL(server.url);
-      await new Promise((resolve) => setTimeout(resolve, 400));
+    const evaluate = <T>(window: BrowserWindow, script: string) =>
+      window.webContents.executeJavaScript(script) as Promise<T>;
+    const press = async (window: BrowserWindow, keyCode: string) => {
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+    };
 
-      const count = (await window.webContents.executeJavaScript(
-        `document.querySelectorAll('section[class^="cauldron-"]').length`,
-      )) as number;
-      check(
-        '4.3 every piece is on the built page',
-        count >= 5,
-        `${count} pieces`,
-      );
-
-      const adopted = (await window.webContents.executeJavaScript(
+    /** Tabs through the component and actually uses each control with keys. */
+    const keyboardWalk = async (window: BrowserWindow, selector: string) => {
+      const total = await evaluate<number>(
+        window,
         `(() => {
-          const heading = document.querySelector('.cauldron-editorial-intro h2');
-          const glow = document.querySelector('.cauldron-glow-action .glow');
-          if (!heading || !glow) return null;
-          return {
-            font: getComputedStyle(heading).fontFamily,
-            size: getComputedStyle(heading).fontSize,
-            background: getComputedStyle(glow).backgroundColor,
-          };
+          const root = document.querySelector(${JSON.stringify(selector)});
+          if (!root) return 0;
+          const controls = [...root.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')]
+            .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getBoundingClientRect().width > 0);
+          controls.forEach((el, index) => el.setAttribute('data-cauldron-kb', String(index)));
+          return controls.length;
         })()`,
-      )) as { font: string; size: string; background: string } | null;
-
-      check(
-        '4.3 the pieces use the site direction tokens',
-        Boolean(adopted) &&
-          adopted!.font
-            .toLowerCase()
-            .includes(direction?.fonts.display.family.toLowerCase() ?? ''),
-        adopted ? `${adopted.font} at ${adopted.size}` : 'nothing found',
       );
+      if (total === 0)
+        return {
+          total,
+          reached: 0,
+          visible: 0,
+          hovered: 0,
+          used: 0,
+          detail: 'nothing interactive to reach',
+        };
 
-      const { measureTaste } = await import('./taste-check');
-      const taste = await measureTaste(
+      const reached = new Set<number>();
+      // Start just before the piece, so a host page that traps Tab elsewhere
+      // cannot mask whether the piece's own parts are in the tab order.
+      await evaluate(
         window,
-        direction!,
-        '/',
-        'section[class^="cauldron-"]',
+        `(() => {
+          const root = document.querySelector(${JSON.stringify(selector)});
+          const focusable = [...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex],summary')]
+            .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getBoundingClientRect().width > 0);
+          const first = focusable.findIndex((el) => root.contains(el));
+          const before = first > 0 ? focusable[first - 1] : null;
+          if (before) before.setAttribute('data-cauldron-kb-start', '1');
+          else { document.body.tabIndex = -1; document.body.focus(); }
+          return Boolean(before);
+        })()`,
       );
-      check(
-        '4.3 the added pieces pass the approved direction and state checks',
-        taste.every((finding) => finding.status === 'pass'),
-        taste
-          .filter((finding) => finding.status !== 'pass')
-          .map((finding) => `${finding.label}: ${finding.detail}`)
-          .join('; ') || 'all measured checks passed',
-      );
-      for (const width of [375, 768, 1280]) {
-        window.setContentSize(width, 900);
-        const overflow = await window.webContents.executeJavaScript(
-          `document.documentElement.scrollWidth > innerWidth + 2`,
+      for (
+        let pressCount = 0;
+        pressCount < 400 && reached.size < total;
+        pressCount++
+      ) {
+        await press(window, 'Tab');
+        const hit = await evaluate<number>(
+          window,
+          `Number(document.activeElement?.getAttribute?.('data-cauldron-kb') ?? -1)`,
         );
-        check(`4.3 added pieces do not overflow at ${width}px`, !overflow);
+        if (hit >= 0) reached.add(hit);
       }
-      const violations = await runAxe(
-        window,
-        `[...document.querySelectorAll('section[class^="cauldron-"]')]`,
+
+      const tabTo = async (target: number) => {
+        await evaluate(
+          window,
+          `(() => {
+            const start = document.querySelector('[data-cauldron-kb-start]');
+            if (start) { start.focus(); return; }
+            document.body.tabIndex = -1;
+            document.body.focus();
+          })()`,
+        );
+        const trail: string[] = [];
+        for (let pressCount = 0; pressCount < 400; pressCount++) {
+          await press(window, 'Tab');
+          const hit = await evaluate<{ index: number; where: string }>(
+            window,
+            `(() => {
+              const el = document.activeElement;
+              const index = Number(el?.getAttribute?.('data-cauldron-kb') ?? -1);
+              const where = el ? el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className ? '.' + String(el.className).split(' ')[0] : '') : 'nothing';
+              return { index, where };
+            })()`,
+          );
+          if (hit.index === target) return { ok: true, trail };
+          trail.push(hit.where);
+          if (trail.length > 10) trail.shift();
+        }
+        return { ok: false, trail };
+      };
+
+      let used = 0;
+      const failures: string[] = [];
+      for (let index = 0; index < total; index++) {
+        const step = await tabTo(index);
+        if (!step.ok) {
+          failures.push(
+            `control ${index} could not be reached with Tab (last focus: ${step.trail.join(' → ')})`,
+          );
+          continue;
+        }
+        const kind = await evaluate<{
+          tag: string;
+          href: string;
+        }>(
+          window,
+          `(() => {
+            const el = document.activeElement;
+            return { tag: el.tagName.toLowerCase(), href: el.getAttribute('href') ?? '' };
+          })()`,
+        );
+        if (kind.tag === 'input') {
+          let value = '';
+          for (
+            let attempt = 0;
+            attempt < 2 && !value.includes('@');
+            attempt++
+          ) {
+            await evaluate(window, `document.activeElement.value = ''`);
+            for (const character of 'a@b.co') {
+              window.webContents.sendInputEvent({
+                type: 'keyDown',
+                keyCode: character,
+              });
+              window.webContents.sendInputEvent({
+                type: 'char',
+                keyCode: character,
+              });
+              window.webContents.sendInputEvent({
+                type: 'keyUp',
+                keyCode: character,
+              });
+            }
+            await wait(150);
+            value = await evaluate<string>(
+              window,
+              `document.activeElement.value`,
+            );
+          }
+          if (value.includes('@')) used += 1;
+          else failures.push('the email field could not be typed into');
+          continue;
+        }
+        await evaluate(
+          window,
+          `(() => {
+            const el = document.activeElement;
+            window.__cauldronActivated = '';
+            if (el.tagName.toLowerCase() === 'a') {
+              el.addEventListener('click', (event) => {
+                event.preventDefault();
+                window.__cauldronActivated = 'link';
+              }, { capture: true, once: true });
+            } else {
+              const form = el.closest('form');
+              if (form)
+                form.addEventListener('submit', (event) => {
+                  event.preventDefault();
+                  window.__cauldronActivated = 'submit';
+                }, { capture: true, once: true });
+              el.addEventListener('click', () => {
+                if (!window.__cauldronActivated) window.__cauldronActivated = 'click';
+              }, { once: true });
+            }
+            return true;
+          })()`,
+        );
+        await press(window, 'Return');
+        window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+        await wait(200);
+        const activated = await evaluate<string>(
+          window,
+          `window.__cauldronActivated ?? ''`,
+        );
+        if (activated) used += 1;
+        else failures.push(`${kind.tag} ${kind.href} did not respond to Enter`);
+      }
+
+      // Interaction states are CSS rules, so each is forced on with the debugger
+      // (the window is never shown) and polled until it settles: a busy page can
+      // otherwise make a working hover look broken.
+      window.webContents.debugger.attach('1.3');
+      let visible = 0;
+      let hovered = 0;
+      try {
+        await window.webContents.debugger.sendCommand('DOM.enable');
+        await window.webContents.debugger.sendCommand('CSS.enable');
+        const { root } =
+          await window.webContents.debugger.sendCommand('DOM.getDocument');
+        const force = async (nodeId: number, classes: string[]) =>
+          window.webContents.debugger.sendCommand('CSS.forcePseudoState', {
+            nodeId,
+            forcedPseudoClasses: classes,
+          });
+        const look = (probe: string, fields: string) =>
+          evaluate<string>(
+            window,
+            `(() => {
+              const style = getComputedStyle(document.querySelector(${JSON.stringify(probe)}));
+              return ${fields}.map((name) => style[name]).join('|');
+            })()`,
+          );
+        for (let index = 0; index < total; index++) {
+          const probe = `[data-cauldron-kb="${index}"]`;
+          const { nodeId } = await window.webContents.debugger.sendCommand(
+            'DOM.querySelector',
+            { nodeId: root.nodeId, selector: probe },
+          );
+          if (!nodeId) continue;
+          const stateSignature =
+            "['color','backgroundColor','borderColor','boxShadow','outline','textDecoration','opacity','transform']";
+          const resting = await look(probe, stateSignature);
+          await force(nodeId, ['hover']);
+          let changed = false;
+          for (let attempt = 0; attempt < 10 && !changed; attempt++) {
+            await wait(80);
+            changed = (await look(probe, stateSignature)) !== resting;
+          }
+          await force(nodeId, []);
+          if (changed) hovered += 1;
+          await force(nodeId, ['focus', 'focus-visible']);
+          const outline = await evaluate<{
+            outline: string;
+            width: number;
+            shadow: string;
+          }>(
+            window,
+            `(() => {
+              const style = getComputedStyle(document.querySelector(${JSON.stringify(probe)}));
+              return { outline: style.outlineStyle, width: parseFloat(style.outlineWidth), shadow: style.boxShadow };
+            })()`,
+          );
+          await force(nodeId, []);
+          if (
+            (outline.outline !== 'none' && outline.width >= 1) ||
+            outline.shadow !== 'none'
+          )
+            visible += 1;
+        }
+      } finally {
+        if (window.webContents.debugger.isAttached())
+          window.webContents.debugger.detach();
+      }
+
+      return {
+        total,
+        reached: reached.size,
+        visible,
+        hovered,
+        used,
+        detail:
+          failures.join('; ') ||
+          `${reached.size}/${total} reached by Tab from the control before the piece, focus shown on ${visible}, ${hovered} change on hover, ${used} used with keys`,
+      };
+    };
+
+    for (const [index, piece] of LIBRARY.entries()) {
+      const page = pages[index % pages.length];
+      const label = `${siteName} · ${piece.id} on ${page}`;
+      const before = hashTree(root);
+      const scriptsBefore = scriptTags(builtPage(root, page));
+
+      const added = api.addPiece?.({
+        pieceId: piece.id,
+        page,
+        mode: 'add',
+      });
+      if (!added?.ok) {
+        check(`4.3 ${label}: drops in`, false, added?.problem ?? 'no result');
+        continue;
+      }
+      const touched = treeDiff(before, hashTree(root));
+      const componentFile = added.componentFile ?? '';
+      const selector = `section.cauldron-${piece.id}`;
+      const componentTag = path.basename(componentFile).replace(/\.astro$/, '');
+      check(
+        `4.3 ${label}: drops in, touching only the page and its new component`,
+        touched.length === 2 &&
+          touched.includes(added.page ?? '') &&
+          touched.includes(componentFile),
+        touched.join(', ') || 'no files changed',
+      );
+
+      const built = buildSite(root);
+      const newWarnings = built.warnings.filter(
+        (line) => !baseline.warnings.includes(line),
       );
       check(
-        '4.3 the added pieces pass the accessibility checks',
-        violations !== null && violations.length === 0,
-        violations
-          ? violations
-              .map(
-                (violation) =>
-                  `${violation.id}: ${violation.where.join(' | ')}`,
-              )
-              .join('; ') || 'no axe violations'
-          : 'axe did not run',
+        `4.3 ${label}: builds with no new warning`,
+        built.ok && newWarnings.length === 0,
+        built.ok
+          ? newWarnings.slice(0, 3).join(' | ') || 'no new warnings'
+          : built.log.slice(-300),
       );
-    } finally {
-      if (!window.isDestroyed()) window.destroy();
-      server.close();
+
+      const html = builtPage(root, page);
+      const scriptsAfter = scriptTags(html);
+      const newJs = jsFiles(root).filter((file) => !baselineJs.includes(file));
+      check(
+        `4.3 ${label}: ships no client-side JavaScript`,
+        scriptsAfter.join('|') === scriptsBefore.join('|') &&
+          newJs.length === 0 &&
+          html.includes(`cauldron-${piece.id}`),
+        `${scriptsAfter.length} script tag(s), ${newJs.length} new JS file(s)`,
+      );
+
+      const componentText = fs.readFileSync(
+        path.join(root, componentFile),
+        'utf8',
+      );
+      const pageText = fs.readFileSync(
+        path.join(root, added.page ?? ''),
+        'utf8',
+      );
+      check(
+        `4.3 ${label}: stays plain Astro with its source and licence recorded`,
+        componentText.includes('ThreeUI Community') &&
+          componentText.includes('MIT') &&
+          !componentText.includes('client:') &&
+          !pageText.includes('client:'),
+        componentText.includes('ThreeUI Community')
+          ? 'credit kept in the copied file'
+          : 'no credit in the copied file',
+      );
+
+      const server = await serveDist(path.join(root, 'dist'));
+      const window = inspectionWindow();
+      try {
+        const url = new URL(`${page.replace(/^\/+/, '')}`, server.url).href;
+        await window.loadURL(url);
+        await wait(400);
+        const present = await evaluate<number>(
+          window,
+          `document.querySelectorAll(${JSON.stringify(selector)}).length`,
+        );
+        check(
+          `4.3 ${label}: renders on the built page`,
+          present === 1,
+          `${present} matching section(s)`,
+        );
+
+        if (present === 1 && direction) {
+          const taste = await measureTaste(window, direction, page, selector);
+          // Keyboard, focus and hover states are measured on the piece below;
+          // here only the direction checks (colours, fonts, spacing, radius,
+          // tokens) decide whether it adopted the site's look.
+          const failed = taste.filter(
+            (finding) =>
+              finding.status !== 'pass' &&
+              !/keyboard|focus|hover|disabled/i.test(finding.label),
+          );
+          const directionChecks = taste.filter(
+            (finding) => !/keyboard|focus|hover|disabled/i.test(finding.label),
+          );
+          check(
+            `4.3 ${label}: adopts the site's design direction`,
+            failed.length === 0,
+            failed
+              .map((finding) => `${finding.label}: ${finding.detail}`)
+              .join('; ') ||
+              `all ${directionChecks.length} direction checks passed`,
+          );
+        }
+
+        await window.loadURL(url);
+        await wait(300);
+        const overflow: string[] = [];
+        const siteOverflow: string[] = [];
+        for (const width of [375, 768, 1280]) {
+          window.setContentSize(width, 900);
+          await wait(150);
+          const measured = await evaluate<{
+            withPiece: number;
+            withoutPiece: number;
+            view: number;
+            left: number;
+            right: number;
+          }>(
+            window,
+            `(() => {
+              const root = document.querySelector(${JSON.stringify(selector)});
+              const box = root ? root.getBoundingClientRect() : { left: 0, right: 0 };
+              const withPiece = document.documentElement.scrollWidth;
+              if (root) root.style.display = 'none';
+              const withoutPiece = document.documentElement.scrollWidth;
+              if (root) root.style.display = '';
+              return { withPiece, withoutPiece, view: innerWidth, left: box.left, right: box.right };
+            })()`,
+          );
+          // The site's own pages can overflow by themselves; only what the piece
+          // adds to that counts against the piece.
+          if (measured.withoutPiece > measured.view + 2)
+            siteOverflow.push(`${width}px (${measured.withoutPiece}px)`);
+          if (
+            measured.withPiece >
+              Math.max(measured.withoutPiece, measured.view) + 2 ||
+            measured.left < -1 ||
+            measured.right > measured.view + 1
+          )
+            overflow.push(
+              `${width}px: page ${measured.withoutPiece}→${measured.withPiece}px of ${measured.view}px, piece ${Math.round(measured.left)}–${Math.round(measured.right)}`,
+            );
+        }
+        check(
+          `4.3 ${label}: adds no horizontal overflow at 375, 768 or 1280px`,
+          overflow.length === 0,
+          `${overflow.join('; ') || 'nothing overflows'}${
+            siteOverflow.length
+              ? ` (the site's own page already overflows at ${siteOverflow.join(', ')})`
+              : ''
+          }`,
+        );
+
+        window.setContentSize(1280, 900);
+        const violations = await runAxe(
+          window,
+          `[...document.querySelectorAll(${JSON.stringify(selector)})]`,
+        );
+        check(
+          `4.3 ${label}: has no accessibility violation`,
+          violations !== null && violations.length === 0,
+          violations === null
+            ? 'axe did not run'
+            : violations
+                .map(
+                  (violation) =>
+                    `${violation.id} (${violation.impact}): ${violation.where.slice(0, 2).join(' · ')}`,
+                )
+                .join('; ') || 'no axe violations',
+        );
+
+        await window.loadURL(url);
+        await wait(300);
+        const keyboard = await keyboardWalk(window, selector);
+        check(
+          `4.3 ${label}: every interactive part is reachable and usable by keyboard`,
+          keyboard.total === keyboard.reached &&
+            keyboard.total === keyboard.visible &&
+            keyboard.total === keyboard.used,
+          keyboard.detail,
+        );
+        check(
+          `4.3 ${label}: every interactive part shows a hover state`,
+          keyboard.total === keyboard.hovered,
+          `${keyboard.hovered}/${keyboard.total} change on hover`,
+        );
+      } catch (error) {
+        check(
+          `4.3 ${label}: the browser checks could run`,
+          false,
+          String(error).slice(0, 300),
+        );
+      } finally {
+        if (!window.isDestroyed()) window.destroy();
+        server.close();
+      }
+
+      // Check 9: swap it for another piece, then undo, and compare exact bytes.
+      const other = LIBRARY[(index + 1) % LIBRARY.length];
+      const beforeReplace = hashTree(root);
+      const replaced = api.addPiece?.({
+        pieceId: other.id,
+        page,
+        mode: 'replace',
+        replaceSelector: componentTag,
+      });
+      const afterReplaceText = fs.readFileSync(
+        path.join(root, added.page ?? ''),
+        'utf8',
+      );
+      check(
+        `4.3 ${label}: replaces with ${other.id} and leaves no import of the piece it removed`,
+        Boolean(replaced?.ok) &&
+          !afterReplaceText.includes(`<${componentTag} `),
+        replaced?.ok
+          ? `page now places ${other.id}`
+          : (replaced?.problem ?? 'no result'),
+      );
+
+      const undone = replaced?.runId ? api.undoRun(replaced.runId) : null;
+      const afterUndo = treeDiff(beforeReplace, hashTree(root));
+      check(
+        `4.3 ${label}: undo returns every file to exactly what it was`,
+        Boolean(undone?.ok) && afterUndo.length === 0,
+        undone?.ok
+          ? afterUndo.join(', ') || 'all files byte-identical'
+          : (undone?.problem ?? 'no run to undo'),
+      );
+
+      const undoAdd = added.runId ? api.undoRun(added.runId) : null;
+      const backToStart = treeDiff(before, hashTree(root));
+      check(
+        `4.3 ${label}: undoing the add restores the site to its own bytes`,
+        Boolean(undoAdd?.ok) && backToStart.length === 0,
+        undoAdd?.ok
+          ? backToStart.join(', ') || 'site byte-identical to before the piece'
+          : (undoAdd?.problem ?? 'no run to undo'),
+      );
     }
 
     console.log(
@@ -899,12 +1415,27 @@ export async function runPublishUiTest(
   }
 }
 
+/** Put the deliberately flawed quality page into a test site (ticket 23). */
+function installQualityFixture(root: string): void {
+  const target = path.join(root, 'src/pages/quality-fixture.astro');
+  if (fs.existsSync(target)) return;
+  const source =
+    process.env.CAULDRON_QUALITY_FIXTURE ??
+    path.resolve(process.cwd(), 'scripts/fixtures/quality-fixture.astro');
+  fs.copyFileSync(source, target);
+}
+
 /** 4.4: the built site is measured, and the numbers are real. */
 export async function runQualityTest(root: string, api: Api): Promise<void> {
+  installQualityFixture(root);
   try {
     await api.openSiteAt(root);
     api.setDirection?.('long-lunch');
-    const report = await api.qualityRun?.({ pages: ['/'] });
+    const pages = (process.env.CAULDRON_QUALITY_PAGES ?? '/')
+      .split(',')
+      .map((page) => page.trim())
+      .filter(Boolean);
+    const report = await api.qualityRun?.({ pages });
     check(
       '4.4 the site builds before anything is measured',
       Boolean(report?.built),
@@ -924,17 +1455,77 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
     check(
       '4.4 every width is checked for overflow',
       findings.filter((finding) => finding.label === 'No horizontal overflow')
-        .length === 3,
+        .length ===
+        3 * pages.length,
+      `${findings.filter((finding) => finding.label === 'No horizontal overflow').length} overflow checks for ${pages.length} page(s)`,
     );
     check(
       '4.4 contrast is measured, not guessed',
       byId('contrast').length > 0,
       byId('contrast')[0]?.detail ?? '',
     );
+    const widthSets = (label: string) => {
+      const found = findings.filter((finding) => finding.label === label);
+      return [375, 768, 1280].every((width) =>
+        found.some((finding) => finding.width === width),
+      );
+    };
+    check(
+      '4.4 taste checks run at all three approved widths',
+      widthSets('Colours follow the direction') &&
+        widthSets('Type sizes use the direction') &&
+        widthSets('Spacing follows the direction'),
+      [
+        'Colours follow the direction',
+        'Type sizes use the direction',
+        'Spacing follows the direction',
+      ]
+        .map(
+          (label) =>
+            `${label}: ${findings
+              .filter((finding) => finding.label === label)
+              .map(
+                (finding) => `${finding.width ?? 'no width'} ${finding.status}`,
+              )
+              .join(', ')}`,
+        )
+        .join(' · '),
+    );
+    check(
+      '4.4 text and button contrast are measured at all three widths',
+      widthSets('Text has enough contrast') &&
+        widthSets('Button text has enough contrast'),
+      `${findings.filter((finding) => finding.label === 'Text has enough contrast').length} text, ${findings.filter((finding) => finding.label === 'Button text has enough contrast').length} button checks`,
+    );
+    const buttonFinding = findings.find(
+      (finding) => finding.label === 'Button text has enough contrast',
+    );
+    check(
+      '4.4 button text is held to 4.5:1',
+      Boolean(buttonFinding) && /4\.5:1/.test(buttonFinding!.detail),
+      buttonFinding?.detail ?? 'no button contrast check',
+    );
     check(
       '4.4 keyboard focus is measured',
       byId('focus').length > 0,
       byId('focus')[0]?.detail ?? '',
+    );
+    const focusFinding = byId('focus')[0];
+    check(
+      '4.4 keyboard focus uses the approved 3:1 threshold, not just presence',
+      Boolean(focusFinding) && /3:1/.test(focusFinding!.detail),
+      focusFinding?.detail ?? 'no focus check',
+    );
+    check(
+      '4.4 fonts are ready before anything is measured',
+      findings.some(
+        (finding) =>
+          finding.label === 'Fonts were ready before measuring' &&
+          finding.status === 'pass',
+      ),
+      findings.find(
+        (finding) => finding.label === 'Fonts were ready before measuring',
+      )?.detail ?? 'no font check',
     );
     check(
       '4.4 broken links are found',
@@ -947,6 +1538,68 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
       (report?.measured?.length ?? 0) > 0,
       `${report?.measured?.length ?? 0} measurements`,
     );
+    const kinds = new Set(findings.map((finding) => finding.kind));
+    check(
+      '4.4 measured results, failed checks and opinions stay distinct',
+      kinds.has('measured') &&
+        kinds.has('opinion') &&
+        findings.every(
+          (finding) =>
+            (finding.kind === 'measured' &&
+              (finding.status === 'pass' || finding.status === 'fail')) ||
+            (finding.kind === 'failure' && finding.status === 'unknown') ||
+            (finding.kind === 'opinion' && finding.status === 'info'),
+        ),
+      `kinds: ${[...kinds].join(', ')} · ${findings
+        .filter(
+          (finding) =>
+            finding.kind === undefined ||
+            (finding.kind === 'measured' &&
+              finding.status !== 'pass' &&
+              finding.status !== 'fail') ||
+            (finding.kind === 'failure' && finding.status !== 'unknown') ||
+            (finding.kind === 'opinion' && finding.status !== 'info'),
+        )
+        .map((finding) => `${finding.label}: ${finding.kind}/${finding.status}`)
+        .join('; ')}`,
+    );
+    const fixture = process.env.CAULDRON_QUALITY_FIXTURE ?? '';
+    if (fixture) {
+      const pageFindings = findings.filter(
+        (finding) => finding.page === fixture,
+      );
+      const fixtureFocus = pageFindings.find(
+        (finding) => finding.label === 'Focus is visible on controls',
+      );
+      check(
+        '4.4 the fixture’s pale focus ring is reported as a failure',
+        fixtureFocus?.status === 'fail',
+        fixtureFocus?.detail ?? 'no focus finding on the fixture page',
+      );
+      const fixtureButtons = pageFindings.find(
+        (finding) => finding.label === 'Button text has enough contrast',
+      );
+      check(
+        '4.4 the fixture’s pale button text is reported as a failure',
+        fixtureButtons?.status === 'fail',
+        fixtureButtons?.detail ?? 'no button finding on the fixture page',
+      );
+      const fixtureTaste = pageFindings.filter(
+        (finding) => finding.label === 'Type sizes use the direction',
+      );
+      check(
+        '4.4 an off-scale size that only appears below a breakpoint is caught',
+        fixtureTaste.some(
+          (finding) => finding.width === 375 && finding.status === 'fail',
+        ) &&
+          fixtureTaste.some(
+            (finding) => finding.width === 1280 && finding.status === 'pass',
+          ),
+        fixtureTaste
+          .map((finding) => `${finding.width ?? '?'} ${finding.status}`)
+          .join(', '),
+      );
+    }
     const antiPatterns = [
       'No pure black',
       'No cards inside cards',
@@ -980,6 +1633,186 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
   } catch (error) {
     console.error('QUALITY TEST ERROR', error);
     check('QUALITY TEST ERROR', false, String(error));
+  } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** 4.4: plain-English feedback goes to the agent through the panel, and the result is remeasured. */
+export async function runQualityFeedbackTest(
+  root: string,
+  window: import('electron').BrowserWindow,
+  api: Api,
+): Promise<void> {
+  installQualityFixture(root);
+  const renderer = async <T>(script: string): Promise<T> =>
+    (await window.webContents.executeJavaScript(script)) as T;
+  const panel = () =>
+    renderer<{ bad: string[]; passing: string[]; feedback: boolean }>(
+      `(() => ({
+        bad: [...document.querySelectorAll('.panes .notice.bad')].map((el) => el.textContent ?? ''),
+        passing: [...document.querySelectorAll('.panes ul.hint > li')].map((el) => el.textContent ?? ''),
+        feedback: Boolean(document.querySelector('#quality-feedback')),
+      }))()`,
+    );
+  // The checks below are about this one control on this one page: the body has
+  // other pale text, and every page has buttons, so a bare "contrast failed"
+  // would let the whole test pass without the fixture ever being looked at.
+  // The report names each failing button by its own text, which is "Go".
+  const fixturePage = '/quality-fixture/';
+  const fixtureFile = path.join(root, 'src/pages/quality-fixture.astro');
+  const buttonFailure = (notices: string[]) =>
+    notices.find(
+      (text) =>
+        text.includes('Button text has enough contrast') &&
+        text.includes(fixturePage) &&
+        /under 4\.5:1: Go [0-9.]+:1/.test(text),
+    ) ?? '';
+  const buttonRatio = (notice: string) =>
+    Number(/Go ([0-9]+(?:\.[0-9]+)?):1/.exec(notice)?.[1] ?? NaN);
+  const click = (text: string) =>
+    renderer<boolean>(
+      `(() => {
+        const button = [...document.querySelectorAll('.panes button')].find(
+          (el) => el.textContent.trim() === ${JSON.stringify(text)},
+        );
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`,
+    );
+  const request =
+    'The Go button on the quality fixture page is too pale to read. In src/pages/quality-fixture.astro, change that button\u2019s text colour to the page\u2019s ink token so it meets 4.5:1 contrast. Change nothing else, and use Cauldron\u2019s actions.';
+  try {
+    await api.openSiteAt(root);
+    check(
+      '4.4 the feedback run starts with a design direction',
+      api.setDirection?.('long-lunch').ok === true,
+    );
+    const opened = await renderer<boolean>(
+      `(() => {
+        const button = [...document.querySelectorAll('.rail-button')].find(
+          (el) => el.title === 'Quality checks',
+        );
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`,
+    );
+    check('4.4 the Quality panel opens from the rail', opened);
+
+    check('4.4 the checks run from the panel', await click('Run the checks'));
+    const firstFailing = await waitFor(
+      async () => Boolean(buttonFailure((await panel()).bad)),
+      300000,
+    );
+    const beforeNotice = buttonFailure((await panel()).bad);
+    check(
+      '4.4 before feedback the fixture’s Go button is a measured failure',
+      firstFailing && buttonRatio(beforeNotice) < 4.5,
+      beforeNotice.slice(0, 300) ||
+        'no button.go contrast notice for /quality-fixture/',
+    );
+    const boxReady = await waitFor(async () => (await panel()).feedback, 30000);
+    check('4.4 the feedback box appears with the report', boxReady);
+
+    const typed = await renderer<boolean>(
+      `(() => {
+        const box = document.querySelector('#quality-feedback');
+        if (!box) return false;
+        const set = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          'value',
+        ).set;
+        set.call(box, ${JSON.stringify(request)});
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`,
+    );
+    check(
+      '4.4 the feedback box is plain text',
+      typed && (await panel()).feedback,
+    );
+    const choseAgent = await renderer<boolean>(
+      `(() => {
+        const select = document.querySelector(
+          'select[aria-label="Agent to apply the feedback"]',
+        );
+        if (!select) return false;
+        const set = Object.getOwnPropertyDescriptor(
+          HTMLSelectElement.prototype,
+          'value',
+        ).set;
+        set.call(select, 'codex');
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`,
+    );
+    check('4.4 the agent to apply the feedback can be chosen', choseAgent);
+
+    const fixtureBeforeRun = fs.readFileSync(fixtureFile, 'utf8');
+    const servedBefore = (api.mcpServed?.() ?? []).length;
+    check(
+      '4.4 the feedback is sent to the agent',
+      await click('Send to the agent'),
+    );
+    const finished = await api.waitForAgent?.(300000);
+    const fixtureAfterRun = fs.readFileSync(fixtureFile, 'utf8');
+    const said = (api.agentEvents?.() ?? [])
+      .filter((event) => event.type === 'text')
+      .map((event) => event.text)
+      .join(' ')
+      .slice(-300);
+    check(
+      '4.4 the agent finishes the feedback job and changes the fixture',
+      finished?.ok === true && fixtureAfterRun !== fixtureBeforeRun,
+      `${finished?.note ?? 'no agent result'} · file ${
+        fixtureAfterRun === fixtureBeforeRun ? 'unchanged' : 'changed'
+      }${said ? ` · ${said}` : ''}`,
+    );
+    const editActions = [
+      'edit_css_rule',
+      'edit_element_style',
+      'edit_element_text',
+      'edit_element_attribute',
+    ];
+    const served = (api.mcpServed?.() ?? []).slice(servedBefore);
+    check(
+      '4.4 the agent made the change with Cauldron’s actions',
+      served.some((call) => call.ok && editActions.includes(call.tool)),
+      served
+        .map((call) => `${call.tool}${call.ok ? '' : ' (refused)'}`)
+        .join(', ') || 'no Cauldron action was called',
+    );
+
+    check(
+      '4.4 the result is remeasured from the panel',
+      (await click('Run the checks again')) || (await click('Run the checks')),
+    );
+    const healed = await waitFor(
+      async () => !buttonFailure((await panel()).bad),
+      300000,
+    );
+    const after = await panel();
+    const passingButton =
+      after.passing.find(
+        (text) =>
+          text.includes('Button text has enough contrast') &&
+          text.includes(fixturePage),
+      ) ?? '';
+    check(
+      '4.4 after feedback the fixture’s Go button passes',
+      healed && /Checked \d+ button\(s\) at 4\.5:1/.test(passingButton),
+      passingButton.slice(0, 300) ||
+        after.bad.join(' | ').slice(0, 300) ||
+        'no passing button check for /quality-fixture/',
+    );
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('QUALITY FEEDBACK TEST ERROR', error);
+    check('QUALITY FEEDBACK TEST ERROR', false, String(error));
   } finally {
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
@@ -2258,6 +3091,27 @@ export async function runUiTest(
     } finally {
       server.close();
     }
+    // The measured direction's tokens must be the ones offered in the visual
+    // controls, so hand edits stay on-brand (plan 4.2).
+    const clicked = await preview.webContents?.executeJavaScript(
+      `(() => { const el = [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')].find(e => e.children.length === 0 && e.textContent.trim().length > 2); if (!el) return false; el.click(); return true })()`,
+    );
+    await wait(800);
+    const tokenOptions = await window.webContents.executeJavaScript(
+      `(() => { const select = document.querySelector('#token-color'); return select ? [...select.options].map(option => option.value) : null })()`,
+    );
+    check(
+      '4.2 the measured direction’s tokens are offered in the visual controls',
+      Boolean(clicked) &&
+        Array.isArray(tokenOptions) &&
+        tokenOptions.some((value: string) =>
+          value.startsWith('var(--cauldron-c-'),
+        ) &&
+        tokenOptions.some((value: string) =>
+          value.startsWith('var(--cauldron-c-reference-'),
+        ),
+      `${clicked ? 'selected an element' : 'nothing selected'}; ${Array.isArray(tokenOptions) ? `${tokenOptions.length} token(s)` : 'no token control'}`,
+    );
     const image = await window.webContents.capturePage();
     fs.writeFileSync(path.join(root, 'audit-ui.png'), image.toPNG());
     console.log(
@@ -2275,11 +3129,11 @@ export async function runTasteTest(): Promise<void> {
   const { createServer } = await import('node:http');
   const { measureTaste } = await import('./taste-check');
   const { inspectionWindow } = await import('./quality');
-  const { findDirection } = await import('./directions');
+  const { findDirection, tokensCss } = await import('./directions');
   const direction = findDirection('long-lunch')!;
+  const afterHours = findDirection('after-hours')!;
   const window = inspectionWindow();
-  const server = createServer((_request, response) =>
-    response.end(`<!doctype html><html><head><meta charset="utf-8"><style>
+  const negative = `<!doctype html><html><head><meta charset="utf-8"><style>
     body{background:#ffffff;color:#000000;font-family:Arial;padding:3px}
     h1,p,button{font-family:Arial;font-size:19px}
     .panel{border:1px solid #000;border-radius:7px;padding:3px}
@@ -2287,14 +3141,64 @@ export async function runTasteTest(): Promise<void> {
     @keyframes move{to{transform:translateX(2px)}}
     .motion{animation:move 1s infinite}
     button{width:20px;overflow:hidden;white-space:nowrap;outline:none}
-  </style></head><body><h1>Negative control</h1><div class="panel"><div class="panel gradient"><p class="motion">Deliberately bad styles</p></div></div><button>🚀 A deliberately truncated label</button></body></html>`),
-  );
+  </style></head><body><h1>Negative control</h1><div class="panel"><div class="panel gradient"><p class="motion">Deliberately bad styles</p></div></div><button>🚀 A deliberately truncated label</button></body></html>`;
+  // Everything on-brand except the focus ring, which is almost the page colour.
+  const weakFocus = `<!doctype html><html><head><meta charset="utf-8"><style>
+    ${tokensCss(direction).replace(/^@import[^\n]*\n/, '')}
+    body{background:var(--cauldron-c-bg);color:var(--cauldron-c-ink);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-3);margin:0;padding:var(--cauldron-space-4)}
+    h1{font-family:var(--cauldron-font-display);font-size:var(--cauldron-size-6);margin:0 0 var(--cauldron-space-3)}
+    p{margin:0 0 var(--cauldron-space-3)}
+    .btn{background:var(--cauldron-c-primary);color:var(--cauldron-c-surface);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);padding:var(--cauldron-space-3) var(--cauldron-space-4);border-radius:var(--cauldron-radius-1);border:0}
+    .btn:hover{background:var(--cauldron-c-primary-deep)}
+    .btn:disabled{opacity:.5}
+    .btn:focus-visible{outline:2px solid #fefefd;outline-offset:2px}
+  </style></head><body><h1>A quiet focus ring</h1><p>Existing site text.</p><button class="btn">Book a table</button></body></html>`;
+  // The direction that names pure black, so the clash rule must be explained.
+  const namedBlack = `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{background:#000000;color:#efe6d5;font-family:'Libre Franklin',sans-serif;font-size:17px;margin:0;padding:16px}
+    h1{font-family:'Cormorant Garamond',serif;font-size:49px;margin:0 0 16px}
+  </style></head><body><h1>After Hours</h1><p>Programme text on theatre black.</p></body></html>`;
+  // Host code that is off-brand, with one part the "agent" added, on-brand.
+  const agentChange = `<!doctype html><html><head><meta charset="utf-8"><style>
+    ${tokensCss(direction).replace(/^@import[^\n]*\n/, '')}
+    body{background:#ffffff;color:#000000;font-family:Arial;padding:3px}
+    .host-box{background:#2563eb;color:#ffffff;padding:3px;border-radius:7px;font-size:19px}
+    .agent-callout{background:var(--cauldron-c-surface);color:var(--cauldron-c-ink);font-family:var(--cauldron-font-body);padding:var(--cauldron-space-4);border-radius:var(--cauldron-radius-2);max-width:32rem}
+    .agent-callout h2{font-family:var(--cauldron-font-display);font-size:var(--cauldron-size-6);margin:0 0 var(--cauldron-space-3)}
+    .agent-callout p{font-size:var(--cauldron-size-3);margin:0 0 var(--cauldron-space-3)}
+    .agent-callout .book{background:var(--cauldron-c-primary);color:var(--cauldron-c-surface);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);padding:var(--cauldron-space-3) var(--cauldron-space-4);border-radius:var(--cauldron-radius-1);border:0}
+    .agent-callout .book:hover{background:var(--cauldron-c-primary-deep)}
+    .agent-callout .book:disabled{opacity:.6}
+    .agent-callout .book:focus-visible{outline:2px solid var(--cauldron-c-ink);outline-offset:2px}
+  </style></head><body><div class="host-box">Host code, unchanged</div>
+    <section class="agent-callout"><h2>Book a table</h2><p>Open Tuesday to Sunday.</p><button class="book">Book now</button></section></body></html>`;
+  const server = createServer((request, response) => {
+    const path = (request.url ?? '/').split('?')[0];
+    if (path === '/weak-focus') {
+      response.end(weakFocus);
+      return;
+    }
+    if (path === '/named-black') {
+      response.end(namedBlack);
+      return;
+    }
+    if (path === '/agent-change') {
+      response.end(agentChange);
+      return;
+    }
+    response.end(negative);
+  });
+  const statusOf = (
+    findings: Array<{ label: string; status: string; detail: string }>,
+    label: string,
+  ) => findings.find((finding) => finding.label === label);
   try {
     await new Promise<void>((resolve) =>
       server.listen(0, '127.0.0.1', resolve),
     );
     const port = (server.address() as import('node:net').AddressInfo).port;
-    await window.loadURL(`http://127.0.0.1:${port}/`);
+    const base = `http://127.0.0.1:${port}`;
+    await window.loadURL(`${base}/`);
     const findings = await measureTaste(window, direction, '/negative-control');
     for (const label of [
       'No unchosen default fonts',
@@ -2319,6 +3223,72 @@ export async function runTasteTest(): Promise<void> {
         found?.detail ?? 'not measured',
       );
     }
+
+    // 4.1 #7: a focus ring has to reach 3:1, not merely exist.
+    await window.loadURL(`${base}/weak-focus`);
+    const weak = await measureTaste(window, direction, '/weak-focus');
+    const focus = statusOf(weak, 'Focus indicator is visible at 3:1 or better');
+    check(
+      '4.1 a focus ring under 3:1 fails, though one is drawn',
+      focus?.status === 'fail',
+      focus?.detail ?? 'not measured',
+    );
+    check(
+      '4.1 the weak-focus page is otherwise on-brand',
+      weak
+        .filter((finding) => !finding.label.startsWith('Focus'))
+        .every((finding) => finding.status === 'pass'),
+      weak
+        .filter((finding) => finding.status !== 'pass')
+        .map((finding) => `${finding.label}: ${finding.detail}`)
+        .join('; ') || 'all other checks passed',
+    );
+
+    // 4.1 clash rule: the direction names pure black, so it passes and says why.
+    await window.loadURL(`${base}/named-black`);
+    const black = statusOf(
+      await measureTaste(window, afterHours, '/named-black'),
+      'No pure black',
+    );
+    check(
+      '4.1 a direction that names pure black passes with its explanation',
+      black?.status === 'pass' && /Direction exception/.test(black.detail),
+      black?.detail ?? 'not measured',
+    );
+
+    // 4.1/4.2: only the part the agent added is judged.
+    await window.loadURL(`${base}/agent-change`);
+    const whole = await measureTaste(window, direction, '/agent-change');
+    const scoped = await measureTaste(window, direction, '/agent-change', {
+      scope: '.agent-callout',
+      kind: 'change',
+      width: 1280,
+    });
+    check(
+      '4.1 the host site’s own code still fails the whole-site diagnostic',
+      whole.some((finding) => finding.status === 'fail'),
+      whole
+        .filter((finding) => finding.status === 'fail')
+        .map((finding) => finding.label)
+        .join(', '),
+    );
+    check(
+      '4.1 the agent’s own part passes even though the host code does not',
+      scoped.length > 0 && scoped.every((finding) => finding.status === 'pass'),
+      scoped
+        .filter((finding) => finding.status !== 'pass')
+        .map((finding) => `${finding.label}: ${finding.detail}`)
+        .join('; ') || 'all scoped checks passed',
+    );
+    check(
+      '4.1 agent-change findings are labelled and carry their width',
+      scoped.every(
+        (finding) =>
+          finding.scope === 'change' &&
+          finding.width === 1280 &&
+          finding.label.startsWith('Agent changes:'),
+      ),
+    );
     console.log(
       `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
     );
@@ -2327,6 +3297,320 @@ export async function runTasteTest(): Promise<void> {
   } finally {
     server.close();
     if (!window.isDestroyed()) window.destroy();
+    app.exit(results.length > 0 && results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/**
+ * 4.1/4.2 (ticket 24): the approved checks judge a run's own changes on a real
+ * site copy, at the approved widths, with negative controls, and keep the
+ * whole-site diagnostics separate. Also exercises a direction measured from a
+ * reference URL.
+ */
+export async function runChangeTasteTest(
+  root: string,
+  api: Api,
+): Promise<void> {
+  const clean = `---
+---
+<section class="agent-callout">
+  <h2>Book a table</h2>
+  <p>Open Tuesday to Sunday, from noon.</p>
+  <a class="agent-callout-link" href="#book">Book now</a>
+</section>
+
+<style>
+  .agent-callout {
+    background: var(--cauldron-c-surface);
+    color: var(--cauldron-c-ink);
+    font-family: var(--cauldron-font-body);
+    padding: var(--cauldron-space-5);
+    border-radius: var(--cauldron-radius-2);
+    max-width: 32rem;
+  }
+  .agent-callout h2 {
+    font-family: var(--cauldron-font-display);
+    font-size: var(--cauldron-size-6);
+    margin: 0 0 var(--cauldron-space-3);
+  }
+  .agent-callout p {
+    font-size: var(--cauldron-size-3);
+    margin: 0 0 var(--cauldron-space-3);
+  }
+  .agent-callout-link {
+    display: inline-block;
+    background: var(--cauldron-c-primary);
+    color: var(--cauldron-c-surface);
+    font-family: var(--cauldron-font-body);
+    font-size: var(--cauldron-size-2);
+    padding: var(--cauldron-space-3) var(--cauldron-space-4);
+    border-radius: var(--cauldron-radius-1);
+    text-decoration: none;
+  }
+  .agent-callout-link:hover {
+    background: var(--cauldron-c-primary-deep);
+  }
+  .agent-callout-link:focus-visible {
+    outline: 2px solid var(--cauldron-c-ink);
+    outline-offset: 2px;
+  }
+</style>
+`;
+  // A deliberately off-brand version of the same piece: the negative control.
+  const bad = `---
+---
+<section class="agent-bad">
+  <h2>Book a table</h2>
+  <p>Open Tuesday to Sunday, from noon.</p>
+  <button class="agent-bad-link">🚀 Book now</button>
+</section>
+
+<style>
+  .agent-bad {
+    background: #ffffff;
+    color: #2563eb;
+    font-family: Arial;
+    padding: 13px;
+    border-radius: 7px;
+  }
+  .agent-bad h2 {
+    font-size: 19px;
+    margin-bottom: 13px;
+  }
+  .agent-bad-link {
+    display: inline-block;
+    background: #2563eb;
+    color: #ffffff;
+    padding: 3px;
+    border-radius: 7px;
+    border: 0;
+    text-decoration: none;
+  }
+</style>
+`;
+  const pageFor = (component: string) => `---
+import ${component} from '../components/${component}.astro';
+import '../../cauldron/tokens.css';
+---
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Agent callout</title></head>
+  <body><main><${component} /></main></body>
+</html>
+`;
+  const write = (file: string, body: string) => {
+    const full = path.join(root, file);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, body);
+  };
+  const statusOf = (
+    findings: Array<{ label: string; status: string; detail: string }>,
+    label: string,
+  ) => findings.find((finding) => finding.label.includes(label));
+  try {
+    // Start from the same place every time: these are this harness's own files.
+    for (const name of ['AgentCallout', 'AgentBad'])
+      fs.rmSync(path.join(root, `src/components/${name}.astro`), {
+        force: true,
+      });
+    fs.rmSync(path.join(root, 'src/pages/agent-callout.astro'), {
+      force: true,
+    });
+    await api.openSiteAt(root);
+    const runQuality = api.qualityRun;
+    if (!runQuality) throw new Error('the quality checks are not wired');
+    const chosen = api.setDirection?.('long-lunch');
+    check(
+      '4.2 the site has a chosen direction before its changes are judged',
+      chosen?.ok === true,
+      chosen?.problem ?? '',
+    );
+
+    const simulate = async (
+      component: string,
+      body: string,
+      prompt: string,
+    ) => {
+      const started = api.startRun({ tool: 'test', prompt });
+      if (!started.run) throw new Error('the harness could not start a run');
+      write(`src/components/${component}.astro`, body);
+      write('src/pages/agent-callout.astro', pageFor(component));
+      await api.finishRun(started.run.id);
+    };
+
+    await simulate('AgentCallout', clean, 'Add a booking callout');
+    const first = await runQuality({ pages: ['/'] });
+    const change = (first.findings ?? []).filter(
+      (finding) => finding.scope === 'change',
+    );
+    const site = (first.findings ?? []).filter(
+      (finding) => finding.scope === 'site',
+    );
+    check(
+      '4.1 the report judges the agent’s own changes',
+      change.length > 0,
+      change.length > 0
+        ? `${change.length} change finding(s)`
+        : `none; report had ${first.findings?.length ?? 0} finding(s)`,
+    );
+    check(
+      '4.1 the agent’s changes are judged at 375, 768 and 1280px',
+      [375, 768, 1280].every((width) =>
+        change.some((finding) => finding.width === width),
+      ),
+      [375, 768, 1280]
+        .map(
+          (width) =>
+            `${width}px: ${change.filter((finding) => finding.width === width).length}`,
+        )
+        .join(', '),
+    );
+    check(
+      '4.1 whole-site diagnostics are kept, separately labelled',
+      site.length > 0 &&
+        site.every((finding) => !finding.label.startsWith('Agent changes:')),
+      `${site.length} whole-site finding(s)`,
+    );
+    check(
+      '4.2 an on-brand change passes every approved check',
+      change.length > 0 && change.every((finding) => finding.status === 'pass'),
+      change
+        .filter((finding) => finding.status !== 'pass')
+        .map((finding) => `${finding.label}: ${finding.detail}`)
+        .join('; ') || 'all change checks passed',
+    );
+
+    await simulate('AgentBad', bad, 'Add a booking callout, with stray values');
+    const second = await runQuality({ pages: ['/'] });
+    const badChange = (second.findings ?? []).filter(
+      (finding) => finding.scope === 'change',
+    );
+    for (const [label, needle] of [
+      ['4.1 an unchosen default font fails', 'No unchosen default fonts'],
+      ['4.1 an unchosen SaaS accent fails', 'No unchosen generic SaaS accents'],
+      ['4.1 off-scale spacing fails', 'Spacing follows the direction'],
+      ['4.1 off-scale type fails', 'Type sizes use the direction'],
+      ['4.2 a stray colour fails', 'Colours follow the direction'],
+      ['4.2 hard-coded values fail', 'Tokens rather than hard-coded values'],
+      ['4.1 emoji as an icon fails', 'No emoji used as interface icons'],
+    ] as const) {
+      const found = statusOf(badChange, needle);
+      check(label, found?.status === 'fail', found?.detail ?? 'not measured');
+    }
+    const cleanLabels = new Set(
+      change
+        .filter((finding) => finding.status === 'pass')
+        .map((finding) => finding.label),
+    );
+    check(
+      '4.1 the checks tell an on-brand change from an off-brand one',
+      badChange.some((finding) => finding.status === 'fail') &&
+        cleanLabels.size >= 10,
+      `${cleanLabels.size} passing change check(s) before, ${badChange.filter((finding) => finding.status === 'fail').length} failing after`,
+    );
+
+    // The reference-URL path: measure a real page, save it in the site, and let
+    // the same checks judge a change that uses its measured tokens.
+    const { createServer } = await import('node:http');
+    const server = createServer((_request, response) =>
+      response.end(
+        `<!doctype html><html><head><title>Measured reference</title><style>
+        body{background:#fbf7f2;color:#333333;font-family:Verdana;padding:24px}
+        h1{font-family:Georgia;font-size:48px;margin:0 0 24px}
+        a{color:#0f5132;border-radius:8px;padding:24px;display:inline-block}
+        </style></head><body><h1>A real rendered reference</h1><a href="/">Link</a></body></html>`,
+      ),
+    );
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    try {
+      const port = (server.address() as import('node:net').AddressInfo).port;
+      const { directionFromUrl } = await import('./reference');
+      const { writeDirection } = await import('./directions');
+      const measured = await directionFromUrl(`http://127.0.0.1:${port}/`);
+      check(
+        '4.2 a direction is measured from a reference URL',
+        measured.id.startsWith('reference-') &&
+          measured.colours.ink === '#333333' &&
+          measured.fonts.body.family === 'Verdana',
+        `${measured.id}: ink ${measured.colours.ink}, body ${measured.fonts.body.family}`,
+      );
+      const saved = writeDirection(root, measured);
+      const tokens = fs.readFileSync(
+        path.join(root, 'cauldron/tokens.css'),
+        'utf8',
+      );
+      check(
+        '4.2 the measured direction is saved in the site as tokens',
+        saved.ok &&
+          tokens.includes('--cauldron-c-ink: #333333') &&
+          tokens.includes('--cauldron-font-body'),
+        saved.ok ? 'cauldron/tokens.css written' : saved.problem,
+      );
+      const lastIndex = (list: number[]) => Math.max(list.length - 1, 0);
+      const refComponent = `---
+---
+<section class="agent-callout">
+  <h2>Book a table</h2>
+  <p>Open Tuesday to Sunday.</p>
+  <a class="agent-callout-link" href="#book">Book now</a>
+</section>
+
+<style>
+  .agent-callout {
+    background: var(--cauldron-c-bg);
+    color: var(--cauldron-c-ink);
+    font-family: var(--cauldron-font-body);
+    padding: var(--cauldron-space-${lastIndex(measured.spacing)});
+    border-radius: var(--cauldron-radius-${lastIndex(measured.radii)});
+    max-width: 32rem;
+  }
+  .agent-callout h2 {
+    font-family: var(--cauldron-font-display);
+    font-size: var(--cauldron-size-${measured.typeScale.length});
+    margin: 0 0 var(--cauldron-space-${lastIndex(measured.spacing)});
+  }
+  .agent-callout p { font-size: var(--cauldron-size-1); margin: 0; }
+  .agent-callout-link {
+    display: inline-block;
+    color: var(--cauldron-c-primary);
+    font-family: var(--cauldron-font-body);
+    font-size: var(--cauldron-size-1);
+    padding: var(--cauldron-space-${lastIndex(measured.spacing)});
+    text-decoration: none;
+  }
+  .agent-callout-link:hover { text-decoration: underline; }
+  .agent-callout-link:focus-visible {
+    outline: 2px solid var(--cauldron-c-ink);
+    outline-offset: 2px;
+  }
+</style>
+`;
+      await simulate('AgentCallout', refComponent, 'Add a callout');
+      const third = await runQuality({ pages: ['/'] });
+      const refChange = (third.findings ?? []).filter(
+        (finding) => finding.scope === 'change',
+      );
+      check(
+        '4.2 a change using the reference direction’s tokens is accepted',
+        third.built &&
+          refChange.length > 0 &&
+          refChange.every((finding) => finding.status === 'pass'),
+        refChange
+          .filter((finding) => finding.status !== 'pass')
+          .map((finding) => `${finding.label}: ${finding.detail}`)
+          .join('; ') || 'all change checks passed on the measured tokens',
+      );
+    } finally {
+      server.close();
+    }
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    check('CHANGE TASTE TEST ERROR', false, String(error));
+  } finally {
     app.exit(results.length > 0 && results.every((r) => r.ok) ? 0 : 1);
   }
 }

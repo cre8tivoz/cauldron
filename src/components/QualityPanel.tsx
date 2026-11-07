@@ -8,13 +8,15 @@ type Props = {
 };
 
 /**
- * Measured checks on the built site (plan 4.4), kept separate from opinion, plus
- * the plain-English feedback box that hands the fixes to the agent.
+ * Measured checks on the built site (plan 4.4), kept separate from checks that
+ * could not run and from design opinion, plus the plain-English feedback box
+ * that hands the fixes to the agent.
  */
 export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
   const [report, setReport] = useState<QualityReport | null>(null);
   const [running, setRunning] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [tool, setTool] = useState<'claude' | 'codex' | 'hermes'>('claude');
   const [message, setMessage] = useState<string | null>(null);
 
   const run = async () => {
@@ -32,22 +34,43 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
   const sendFeedback = async () => {
     if (feedback.trim() === '') return;
     const result = await window.cauldron.agentSend({
-      tool: 'claude',
+      tool,
       request: feedback.trim(),
     });
     setMessage(
       result.ok
-        ? 'Sent to the agent. Watch the Agent column for progress.'
+        ? `Sent to ${tool}. Watch the Agent column for progress, then run the checks again.`
         : (result.problem ?? 'The agent could not start.'),
     );
   };
 
   const failures =
-    report?.findings.filter((finding) => finding.status === 'fail') ?? [];
-  const unknown =
-    report?.findings.filter((finding) => finding.status === 'unknown') ?? [];
+    report?.findings.filter(
+      (finding) => finding.kind === 'measured' && finding.status === 'fail',
+    ) ?? [];
+  const unverified =
+    report?.findings.filter((finding) => finding.kind === 'failure') ?? [];
+  const opinions =
+    report?.findings.filter((finding) => finding.kind === 'opinion') ?? [];
   const passes =
-    report?.findings.filter((finding) => finding.status === 'pass') ?? [];
+    report?.findings.filter(
+      (finding) => finding.kind === 'measured' && finding.status === 'pass',
+    ) ?? [];
+  // Kept apart on purpose: what the agent's run wrote, and the site as a whole.
+  const changeResults = [...failures, ...unverified].filter(
+    (finding) => finding.scope === 'change',
+  );
+  const siteResults = [...failures, ...unverified].filter(
+    (finding) => finding.scope !== 'change',
+  );
+  const notice = (finding: QualityFinding) => (
+    <div className="notice bad" key={finding.id} style={{ marginBottom: 8 }}>
+      <strong>{finding.label}</strong>
+      {finding.page ? ` · ${finding.page}` : ''}
+      {finding.width ? ` at ${finding.width}px` : ''}
+      <div className="hint">{finding.detail}</div>
+    </div>
+  );
 
   return (
     <div className="pane-body" style={{ overflowY: 'auto', padding: 20 }}>
@@ -77,7 +100,8 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
       ) : null}
       {!direction && site ? (
         <div className="notice" style={{ marginTop: 12 }}>
-          No design direction is set, so type and font checks are skipped.
+          No design direction is set, so type, font and taste checks are
+          skipped.
           <div className="notice-actions">
             <button className="button" type="button" onClick={onOpenDesign}>
               Choose a direction
@@ -95,23 +119,27 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
         <>
           <h3 style={{ fontSize: 13, marginTop: 18 }}>
             {failures.length === 0
-              ? unknown.length
-                ? `${unknown.length} checks could not be verified`
+              ? unverified.length
+                ? `${unverified.length} checks could not run`
                 : 'Everything measured passes'
               : `${failures.length} to fix`}
           </h3>
-          {[...failures, ...unknown].map((finding) => (
-            <div
-              className="notice bad"
-              key={finding.id}
-              style={{ marginBottom: 8 }}
-            >
-              <strong>{finding.label}</strong>
-              {finding.page ? ` · ${finding.page}` : ''}
-              {finding.width ? ` at ${finding.width}px` : ''}
-              <div className="hint">{finding.detail}</div>
-            </div>
-          ))}
+          {changeResults.length > 0 ? (
+            <>
+              <h4 style={{ fontSize: 13, margin: '12px 0 8px' }}>
+                The agent&rsquo;s changes
+              </h4>
+              {changeResults.map(notice)}
+            </>
+          ) : null}
+          {siteResults.length > 0 ? (
+            <>
+              <h4 style={{ fontSize: 13, margin: '12px 0 8px' }}>
+                The whole site
+              </h4>
+              {siteResults.map(notice)}
+            </>
+          ) : null}
 
           <details style={{ marginTop: 10 }}>
             <summary className="hint">{passes.length} passing checks</summary>
@@ -141,6 +169,26 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
             </tbody>
           </table>
 
+          {opinions.length > 0 ? (
+            <>
+              <h3 style={{ fontSize: 13, marginTop: 18 }}>Design opinions</h3>
+              <p className="hint" style={{ marginTop: 0 }}>
+                Judgements, not measurements. Nothing here is a pass or a fail.
+              </p>
+              {opinions.map((finding) => (
+                <div
+                  className="notice"
+                  key={finding.id}
+                  style={{ marginBottom: 8 }}
+                >
+                  <strong>{finding.label}</strong>
+                  {finding.page ? ` · ${finding.page}` : ''}
+                  <div className="hint">{finding.detail}</div>
+                </div>
+              ))}
+            </>
+          ) : null}
+
           <h3 style={{ fontSize: 13, marginTop: 18 }}>
             Feedback for the agent
           </h3>
@@ -157,6 +205,18 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
             />
           </div>
           <div className="notice-actions">
+            <select
+              className="button"
+              aria-label="Agent to apply the feedback"
+              value={tool}
+              onChange={(event) =>
+                setTool(event.target.value as 'claude' | 'codex' | 'hermes')
+              }
+            >
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+              <option value="hermes">Hermes</option>
+            </select>
             <button
               className="button primary"
               type="button"
@@ -181,6 +241,14 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
               }
             >
               Use the failing checks
+            </button>
+            <button
+              className="button"
+              type="button"
+              onClick={() => void run()}
+              disabled={running}
+            >
+              Run the checks again
             </button>
           </div>
         </>

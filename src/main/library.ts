@@ -460,6 +460,32 @@ export function piecePreview(piece_: LibraryPiece): string {
 <body><section class="cauldron-${piece_.id}">${piece_.markup.replaceAll('{emailId}', '"cauldron-news-email-preview"')}</section></body></html>`;
 }
 
+/**
+ * Puts the piece inside the page, never after it. Pages that close with a layout
+ * component (`</Base>`, `</Layout>`) used to get the new section after `</html>`,
+ * outside the page body; now it becomes the layout's last child.
+ */
+function placeOnPage(text: string, componentName: string): string {
+  const tag = `<${componentName} />`;
+  const inMain = /^([ \t]*)<\/main>/m.exec(text);
+  if (inMain)
+    return text.replace(
+      /^([ \t]*)<\/main>/m,
+      (_match, pad: string) => `${pad}  ${tag}\n${pad}</main>`,
+    );
+  const inBody = /^([ \t]*)<\/body>/m.exec(text);
+  if (inBody)
+    return text.replace(
+      /^([ \t]*)<\/body>/m,
+      (_match, pad: string) => `${pad}  ${tag}\n${pad}</body>`,
+    );
+  // A layout's closing tag sits at the start of its line; anything indented is
+  // a component inside the page and is left alone.
+  const layout = /^<\/[A-Z][A-Za-z0-9]*>[ \t]*$/m;
+  if (layout.test(text)) return text.replace(layout, `${tag}\n$&`);
+  return `${text}\n${tag}\n`;
+}
+
 export type AddResult =
   | { ok: true; componentFile: string; page: string; replaced?: string }
   | { ok: false; problem: string };
@@ -542,12 +568,16 @@ export function addPiece(
       };
     }
     next = next.replace(tagPattern, `<${componentName} />`);
-  } else if (next.includes('</main>')) {
-    next = next.replace('</main>', `  <${componentName} />\n    </main>`);
-  } else if (next.includes('</body>')) {
-    next = next.replace('</body>', `  <${componentName} />\n  </body>`);
+    // Drop the import of the tag it replaced when nothing else uses it, so the
+    // page does not keep importing a component it no longer renders.
+    if (!new RegExp(`<${selector}[\\s/>]`).test(next)) {
+      next = next.replace(
+        new RegExp(`^import\\s+${selector}\\s+from\\s+['"][^'"]+['"];\\n`, 'm'),
+        '',
+      );
+    }
   } else {
-    next = `${next}\n<${componentName} />\n`;
+    next = placeOnPage(next, componentName);
   }
 
   // Re-adding must not overwrite the site's own edits to an existing component.
