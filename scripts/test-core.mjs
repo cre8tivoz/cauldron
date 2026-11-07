@@ -175,6 +175,38 @@ try {
     });
     assert.equal(result.ok, false);
   });
+  // Ticket 19: an outside agent has only these actions, so the outline must say
+  // where each heading is, or no agent can edit through the shared actions.
+  test('3.3 outline gives usable positions for the shared actions', () => {
+    fs.writeFileSync(
+      file,
+      '---\nconst title = "Kept";\n---\n  <h1 class="lead">Positioned</h1>\n<p>Body</p>\n',
+    );
+    const outline = runAction(root, {
+      action: 'readPageOutline',
+      page: '/',
+    });
+    assert.equal(outline.ok, true);
+    const heading = outline.headings[0];
+    assert.equal(heading.line, 4);
+    assert.equal(heading.column, 3);
+    const edited = runAction(root, {
+      action: 'editElementText',
+      target: {
+        file: 'src/pages/index.astro',
+        line: heading.line,
+        column: heading.column,
+        name: `h${heading.level}`,
+      },
+      value: 'Moved',
+      baseHash: outline.hash,
+    });
+    assert.equal(edited.ok, true);
+    assert.equal(
+      fs.readFileSync(file, 'utf8'),
+      '---\nconst title = "Kept";\n---\n  <h1 class="lead">Moved</h1>\n<p>Body</p>\n',
+    );
+  });
   const { applyEdit, snapshotElement } = await import('../src/main/edit.ts');
   test('1.5 dynamic attributes and unknown source stay byte-for-byte intact', () => {
     const source =
@@ -1059,6 +1091,151 @@ test('5.1 publishing refuses while an edit has not reached recovery storage', ()
   assert.match(result.problem, /not saved|unsaved|still/i);
   assert.equal(commitCount(site), 1);
   assert.equal(commitCount(remote, 'main'), 1);
+});
+
+// 2.2 the comparison behind the Before/After toggle (ticket 21). Loaded late so
+// an import fault is reported per test rather than aborting the whole run.
+const compareLoad = await import('../src/main/compare.ts').catch((error) => ({
+  error,
+}));
+function compareApi() {
+  if (compareLoad.error) throw compareLoad.error;
+  return compareLoad;
+}
+const pageEl = (overrides) => ({
+  file: '/site/src/pages/index.astro',
+  loc: '76:6',
+  tag: 'h1',
+  text: 'Heading',
+  attributes: '',
+  class: 'hero-title',
+  style: '',
+  ...overrides,
+});
+const ownedPage = ['src/pages/index.astro'];
+
+test('2.2 a text change is part of the run comparison', () => {
+  const { compareSnapshots, highlightsFor } = compareApi();
+  const before = [pageEl({})];
+  const after = [pageEl({ text: 'Heading, edited' })];
+  const comparison = compareSnapshots(before, after, ownedPage);
+  assert.deepEqual(
+    comparison.changed.map((element) => element.loc),
+    ['76:6'],
+  );
+  assert.equal(
+    highlightsFor(comparison)[0].label,
+    'Changed: h1 at src/pages/index.astro:76:6',
+  );
+});
+
+test('2.2 an attribute-only change is part of the run comparison', () => {
+  const { compareSnapshots } = compareApi();
+  const comparison = compareSnapshots(
+    [pageEl({})],
+    [pageEl({ attributes: 'href=/work' })],
+    ownedPage,
+  );
+  assert.equal(comparison.changed.length, 1);
+  assert.deepEqual(comparison.removed, []);
+});
+
+test('2.2 a style-only change is part of the run comparison', () => {
+  const { compareSnapshots } = compareApi();
+  assert.equal(
+    compareSnapshots([pageEl({})], [pageEl({ style: 'color: red' })], ownedPage)
+      .changed.length,
+    1,
+    'an inline style change must be seen',
+  );
+  assert.equal(
+    compareSnapshots([pageEl({})], [pageEl({ style: 'color: red' })], ownedPage)
+      .changed[0].style,
+    'color: red',
+  );
+});
+
+test('2.2 a removed element is listed by name, since there is no node to outline', () => {
+  const { compareSnapshots, highlightsFor } = compareApi();
+  const comparison = compareSnapshots([pageEl({})], [], ownedPage);
+  assert.deepEqual(comparison.changed, []);
+  assert.equal(
+    comparison.removed[0].label,
+    'Removed: h1 at src/pages/index.astro:76:6',
+  );
+  const [part] = highlightsFor(comparison);
+  assert.equal(part.removed, true);
+  assert.match(part.label, /^Removed: h1 at src\/pages\/index\.astro:76:6$/);
+});
+
+test('2.2 a person’s edit in another file is not attributed to the run', () => {
+  const { compareSnapshots } = compareApi();
+  const comparison = compareSnapshots(
+    [
+      pageEl({}),
+      pageEl({
+        file: '/site/src/components/Header.astro',
+        loc: '27:5',
+        tag: 'a',
+        text: 'Witch Daddy Labs',
+      }),
+    ],
+    [
+      pageEl({ text: 'Heading, edited' }),
+      pageEl({
+        file: '/site/src/components/Header.astro',
+        loc: '27:5',
+        tag: 'a',
+        text: 'Witch Daddy Labs, by hand',
+      }),
+    ],
+    ownedPage,
+  );
+  assert.deepEqual(
+    comparison.changed.map((element) => element.file),
+    ['/site/src/pages/index.astro'],
+  );
+  assert.equal(comparison.excluded, 1);
+  assert.equal(compareSnapshots([], [], []).excluded, 0);
+});
+
+test('2.2 removing a line does not make the whole page look rewritten', () => {
+  const { compareSnapshots } = compareApi();
+  const before = [
+    pageEl({ loc: '202:8', tag: 'h2', text: 'Kept close to home' }),
+    pageEl({ loc: '203:9', tag: 'p', text: 'One' }),
+    pageEl({ loc: '204:9', tag: 'p', text: 'Two' }),
+  ];
+  const after = [
+    pageEl({ loc: '202:9', tag: 'p', text: 'One' }),
+    pageEl({ loc: '203:9', tag: 'p', text: 'Two' }),
+  ];
+  const comparison = compareSnapshots(before, after, ownedPage);
+  assert.deepEqual(comparison.changed, []);
+  assert.deepEqual(
+    comparison.removed.map((element) => element.label),
+    ['Removed: h2 at src/pages/index.astro:202:8'],
+  );
+});
+
+test('2.2 a removal beside a change keeps each on its own element', () => {
+  const { compareSnapshots } = compareApi();
+  const before = [
+    pageEl({ loc: '75:7', tag: 'p', text: 'A tiny coven' }),
+    pageEl({ loc: '76:7', tag: 'h1', text: 'Clinic apps' }),
+  ];
+  const after = [
+    pageEl({ loc: '75:7', tag: 'h1', text: 'Clinic apps, edited' }),
+  ];
+  const comparison = compareSnapshots(before, after, ownedPage);
+  assert.deepEqual(
+    comparison.changed.map((element) => element.tag),
+    ['h1'],
+  );
+  assert.deepEqual(
+    comparison.removed.map((element) => element.tag),
+    ['p'],
+  );
 });
 
 process.exitCode = failures ? 1 : 0;

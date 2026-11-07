@@ -36,7 +36,14 @@ export type Run = {
   /** Paths the scan could not read, so ownership cannot be established. */
   problems: string[];
   note: string;
-  highlighted: Array<{ loc: string; text: string }>;
+  /** The parts of the page the run changed, ready for the Before/After toggle. */
+  highlighted: Array<{
+    file: string;
+    loc: string;
+    text: string;
+    label: string;
+    removed?: boolean;
+  }>;
 };
 
 export type UndoResult =
@@ -225,7 +232,13 @@ export class Runs {
 
   setHighlighted(
     id: string,
-    highlighted: Array<{ loc: string; text: string }>,
+    highlighted: Array<{
+      file: string;
+      loc: string;
+      text: string;
+      label: string;
+      removed?: boolean;
+    }>,
   ): void {
     const run = this.runs.find((item) => item.id === id);
     if (run) run.highlighted = highlighted;

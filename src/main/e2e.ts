@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { app } from 'electron';
 import { hashOf } from './files';
 import type { Site } from './site';
@@ -74,7 +75,17 @@ type Api = {
   };
   finishRun: (id: string) => Promise<{
     ok: boolean;
-    run?: { files: string[]; highlighted: unknown[] };
+    compared?: boolean;
+    run?: {
+      files: string[];
+      highlighted: Array<{
+        file: string;
+        loc: string;
+        text: string;
+        label: string;
+        removed?: boolean;
+      }>;
+    };
   }>;
   undoRun: (id: string) => {
     ok: boolean;
@@ -94,6 +105,15 @@ type Api = {
   waitForAgent?: (timeout: number) => Promise<{ ok: boolean; note?: string }>;
   buildPromptText?: (request: string) => string;
   mcpInfo?: () => Promise<{ url: string; code: string } | null>;
+  /** Ticket 17: what shared history holds, so a test can see labels and run tags. */
+  history?: () => Array<{
+    file: string;
+    label: string;
+    runId?: string;
+    afterHash: string;
+  }>;
+  /** Ticket 17: stand in for the active Cauldron-started agent run. */
+  tagAgentRun?: (id: string | null) => void;
   restoreDraft: (draft: Draft) => { ok: boolean; problem?: string };
   status: (message: string) => void;
   site: () => Site | null;
@@ -157,11 +177,21 @@ export type AgentTestApi = {
     runId?: string;
     problem?: string;
   };
+  cancelAgent?: () => boolean;
+  mcpCalls?: () => Array<{ name: string; args: Record<string, unknown> }>;
+  agentStatuses?: () => string[];
+  agentErrors?: () => string[];
+  undoRun?: (id: string) => {
+    ok: boolean;
+    problem?: string;
+    uncertain?: string[];
+  };
   waitForAgent: (timeout: number) => Promise<{ ok: boolean; note?: string }>;
   runs: () => Array<{
     id: string;
     tool: string;
     status: string;
+    note?: string;
     files: string[];
   }>;
   buildPromptText: (request: string) => string;
@@ -169,6 +199,15 @@ export type AgentTestApi = {
   settleRenderer: () => Promise<void>;
   agentTools: () => string[];
   mcpInfo?: () => Promise<{ url: string; code: string } | null>;
+  mcpServed?: () => Array<{ tool: string; ok: boolean; at: number }>;
+  startPreview?: () => Promise<unknown>;
+  previewLoad?: (url: string) => Promise<unknown>;
+  previewClickLeaf?: () => Promise<unknown>;
+  previewEval?: (script: string) => Promise<unknown>;
+  getSelection?: () => {
+    location: Location;
+    snapshot: { text: string };
+  } | null;
 };
 
 type CauldronCollections = Array<{
@@ -1171,6 +1210,964 @@ export async function runAgentTest(
   }
 }
 
+/**
+ * Ticket 18: the agent panel's real path, with the installed `claude` CLI and,
+ * when no provider account is available, with a protocol stand-in.
+ *
+ * REAL checks run the installed `claude` through the app's own IPC and MCP
+ * connection. FIXTURE checks use scripts/fixtures/claude-standin.mjs, which is
+ * not a model and only proves the app path around the provider.
+ */
+export type ClaudeProofApi = AgentTestApi & {
+  startPreview: () => Promise<unknown>;
+  previewClickLeaf: () => Promise<unknown>;
+  getSelection: () => {
+    location: { file: string; line: number; column: number; name: string };
+    snapshot: { text: string };
+  } | null;
+  agentEvents: () => Array<{
+    type: string;
+    text?: string;
+    name?: string;
+    paths?: string[];
+  }>;
+  agentRunning: () => boolean;
+  agentSession: (tool: string) => string | null;
+  mcpCalls: () => Array<{ name: string; args: Record<string, unknown> }>;
+  clearMcpCalls: () => void;
+  undoRun: (id: string) => {
+    ok: boolean;
+    problem?: string;
+    clashes?: string[];
+    uncertain?: string[];
+  };
+};
+
+export async function runClaudeProofTest(
+  root: string,
+  window: import('electron').BrowserWindow,
+  api: ClaudeProofApi,
+): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const argsLog = process.env.CAULDRON_AGENT_ARGS_LOG ?? '';
+  type SpawnRecord = {
+    tool: string;
+    command: string;
+    args: string[];
+    sessionId: string | null;
+  };
+  const runArgs = (): SpawnRecord[] => {
+    if (!argsLog || !fs.existsSync(argsLog)) return [];
+    return fs
+      .readFileSync(argsLog, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as SpawnRecord);
+  };
+  const promptOf = (record: SpawnRecord | undefined): string => {
+    const at = record ? record.args.indexOf('-p') : -1;
+    return at >= 0 ? (record as SpawnRecord).args[at + 1] : '';
+  };
+  const lastPrompt = () => promptOf(runArgs().at(-1));
+  const runs = () =>
+    api.runs() as unknown as Array<{
+      id: string;
+      tool: string;
+      status: string;
+      note: string;
+      files: Array<{ file: string; ownership: string; status: string }>;
+    }>;
+  const renderer = async <T>(script: string): Promise<T> =>
+    (await window.webContents.executeJavaScript(script)) as T;
+  const sendViaApp = (request: string, tool = 'claude') =>
+    renderer<{ ok: boolean; runId?: string; problem?: string }>(
+      `window.cauldron.agentSend({tool:${JSON.stringify(tool)},request:${JSON.stringify(request)}})`,
+    );
+  const rendererEvents = () =>
+    renderer<Array<{ type: string; text?: string; name?: string }>>(
+      '(window.__proofEvents ?? [])',
+    );
+  const resetRendererEvents = () => renderer('window.__proofEvents = []; true');
+  const fileText = (file: string) =>
+    file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+
+  // The app spawns `claude` from PATH, so a job's provider is whatever stands
+  // first on PATH when it starts. The fixture directory is a prepared wrapper.
+  const fixtureDir = process.env.CAULDRON_CLAUDE_STANDIN_DIR ?? '';
+  let originalPath = process.env.PATH ?? '';
+  const useFixture = (): boolean => {
+    if (!fixtureDir || !fs.existsSync(path.join(fixtureDir, 'claude')))
+      return false;
+    originalPath = process.env.PATH ?? originalPath;
+    process.env.PATH = `${fixtureDir}:${originalPath}`;
+    return true;
+  };
+
+  try {
+    await api.openSiteAt(root);
+    check(
+      'REAL a design direction is chosen for the site',
+      api.setDirection('long-lunch').ok,
+    );
+    await api.startPreview();
+    const picked = await api.previewClickLeaf();
+    const selection = api.getSelection();
+    const selectedText = selection?.snapshot.text ?? '';
+    check(
+      'REAL an element can be selected in the live preview',
+      Boolean(selection) && Boolean(picked),
+      selection
+        ? `<${selection.location.name}> ${path.relative(root, selection.location.file)}:${selection.location.line} ${JSON.stringify(selectedText)}`
+        : 'nothing selected',
+    );
+    await renderer(
+      `window.__proofEvents = []; window.cauldron.on('cauldron:agent-event', (event) => window.__proofEvents.push(event)); true`,
+    );
+
+    // ---- REAL provider execution -----------------------------------------
+    console.log('\n=== REAL: the installed claude CLI, through the app ===');
+    const realMarker = 'Cauldron proof 1';
+    api.clearMcpCalls();
+    const real = await sendViaApp(
+      `Change the selected element's text to "${realMarker}" using the Cauldron tools.`,
+    );
+    check(
+      'REAL the app starts the installed claude',
+      real.ok,
+      real.problem ?? '',
+    );
+    if (real.ok) {
+      const finished = await api.waitForAgent(240000);
+      const realEvents = api.agentEvents();
+      check(
+        'REAL the job finishes without an error',
+        finished.ok,
+        `${finished.note ?? ''} | ${realEvents
+          .map(
+            (event) =>
+              `${event.type}${event.text ? `: ${event.text.slice(0, 160)}` : ''}`,
+          )
+          .join(' / ')}`,
+      );
+      const realCalls = api.mcpCalls();
+      console.log(
+        `REAL MCP calls: ${JSON.stringify(realCalls.map((call) => ({ name: call.name, args: call.args })))}`,
+      );
+      check(
+        'REAL Claude calls Cauldron over MCP',
+        realCalls.length > 0,
+        realCalls.map((call) => call.name).join(', '),
+      );
+      const [realRun] = runs();
+      check(
+        'REAL the run lists the files it changed',
+        (realRun?.files.length ?? 0) > 0,
+        (realRun?.files ?? []).map((file) => file.file).join(', ') || 'none',
+      );
+      const realFile = selection?.location.file ?? '';
+      check(
+        'REAL the site really changed',
+        fileText(realFile).includes(realMarker),
+        realFile,
+      );
+      const realUndo = await renderer<{ ok: boolean; problem?: string }>(
+        `window.cauldron.undoRun(${JSON.stringify(realRun?.id)})`,
+      );
+      const realAfter = fileText(realFile);
+      check(
+        'REAL whole-run undo puts the real Claude edit back',
+        realUndo.ok &&
+          realAfter.includes(selectedText) &&
+          !realAfter.includes(realMarker),
+        realUndo.problem ?? `restored ${JSON.stringify(selectedText)}`,
+      );
+    }
+    const realPrompt = lastPrompt();
+    check(
+      'REAL the brief passed to claude carries the direction and the taste rules',
+      realPrompt.includes('Long Lunch') &&
+        realPrompt.includes('Taste rules') &&
+        realPrompt.includes('var(--cauldron-c-') &&
+        realPrompt.includes(realMarker),
+      `prompt ${realPrompt.length} characters`,
+    );
+    check(
+      'REAL the brief carries the selected element',
+      realPrompt.includes('What is selected right now') &&
+        realPrompt.includes(`<${selection?.location.name ?? '?'}>`),
+    );
+
+    // ---- FIXTURE protocol checks -----------------------------------------
+    console.log(
+      '\n=== FIXTURE: a protocol stand-in for claude, through the same app path ===',
+    );
+    const fixtureReady = useFixture();
+    check(
+      'FIXTURE a protocol stand-in is available for the app path',
+      fixtureReady,
+      fixtureReady ? path.join(fixtureDir, 'claude') : 'no stand-in on PATH',
+    );
+    // A separate disposable site, so the fixture jobs never inherit a session id
+    // from the real provider run.
+    const fixtureSite = process.env.CAULDRON_CLAUDE_FIXTURE_SITE ?? '';
+    if (fixtureReady && fixtureSite) {
+      await api.openSiteAt(fixtureSite);
+      check(
+        'FIXTURE a second disposable site is open with a direction',
+        api.setDirection('long-lunch').ok,
+      );
+      await api.startPreview();
+      const fixturePicked = await api.previewClickLeaf();
+      const fixtureSelection = api.getSelection();
+      const selectedFile = fixtureSelection?.location.file ?? '';
+      const selectedText = fixtureSelection?.snapshot.text ?? '';
+      check(
+        'FIXTURE an element is selected on the fixture site',
+        Boolean(fixtureSelection) && Boolean(fixturePicked),
+        fixtureSelection
+          ? `<${fixtureSelection.location.name}> ${path.relative(fixtureSite, fixtureSelection.location.file)}:${fixtureSelection.location.line} ${JSON.stringify(selectedText)}`
+          : 'nothing selected',
+      );
+      const marker = 'Cauldron proof 2';
+      process.env.CAULDRON_STANDIN_MARKER = marker;
+      api.clearMcpCalls();
+      await resetRendererEvents();
+      const job = await sendViaApp(
+        `Change the selected element's text to "${marker}" using the Cauldron tools.`,
+      );
+      check('FIXTURE the app starts the provider', job.ok, job.problem ?? '');
+      const finished = await api.waitForAgent(120000);
+      const editRun = runs()[0];
+      check(
+        'FIXTURE the job finishes and is reported as finished',
+        finished.ok && editRun?.status === 'finished',
+        `${finished.note ?? ''} status=${editRun?.status}`,
+      );
+      const calls = api.mcpCalls();
+      console.log(
+        `FIXTURE MCP calls: ${JSON.stringify(calls.map((call) => ({ name: call.name, args: call.args })))}`,
+      );
+      check(
+        'FIXTURE the run made the Cauldron action calls it needed',
+        [
+          'list_pages',
+          'read_design',
+          'read_selection',
+          'edit_element_text',
+        ].every((name) => calls.some((call) => call.name === name)),
+        calls.map((call) => call.name).join(', '),
+      );
+      const edit = calls.find((call) => call.name === 'edit_element_text');
+      check(
+        'FIXTURE the edit target is the selected element',
+        Boolean(edit) &&
+          (edit?.args.target as { file?: string } | undefined)?.file ===
+            path.relative(fixtureSite, selectedFile) &&
+          edit?.args.value === marker,
+        JSON.stringify(edit?.args ?? {}),
+      );
+      check(
+        'FIXTURE the app shows the edit on the page',
+        fileText(selectedFile).includes(marker),
+      );
+      const changed = (editRun?.files ?? []).map((file) => file.file).sort();
+      check(
+        'FIXTURE the run lists the files it changed, and owns them',
+        changed.includes(path.relative(fixtureSite, selectedFile)) &&
+          (editRun?.files ?? []).every((file) => file.ownership === 'run'),
+        changed.join(', ') || 'none',
+      );
+      check(
+        'FIXTURE the run also claims the file its own Edit tool wrote',
+        changed.includes('src/proof-note.txt'),
+        changed.join(', ') || 'none',
+      );
+      const events = await rendererEvents();
+      const kinds = new Set(events.map((event) => event.type));
+      check(
+        'FIXTURE progress reaches the renderer: status, tool and text events',
+        kinds.has('status') && kinds.has('tool') && kinds.has('text'),
+        [...kinds].join(', '),
+      );
+      check(
+        'FIXTURE the provider really received a session id',
+        api.agentEvents().some((event) => event.type === 'session'),
+      );
+      const prompt = lastPrompt();
+      check(
+        'FIXTURE the brief the app assembled carries direction, taste rules and the selection',
+        prompt.includes('Long Lunch') &&
+          prompt.includes('Taste rules') &&
+          prompt.includes('What is selected right now') &&
+          prompt.includes(marker),
+        `prompt ${prompt.length} characters`,
+      );
+
+      // ---- continuing the conversation -----------------------------------
+      const session = api.agentSession('claude');
+      await resetRendererEvents();
+      const remembered = await sendViaApp(
+        'Without reading or changing any files, reply with exactly the heading text from my previous request.',
+      );
+      check('FIXTURE a second job in the same site starts', remembered.ok);
+      const resumedDone = await api.waitForAgent(120000);
+      const resumeArgs = runArgs().at(-1);
+      const resumeAt = resumeArgs ? resumeArgs.args.indexOf('--resume') : -1;
+      check(
+        'FIXTURE the second job resumes the first job session',
+        Boolean(session) &&
+          resumeAt >= 0 &&
+          resumeArgs?.args[resumeAt + 1] === session,
+        `session ${session} -> ${resumeArgs?.sessionId}`,
+      );
+      const reply = api.agentReply();
+      check(
+        'FIXTURE the provider remembers the earlier heading',
+        resumedDone.ok && reply.includes(marker),
+        reply.slice(-200),
+      );
+
+      // ---- cancellation ---------------------------------------------------
+      await resetRendererEvents();
+      const slow = await sendViaApp(
+        'SLOW: keep this job running until I stop it.',
+      );
+      check('FIXTURE a long job starts', slow.ok, slow.problem ?? '');
+      await wait(2500);
+      check(
+        'FIXTURE the job is still running before it is cancelled',
+        api.agentRunning(),
+      );
+      const cancelResult = await renderer<boolean>(
+        'window.cauldron.agentCancel()',
+      );
+      const cancelled = await api.waitForAgent(30000);
+      let zombie = '';
+      try {
+        zombie = execFileSync('pgrep', ['-f', 'SLOW: keep this job'], {
+          encoding: 'utf8',
+        }).trim();
+      } catch {
+        zombie = '';
+      }
+      const cancelRun = runs()[0];
+      const cancelEvents = await rendererEvents();
+      check(
+        'FIXTURE cancel goes through the app and stops the provider',
+        cancelResult === true && !api.agentRunning() && zombie === '',
+        `agentRunning=${api.agentRunning()} pids=${zombie || 'none'}`,
+      );
+      check(
+        'FIXTURE a cancelled job is marked failed, not successful',
+        cancelled.ok === false &&
+          cancelRun?.status === 'failed' &&
+          /cancel/i.test(cancelRun?.note ?? ''),
+        `status=${cancelRun?.status} note=${cancelRun?.note}`,
+      );
+      check(
+        'FIXTURE the renderer is told the job was cancelled and never shown success',
+        cancelEvents.some(
+          (event) => event.type === 'error' && /cancel/i.test(event.text ?? ''),
+        ) && !cancelEvents.some((event) => event.type === 'done'),
+        cancelEvents
+          .map(
+            (event) =>
+              `${event.type}${event.text ? `: ${event.text.slice(0, 60)}` : ''}`,
+          )
+          .join(' / '),
+      );
+
+      // ---- a genuine failure ---------------------------------------------
+      await resetRendererEvents();
+      const failing = await sendViaApp(
+        'FAIL_EXIT: change the heading, then stop.',
+      );
+      check('FIXTURE a job that will fail starts', failing.ok);
+      const failed = await api.waitForAgent(120000);
+      const failRun = runs()[0];
+      const failEvents = await rendererEvents();
+      check(
+        'FIXTURE a provider that stops with an error is reported as failed',
+        failed.ok === false &&
+          failRun?.status === 'failed' &&
+          failEvents.some((event) => event.type === 'error'),
+        `status=${failRun?.status} note=${(failRun?.note ?? '').slice(0, 140)}`,
+      );
+
+      // Claude's real shape for an expired login: exit 0, subtype success,
+      // is_error true. It must reach the person as an error.
+      await resetRendererEvents();
+      const falseSuccess = await sendViaApp(
+        'FAIL_ISERROR: change the heading, then stop.',
+      );
+      check('FIXTURE a job that reports is_error starts', falseSuccess.ok);
+      const isError = await api.waitForAgent(120000);
+      const isErrorRun = runs()[0];
+      const isErrorEvents = await rendererEvents();
+      check(
+        'FIXTURE an is_error result with exit zero is a failure, not a success',
+        isError.ok === false &&
+          isErrorRun?.status === 'failed' &&
+          isErrorEvents.some(
+            (event) =>
+              event.type === 'error' && /logged in/i.test(event.text ?? ''),
+          ) &&
+          !isErrorEvents.some((event) => event.type === 'done'),
+        `status=${isErrorRun?.status} note=${(isErrorRun?.note ?? '').slice(0, 140)}`,
+      );
+
+      // ---- whole-run undo -------------------------------------------------
+      const undone = await renderer<{ ok: boolean; problem?: string }>(
+        `window.cauldron.undoRun(${JSON.stringify(editRun?.id)})`,
+      );
+      const after = fileText(selectedFile);
+      check(
+        'FIXTURE whole-run undo puts the agent’s edit back',
+        undone.ok && after.includes(selectedText) && !after.includes(marker),
+        undone.problem ?? `restored ${JSON.stringify(selectedText)}`,
+      );
+      check(
+        'FIXTURE whole-run undo removes the file the agent added',
+        !fs.existsSync(path.join(root, 'src/proof-note.txt')),
+      );
+    }
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('CLAUDE PROOF TEST ERROR', error);
+    check('CLAUDE PROOF TEST ERROR', false, String(error));
+  } finally {
+    process.env.PATH = originalPath;
+    await api.settleRenderer();
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/**
+ * Ticket 19: a real Codex run through the app itself. The Codex process is the
+ * installed CLI; the Cauldron connection is supplied per run, and the actions it
+ * asks for are recorded on the connection's side.
+ */
+export type CodexProofApi = {
+  openSiteAt: (root: string) => Promise<unknown>;
+  setDirection: (id: string) => { ok: boolean; problem?: string };
+  mcpInfo: () => Promise<{ url: string; code: string } | null>;
+  mcpServed: () => Array<{ tool: string; ok: boolean; at: number }>;
+  previewClickLeaf: () => Promise<unknown>;
+  getSelection: () => { location: Location; snapshot: { text: string } } | null;
+  sendAgent: (payload: { tool: 'codex'; request: string }) => {
+    ok: boolean;
+    runId?: string;
+    problem?: string;
+  };
+  waitForAgent: (timeout: number) => Promise<{ ok: boolean; note?: string }>;
+  cancelAgent: () => void;
+  agentEvents: () => Array<{ type: string; text: string; name: string }>;
+  agentReply: () => string;
+  agentPrompt: () => string;
+  runs: () => Array<{
+    id: string;
+    tool: string;
+    status: string;
+    files: Array<{ file: string; ownership: string; status: string }>;
+  }>;
+  undoRun: (id: string) => { ok: boolean; problem?: string };
+  settleRenderer: () => Promise<void>;
+};
+
+/** Samples this app's own child processes, so the real command line is recorded. */
+function childCommandSampler(): { seen: string[]; stop: () => void } {
+  const seen: string[] = [];
+  const sample = () => {
+    try {
+      const out = execFileSync('ps', ['-axo', 'pid=,ppid=,args='], {
+        encoding: 'utf8',
+      });
+      for (const line of out.split('\n')) {
+        const match = /^\s*\d+\s+(\d+)\s+(.*)$/.exec(line);
+        if (!match || Number(match[1]) !== process.pid) continue;
+        // Only processes that run the codex program itself, not ones whose
+        // arguments merely contain the word (a folder named "ud-codex").
+        if (!/(^|[\s/])codex(\s|$)/.test(match[2])) continue;
+        if (!seen.includes(match[2])) seen.push(match[2]);
+      }
+    } catch {
+      // Sampling is evidence, never a way to fail the run.
+    }
+  };
+  sample();
+  const timer = setInterval(sample, 400);
+  return {
+    seen,
+    stop: () => {
+      clearInterval(timer);
+      sample();
+    },
+  };
+}
+
+export async function runCodexProofTest(
+  root: string,
+  api: CodexProofApi,
+): Promise<void> {
+  const realPath = process.env.PATH ?? '';
+  try {
+    await api.openSiteAt(root);
+    check(
+      '19 a design direction is written for Codex',
+      api.setDirection('long-lunch').ok,
+    );
+    const info = await api.mcpInfo();
+    check(
+      '19 the Cauldron connection is running for this site',
+      Boolean(info?.url && info?.code),
+      info?.url ?? 'none',
+    );
+
+    // A real selection, the way the inspector gets one.
+    await api.previewClickLeaf();
+    const selected = await waitFor(
+      async () => Boolean(api.getSelection()),
+      20000,
+    );
+    const selection = api.getSelection();
+    check(
+      '19 an element is selected before the run',
+      selected && Boolean(selection),
+      selection
+        ? `<${selection.location.name}> in ${selection.location.file}`
+        : 'none',
+    );
+    const selectedPath = selection?.location.file ?? '';
+    const file = path.isAbsolute(selectedPath)
+      ? selectedPath
+      : path.join(root, selectedPath || 'src/pages/index.astro');
+    const before = fs.readFileSync(file, 'utf8');
+    const selectedFile = path.relative(root, file);
+
+    // ---- REAL: one Codex job through the app, using Cauldron's actions.
+    const marker = `Cauldron Codex ${Date.now()}`;
+    const callsBefore = api.mcpServed().length;
+    const first = childCommandSampler();
+    const started = api.sendAgent({
+      tool: 'codex',
+      request: `Use only Cauldron's MCP tools, not shell tools. First call the cauldron list_pages tool, then read_page_outline for "/" so you know the page. Then call cauldron read_selection: it gives the element I have selected, with its file, line, column, name and baseHash. Then call Cauldron's edit_element_text tool with exactly that target and baseHash, and value exactly "${marker}". Change nothing else.`,
+    });
+    check(
+      '19 Cauldron starts the real codex CLI',
+      started.ok,
+      started.problem ?? '',
+    );
+    const finished = await api.waitForAgent(300000);
+    first.stop();
+    check(
+      '19 the Codex job finishes and reports back',
+      finished.ok,
+      finished.note ?? '',
+    );
+
+    const argv = first.seen.join('\n');
+    check(
+      '19 the codex command line carries the per-run Cauldron connection',
+      argv.includes('mcp_servers.cauldron.url=') &&
+        argv.includes('mcp_servers.cauldron.http_headers='),
+      argv.slice(0, 400),
+    );
+    const prompt = api.agentPrompt();
+    check(
+      '19 the actual brief carries the taste rules, the direction and the selection',
+      prompt.includes('Taste rules') &&
+        prompt.includes('Long Lunch') &&
+        prompt.includes('What is selected right now'),
+      `${prompt.length} characters`,
+    );
+
+    const calls = api.mcpServed().slice(callsBefore);
+    const callNames = calls.map(
+      (call) => `${call.tool}${call.ok ? '' : '(failed)'}`,
+    );
+    check(
+      '19 Codex really calls the Cauldron connection',
+      calls.some((call) => call.tool === 'edit_element_text' && call.ok),
+      callNames.join(', ') || 'no calls',
+    );
+    check(
+      '19 Codex read the pages and the selection before editing',
+      calls.some((call) => call.tool === 'read_selection') &&
+        (calls.some((call) => call.tool === 'list_pages') ||
+          calls.some((call) => call.tool === 'read_page_outline')),
+      callNames.join(', '),
+    );
+
+    const [run] = api.runs();
+    const runFiles = (run?.files ?? []).map(
+      (entry) => `${entry.file}:${entry.ownership}`,
+    );
+    check(
+      '19 the run lists the file it changed as its own',
+      (run?.files ?? []).some(
+        (entry) => entry.file === selectedFile && entry.ownership === 'run',
+      ),
+      runFiles.join(', ') || 'none',
+    );
+    check(
+      '19 the file on disk really changed',
+      fs.readFileSync(file, 'utf8').includes(marker),
+      marker,
+    );
+
+    const events = api.agentEvents();
+    check(
+      '19 progress arrives while the job runs',
+      events.filter((event) => event.type === 'text').length > 0 &&
+        events.some(
+          (event) => event.type === 'tool' && event.name.includes('cauldron'),
+        ),
+      events
+        .map(
+          (event) => `${event.type}:${event.name || event.text.slice(0, 20)}`,
+        )
+        .join(' | ')
+        .slice(0, 400),
+    );
+
+    // ---- REAL: continuing the same conversation.
+    const resumed = api.sendAgent({
+      tool: 'codex',
+      request:
+        'Without reading or changing any files, reply with exactly the text you set in my first request, and nothing else.',
+    });
+    const second = childCommandSampler();
+    check(
+      '19 the conversation can be continued',
+      resumed.ok,
+      resumed.problem ?? '',
+    );
+    const continued = await api.waitForAgent(300000);
+    second.stop();
+    check(
+      '19 the continued job uses resume on the earlier session',
+      second.seen.some((line) => line.includes('exec resume')),
+      second.seen.join('\n').slice(0, 300),
+    );
+    check(
+      '19 the continued job remembers the earlier request',
+      continued.ok && api.agentReply().includes(marker),
+      api.agentReply().slice(-200),
+    );
+
+    // ---- Safe undo of the run's own work.
+    const undo = run ? api.undoRun(run.id) : { ok: false, problem: 'no run' };
+    check(
+      '19 the run can be undone safely',
+      undo.ok && fs.readFileSync(file, 'utf8') === before,
+      undo.problem ?? 'undone',
+    );
+
+    // ---- REAL: cancellation stops the process and is not reported as success.
+    const cancelled = api.sendAgent({
+      tool: 'codex',
+      request:
+        'Write an 800 word essay about page margins. Do not read, run or change anything.',
+    });
+    check('19 a cancellable job starts', cancelled.ok, cancelled.problem ?? '');
+    const began = await waitFor(
+      async () => api.agentEvents().length > 0,
+      30000,
+    );
+    api.cancelAgent();
+    const stopped = await api.waitForAgent(120000);
+    const after = childCommandSampler();
+    after.stop();
+    check(
+      '19 cancelling stops the codex process',
+      began && after.seen.length === 0,
+      after.seen.join('\n').slice(0, 200) || 'no codex process left',
+    );
+    check(
+      '19 a cancelled job is not reported as a success',
+      !stopped.ok,
+      `${stopped.note ?? ''} / ${api.runs()[0]?.status ?? ''}`,
+    );
+
+    // ---- FIXTURE: a codex that genuinely fails must not look like success.
+    const fake = fs.mkdtempSync(
+      path.join(app.getPath('temp'), 'cauldron-codex-'),
+    );
+    fs.writeFileSync(
+      path.join(fake, 'codex'),
+      '#!/bin/sh\necho "codex: login required for this account" >&2\nexit 3\n',
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${fake}:${realPath}`;
+    const failing = api.sendAgent({
+      tool: 'codex',
+      request: 'Change the home page heading.',
+    });
+    const failed = await api.waitForAgent(60000);
+    process.env.PATH = realPath;
+    fs.rmSync(fake, { recursive: true, force: true });
+    const failedRun = api.runs()[0];
+    check(
+      '19 FIXTURE a failing codex is reported as a failure',
+      failing.ok && !failed.ok && failedRun?.status === 'failed',
+      `${failed.note ?? ''} / ${failedRun?.status ?? ''}`,
+    );
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('CODEX TEST ERROR', error);
+    check('CODEX TEST ERROR', false, String(error));
+  } finally {
+    process.env.PATH = realPath;
+    await api.settleRenderer();
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/** Ticket 20: the real installed Hermes, through the app, on the site's own connection. */
+export async function runHermesProofTest(
+  root: string,
+  api: AgentTestApi,
+): Promise<void> {
+  const mode = process.env.CAULDRON_HERMES_TEST ?? '1';
+  try {
+    await api.openSiteAt(root);
+    const chosen = api.setDirection('long-lunch');
+    check('20 a design direction is saved into the site', chosen.ok);
+    const page = path.join(root, 'src/pages/index.astro');
+    const read = () => fs.readFileSync(page, 'utf8');
+
+    if (mode === 'fail') {
+      const sent = api.sendAgent({
+        tool: 'hermes',
+        request: 'Say hello and change nothing.',
+      });
+      check('20 the job is started', sent.ok, sent.problem ?? '');
+      const done = await api.waitForAgent(180000);
+      check(
+        '20 a failing Hermes run is not reported as success',
+        !done.ok && Boolean(done.note),
+        done.note ?? '',
+      );
+      check(
+        '20 the failure is visible as an error event',
+        (api.agentErrors?.() ?? []).length > 0,
+        (api.agentErrors?.() ?? []).join(' | ').slice(-400),
+      );
+      const [failed] = api.runs();
+      check(
+        '20 the failed run is recorded as failed',
+        failed?.status === 'failed',
+        `${failed?.status ?? 'none'} ${failed?.note ?? ''}`,
+      );
+    } else if (mode === 'direct') {
+      const marker = `Hermes direct ${Date.now()}`;
+      const sent = api.sendAgent({
+        tool: 'hermes',
+        request: `On the home page only, change the main h1 heading text to exactly "${marker}". Change nothing else.`,
+      });
+      check('20 a direct-edit job is started', sent.ok, sent.problem ?? '');
+      const done = await api.waitForAgent(300000);
+      check('20 Hermes finished the job', done.ok, done.note ?? '');
+      check('20 the file really changed', read().includes(marker));
+      const [run] = api.runs();
+      const runFiles = (run?.files ?? [])
+        .map((file) =>
+          typeof file === 'string'
+            ? file
+            : ((file as { file?: string }).file ?? ''),
+        )
+        .join(', ');
+      check(
+        '20 the run lists the file it changed',
+        (run?.files.length ?? 0) > 0,
+        runFiles || 'none',
+      );
+      if (run) {
+        const before = read();
+        const undone = api.undoRun?.(run.id) ?? { ok: false };
+        check(
+          '20 a run whose writes Cauldron cannot attribute is refused for undo',
+          !undone.ok && read() === before,
+          undone.problem ?? 'undo reported success',
+        );
+      }
+    } else if (mode === 'cancel') {
+      const sent = api.sendAgent({
+        tool: 'hermes',
+        request:
+          'Read every page of this site, then describe each one in detail. Do not change any files.',
+      });
+      check(
+        '20 a long job is started for cancellation',
+        sent.ok,
+        sent.problem ?? '',
+      );
+      if (sent.ok) {
+        const started = await waitFor(
+          async () => (api.agentStatuses?.() ?? []).length > 0,
+          20000,
+        );
+        check('20 progress is reported while it runs', started);
+        await wait(6000);
+        const cancelled = api.cancelAgent?.() ?? false;
+        check('20 cancel reaches the running job', cancelled);
+        const done = await api.waitForAgent(60000);
+        check(
+          '20 a cancelled run is not reported as success',
+          !done.ok,
+          done.note ?? '',
+        );
+        check(
+          '20 cancellation is visible',
+          (api.agentErrors?.() ?? []).some((text) => /cancel/i.test(text)),
+          (api.agentErrors?.() ?? []).join(' | ').slice(-300),
+        );
+        const [stopped] = api.runs();
+        check(
+          '20 the cancelled run is not marked finished',
+          stopped?.status !== 'finished' && stopped?.status !== 'success',
+          String(stopped?.status ?? 'none'),
+        );
+      }
+    } else {
+      const rendered = await waitFor(async () => {
+        const html = await api.previewEval?.(
+          'document.documentElement.outerHTML',
+        );
+        return String(html ?? '').includes('source-loc');
+      }, 45000);
+      check('20 the site opens with a live preview', rendered);
+      const picked = await api.previewClickLeaf?.();
+      const selected = await waitFor(
+        async () => Boolean(api.getSelection?.()),
+        15000,
+      );
+      check(
+        '20 an element is selected for the brief',
+        selected,
+        JSON.stringify(picked ?? null).slice(0, 200),
+      );
+      const selection = api.getSelection?.() as
+        | {
+            location: {
+              file: string;
+              line: number;
+              column: number;
+              name: string;
+              relative?: string;
+            };
+            snapshot?: { text?: string };
+          }
+        | undefined;
+      const brief = api.buildPromptText('Change the selected element.');
+      check(
+        '20 the real brief carries the selection',
+        Boolean(selection) &&
+          brief.includes('## What is selected right now') &&
+          brief.includes(selection!.location.name),
+        selection
+          ? `${selection.location.name} at ${selection.location.line}`
+          : 'no selection',
+      );
+
+      const info = await api.mcpInfo?.();
+      check(
+        '20 the app offers the site connection to the agent',
+        Boolean(info?.url && info?.code),
+        info ? info.url : 'none',
+      );
+
+      const marker = `Hermes ticket 20 ${Date.now()}`;
+      const sent = api.sendAgent({
+        tool: 'hermes',
+        request: `Using only Cauldron's edit_element_text tool over its connection, set the text of the element in my selection to exactly "${marker}", passing the target and baseHash the tool requires. Do not edit any file with any other tool.`,
+      });
+      check(
+        '20 the real installed Hermes is started',
+        sent.ok,
+        sent.problem ?? '',
+      );
+      const done = await api.waitForAgent(300000);
+      check('20 the job finishes and reports back', done.ok, done.note ?? '');
+      const statuses = api.agentStatuses?.() ?? [];
+      check(
+        '20 progress reached the interface',
+        statuses.length > 0,
+        statuses.slice(0, 3).join(' | ').slice(0, 200),
+      );
+
+      const calls = (api.mcpCalls?.() ?? []).map((call) => {
+        const t = call.args.target as
+          | { file?: string; line?: number; name?: string }
+          | undefined;
+        return {
+          name: call.name,
+          ok: true,
+          target: t?.file ? `${t.file}:${t.line ?? ''}:${t.name ?? ''}` : '',
+        };
+      });
+      check(
+        '20 Hermes called Cauldron actions over the connection',
+        calls.length > 0,
+        calls.length > 0
+          ? calls.map((call) => `${call.name}${call.ok ? '' : '!'}`).join(', ')
+          : 'none',
+      );
+      const target = calls.find((call) => call.target)?.target ?? '';
+      check(
+        '20 the action target is the selected element',
+        Boolean(selection) &&
+          target.includes(selection!.location.name) &&
+          target.includes(String(selection!.location.line)),
+        target || 'no targeted call',
+      );
+      const editedFile = selection?.location.file ?? page;
+      const editedText = fs.readFileSync(editedFile, 'utf8');
+      const servedEdit = (api.mcpServed?.() ?? []).some(
+        (call) => call.tool === 'edit_element_text' && call.ok,
+      );
+      check(
+        '20 the site really changed through that action',
+        servedEdit && editedText.includes(marker),
+        `${path.relative(root, editedFile)}: ${
+          editedText.includes(marker) ? marker : 'text not changed'
+        }; Cauldron's edit action ${servedEdit ? 'succeeded' : 'did not succeed'}`,
+      );
+
+      const [run] = api.runs();
+      check(
+        '20 the run lists the file it changed',
+        (run?.files.length ?? 0) > 0,
+        (run?.files ?? []).join(', ') || 'none',
+      );
+      if (run) {
+        const undone = api.undoRun?.(run.id) ?? { ok: false };
+        check(
+          '20 the run can be undone without touching other work',
+          undone.ok && !read().includes(marker),
+          undone.problem ?? 'undone',
+        );
+      }
+    }
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('HERMES TEST ERROR', error);
+    check('HERMES TEST ERROR', false, String(error));
+  } finally {
+    await api.settleRenderer();
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
 /** The actual renderer IPC, tab lifecycle, minimum window and reference-URL path. */
 export async function runUiTest(
   root: string,
@@ -2083,6 +3080,8 @@ export async function runFailureTest(
     );
 
     // 5a. Damaged design settings: opened site, then a damaged file, then reopen.
+    // The damaged recovery data from case 1 is still there on purpose: both
+    // problems must show together, neither hiding the other.
     mark = errors.length;
     fs.mkdirSync(path.join(root, 'cauldron'), { recursive: true });
     fs.writeFileSync(
@@ -2107,6 +3106,12 @@ export async function runFailureTest(
     check(
       '14.5a damaged design settings have a console diagnostic',
       Boolean(reported(mark, 'design setting could not be read')),
+    );
+    check(
+      '14.5a two failures at once both stay visible',
+      String(five.text).includes('Saved edits could not be read') &&
+        String(five.text).includes('design setting could not be read'),
+      String(five.text).slice(0, 200),
     );
 
     // 5b. A missing design.json is not a failure: missing must stay distinguishable.
@@ -2298,6 +3303,734 @@ export async function runFailureTest(
     console.log(
       `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
     );
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/**
+ * Ticket 17: the same checked edits through the visual controls, the in-app
+ * action connection (IPC 'cauldron:run-action') and the local MCP connection.
+ * Each path must write the file, refuse a stale start version without touching
+ * the file, be undoable, and carry the right run tag.
+ */
+type Json = { [key: string]: unknown };
+
+async function mcpPost(
+  url: string,
+  code: string | null,
+  body: unknown,
+): Promise<{ status: number; json: Json | null; failed: string | null }> {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(code === null ? {} : { 'x-cauldron-code': code }),
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    let json: Json | null = null;
+    try {
+      json = text ? (JSON.parse(text) as Json) : null;
+    } catch {
+      json = null;
+    }
+    return { status: response.status, json, failed: null };
+  } catch (error) {
+    return { status: 0, json: null, failed: String(error) };
+  }
+}
+
+/** One MCP tool call, the way an outside client makes it. */
+async function mcpTool(
+  url: string,
+  code: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ refused: boolean; text: string; isError: boolean }> {
+  const call = await mcpPost(url, code, {
+    jsonrpc: '2.0',
+    id: 3,
+    method: 'tools/call',
+    params: { name, arguments: args },
+  });
+  const result = (call.json?.result ?? {}) as {
+    content?: Array<{ text?: string }>;
+    isError?: boolean;
+  };
+  return {
+    refused: call.status === 401 || call.failed !== null,
+    text: result.content?.[0]?.text ?? JSON.stringify(call.json),
+    isError: Boolean(result.isError),
+  };
+}
+
+export async function runActionsParityTest(
+  root: string,
+  api: Api,
+  window: import('electron').BrowserWindow,
+): Promise<void> {
+  const other = process.env.CAULDRON_ACTIONS_TEST_OTHER ?? '';
+  const renderer = (expression: string) =>
+    window.webContents.executeJavaScript(expression) as Promise<Json>;
+  const viaVisualText = (value: string) =>
+    renderer(`window.cauldron.applyText(${JSON.stringify(value)})`);
+  const viaVisualStyle = (properties: Record<string, string>) =>
+    renderer(`window.cauldron.applyStyle(${JSON.stringify(properties)})`);
+  const viaIpc = (request: unknown) =>
+    renderer(`window.cauldron.runAction(${JSON.stringify(request)})`);
+  const last = () => {
+    const entries = api.history?.() ?? [];
+    return entries[entries.length - 1];
+  };
+  const stamp = Date.now();
+  try {
+    await api.openSiteAt(root);
+    const rendered = await waitFor(async () => {
+      const html = await api.previewHtml();
+      return (
+        html.includes('data-cauldron-source-loc') ||
+        html.includes('data-astro-source-loc')
+      );
+    }, 45000);
+    check('17 the site opens with a live preview', rendered);
+    if (!rendered) throw new Error('preview never rendered');
+
+    const info = await api.mcpInfo?.();
+    check(
+      '17 the local connection is running',
+      Boolean(info),
+      info?.url ?? 'none',
+    );
+    if (!info) throw new Error('no MCP connection');
+    console.log(`PARITY MCP URL=${info.url} CODE=${info.code}`);
+
+    // Handshake and catalogue, as an MCP client does it.
+    const init = await mcpPost(info.url, info.code, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'ticket-17', version: '1' },
+      },
+    });
+    check(
+      '17 MCP initialize answers with the Cauldron server',
+      init.status === 200 &&
+        (init.json?.result as Json | undefined)?.serverInfo !== undefined,
+      String(init.status),
+    );
+    const listed = await mcpPost(info.url, info.code, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+    });
+    const tools = (
+      (listed.json?.result as { tools?: Array<{ name: string }> })?.tools ?? []
+    ).map((tool) => tool.name);
+    check(
+      '17 MCP offers the shared editing tools',
+      tools.includes('edit_element_text') &&
+        tools.includes('edit_element_style'),
+      tools.join(','),
+    );
+
+    // A real selection, the way the inspector gets one.
+    const picked = await api.previewClickLeaf?.();
+    const selected = await waitFor(
+      async () => Boolean(api.getSelection()),
+      15000,
+    );
+    check(
+      '17 a leaf element is selected for the visual controls',
+      selected,
+      JSON.stringify(picked),
+    );
+    const selection = api.getSelection() as unknown as {
+      location: Location;
+      snapshot: { text: string };
+    };
+    if (!selection) throw new Error('nothing selected');
+    const target = {
+      file: selection.location.file,
+      line: selection.location.line,
+      column: selection.location.column,
+      name: selection.location.name,
+    };
+    const file = target.file;
+    const read = () => fs.readFileSync(file, 'utf8');
+    const hash = () => hashOf(read());
+
+    // (a) visual text edit, then undo.
+    let before = hash();
+    const visualText = `Parity visual ${stamp}`;
+    const wroteVisual = await viaVisualText(visualText);
+    check(
+      '17a visual text edit reaches the file',
+      Boolean(wroteVisual.ok) && read().includes(visualText),
+      String(wroteVisual.problem ?? ''),
+    );
+    check(
+      '17a the visual write is not tagged to an agent run',
+      last()?.runId === undefined,
+      JSON.stringify(last()),
+    );
+    const undoVisual = (await api.undo()) as { ok?: boolean };
+    check(
+      '17a undo restores the visual text edit',
+      Boolean(undoVisual?.ok) && hash() === before,
+    );
+
+    // (b) the in-app action connection, over real IPC.
+    const ipcText = `Parity ipc ${stamp}`;
+    const wroteIpc = await viaIpc({
+      action: 'editElementText',
+      target,
+      value: ipcText,
+      baseHash: hash(),
+    });
+    check(
+      '17b the IPC action edit reaches the file',
+      Boolean(wroteIpc.ok) && read().includes(ipcText),
+      String(wroteIpc.problem ?? ''),
+    );
+    check(
+      '17b the IPC write is not tagged to an agent run',
+      last()?.runId === undefined,
+      JSON.stringify(last()),
+    );
+    const undoIpc = (await api.undo()) as { ok?: boolean };
+    check(
+      '17b undo restores the IPC edit',
+      Boolean(undoIpc?.ok) && hash() === before,
+    );
+
+    // (c) the authenticated outside-agent connection.
+    const mcpText = `Parity mcp ${stamp}`;
+    const mcpWrite = await mcpTool(info.url, info.code, 'edit_element_text', {
+      target,
+      value: mcpText,
+      baseHash: hash(),
+    });
+    check(
+      '17c the MCP tool edit reaches the file',
+      !mcpWrite.refused && !mcpWrite.isError && read().includes(mcpText),
+      mcpWrite.text.slice(0, 160),
+    );
+    check(
+      '17c an MCP write outside a run is tagged agent-connection',
+      last()?.runId === 'agent-connection',
+      JSON.stringify(last()),
+    );
+    const undoMcp = (await api.undo()) as { ok?: boolean };
+    check(
+      '17c undo restores the MCP edit',
+      Boolean(undoMcp?.ok) && hash() === before,
+    );
+
+    // The same style edit through all three paths.
+    const styleOf = async (
+      label: string,
+      run: () => Promise<{
+        ok?: boolean;
+        isError?: boolean;
+        problem?: string;
+        text?: string;
+      }>,
+      colour: string,
+    ) => {
+      const start = hash();
+      const outcome = await run();
+      const written =
+        read().includes(colour) && !('isError' in outcome && outcome.isError);
+      check(
+        `17${label} style edit reaches the file`,
+        written,
+        String(outcome.text ?? outcome.problem ?? ''),
+      );
+      const undone = (await api.undo()) as { ok?: boolean };
+      check(
+        `17${label} undo restores the style edit`,
+        Boolean(undone?.ok) && hash() === start,
+      );
+    };
+    await styleOf('a', () => viaVisualStyle({ color: '#110011' }), '#110011');
+    await styleOf(
+      'b',
+      () =>
+        viaIpc({
+          action: 'editElementStyle',
+          target,
+          properties: { color: '#220022' },
+          baseHash: hash(),
+        }),
+      '#220022',
+    );
+    await styleOf(
+      'c',
+      () =>
+        mcpTool(info.url, info.code, 'edit_element_style', {
+          target,
+          properties: { color: '#330033' },
+          baseHash: hash(),
+        }),
+      '#330033',
+    );
+
+    // The correct agent run: an MCP write during a real run carries its id.
+    const started = api.startRun?.({
+      tool: 'claude',
+      prompt: 'ticket 17 parity run',
+    });
+    const runId = started?.run?.id ?? '';
+    api.tagAgentRun?.(runId || null);
+    const inRun = await mcpTool(info.url, info.code, 'edit_element_text', {
+      target,
+      value: `Parity run ${stamp}`,
+      baseHash: hash(),
+    });
+    check(
+      '17c an MCP write during a run is tagged with that run',
+      !inRun.isError && last()?.runId === runId && Boolean(runId),
+      `${JSON.stringify(last())} runId=${runId}`,
+    );
+    await api.undo();
+    api.tagAgentRun?.(null);
+    const personIpc = await viaIpc({
+      action: 'editElementText',
+      target,
+      value: `Parity person ${stamp}`,
+      baseHash: hash(),
+    });
+    check(
+      '17b the person owns an IPC write even while a run is open',
+      Boolean(personIpc.ok) && last()?.runId === undefined,
+      JSON.stringify(last()),
+    );
+    await api.undo();
+    const personVisual = await viaVisualText(`Parity person visual ${stamp}`);
+    check(
+      '17a the person owns a visual write even while a run is open',
+      Boolean(personVisual.ok) && last()?.runId === undefined,
+      JSON.stringify(last()),
+    );
+    await api.undo();
+    if (runId) await api.finishRun?.(runId);
+
+    // Stale start versions: someone else changes the very element first.
+    const original = read();
+    const lineStarts = [0];
+    for (let index = 0; index < original.length; index += 1)
+      if (original[index] === '\n') lineStarts.push(index + 1);
+    const tagStart =
+      (lineStarts[target.line - 1] ?? 0) + Math.max(0, target.column - 1);
+    const oldText = selection.snapshot.text;
+    const at = oldText ? original.indexOf(oldText, tagStart) : -1;
+    check(
+      '17 the selected element text is locatable for the stale test',
+      at >= 0,
+    );
+    const staleText = `Someone else ${stamp}`;
+    const mutated =
+      at >= 0
+        ? original.slice(0, at) +
+          staleText +
+          original.slice(at + oldText.length)
+        : original;
+    fs.writeFileSync(file, mutated, 'utf8');
+    const staleBase = before;
+    const staleHash = hashOf(mutated);
+
+    const staleVisual = await viaVisualText('PARITY MUST NOT LAND');
+    check(
+      '17a a stale visual edit is refused and the file is untouched',
+      !staleVisual.ok &&
+        hash() === staleHash &&
+        !read().includes('PARITY MUST NOT LAND'),
+      String(staleVisual.problem ?? ''),
+    );
+    const staleIpc = await viaIpc({
+      action: 'editElementText',
+      target,
+      value: 'PARITY MUST NOT LAND',
+      baseHash: staleBase,
+    });
+    check(
+      '17b a stale IPC edit is refused and the file is untouched',
+      !staleIpc.ok &&
+        hash() === staleHash &&
+        !read().includes('PARITY MUST NOT LAND'),
+      String(staleIpc.problem ?? ''),
+    );
+    const staleMcp = await mcpTool(info.url, info.code, 'edit_element_text', {
+      target,
+      value: 'PARITY MUST NOT LAND',
+      baseHash: staleBase,
+    });
+    check(
+      '17c a stale MCP edit is refused and the file is untouched',
+      staleMcp.isError &&
+        hash() === staleHash &&
+        !read().includes('PARITY MUST NOT LAND'),
+      staleMcp.text.slice(0, 160),
+    );
+    fs.writeFileSync(file, original, 'utf8');
+
+    // Outside access: local only, per-site code, refused otherwise.
+    check(
+      '17 the connection listens on 127.0.0.1 only',
+      info.url.startsWith('http://127.0.0.1:'),
+    );
+    const wrongCode = await mcpPost(info.url, `${info.code}-wrong`, {
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/list',
+    });
+    check(
+      '17 a wrong access code is refused',
+      wrongCode.status === 401,
+      String(wrongCode.status),
+    );
+    const noCode = await mcpPost(info.url, null, {
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/list',
+    });
+    check(
+      '17 a missing access code is refused',
+      noCode.status === 401,
+      String(noCode.status),
+    );
+    const os = await import('node:os');
+    const lan = Object.values(os.networkInterfaces())
+      .flat()
+      .find((item) => item && item.family === 'IPv4' && !item.internal);
+    if (lan) {
+      const port = new URL(info.url).port;
+      const away = await mcpPost(
+        `http://${lan.address}:${port}/mcp`,
+        info.code,
+        {
+          jsonrpc: '2.0',
+          id: 6,
+          method: 'tools/list',
+        },
+      );
+      check(
+        '17 the connection is not reachable from the network',
+        away.failed !== null,
+        String(away.status),
+      );
+    } else {
+      check(
+        '17 the connection is not reachable from the network',
+        true,
+        'no LAN address',
+      );
+    }
+
+    // Opening another site closes the old connection and retires its code.
+    if (other) {
+      const opened = await api.openSiteAt(other);
+      void opened;
+      const next = await api.mcpInfo?.();
+      check(
+        '17 another site gets its own connection',
+        Boolean(next) && next?.url !== info.url,
+        next?.url ?? 'none',
+      );
+      const oldUrl = await mcpPost(info.url, info.code, {
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'tools/list',
+      });
+      check(
+        '17 the old URL and code stop working after opening another site',
+        oldUrl.failed !== null || oldUrl.status === 401,
+        oldUrl.failed ? 'refused' : String(oldUrl.status),
+      );
+      if (next) {
+        check('17 the per-site codes differ', next.code !== info.code);
+        const nextOldCode = await mcpPost(next.url, info.code, {
+          jsonrpc: '2.0',
+          id: 8,
+          method: 'tools/list',
+        });
+        check(
+          "17 the first site's code is refused on the second site's connection",
+          nextOldCode.status === 401,
+          String(nextOldCode.status),
+        );
+        console.log(`PARITY MCP FINAL_URL=${next.url} FINAL_CODE=${next.code}`);
+      }
+    } else {
+      check(
+        '17 another site was provided for the close test',
+        false,
+        'CAULDRON_ACTIONS_TEST_OTHER unset',
+      );
+    }
+  } catch (error) {
+    check('ACTIONS PARITY TEST ERROR', false, String(error));
+  } finally {
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+    app.exit(results.length > 0 && results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+type CompareTestApi = Api & {
+  settleRenderer: () => Promise<void>;
+  beforeLocsCount: () => number;
+  previewEval: (script: string) => Promise<unknown>;
+};
+
+type RendererWindow = {
+  webContents: {
+    reload: () => void;
+    executeJavaScript: (script: string) => Promise<unknown>;
+  };
+};
+
+const rendererEval = async (
+  window: RendererWindow,
+  script: string,
+): Promise<unknown> => window.webContents.executeJavaScript(script);
+
+/**
+ * 2.2: the real Before/After toggle, driven through the renderer, after a run
+ * changes text, an attribute and a style, removes an element, and the person
+ * edits a different file by hand while the run is going (ticket 21).
+ */
+export async function runCompareTest(
+  root: string,
+  window: RendererWindow,
+  api: CompareTestApi,
+  openSiteAt: (root: string) => Promise<unknown>,
+): Promise<void> {
+  try {
+    await openSiteAt(root);
+    const marked = await waitFor(
+      async () =>
+        String(await api.previewHtml()).includes('data-astro-source-loc'),
+      30000,
+    );
+    check('2.2 the preview marks source locations', marked);
+
+    const started = api.startRun({
+      tool: 'claude',
+      prompt: 'compare test: four kinds of change',
+    });
+    check('2.2 the run starts', started.ok);
+    const captured = await waitFor(
+      async () => api.beforeLocsCount() > 0,
+      15000,
+    );
+    check(
+      '2.2 the page is captured before the run',
+      captured,
+      String(api.beforeLocsCount()),
+    );
+
+    const page = path.join(root, 'src/pages/index.astro');
+    let text = fs.readFileSync(page, 'utf8');
+    const edits: Array<[string, string]> = [
+      [
+        'with a little <span class="magic">magic.</span>',
+        'with rather more <span class="magic">magic.</span>',
+      ],
+      ['<section class="hero">', '<section class="hero" data-run-attr="yes">'],
+      ['<p class="lede">', '<p class="lede" style="letter-spacing:0.01em">'],
+      [
+        '      <p class="eyebrow">A tiny coven of app makers in Melbourne</p>\n',
+        '',
+      ],
+    ];
+    for (const [from, to] of edits) {
+      if (!text.includes(from))
+        throw new Error(`the page no longer has: ${from}`);
+      text = text.replace(from, to);
+    }
+    fs.writeFileSync(page, text);
+
+    // The person's own edit, through Cauldron's editor, while the run is going.
+    const header = path.join(root, 'src/components/Header.astro');
+    const headerText = fs.readFileSync(header, 'utf8');
+    const brandAt = headerText.indexOf('<a href="/" class="brand"');
+    const brandLine = headerText.slice(0, brandAt).split('\n');
+    const manual = api.runAction({
+      action: 'editElementAttribute',
+      target: {
+        file: 'src/components/Header.astro',
+        line: brandLine.length,
+        column: brandLine.at(-1)!.length + 1,
+        name: 'a',
+      },
+      name: 'data-manual',
+      value: 'yes',
+      baseHash: hashOf(headerText),
+    });
+    check(
+      '2.2 the person can edit a file by hand during the run',
+      manual.ok === true,
+      String(manual.problem ?? ''),
+    );
+
+    // The dev server compiles on request; wait until the page shows the new
+    // files before the run is compared, or a stale page compares equal.
+    const fresh = await waitFor(async () => {
+      await api.previewEval('window.location.reload(); true');
+      await wait(800);
+      return String(await api.previewHtml()).includes('data-run-attr="yes"');
+    }, 20000);
+    check('2.2 the preview shows the run’s files before comparison', fresh);
+
+    const id = started.run?.id ?? '';
+    const finished = await api.finishRun(id);
+    check(
+      '2.2 the run finishes and the page is compared',
+      finished.ok && finished.compared === true,
+    );
+    check(
+      '2.2 the run lists only the file it changed',
+      JSON.stringify(finished.run?.files) === '["src/pages/index.astro"]',
+      JSON.stringify(finished.run?.files),
+    );
+    const parts = finished.run?.highlighted ?? [];
+    check(
+      '2.2 the removed element is listed by name',
+      parts.some((part) =>
+        /^Removed: p at src\/pages\/index\.astro:/.test(part.label),
+      ),
+      `${parts.map((part) => part.label).join('; ') || 'none'}`,
+    );
+    check(
+      '2.2 the person’s hand edit is not attributed to the run',
+      !parts.some((part) => part.file.includes('Header.astro')),
+      parts.map((part) => part.file).join(', ') || 'none',
+    );
+
+    // The real toggle: the renderer's own run list and its Show changes button.
+    window.webContents.reload();
+    const offered = await waitFor(
+      async () =>
+        Boolean(
+          await rendererEval(
+            window,
+            `[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Show changes')`,
+          ),
+        ),
+      20000,
+    );
+    check('2.2 the run offers Show changes in the renderer', offered);
+    const removedShown = Boolean(
+      await rendererEval(
+        window,
+        `document.body.innerText.includes('Removed: p at src/pages/index.astro:')`,
+      ),
+    );
+    check('2.2 the removed element is shown in the run list', removedShown);
+
+    const clicked = Boolean(
+      await rendererEval(
+        window,
+        `(() => {
+          const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Show changes');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()`,
+      ),
+    );
+    check('2.2 Show changes can be clicked', clicked);
+
+    const painted = await waitFor(
+      async () =>
+        Boolean(
+          await api.previewEval(
+            `(() => {
+              const style = document.getElementById('cauldron-highlight');
+              if (!style || !style.textContent.trim()) return false;
+              const selector = style.textContent.split('{')[0];
+              return [...document.querySelectorAll(selector)].some(
+                (el) => getComputedStyle(el).outlineStyle === 'solid',
+              );
+            })()`,
+          ),
+        ),
+      15000,
+    );
+    check('2.2 the changes are outlined in the preview', painted);
+    const outlined = (await api.previewEval(
+      `(() => {
+        const style = document.getElementById('cauldron-highlight');
+        if (!style || !style.textContent.trim()) return { tags: [], boxes: 0, header: 0, css: '' };
+        const selector = style.textContent.split('{')[0];
+        const els = [...document.querySelectorAll(selector)];
+        return {
+          tags: els.map((el) => el.tagName.toLowerCase()),
+          boxes: els.filter((el) => getComputedStyle(el).outlineStyle === 'solid').length,
+          header: els.filter((el) => (el.getAttribute('data-astro-source-file') || '').includes('Header.astro')).length,
+          css: style.textContent.slice(0, 160),
+        };
+      })()`,
+    )) as { tags: string[]; boxes: number; header: number; css: string };
+    check(
+      '2.2 the changed text, attribute and style elements are the ones outlined',
+      outlined.boxes >= 3 &&
+        outlined.tags.includes('h1') &&
+        outlined.tags.includes('section'),
+      `${outlined.boxes} outlined: ${outlined.tags.join(', ')}`,
+    );
+    check(
+      '2.2 the hand-edited header element is not outlined',
+      outlined.header === 0,
+      String(outlined.header),
+    );
+
+    const hidden = Boolean(
+      await rendererEval(
+        window,
+        `(() => {
+          const button = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Hide changes');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()`,
+      ),
+    );
+    const cleared = hidden
+      ? await waitFor(
+          async () =>
+            Boolean(
+              await api.previewEval(
+                `(() => {
+                  const style = document.getElementById('cauldron-highlight');
+                  return !style || !style.textContent.trim();
+                })()`,
+              ),
+            ),
+          10000,
+        )
+      : false;
+    check(
+      '2.2 toggling off clears the outlines',
+      cleared,
+      `hide button clicked: ${hidden}`,
+    );
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('COMPARE TEST ERROR', error);
+    check('COMPARE TEST ERROR', false, String(error));
+  } finally {
+    await api.settleRenderer();
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
 }

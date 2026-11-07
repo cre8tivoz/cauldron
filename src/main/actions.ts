@@ -109,13 +109,21 @@ export function readPageOutline(root: string, page: string): ActionResult {
   const text = fs.readFileSync(file, 'utf8');
   const headings = [
     ...text.matchAll(/<(h[1-6])([^>]*)>([\s\S]*?)<\/\1>/gi),
-  ].map((match) => ({
-    level: Number(match[1].slice(1)),
-    text: match[3]
-      .replace(/<[^>]+>/g, '')
-      .trim()
-      .slice(0, 120),
-  }));
+  ].map((match) => {
+    // Where the tag starts, so an outside agent can use the same edit actions
+    // the interface uses without guessing a position.
+    const index = match.index ?? 0;
+    const before = text.slice(0, index);
+    return {
+      level: Number(match[1].slice(1)),
+      text: match[3]
+        .replace(/<[^>]+>/g, '')
+        .trim()
+        .slice(0, 120),
+      line: before.split('\n').length,
+      column: index - before.lastIndexOf('\n'),
+    };
+  });
   return {
     ok: true,
     page,

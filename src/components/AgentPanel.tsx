@@ -309,6 +309,20 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
                   ))}
                 </ul>
               ) : null}
+              {run.highlighted.some((item) => item.removed) ? (
+                <ul
+                  className="hint"
+                  style={{ margin: '4px 0', paddingLeft: 18 }}
+                >
+                  {run.highlighted
+                    .filter((item) => item.removed)
+                    .map((item, index) => (
+                      <li key={`${item.file}:${item.loc}:${index}`}>
+                        {item.label}
+                      </li>
+                    ))}
+                </ul>
+              ) : null}
               <div className="notice-actions">
                 <button
                   className="button"

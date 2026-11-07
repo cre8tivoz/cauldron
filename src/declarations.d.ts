@@ -120,7 +120,13 @@ type CauldronRun = {
   startedAt: number;
   finishedAt: number | null;
   files: string[];
-  highlighted: Array<{ loc: string; text: string }>;
+  highlighted: Array<{
+    file: string;
+    loc: string;
+    text: string;
+    label: string;
+    removed?: boolean;
+  }>;
 };
 
 type WriteOutcome = {

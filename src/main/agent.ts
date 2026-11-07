@@ -1,6 +1,57 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { DesignDirection } from './directions';
 import { tasteRulesText } from './tastes';
+
+/** The .env of the Hermes profile Cauldron runs (ticket 20). */
+export function hermesEnvFile(): string {
+  return (
+    process.env.CAULDRON_HERMES_ENV_FILE ??
+    path.join(os.homedir(), '.hermes', 'profiles', 'cauldron', '.env')
+  );
+}
+
+/**
+ * Hermes's shared gateway rereads a profile's .env on a timer (every 30 s),
+ * so a changed connection takes a while to reach it. Observed up to 78 s.
+ */
+export const HERMES_PICKUP_MS = 90_000;
+let hermesConnectionChangedAt = 0;
+
+/** How much longer a Hermes job should wait for the connection to be picked up. */
+export function hermesPickupWaitMs(now = Date.now()): number {
+  return Math.max(0, hermesConnectionChangedAt + HERMES_PICKUP_MS - now);
+}
+
+/**
+ * Set CAULDRON_MCP_URL and CAULDRON_MCP_CODE in the Cauldron Hermes profile's
+ * .env, replacing earlier values and leaving every other line untouched.
+ * Does nothing when the profile does not exist (Hermes is not set up) or the
+ * values are already there. Returns whether the file changed.
+ */
+export function writeHermesConnection(url: string, code: string): boolean {
+  const file = hermesEnvFile();
+  if (!fs.existsSync(path.dirname(file))) return false;
+  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const kept = before
+    .split('\n')
+    .filter(
+      (line) =>
+        !line.startsWith('CAULDRON_MCP_URL=') &&
+        !line.startsWith('CAULDRON_MCP_CODE='),
+    );
+  while (kept.length > 0 && kept[kept.length - 1] === '') kept.pop();
+  kept.push(`CAULDRON_MCP_URL=${url}`, `CAULDRON_MCP_CODE=${code}`, '');
+  const after = kept.join('\n');
+  if (after === before) return false;
+  const temp = `${file}.cauldron-tmp`;
+  fs.writeFileSync(temp, after, { mode: 0o600 });
+  fs.renameSync(temp, file);
+  hermesConnectionChangedAt = Date.now();
+  return true;
+}
 
 export type AgentTool = 'claude' | 'codex' | 'hermes';
 
@@ -179,6 +230,20 @@ function normaliseClaude(line: string): AgentEvent[] {
       });
       return events;
     }
+    // Claude reports a failed turn (an expired login, a refused API call) as
+    // subtype "success" with is_error true and exit code 0. It did not do the
+    // work, so it never becomes a successful run.
+    if ((item as { is_error?: boolean }).is_error === true) {
+      events.push({
+        type: 'error',
+        text:
+          item.result ||
+          asText ||
+          item.error ||
+          'The agent reported an error and did not finish the job.',
+      });
+      return events;
+    }
     if (
       typeof asText === 'string' &&
       !item.api_error &&
@@ -220,8 +285,15 @@ function normaliseJsonLines(line: string): AgentEvent[] {
 
   if (item.type === 'thread.started' && typeof item.thread_id === 'string')
     events.push({ type: 'session', sessionId: item.thread_id });
+  const nested =
+    item.item && typeof item.item === 'object'
+      ? (item.item as Record<string, unknown>)
+      : null;
   const message = (item.item ?? item.msg ?? item) as Record<string, unknown>;
   const type = String(message.type ?? item.type ?? '');
+  // Codex reports its own notices as a finished item of type "error". They are
+  // not a failed turn, so they are shown, never treated as one.
+  const notice = nested !== null && type.includes('error');
   if (type.includes('session') && typeof message.id === 'string') {
     events.push({ type: 'session', sessionId: message.id });
   }
@@ -230,10 +302,35 @@ function normaliseJsonLines(line: string): AgentEvent[] {
     (typeof message.text === 'string' && message.text) ||
     (typeof message.content === 'string' && message.content) ||
     '';
-  if (text) events.push({ type: 'text', text });
+  if (text && !notice) events.push({ type: 'text', text });
   const name = (typeof message.name === 'string' && message.name) || '';
   if (name) events.push({ type: 'tool', name });
-  if (type.includes('error') || type.includes('failed'))
+  // Codex reports each MCP tool call as its own item, named by server and tool.
+  if (
+    type === 'mcp_tool_call' &&
+    String(message.status ?? '') !== 'in_progress'
+  ) {
+    const label =
+      [message.server, message.tool]
+        .filter(
+          (part): part is string => typeof part === 'string' && Boolean(part),
+        )
+        .join('.') || 'mcp';
+    events.push({ type: 'tool', name: label });
+    if (String(message.status ?? '') === 'failed')
+      events.push({
+        type: 'status',
+        text: `${label} failed. ${
+          (message.error as { message?: string } | null)?.message ?? ''
+        }`.trim(),
+      });
+  }
+  if (notice)
+    events.push({
+      type: 'status',
+      text: text || 'Codex reported a problem.',
+    });
+  else if (type.includes('error') || type.includes('failed'))
     events.push({
       type: 'error',
       text:
@@ -286,10 +383,26 @@ export function runAgent(options: {
     if (sessionId) args.push('--resume', sessionId);
   } else if (tool === 'codex') {
     command = 'codex';
+    // Codex takes its MCP servers as config, and config overrides on the command
+    // line apply to this run only, so the Cauldron connection never goes into
+    // the person's own Codex configuration (plan 3.3).
+    const connection = options.mcp
+      ? [
+          '-c',
+          `mcp_servers.cauldron.url=${JSON.stringify(options.mcp.url)}`,
+          '-c',
+          `mcp_servers.cauldron.http_headers={ "x-cauldron-code" = ${JSON.stringify(options.mcp.code)} }`,
+          // codex exec has nobody to answer an approval prompt, so the
+          // Cauldron actions are pre-approved for this run only.
+          '-c',
+          'mcp_servers.cauldron.default_tools_approval_mode="approve"',
+        ]
+      : [];
     args = [
       'exec',
       prompt,
       '--json',
+      ...connection,
       '-C',
       root,
       '--skip-git-repo-check',
@@ -303,17 +416,51 @@ export function runAgent(options: {
         sessionId,
         prompt,
         '--json',
+        ...connection,
         '--skip-git-repo-check',
       ];
   } else {
     command = 'hermes';
-    args = ['chat', '-q', prompt, '--format', 'stream-json', '-Q'];
+    // Ticket 20: Hermes needs its own profile (the one set up for Cauldron) so
+    // the site's action connection is offered, exactly like Claude's --mcp-config.
+    args = [
+      '-p',
+      'cauldron',
+      'chat',
+      '-q',
+      prompt,
+      '--format',
+      'stream-json',
+      '-Q',
+    ];
     if (sessionId) args.push('--resume', sessionId);
+  }
+
+  // Harness hook (ticket 18): record the exact command line a job used, so a
+  // proof run can show the brief the agent really carried. Off unless asked.
+  if (process.env.CAULDRON_AGENT_ARGS_LOG)
+    fs.appendFileSync(
+      process.env.CAULDRON_AGENT_ARGS_LOG,
+      `${JSON.stringify({ tool, command, args, sessionId: sessionId ?? null })}\n`,
+    );
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    FORCE_COLOR: '0',
+    NO_COLOR: '1',
+  };
+  // The profile's Cauldron entry stays dormant until these two are set (plan 3.3).
+  if (tool === 'hermes' && options.mcp) {
+    env.CAULDRON_MCP_URL = options.mcp.url;
+    env.CAULDRON_MCP_CODE = options.mcp.code;
+    // Hermes only reads a profile's values from that profile's own .env (its
+    // shared gateway never takes them from the launching process), so the
+    // site's connection is written there before the job starts.
+    writeHermesConnection(options.mcp.url, options.mcp.code);
   }
 
   const child: ChildProcess = spawn(command, args, {
     cwd: root,
-    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

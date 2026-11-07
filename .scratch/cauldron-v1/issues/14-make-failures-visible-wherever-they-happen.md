@@ -70,3 +70,7 @@ Ticket breakdown approved by Billy through the to-tickets approval form.
 
 - Case 7 could not be triggered in the packaged app without altering the bundled axe-core. Its report and console diagnostic are proven by the unit test; the step that renders it as a failed Quality finding is checked by code reading. That finding list is the one the quality harness already displays.
 - Case 3 was injected by stopping the preview. A script failure part-way through a comparison was not separately exercised.
+
+### Addendum — 7 Nov 2026 (batch 2)
+
+Batch 2's final verification found that damaged design settings were reported during start-up but then covered by "Preview running…", so they were not visible (`CAULDRON_FAILURE_TEST` 13/14). Fix (`src/main/index.ts` `openSiteAt`): after the preview starts, damaged recovery data and damaged design settings are reported together, so neither hides the other. New check "14.5a two failures at once both stay visible"; the failure suite now passes **15/15**.

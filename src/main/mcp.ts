@@ -17,6 +17,8 @@ export type McpOptions = {
   run: (request: ActionRequest) => ActionResult;
   readSelection: () => unknown;
   readDesign: () => unknown;
+  /** Harness hook: records every tool call an outside agent makes (ticket 18). */
+  record?: (call: { name: string; args: Record<string, unknown> }) => void;
 };
 
 export type McpHandle = {
@@ -25,6 +27,18 @@ export type McpHandle = {
   port: number;
   close: () => void;
 };
+
+/** What outside agents asked the Cauldron connection for (plan 3.3). */
+export type McpCall = { tool: string; ok: boolean; at: number };
+const calls: McpCall[] = [];
+
+export function mcpCalls(): McpCall[] {
+  return [...calls];
+}
+
+function recordCall(tool: string, ok: boolean): void {
+  calls.push({ tool, ok, at: Date.now() });
+}
 
 type ToolDefinition = {
   name: string;
@@ -72,7 +86,8 @@ export function toolsFor(siteName: string): ToolDefinition[] {
     },
     {
       name: 'read_page_outline',
-      description: 'Read the headings of one page, plus the file it lives in.',
+      description:
+        'Read the headings of one page, with the file it lives in, each heading’s line and column, and the file hash the edit actions expect.',
       inputSchema: {
         type: 'object',
         properties: { page: { type: 'string', description: 'e.g. /about/' } },
@@ -312,8 +327,10 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
           const params = message.params ?? {};
           const name = String(params.name ?? '');
           const args = (params.arguments ?? {}) as Record<string, unknown>;
+          options.record?.({ name, args });
 
           if (name === 'read_selection') {
+            recordCall(name, true);
             reply({
               content: [
                 {
@@ -325,6 +342,7 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
             return;
           }
           if (name === 'read_design') {
+            recordCall(name, true);
             reply({
               content: [
                 {
@@ -343,6 +361,7 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
           }
           try {
             const result = options.run(actionRequest);
+            recordCall(name, Boolean(result.ok));
             reply({
               content: [
                 { type: 'text', text: JSON.stringify(result, null, 2) },

@@ -7,6 +7,13 @@ import { Preview } from './preview';
 import { History } from './history';
 import { Runs, type Run } from './runs';
 import {
+  compareSnapshots,
+  highlightsFor,
+  type HighlightedPart,
+  type PageElement,
+} from './compare';
+
+import {
   runAction,
   listPages,
   actionCatalogue,
@@ -15,6 +22,8 @@ import {
 import {
   runAgent,
   buildPrompt,
+  writeHermesConnection,
+  hermesPickupWaitMs,
   type AgentTool,
   type AgentHandle,
 } from './agent';
@@ -24,7 +33,7 @@ import {
   readDirection,
   writeDirection,
 } from './directions';
-import { startMcpServer, type McpHandle } from './mcp';
+import { startMcpServer, mcpCalls, type McpHandle } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
 import { checkSite } from './quality';
@@ -66,7 +75,7 @@ type Controller = {
   selection: SelectionState | null;
   history: History;
   runs: Runs;
-  beforeLocs: Array<{ loc: string; text: string }>;
+  beforeLocs: PageElement[];
   agent: AgentHandle | null;
   agentRunId: string | null;
   sessions: Map<string, Partial<Record<AgentTool, string>>>;
@@ -212,8 +221,16 @@ async function startMcp(site: Site): Promise<void> {
       run: (request) => sharedAction(request, true),
       readSelection: () => selectionView(),
       readDesign: () => directionFor(site.root),
+      record: (call) => mcpToolCalls.push(call),
     });
     status(`Outside agents can connect on ${state.mcp.url}`);
+    // Ticket 20: give Hermes this site's connection now, so its gateway has
+    // picked it up well before anyone asks Hermes to work.
+    try {
+      writeHermesConnection(state.mcp.url, state.mcp.code);
+    } catch (error) {
+      console.error('The Hermes connection could not be written:', error);
+    }
   } catch (error) {
     status(
       `The outside-agent connection could not start: ${(error as Error).message}`,
@@ -249,43 +266,109 @@ async function openSiteAt(root: string) {
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
   );
   const preview = await startPreview();
-  if (recovery.problem) fail(recovery.problem);
+  // The design setting is read again here for the same reason: anything that
+  // read it during start-up reported into a status line "Preview running" has
+  // since replaced. Both problems are shown together so neither hides the other.
+  const problems = [
+    recovery.problem,
+    readDirection(detected.root).problem,
+  ].filter(Boolean);
+  if (problems.length > 0) fail(problems.join(' '));
   return 'problem' in preview
     ? { site: detected, ...preview }
     : { site: detected };
 }
 
-/** Every element on the page with its text, used to see what a run changed. */
-function collectLocs(): Promise<Array<{ loc: string; text: string }>> {
+/**
+ * Every element on the page with the parts a run can change: its own text, its
+ * attributes, its class and its inline style, keyed by file and source location.
+ * A failure is reported, never returned as an empty page: an empty snapshot
+ * would look like every element was removed.
+ */
+function collectLocs(): Promise<{
+  elements: PageElement[];
+  problem: string | null;
+}> {
   const view = state.preview.webContents;
-  if (!view) return Promise.resolve([]);
+  if (!view)
+    return Promise.resolve({
+      elements: [],
+      problem: 'the preview was not running',
+    });
   return view
     .executeJavaScript(
-      `(() => [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')]
-        .map((el) => ({ loc: el.getAttribute('data-cauldron-source-loc') || el.getAttribute('data-astro-source-loc') || '', text: JSON.stringify([(el.textContent || '').trim().slice(0, 160), ...['color','backgroundColor','fontSize','fontFamily','padding','margin','display','borderRadius'].map((key) => getComputedStyle(el)[key])]) }))
-        .filter((item) => item.text !== ''))()`,
+      `(() => [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')].map((el) => {
+        const attributes = [...el.attributes]
+          .filter((attr) => !/^data-(cauldron|astro)-source-(file|loc)$/.test(attr.name))
+          .map((attr) => attr.name + '=' + attr.value)
+          .sort();
+        return {
+          file: el.getAttribute('data-cauldron-source-file') || el.getAttribute('data-astro-source-file') || '',
+          loc: el.getAttribute('data-cauldron-source-loc') || el.getAttribute('data-astro-source-loc') || '',
+          tag: el.tagName.toLowerCase(),
+          text: [...el.childNodes].filter((node) => node.nodeType === 3).map((node) => node.textContent || '').join('').trim().slice(0, 160),
+          attributes: attributes.join('|'),
+          class: el.getAttribute('class') || '',
+          style: el.getAttribute('style') || '',
+        };
+      }).filter((item) => item.file !== '' && item.loc !== ''))()`,
     )
+    .then((elements: PageElement[]) => ({ elements, problem: null }))
     .catch((error: unknown) => {
-      fail(
-        `The page could not be compared: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return [];
+      const problem = error instanceof Error ? error.message : String(error);
+      fail(`The page could not be compared: ${problem}`);
+      return { elements: [], problem };
     });
 }
 
+/** The page must show the files the run wrote before it can be compared to them. */
+async function reloadPreview(): Promise<void> {
+  const contents = state.preview.webContents;
+  if (!contents) return;
+  const loaded = new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, 15000);
+    contents.once('did-finish-load', done);
+  });
+  state.preview.reload();
+  await loaded;
+}
+
+/** A run's own comparison: only the files the run changed, never the person's. */
+function comparisonFor(run: Run, after: PageElement[]): HighlightedPart[] {
+  const comparison = compareSnapshots(
+    state.beforeLocs,
+    after,
+    run.files.map((file) => file.file),
+  );
+  return highlightsFor(comparison);
+}
+
 /** The Before/After toggle: outlines the parts of the page the run changed. */
-function highlightLocs(locs: string[], on: boolean): void {
+function highlightLocs(
+  parts: Array<{ file: string; loc: string }>,
+  on: boolean,
+): void {
   const view = state.preview.webContents;
   if (!view) return;
+  const selectors = parts
+    .filter((part) => part.loc !== '')
+    .flatMap((part) => {
+      const byLoc = [
+        `[data-cauldron-source-loc=${JSON.stringify(part.loc)}]`,
+        `[data-astro-source-loc=${JSON.stringify(part.loc)}]`,
+      ];
+      if (part.file === '') return byLoc;
+      return [
+        `[data-cauldron-source-file=${JSON.stringify(part.file)}][data-cauldron-source-loc=${JSON.stringify(part.loc)}]`,
+        `[data-astro-source-file=${JSON.stringify(part.file)}][data-astro-source-loc=${JSON.stringify(part.loc)}]`,
+      ];
+    });
   const css = on
-    ? locs
-        .map(
-          (loc) =>
-            `[data-cauldron-source-loc="${loc}"],[data-astro-source-loc="${loc}"]{outline:2px solid #ffa99a !important;outline-offset:2px !important}`,
-        )
-        .join('\n')
+    ? `${[...new Set(selectors)].join(',')}{outline:2px solid #ffa99a !important;outline-offset:2px !important}`
     : '';
   void view
     .executeJavaScript(
@@ -572,6 +655,19 @@ function writeSelection(
   return { ok: true, selection: selectionView() };
 }
 
+/** The selected element as the brief describes it (sendAgent and the harness agree). */
+function promptSelection() {
+  return state.selection
+    ? {
+        file: relativeFile(state.selection.location.file),
+        line: state.selection.location.line,
+        column: state.selection.location.column,
+        name: state.selection.location.name,
+        text: state.selection.snapshot.text,
+      }
+    : null;
+}
+
 function sendAgent(payload: { tool: AgentTool; request: string }): {
   ok: boolean;
   runId?: string;
@@ -590,15 +686,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
   if (state.agent)
     return { ok: false, problem: 'An agent job is already running.' };
 
-  const selection = state.selection
-    ? {
-        file: relativeFile(state.selection.location.file),
-        line: state.selection.location.line,
-        column: state.selection.location.column,
-        name: state.selection.location.name,
-        text: state.selection.snapshot.text,
-      }
-    : null;
+  const selection = promptSelection();
 
   const prompt = buildPrompt({
     request: payload.request,
@@ -610,10 +698,11 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
 
   state.beforeLocs = [];
   lastAgentEvents = [];
+  lastAgentPrompt = prompt;
   const run = state.runs.start(site.root, payload.tool, payload.request);
   state.agentRunId = run.id;
   void collectLocs().then((locs) => {
-    state.beforeLocs = locs;
+    state.beforeLocs = locs.elements;
   });
 
   const sessions = state.sessions.get(site.root) ?? {};
@@ -622,33 +711,68 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
     text: `Starting ${payload.tool}…`,
   });
 
-  state.agent = runAgent({
-    tool: payload.tool,
-    root: site.root,
-    prompt,
-    sessionId: sessions[payload.tool],
-    mcp: state.mcp ?? undefined,
-    onEvent: (event) => {
-      if (state.agentRunId !== run.id) return;
-      lastAgentEvents.push(event);
-      if (event.type === 'tool' && event.paths) {
-        for (const file of event.paths)
-          claimForRun(run.id, path.resolve(site.root, file));
-      }
-      if (event.type === 'session') {
-        const next = {
-          ...state.sessions.get(site.root),
-          [payload.tool]: event.sessionId,
-        };
-        state.sessions.set(site.root, next);
-        return;
-      }
-      send('cauldron:agent-event', event);
-      if (event.type === 'done' || event.type === 'error') {
-        void finishAgentRun(event.type === 'error' ? event.text : '');
-      }
-    },
-  });
+  const onEvent = (
+    event: Parameters<Parameters<typeof runAgent>[0]['onEvent']>[0],
+  ) => {
+    if (state.agentRunId !== run.id) return;
+    lastAgentEvents.push(event);
+    if (event.type === 'tool' && event.paths) {
+      for (const file of event.paths)
+        claimForRun(run.id, path.resolve(site.root, file));
+    }
+    if (event.type === 'session') {
+      const next = {
+        ...state.sessions.get(site.root),
+        [payload.tool]: event.sessionId,
+      };
+      state.sessions.set(site.root, next);
+      return;
+    }
+    send('cauldron:agent-event', event);
+    if (event.type === 'done' || event.type === 'error') {
+      void finishAgentRun(event.type === 'error' ? event.text : '');
+    }
+  };
+  const start = () =>
+    runAgent({
+      tool: payload.tool,
+      root: site.root,
+      prompt,
+      sessionId: sessions[payload.tool],
+      mcp: state.mcp ?? undefined,
+      onEvent,
+    });
+
+  // Ticket 20: Hermes's gateway picks up a changed connection on a timer, so
+  // a job sent just after the site opened waits for it instead of starting
+  // without Cauldron's actions.
+  if (state.mcp) {
+    try {
+      if (payload.tool === 'hermes')
+        writeHermesConnection(state.mcp.url, state.mcp.code);
+    } catch (error) {
+      console.error('The Hermes connection could not be written:', error);
+    }
+  }
+  const wait =
+    payload.tool === 'hermes' && state.mcp ? hermesPickupWaitMs() : 0;
+  if (wait > 0) {
+    onEvent({
+      type: 'status',
+      text: `Waiting for Hermes to connect to this site (up to ${Math.ceil(wait / 1000)} s)…`,
+    });
+    const timer = setTimeout(() => {
+      if (state.agentRunId === run.id) state.agent = start();
+    }, wait);
+    state.agent = {
+      cancel: () => {
+        clearTimeout(timer);
+        onEvent({ type: 'error', text: 'Cancelled.' });
+      },
+    };
+  } else {
+    state.agent = start();
+  }
 
   return { ok: true, runId: run.id };
 }
@@ -805,7 +929,7 @@ function registerIpc(): void {
       state.beforeLocs = [];
       const run = state.runs.start(site.root, payload.tool, payload.prompt);
       void collectLocs().then((locs) => {
-        state.beforeLocs = locs;
+        state.beforeLocs = locs.elements;
       });
       status(`Run started: ${payload.tool}`);
       return { ok: true, run: runSummary(run) };
@@ -818,22 +942,16 @@ function registerIpc(): void {
     // A comparison needs a page. Without one the run is still finished, but the
     // outcome is uncertainty and must be said out loud (plan 2.2).
     const comparable = Boolean(state.server) && state.preview.alive;
-    const afterLocs = await collectLocs();
-    const before = new Map(
-      state.beforeLocs.map((item) => [item.loc, item.text]),
-    );
-    const changed = afterLocs.filter(
-      (item) => before.get(item.loc) !== item.text,
-    );
-    const removed = state.beforeLocs.filter(
-      (item) => !afterLocs.some((current) => current.loc === item.loc),
-    );
+    if (comparable) await reloadPreview();
+    const after = await collectLocs();
     const run = state.runs.finish(site.root, id, {
       outside: outsideWrites(runStartedAt(id)),
     });
     if (!run) return { ok: false, problem: 'That run is not known.' };
-    state.runs.setHighlighted(id, [...changed, ...removed]);
-    state.preview.reload();
+    state.runs.setHighlighted(
+      id,
+      after.problem ? [] : comparisonFor(run, after.elements),
+    );
     status(run.note);
     if (!comparable)
       fail(
@@ -1091,10 +1209,7 @@ function registerIpc(): void {
   handle('cauldron:highlight', (_event, id: string, on: boolean) => {
     const run = state.runs.get(id);
     if (!run) return false;
-    highlightLocs(
-      run.highlighted.map((item) => item.loc),
-      on,
-    );
+    highlightLocs(run.highlighted, on);
     return true;
   });
 
@@ -1313,7 +1428,15 @@ function handlePick(payload: unknown): void {
   pushSelection();
 }
 
-let lastAgentEvents: Array<{ type: string; text?: string; name?: string }> = [];
+let lastAgentEvents: Array<{
+  type: string;
+  text?: string;
+  name?: string;
+  paths?: string[];
+}> = [];
+/** Every tool call an outside agent made, in order (ticket 18 evidence). */
+const mcpToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+let lastAgentPrompt = '';
 let agentDoneWaiter:
   | ((result: { ok: boolean; runId?: string; note?: string }) => void)
   | null = null;
@@ -1350,23 +1473,19 @@ async function finishAgentRun(note: string): Promise<void> {
   state.agentRunId = null;
   if (!site || !id) return;
 
-  const afterLocs = await collectLocs();
-  const before = new Map(state.beforeLocs.map((item) => [item.loc, item.text]));
-  const changed = afterLocs.filter(
-    (item) => before.get(item.loc) !== item.text,
-  );
-  const removed = state.beforeLocs.filter(
-    (item) => !afterLocs.some((current) => current.loc === item.loc),
-  );
+  await reloadPreview();
+  const after = await collectLocs();
   const run = state.runs.finish(site.root, id, {
     outside: outsideWrites(runStartedAt(id)),
     claimed: [...(runClaims.get(id) ?? [])],
   });
   runClaims.delete(id);
   if (!run) return;
-  state.runs.setHighlighted(id, [...changed, ...removed]);
+  state.runs.setHighlighted(
+    id,
+    after.problem ? [] : comparisonFor(run, after.elements),
+  );
   if (note) state.runs.fail(id, note);
-  state.preview.reload();
   status(run.note);
   if (run.problems.length > 0)
     console.error(
@@ -1461,6 +1580,19 @@ function harnessApi() {
   return {
     mcpInfo: async () =>
       state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
+    // Ticket 17 reads the same history the person's Undo uses.
+    history: () =>
+      state.history.list().map((change) => ({
+        file: path.relative(state.site?.root ?? '', change.file),
+        label: change.label,
+        runId: change.runId,
+        afterHash: change.afterHash,
+      })),
+    // Ticket 17: a real agent run sets state.agentRunId in sendAgent; the
+    // harness needs the same tagging without launching a provider.
+    tagAgentRun: (id: string | null) => {
+      state.agentRunId = id;
+    },
     addPiece: (payload: {
       pieceId: string;
       page: string;
@@ -1560,26 +1692,28 @@ function harnessApi() {
         payload.prompt,
       );
       void collectLocs().then((locs) => {
-        state.beforeLocs = locs;
+        state.beforeLocs = locs.elements;
       });
       return { ok: true, run: { id: run.id } };
     },
+    beforeLocsCount: () => state.beforeLocs.length,
+    previewEval: (script: string) =>
+      state.preview.webContents?.executeJavaScript(script) as Promise<unknown>,
     finishRun: async (id: string) => {
       if (!state.site) return { ok: false };
-      const afterLocs = await collectLocs();
-      const before = new Map(
-        state.beforeLocs.map((item) => [item.loc, item.text]),
-      );
-      const changed = afterLocs.filter(
-        (item) => before.get(item.loc) !== item.text,
-      );
+      await reloadPreview();
+      const after = await collectLocs();
       const run = state.runs.finish(state.site.root, id, {
         outside: outsideWrites(runStartedAt(id)),
       });
       if (!run) return { ok: false };
-      state.runs.setHighlighted(id, changed);
+      state.runs.setHighlighted(
+        id,
+        after.problem ? [] : comparisonFor(run, after.elements),
+      );
       return {
         ok: true,
+        compared: after.problem === null,
         run: {
           files: run.files.map((file) => file.file),
           highlighted: run.highlighted,
@@ -1589,6 +1723,18 @@ function harnessApi() {
     setDirection: (id: string) => setDirectionTo(id),
     sendAgent: (payload: { tool: AgentTool; request: string }) =>
       sendAgent(payload),
+    cancelAgent: () => {
+      state.agent?.cancel();
+      return true;
+    },
+    agentStatuses: () =>
+      lastAgentEvents
+        .filter((event) => event.type === 'status')
+        .map((event) => event.text ?? ''),
+    agentErrors: () =>
+      lastAgentEvents
+        .filter((event) => event.type === 'error')
+        .map((event) => event.text ?? ''),
     waitForAgent: (timeout: number) => waitForAgentDone(timeout),
     settleRenderer: async () => {
       const contents = state.window?.webContents;
@@ -1598,14 +1744,45 @@ function harnessApi() {
       );
     },
     agentReply: () =>
+      // Streamed pieces (delta) continue the previous text, as in the panel.
       lastAgentEvents
         .filter((event) => event.type === 'text')
-        .map((event) => event.text ?? '')
-        .join('\n'),
+        .reduce(
+          (reply, event) =>
+            (event as { delta?: boolean }).delta
+              ? reply + (event.text ?? '')
+              : reply
+                ? `${reply}\n${event.text ?? ''}`
+                : (event.text ?? ''),
+          '',
+        ),
+    /** The exact brief handed to the agent process, for the Codex proof. */
+    agentPrompt: () => lastAgentPrompt,
+    /** Every event the run reported, in order, so progress can be checked. */
+    agentEvents: () =>
+      lastAgentEvents.map((event) => ({
+        type: event.type,
+        text: event.text ?? '',
+        name: event.name ?? '',
+        paths: event.paths,
+      })),
+    /** The Cauldron actions an outside agent actually asked for. */
+    mcpServed: () => mcpCalls(),
     agentTools: () =>
       lastAgentEvents
         .filter((event) => event.type === 'tool')
         .map((event) => event.name ?? ''),
+    agentRunning: () => Boolean(state.agent),
+    /** Ticket 18: the session id the app will resume for a tool on this site. */
+    agentSession: (tool: string) =>
+      (state.site ? state.sessions.get(state.site.root) : undefined)?.[
+        tool as AgentTool
+      ] ?? null,
+    /** Ticket 18: the tool calls the outside-agent connection actually served. */
+    mcpCalls: () => mcpToolCalls.slice(),
+    clearMcpCalls: () => {
+      mcpToolCalls.length = 0;
+    },
     buildPromptText: (request: string) => {
       const site = state.site;
       const direction = site ? directionFor(site.root) : null;
@@ -1613,7 +1790,7 @@ function harnessApi() {
         request,
         siteName: site?.name ?? '',
         direction,
-        selection: null,
+        selection: promptSelection(),
         catalogue: actionCatalogue(),
       });
     },
@@ -1748,9 +1925,27 @@ export function start(): void {
       return;
     }
 
+    if (E2E_SITE && process.env.CAULDRON_CODEX_TEST) {
+      const { runCodexProofTest } = await import('./e2e');
+      await runCodexProofTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_HERMES_TEST) {
+      const { runHermesProofTest } = await import('./e2e');
+      await runHermesProofTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
     if (E2E_SITE && process.env.CAULDRON_AGENT_TEST) {
       const { runAgentTest } = await import('./e2e');
       await runAgentTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_CLAUDE_TEST) {
+      const { runClaudeProofTest } = await import('./e2e');
+      await runClaudeProofTest(E2E_SITE, state.window!, harnessApi() as never);
       return;
     }
 
@@ -1766,6 +1961,16 @@ export function start(): void {
       return;
     }
 
+    if (E2E_SITE && process.env.CAULDRON_ACTIONS_TEST) {
+      const { runActionsParityTest } = await import('./e2e');
+      await runActionsParityTest(
+        E2E_SITE,
+        harnessApi() as never,
+        state.window!,
+      );
+      return;
+    }
+
     if (E2E_SITE && process.env.CAULDRON_CRASH_TEST) {
       const { runCrashTest } = await import('./e2e');
       await runCrashTest(
@@ -1774,6 +1979,17 @@ export function start(): void {
         harnessApi() as never,
         openSiteAt,
         process.env.CAULDRON_CRASH_TEST === 'restore' ? 'restore' : 'type',
+      );
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_COMPARE_TEST) {
+      const { runCompareTest } = await import('./e2e');
+      await runCompareTest(
+        E2E_SITE,
+        state.window!,
+        harnessApi() as never,
+        openSiteAt,
       );
       return;
     }
