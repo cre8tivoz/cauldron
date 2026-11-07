@@ -293,6 +293,44 @@ try {
       `FAIL 4.4 the brief names Cauldron’s actions and rules out the app UI: ${error.message}`,
     );
   }
+  // Ticket 23: Codex offers MCP tools only inside its script tool, so a brief
+  // that says "if the actions are not offered, say the connection is missing"
+  // let a real job report the connection missing without making a single call.
+  // The brief must name where Codex keeps them and require a look first, and it
+  // must not say that to an agent that is handed them directly.
+  try {
+    const make = (tool) =>
+      buildPrompt({
+        request: 'Make the Go button on the quality fixture readable.',
+        tool,
+        siteName: 'Fixture site',
+        direction: null,
+        selection: null,
+        catalogue: [
+          {
+            name: 'editCssRule',
+            what: 'Set one declaration inside a CSS rule.',
+          },
+        ],
+      });
+    const codex = make('codex');
+    assert.match(codex, /tools\.mcp__cauldron__/);
+    assert.match(codex, /ALL_TOOLS/);
+    assert.match(codex, /Look there before you conclude/i);
+    assert.match(codex, /once you have\s+looked/i);
+    assert.doesNotMatch(codex, /If the actions are not offered to you/);
+    const claude = make('claude');
+    assert.doesNotMatch(claude, /ALL_TOOLS|tools\.mcp__cauldron__/);
+    assert.match(claude, /If the actions are not offered to you/);
+    console.log(
+      'PASS 4.4 the brief tells Codex where its actions are before it reports a missing connection',
+    );
+  } catch (error) {
+    failed += 1;
+    console.error(
+      `FAIL 4.4 the brief tells Codex where its actions are before it reports a missing connection: ${error.message}`,
+    );
+  }
   // Ticket 23: Codex silently drops a server it could not reach in time, and
   // the job then runs without the actions. Give the connection room to start.
   const codexArgs = path.join(dir, 'codex-args.json');

@@ -4,7 +4,7 @@
 
 **Blocked by:** [18: Prove Claude works through the repaired app](18-prove-claude-works-through-the-repaired-app.md)
 
-**Status:** in-progress
+**Status:** done
 
 **Parent findings:** [06: approved taste criteria](06-approved-taste-criteria.md)
 
@@ -14,12 +14,12 @@
 
 ## Acceptance criteria
 
-- [ ] Build and inspect real output at the three approved widths, with fonts ready; cover overflow, keyboard use, accessibility, broken links and speed.
-- [ ] Measure the approved text, button and keyboard-focus contrast thresholds rather than only checking indicator presence.
-- [ ] Keep measured site results, check execution failures and design opinions distinct.
-- [ ] Exercise feedback-to-agent correction through the interface and remeasure the result.
-- [ ] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
-- [ ] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
+- [x] Build and inspect real output at the three approved widths, with fonts ready; cover overflow, keyboard use, accessibility, broken links and speed.
+- [x] Measure the approved text, button and keyboard-focus contrast thresholds rather than only checking indicator presence.
+- [x] Keep measured site results, check execution failures and design opinions distinct.
+- [x] Exercise feedback-to-agent correction through the interface and remeasure the result.
+- [x] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
+- [x] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
 
 ## Sources and boundaries
 
@@ -81,3 +81,48 @@ Ticket breakdown approved by Billy through the to-tickets approval form. Impleme
 **Checks.** `npm run typecheck` exits 0; agent/core unit tests pass (including the brief and Codex-timeout tests). `npm run lint` still stops at `oxfmt --check` on the pre-existing **untracked** `.scratch/cauldron-v1/next-session.md`; that file was deliberately left untouched, and `src/main/mcp.ts` passes `oxfmt --check` and `oxlint` on its own.
 
 **Still open.** One real run now proves the complete feedback path can work. It does not fix or explain the previous intermittent failures, so ticket 23 remains in progress. No source change repaired the launch path, and no automatic retry was added. Root cause and reliability remain unverified; attributing this to upstream Codex would be premature.
+
+### Completion record — 8 Nov 2026 (remainder; cause established)
+
+**Revision:** `8b94c06` plus an uncommitted working-tree change to `src/main/agent.ts`,
+`src/main/index.ts` and `scripts/test-agent.mjs`. Full evidence: `…/scratch/t23final-result.md`;
+run artifacts in `…/scratch/t23final/`.
+
+**Cause, from Codex's own rollouts rather than inference.** The failing 9/12 run _is_ the Codex the app
+launched: its rollout (`~/.codex/sessions/2026/11/08/rollout-2026-11-08T00-49-25-…jsonl`) records
+`originator=codex_exec`, `0.152.0`, and a cwd equal to the argv's `-C`; no nested tool or subprocess was
+involved. Its argv matches the passing run apart from site, port and code — same brief wording, no
+resume, no session — so the launch command was never broken and there is nothing in it to repair.
+Codex 0.152 never puts MCP tools in the tool list the model is shown: its developer message carries no
+`cauldron` tool name at all, and the actions exist only inside its JavaScript `exec` tool as
+`tools.mcp__cauldron__<action>`, discoverable through `ALL_TOOLS` — exactly how the passing run found
+them (its first action is an `ALL_TOOLS` search whose output lists `mcp__cauldron__*`). The failing run
+made **no tool call of any kind** (5.9 s turn, 5.4 s to first token) and answered with the brief's own
+escape sentence, "Cauldron's connection is missing". It could not have known that; the brief licensed
+the answer without any check, and whether the model probed `ALL_TOOLS` first was a model decision —
+which is why the failure was intermittent while everything the app did stayed identical. The earlier
+upstream-Codex-startup explanation is unsupported: no MCP startup notice reached the app in the failing
+run, probes only ever showed the server answering, and the failing turn was far too short to have waited
+on a 60 s allowance.
+
+**Change.** For Codex only, the brief now says where the actions really are (`tools.mcp__cauldron__…`
+inside its script tool, listed by `ALL_TOOLS`), says to look there before concluding anything is
+missing, and permits the missing-connection report only after a look, with what was checked. Claude and
+Hermes keep the previous wording, because they are handed the tools directly. No retry, no added
+timeout, no other wording touched.
+
+**Red/green.** New permanent test in `scripts/test-agent.mjs`: fails on the pre-change source
+(`did not match /tools\.mcp__cauldron__/`) and passes afterwards. `npm run check` exits 0 with 90 PASS
+(89 before, plus the new one).
+
+**Real proof.** `…/scratch/t23final/`: fresh copy of `rudeboycoffee` (`.git` removed), fresh user data,
+packaged binary, hidden window, `CAULDRON_QUALITY_FEEDBACK_TEST=1 CAULDRON_AGENT_TOOL=codex
+CAULDRON_MCP_LOG=…/mcp.log`. `run1.log` **12/12 PASS, APP_EXIT=0**. `mcp.log`: `start` (port 63951,
+9 tools) → `codex-mcp-client/0.152.0` `initialize`, `notifications/initialized`, `tools/list`, four
+`tools/call`s → `close`. Actions `read_design, list_pages, read_page_outline, edit_css_rule`; fixture
+`color: #7a7a7a` → `var(--q-ink)`; remeasure "Checked 1 button(s) at 4.5:1; lowest 16.8:1". Original
+site files untouched.
+
+**Limits.** One run each way. The unverified escape hatch is gone and the real access path is named, but
+a stochastic model is constrained, not made deterministic, and no retry exists. Nothing in Codex was
+changed and no upstream fault was proven; reliability over many runs rests on one 12/12.

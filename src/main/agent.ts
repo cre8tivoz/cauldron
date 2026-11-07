@@ -67,6 +67,8 @@ export type AgentHandle = { cancel: () => void };
 
 export type PromptContext = {
   request: string;
+  /** The agent carrying the job: each one is offered the actions differently. */
+  tool?: AgentTool;
   siteName: string;
   direction: DesignDirection | null;
   selection: {
@@ -116,6 +118,28 @@ Its text reads: ${JSON.stringify(context.selection.text)}`
     .map((action) => `- ${action.name}: ${action.what}`)
     .join('\n');
 
+  // Ticket 23: Codex 0.152 does not put MCP tools in the tool list the model is
+  // shown. It offers them inside its own script tool, as
+  // tools.mcp__cauldron__<action>, and ALL_TOOLS lists them. A real Codex job
+  // once saw no top-level cauldron tools, took the brief's "if the actions are
+  // not offered" wording at face value, made no call at all and reported the
+  // connection missing. Say where they are, and only allow that report after a
+  // look.
+  const reachBlock =
+    context.tool === 'codex'
+      ? `Codex offers them inside its script tool (the one that runs JavaScript), as
+tools.mcp__cauldron__<action>; ALL_TOOLS lists every one. Look there before you conclude
+that anything is missing.
+`
+      : '';
+  const missingBlock =
+    context.tool === 'codex'
+      ? ` If the actions are still not there once you have
+looked, say plainly that Cauldron's connection is missing and say what you looked at; then stop:
+do not substitute another way of editing and do not report the job as done.`
+      : ` If the actions are not offered to you, say plainly that Cauldron's connection is missing and
+stop: do not substitute another way of editing and do not report the job as done.`;
+
   return `You are working inside a real Astro site through Cauldron, a design-aware desktop builder.
 Site: ${context.siteName}. The site's own files are the truth, and the person is watching a live preview.
 
@@ -131,11 +155,10 @@ explain the risk in one sentence.
 The same actions the interface uses. They reach you as tools on Cauldron's own connection (the
 server called cauldron), so call them as tools — for example edit_css_rule or edit_element_style:
 ${catalogue}
-
+${reachBlock}
 Make every change through those actions. Do not open, click or otherwise drive the Cauldron
 desktop app's own interface — the person is already using it, and it is not a way to edit the
-site. If the actions are not offered to you, say plainly that Cauldron's connection is missing and
-stop: do not substitute another way of editing and do not report the job as done.
+site.${missingBlock}
 
 Prefer editing the site's existing files with its own tokens and components over adding new
 libraries. Do not install packages without saying so first.

@@ -725,6 +725,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
 
   const prompt = buildPrompt({
     request: payload.request,
+    tool: payload.tool,
     siteName: site.name,
     direction,
     selection,
