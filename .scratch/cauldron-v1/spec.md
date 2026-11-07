@@ -15,7 +15,7 @@ This file points at the existing requirements. The research cache stays outside 
 
 ## Local finding records
 
-The local Markdown tracker was configured during setup. Its ticket directory was absent until this audit. Files under `issues/` record the discovered gaps; every record currently needs triage. They are not an approved new implementation breakdown or an AFK work queue. Each future implementation needs an authorised ticket, exact plan references, required acceptance evidence, and a status update when verified. No ticket is closed retrospectively.
+The local Markdown tracker was configured during setup. Its ticket directory was absent until this audit. Original finding records 00–10 under `issues/` record the discovered gaps and remain `needs-triage`; they do not establish earlier ticket-driven implementation. The approved child tickets below provide the repair and verification breakdown in the same tracker. Application development remains paused. Each future implementation needs authorisation, exact plan references, required acceptance evidence, and a status update when verified. No parent finding is closed by publishing child tickets.
 
 - 00 — process and traceability
 - 01 — core save/recovery evidence
@@ -30,3 +30,47 @@ The local Markdown tracker was configured during setup. Its ticket directory was
 - 10 — shutdown/build risks
 
 Release depends on all applicable acceptance evidence, including the measured results and Billy's blind judgement in 4.5. An open investigation need not wait on that later judgement. Implementation may resume only when Billy authorises it.
+
+## Approved repair and verification tickets
+
+Billy approved tickets **11–30** and the separate retrospective safeguard **31** through the to-tickets approval form. These child tickets link back to the original findings **00–10**, which remain unchanged. The agreed plan still defines scope; the [review](../../docs/cauldron-code-review.md) establishes faults and missing evidence. Other [retrospective](../../docs/cauldron-retro.md) proposals do not become authorised environment changes merely by being mentioned.
+
+**Application development remains paused.** Readiness labels do not resume implementation. Start with content-file corruption (**11**) and unsafe/incomplete run undo (**12**) when implementation is explicitly resumed. Follow each ticket's actual blocking links; numerical order is not an additional dependency. Ticket **29** requires Billy's blind judgement and is `ready-for-human`; the other approved tickets are `ready-for-agent` subject to their blockers and the implementation pause.
+
+### Protect people's work
+
+- [11: Save content without damaging the file](issues/11-save-content-without-damaging-the-file.md)
+- [12: Undo an agent run without losing other work](issues/12-undo-an-agent-run-without-losing-other-work.md)
+- [13: Recover every unsaved edit after a crash](issues/13-recover-every-unsaved-edit-after-a-crash.md)
+- [14: Make failures visible wherever they happen](issues/14-make-failures-visible-wherever-they-happen.md)
+- [15: Verify consistent safe saving across the editor](issues/15-verify-consistent-safe-saving-across-the-editor.md)
+- [16: Publish safely and retry a failed upload](issues/16-publish-safely-and-retry-a-failed-upload.md)
+
+### Complete the shared agent workflow
+
+- [17: Use the same checked editing actions everywhere](issues/17-use-the-same-checked-editing-actions-everywhere.md)
+- [18: Prove Claude works through the repaired app](issues/18-prove-claude-works-through-the-repaired-app.md)
+- [19: Finish and prove Codex support](issues/19-finish-and-prove-codex-support.md)
+- [20: Finish and prove Hermes support](issues/20-finish-and-prove-hermes-support.md)
+- [21: Show the changes an agent run actually made](issues/21-show-the-changes-an-agent-run-actually-made.md)
+- [22: Verify the agreed desktop workspace](issues/22-verify-the-agreed-desktop-workspace.md)
+
+### Prove design quality
+
+- [23: Make quality measurements and feedback reliable](issues/23-make-quality-measurements-and-feedback-reliable.md)
+- [24: Verify taste and design-direction compliance](issues/24-verify-taste-and-design-direction-compliance.md)
+- [25: Prove all five library components work](issues/25-prove-all-five-library-components-work.md)
+- [26: Resolve or clearly account for shutdown and build risks](issues/26-resolve-or-clearly-account-for-shutdown-and-build-risks.md)
+
+### Complete the release proof
+
+- [27: Build and measure the first real-brief comparison](issues/27-build-and-measure-the-first-real-brief-comparison.md)
+- [28: Build and measure the second real-brief comparison](issues/28-build-and-measure-the-second-real-brief-comparison.md)
+- [29: Complete the blind judgement and design proof](issues/29-complete-the-blind-judgement-and-design-proof.md)
+- [30: Verify the final Mac download and first launch](issues/30-verify-the-final-mac-download-and-first-launch.md)
+
+### Separately approved workflow safeguard
+
+- [31: Block local commits when existing checks fail](issues/31-block-local-commits-when-existing-checks-fail.md)
+
+Each ticket records its result, completion checks, dependencies, source findings and evidence requirements. Repairs retain regression tests that fail before the fix and pass afterwards. Record durable proof in the project without credentials or complete disposable sites. No parent finding is closed by publishing these tickets.
