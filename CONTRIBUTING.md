@@ -27,3 +27,11 @@ Both must pass. CI runs the same commands on every push and pull request.
 ## Commits
 
 One purpose per commit, imperative subject line, no more than about 72 characters. Explain why in the body when it isn't obvious.
+
+This repository ships a tracked pre-commit hook in `.githooks/`. It is not installed automatically; run this once in each checkout you work in:
+
+```bash
+npm run hooks:install
+```
+
+The hook checks the Node version against `.nvmrc` and runs `npm run check` and `npm run smoke`, blocking the commit if either fails. `git commit --no-verify` bypasses it and must not be used to commit failing work.

@@ -328,14 +328,16 @@ export function saveEntry(
     text?: string;
     schemaHash?: string;
   },
-): { ok: boolean; problem?: string; hash?: string } {
+): { ok: boolean; problem?: string; hash?: string; conflict?: boolean } {
   const full = path.join(root, file);
   if (!isInside(root, full))
     return { ok: false, problem: 'That file is outside the site.' };
   const disk = readFile(full);
   if (disk.hash !== baseHash) {
+    // Both versions are kept: the person chooses keep mine or use the disk version (plan 1.4).
     return {
       ok: false,
+      conflict: true,
       problem:
         'That entry changed since the form was opened. Nothing was overwritten.',
     };

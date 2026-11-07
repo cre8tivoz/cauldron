@@ -351,8 +351,12 @@ export async function runAxe(
           where: v.nodes.slice(0, 6).map((n) => n.target.join(' ') + ' — ' + (n.any[0]?.message ?? '')),
         })))`,
     )) as AxeViolation[];
-  } catch {
-    return null;
+  } catch (error) {
+    const message = `The accessibility check could not run: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    console.error(message);
+    throw new Error(message);
   }
 }
 
@@ -573,8 +577,22 @@ export async function checkSite(options: {
             });
           }
 
-          const axe = await runAxe(window);
-          if (!axe)
+          let axe: AxeViolation[] | null = null;
+          let axeProblem = '';
+          try {
+            axe = await runAxe(window);
+          } catch (error) {
+            axeProblem = error instanceof Error ? error.message : String(error);
+          }
+          if (axeProblem)
+            findings.push({
+              id: `axe-${page}`,
+              label: 'Automated accessibility (axe)',
+              status: 'fail',
+              detail: `${axeProblem} Accessibility is not verified.`,
+              page,
+            });
+          else if (!axe)
             findings.push({
               id: `axe-${page}`,
               label: 'Automated accessibility (axe)',

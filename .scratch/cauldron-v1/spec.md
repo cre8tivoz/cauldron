@@ -1,7 +1,7 @@
 # Cauldron v1 — source pointers and issue index
 
 Status: needs-triage
-Execution: ticket 11 authorised and done (7 Nov 2026); application development is paused again until Billy decides how to approach the remaining tickets.
+Execution: tickets 11 and batch 1 (31, 12, 13, 14, 15, 16) done (7 Nov 2026); application development is paused until Billy approves batch 2.
 
 ## Authority
 
@@ -35,7 +35,16 @@ Release depends on all applicable acceptance evidence, including the measured re
 
 Billy approved tickets **11–30** and the separate retrospective safeguard **31** through the to-tickets approval form. These child tickets link back to the original findings **00–10**, which remain unchanged. The agreed plan still defines scope; the [review](../../docs/cauldron-code-review.md) establishes faults and missing evidence. Other [retrospective](../../docs/cauldron-retro.md) proposals do not become authorised environment changes merely by being mentioned.
 
-**Application development remains paused.** Readiness labels do not resume implementation. Start with content-file corruption (**11**) and unsafe/incomplete run undo (**12**) when implementation is explicitly resumed. Follow each ticket's actual blocking links; numerical order is not an additional dependency. Billy authorised ticket **11** on 7 Nov 2026; it is done and development is paused again. Ticket **29** requires Billy's blind judgement and is `ready-for-human`; the other approved tickets are `ready-for-agent` subject to their blockers and the implementation pause.
+**Application development remains paused.** Readiness labels do not resume implementation. Start with content-file corruption (**11**) and unsafe/incomplete run undo (**12**) when implementation is explicitly resumed. Follow each ticket's actual blocking links; numerical order is not an additional dependency. Billy authorised ticket **11** on 7 Nov 2026; it is done and development is paused again.
+
+**Agreed batch order (Billy, 7 Nov 2026).** The remaining tickets are worked in four batches, one commit each, with the same conventions as ticket 11 (red-green regression tests, orchestrator verification, a completion record per ticket):
+
+1. Protect people's work: **31, 12, 13, 14, 15, 16**.
+2. One set of editing actions and all three agents: **17, 18, 19, 20, 21**.
+3. Design taste and quality: **23, 24, 25, 27, 28**. The two real-brief comparisons use contrasting designs from Billy's Obsidian notes or `website-designs` (not the WDLsite or rudeboycoffee test sites); Claudia shows Billy the picks before building.
+4. Publish and ship: **22, 26**, then Billy's blind judgement **29**, then **30**.
+
+Each batch needs Billy's go-ahead. Batch 1 is done (7 Nov 2026); development is paused until Billy approves batch 2. Ticket **29** requires Billy's blind judgement and is `ready-for-human`; the other approved tickets are `ready-for-agent` subject to their blockers and the implementation pause.
 
 ### Protect people's work
 

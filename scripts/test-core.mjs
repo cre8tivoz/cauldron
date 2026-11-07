@@ -3,7 +3,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { registerHooks } from 'node:module';
+import { pathToFileURL } from 'node:url';
+
+// A tiny stand-in so main-process modules that import electron can be unit-tested.
+const electronStub = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-electron-')),
+  'electron.mjs',
+);
+fs.writeFileSync(
+  electronStub,
+  `export const app = { getAppPath: () => process.cwd(), getPath: () => globalThis.__cauldronUserData ?? ${JSON.stringify(
+    path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-electron-home-')),
+      'userData',
+    ),
+  )} };\nexport class BrowserWindow {}\nexport default { app };\n`,
+);
 
 registerHooks({
   load(url, context, next) {
@@ -13,6 +30,9 @@ registerHooks({
     });
   },
   resolve(specifier, context, next) {
+    if (specifier === 'electron') {
+      return next(pathToFileURL(electronStub).href, context);
+    }
     if (specifier.startsWith('.') && !path.extname(specifier)) {
       return next(`${specifier}.ts`, context);
     }
@@ -22,6 +42,40 @@ registerHooks({
 const { runAction } = await import('../src/main/actions.ts');
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
+// Ticket 13 modules: imported leniently so a missing implementation fails a test
+// rather than aborting the whole run.
+const draftSchedule = await import('../src/draft-schedule.ts').catch(
+  () => null,
+);
+const draftRestore = await import('../src/draft-restore.ts').catch(() => null);
+// Ticket 14 modules: imported leniently so a missing implementation fails a test.
+const recovery = await import('../src/main/recovery.ts').catch(() => null);
+const directions = await import('../src/main/directions.ts').catch(() => null);
+// Ticket 14 case 7: an accessibility-check exception must be reported, not
+// discarded. A window whose page scripts fail stands in for a broken check.
+const axeOutcome = await (async () => {
+  const quality = await import('../src/main/quality.ts').catch((error) => ({
+    importError: error,
+  }));
+  if ('importError' in quality) return { importError: quality.importError };
+  const logged = [];
+  const original = console.error;
+  console.error = (...args) => logged.push(args.join(' '));
+  try {
+    const failing = {
+      webContents: {
+        executeJavaScript: () =>
+          Promise.reject(new Error('page script failed')),
+      },
+    };
+    const value = await quality.runAxe(failing);
+    return { value, logged };
+  } catch (error) {
+    return { error, logged };
+  } finally {
+    console.error = original;
+  }
+})();
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-safety-'));
 let failures = 0;
 function test(name, run) {
@@ -470,6 +524,7 @@ try {
       text: '---\ntitle: Mine\n---\nMine\n',
     });
     assert.equal(refused.ok, false);
+    assert.equal(refused.conflict, true);
     assert.match(refused.problem ?? '', /changed/);
     assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), outside);
   });
@@ -494,7 +549,516 @@ try {
       `---\ntitle: ${JSON.stringify(value)}\n---\nBody stays exactly as written.\n`,
     );
   });
+
+  test('1.6 continuous typing cannot postpone the recovery save', () => {
+    assert.ok(draftSchedule, 'src/draft-schedule.ts is missing');
+    const first = 1_000;
+    let schedule = draftSchedule.noteDraftChange({ dueAt: null }, first);
+    const dueAt = schedule.dueAt;
+    assert.equal(dueAt, first + draftSchedule.DRAFT_SAVE_DELAY_MS);
+    for (let now = first + 250; now < first + 10_000; now += 250) {
+      schedule = draftSchedule.noteDraftChange(schedule, now);
+      assert.equal(
+        schedule.dueAt,
+        dueAt,
+        `a keystroke at ${now} moved the save`,
+      );
+    }
+    assert.equal(draftSchedule.isDraftDue(schedule, dueAt - 1), false);
+    assert.equal(draftSchedule.isDraftDue(schedule, dueAt), true);
+  });
+
+  test('1.6 a completed save arms a new recovery save', () => {
+    assert.ok(draftSchedule, 'src/draft-schedule.ts is missing');
+    const cleared = draftSchedule.clearDraftSchedule();
+    assert.equal(cleared.dueAt, null);
+    assert.equal(
+      draftSchedule.noteDraftChange(cleared, 5_000).dueAt,
+      5_000 + draftSchedule.DRAFT_SAVE_DELAY_MS,
+    );
+  });
+
+  test('1.6 style and attribute drafts restore as their own kind, never as text', () => {
+    assert.ok(draftRestore, 'src/draft-restore.ts is missing');
+    assert.deepEqual(draftRestore.draftEditOperation('text', 'Hello'), {
+      kind: 'text',
+      value: 'Hello',
+    });
+    assert.deepEqual(
+      draftRestore.draftEditOperation('attribute:href', '/about'),
+      { kind: 'attribute', name: 'href', value: '/about' },
+    );
+    assert.deepEqual(draftRestore.draftEditOperation('style:color', 'red'), {
+      kind: 'style',
+      properties: { color: 'red' },
+    });
+    assert.equal(draftRestore.draftEditOperation('content:title', 'Hi'), null);
+  });
+
+  test('1.6 a refused content restore changes nothing and keeps the draft usable', () => {
+    const site = freshSite('refused-restore');
+    const entry = 'src/content/posts/hello.md';
+    const text = '---\ntitle: Hello\n---\nBody\n';
+    fs.writeFileSync(path.join(site, entry), text);
+    const opened = readEntry(site, entry);
+    // The definition changed after the draft was taken: the restore must be refused.
+    fs.writeFileSync(
+      path.join(site, 'src/content.config.ts'),
+      '// schema changed',
+    );
+    const refused = saveEntry(site, entry, opened.hash, {
+      field: 'title',
+      value: 'Typed before the crash',
+      schemaHash: opened.schemaHash,
+    });
+    assert.equal(refused.ok, false);
+    assert.match(refused.problem ?? '', /definition changed/);
+    assert.equal(fs.readFileSync(path.join(site, entry), 'utf8'), text);
+  });
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }
+// 2.2 whole-run undo (ticket 12). Loaded late so an import fault is reported per test.
+const runsLoad = await import('../src/main/runs.ts').catch((error) => ({
+  error,
+}));
+function runsApi() {
+  if (runsLoad.error) throw runsLoad.error;
+  return runsLoad;
+}
+const runSite = (label) => {
+  const site = fs.mkdtempSync(
+    path.join(os.tmpdir(), `cauldron-runs-${label}-`),
+  );
+  fs.mkdirSync(path.join(site, 'src/pages'), { recursive: true });
+  fs.mkdirSync(path.join(site, 'public'), { recursive: true });
+  return site;
+};
+const png = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 255,
+]);
+
+test('2.2 an image the run changed is listed and undone', () => {
+  const { Runs } = runsApi();
+  const site = runSite('image');
+  fs.writeFileSync(path.join(site, 'public/logo.png'), png);
+  fs.writeFileSync(
+    path.join(site, 'src/pages/index.astro'),
+    '<h1>Before</h1>\n',
+  );
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'add a logo');
+  fs.writeFileSync(
+    path.join(site, 'public/logo.png'),
+    Buffer.concat([png, Buffer.from([9, 9])]),
+  );
+  fs.writeFileSync(
+    path.join(site, 'src/pages/index.astro'),
+    '<h1>After</h1>\n',
+  );
+  const finished = runs.finish(site, run.id);
+  assert.deepEqual(
+    finished.files.map((file) => file.file),
+    ['public/logo.png', 'src/pages/index.astro'],
+  );
+  assert.equal(finished.files[0].status, 'changed');
+  assert.equal(finished.files[0].ownership, 'run');
+  assert.deepEqual(runs.undo(site, run.id), { ok: true });
+  assert.deepEqual(fs.readFileSync(path.join(site, 'public/logo.png')), png);
+  assert.equal(
+    fs.readFileSync(path.join(site, 'src/pages/index.astro'), 'utf8'),
+    '<h1>Before</h1>\n',
+  );
+});
+
+test('2.2 a manual edit made during the run survives undo', () => {
+  const { Runs } = runsApi();
+  const site = runSite('outside');
+  fs.writeFileSync(
+    path.join(site, 'src/pages/agent.astro'),
+    '<h1>Agent v1</h1>\n',
+  );
+  fs.writeFileSync(
+    path.join(site, 'src/pages/manual.astro'),
+    '<nav>Menu v1</nav>\n',
+  );
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'edit the agent page');
+  fs.writeFileSync(
+    path.join(site, 'src/pages/agent.astro'),
+    '<h1>Agent v2</h1>\n',
+  );
+  const history = new History();
+  const manual = path.join(site, 'src/pages/manual.astro');
+  history.record({
+    file: manual,
+    location: { file: manual, line: 1, column: 1, name: 'nav' },
+    operation: { kind: 'text', value: '' },
+    before: '<nav>Menu v1</nav>\n',
+    after: '<nav>Menu v2</nav>\n',
+    beforeHash: hashOf('<nav>Menu v1</nav>\n'),
+    afterHash: hashOf('<nav>Menu v2</nav>\n'),
+    label: 'editElementText',
+  });
+  fs.writeFileSync(manual, '<nav>Menu v2</nav>\n');
+  const finished = runs.finish(site, run.id, {
+    outside: history.writtenSince(run.startedAt),
+  });
+  assert.deepEqual(
+    finished.files.map((file) => file.file),
+    ['src/pages/agent.astro'],
+  );
+  assert.deepEqual(finished.outside, ['src/pages/manual.astro']);
+  assert.deepEqual(runs.undo(site, run.id), { ok: true });
+  assert.equal(fs.readFileSync(manual, 'utf8'), '<nav>Menu v2</nav>\n');
+  assert.equal(
+    fs.readFileSync(path.join(site, 'src/pages/agent.astro'), 'utf8'),
+    '<h1>Agent v1</h1>\n',
+  );
+});
+
+test('2.2 an editor write on top of the agent’s change is refused, not split', () => {
+  const { Runs } = runsApi();
+  const site = runSite('shared-file');
+  const page = path.join(site, 'src/pages/index.astro');
+  fs.writeFileSync(page, '<h1>v1</h1>\n');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'edit the page');
+  // The agent writes first, then the person edits the same file in Cauldron.
+  fs.writeFileSync(page, '<h1>agent</h1>\n');
+  const history = new History();
+  history.record({
+    file: page,
+    location: { file: page, line: 1, column: 1, name: 'h1' },
+    operation: { kind: 'text', value: '' },
+    before: '<h1>agent</h1>\n',
+    after: '<h1>agent and me</h1>\n',
+    beforeHash: hashOf('<h1>agent</h1>\n'),
+    afterHash: hashOf('<h1>agent and me</h1>\n'),
+    label: 'editElementText',
+  });
+  fs.writeFileSync(page, '<h1>agent and me</h1>\n');
+  const finished = runs.finish(site, run.id, {
+    outside: history.writtenSince(run.startedAt),
+  });
+  assert.deepEqual(finished.outside, []);
+  assert.deepEqual(
+    finished.files.map((file) => [file.file, file.ownership]),
+    [['src/pages/index.astro', 'uncertain']],
+  );
+  const result = runs.undo(site, run.id);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.uncertain, ['src/pages/index.astro']);
+  assert.equal(fs.readFileSync(page, 'utf8'), '<h1>agent and me</h1>\n');
+});
+
+test('2.2 an outside program’s edit during an agent run is refused, never undone', () => {
+  const { Runs } = runsApi();
+  const site = runSite('raw-outside');
+  const agent = path.join(site, 'src/pages/agent.astro');
+  const manual = path.join(site, 'src/pages/manual.astro');
+  fs.writeFileSync(agent, '<h1>Original</h1>\n');
+  fs.writeFileSync(manual, '<p>Original</p>\n');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'only edit agent.astro');
+  // Another program (an editor outside Cauldron) writes while the agent works.
+  fs.writeFileSync(manual, '<p>Outside edit while agent runs</p>\n');
+  fs.writeFileSync(agent, '<h1>Agent edit</h1>\n');
+  const finished = runs.finish(site, run.id, { outside: [], claimed: [agent] });
+  assert.deepEqual(
+    finished.files.map((file) => [file.file, file.ownership]),
+    [
+      ['src/pages/agent.astro', 'run'],
+      ['src/pages/manual.astro', 'uncertain'],
+    ],
+  );
+  const result = runs.undo(site, run.id);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.uncertain, ['src/pages/manual.astro']);
+  assert.equal(
+    fs.readFileSync(manual, 'utf8'),
+    '<p>Outside edit while agent runs</p>\n',
+  );
+  assert.equal(fs.readFileSync(agent, 'utf8'), '<h1>Agent edit</h1>\n');
+});
+
+test('2.2 a run whose every change is claimed undoes in full', () => {
+  const { Runs } = runsApi();
+  const site = runSite('claimed');
+  const agent = path.join(site, 'src/pages/agent.astro');
+  fs.writeFileSync(agent, '<h1>Original</h1>\n');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'edit agent.astro');
+  fs.writeFileSync(agent, '<h1>Agent edit</h1>\n');
+  runs.finish(site, run.id, { outside: [], claimed: [agent] });
+  assert.deepEqual(runs.undo(site, run.id), { ok: true });
+  assert.equal(fs.readFileSync(agent, 'utf8'), '<h1>Original</h1>\n');
+});
+
+test('2.2 an unreadable file makes undo refuse, not restore', () => {
+  const { Runs } = runsApi();
+  const site = runSite('unreadable');
+  fs.writeFileSync(
+    path.join(site, 'src/pages/agent.astro'),
+    '<h1>Agent v1</h1>\n',
+  );
+  const locked = path.join(site, 'src/pages/locked.astro');
+  fs.writeFileSync(locked, '<h1>Locked</h1>\n');
+  fs.chmodSync(locked, 0o000);
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'edit');
+  fs.writeFileSync(
+    path.join(site, 'src/pages/agent.astro'),
+    '<h1>Agent v2</h1>\n',
+  );
+  const finished = runs.finish(site, run.id);
+  assert.ok(finished.problems.includes('src/pages/locked.astro'));
+  const result = runs.undo(site, run.id);
+  fs.chmodSync(locked, 0o644);
+  assert.equal(result.ok, false);
+  assert.ok(result.uncertain.includes('src/pages/locked.astro'));
+  assert.match(result.problem, /locked\.astro/);
+  assert.equal(
+    fs.readFileSync(path.join(site, 'src/pages/agent.astro'), 'utf8'),
+    '<h1>Agent v2</h1>\n',
+  );
+});
+
+test('2.2 a later edit refuses the whole undo and writes nothing', () => {
+  const { Runs } = runsApi();
+  const site = runSite('overlap');
+  fs.writeFileSync(path.join(site, 'src/pages/a.astro'), 'a v1\n');
+  fs.writeFileSync(path.join(site, 'src/pages/b.astro'), 'b v1\n');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'edit both');
+  fs.writeFileSync(path.join(site, 'src/pages/a.astro'), 'a v2\n');
+  fs.writeFileSync(path.join(site, 'src/pages/b.astro'), 'b v2\n');
+  runs.finish(site, run.id);
+  fs.writeFileSync(path.join(site, 'src/pages/a.astro'), 'a v3 (later)\n');
+  const result = runs.undo(site, run.id);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.clashes, ['src/pages/a.astro']);
+  assert.equal(
+    fs.readFileSync(path.join(site, 'src/pages/a.astro'), 'utf8'),
+    'a v3 (later)\n',
+  );
+  assert.equal(
+    fs.readFileSync(path.join(site, 'src/pages/b.astro'), 'utf8'),
+    'b v2\n',
+  );
+});
+
+test('2.2 added and removed files are listed and undone', () => {
+  const { Runs } = runsApi();
+  const site = runSite('addremove');
+  fs.writeFileSync(path.join(site, 'src/pages/old.astro'), 'old page\n');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'replace a page');
+  fs.rmSync(path.join(site, 'src/pages/old.astro'));
+  fs.writeFileSync(path.join(site, 'src/pages/new.astro'), 'new page\n');
+  const finished = runs.finish(site, run.id);
+  assert.deepEqual(
+    finished.files.map((file) => [file.file, file.status]),
+    [
+      ['src/pages/new.astro', 'added'],
+      ['src/pages/old.astro', 'removed'],
+    ],
+  );
+  assert.deepEqual(runs.undo(site, run.id), { ok: true });
+  assert.equal(fs.existsSync(path.join(site, 'src/pages/new.astro')), false);
+  assert.equal(
+    fs.readFileSync(path.join(site, 'src/pages/old.astro'), 'utf8'),
+    'old page\n',
+  );
+});
+
+// Ticket 14: uncertainty is never reported as an empty or successful result.
+test('14 unreadable or malformed drafts are reported, a missing file is not', () => {
+  assert.ok(recovery, 'recovery module could not be imported');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-home-'));
+  globalThis.__cauldronUserData = home;
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-safety-'));
+  const missing = recovery.loadDrafts(site);
+  assert.deepEqual(missing.drafts, []);
+  assert.equal(missing.problem, null);
+  recovery.saveDrafts(site, [
+    {
+      key: 'k',
+      file: 'src/pages/index.astro',
+      line: 1,
+      column: 1,
+      name: 'h1',
+      field: 'text',
+      value: 'x',
+      savedAt: 1,
+    },
+  ]);
+  const folder = path.join(home, 'recovery');
+  const file = path.join(folder, fs.readdirSync(folder)[0]);
+  fs.writeFileSync(file, '{ not json');
+  const malformed = recovery.loadDrafts(site);
+  assert.deepEqual(malformed.drafts, []);
+  assert.match(malformed.problem ?? '', /could not be read/);
+  fs.chmodSync(file, 0o000);
+  const unreadable = recovery.loadDrafts(site);
+  assert.deepEqual(unreadable.drafts, []);
+  assert.match(unreadable.problem ?? '', /could not be read/);
+  fs.chmodSync(file, 0o644);
+});
+
+test('14 a missing design setting is distinct from a damaged one', () => {
+  assert.ok(directions, 'directions module could not be imported');
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-safety-'));
+  assert.deepEqual(directions.readDirection(site), {
+    direction: null,
+    problem: null,
+  });
+  fs.mkdirSync(path.join(site, 'cauldron'), { recursive: true });
+  const file = path.join(site, 'cauldron/design.json');
+  fs.writeFileSync(file, '{ broken');
+  const malformed = directions.readDirection(site);
+  assert.equal(malformed.direction, null);
+  assert.match(malformed.problem ?? '', /could not be read/);
+  fs.chmodSync(file, 0o000);
+  const unreadable = directions.readDirection(site);
+  assert.equal(unreadable.direction, null);
+  assert.match(unreadable.problem ?? '', /could not be read/);
+  fs.chmodSync(file, 0o644);
+});
+
+test('14 a failed accessibility check is reported and logged, not discarded', () => {
+  assert.ok(!axeOutcome.importError, String(axeOutcome.importError));
+  assert.ok(
+    axeOutcome.error,
+    `runAxe returned ${JSON.stringify(axeOutcome.value)}`,
+  );
+  assert.match(axeOutcome.error.message, /could not run: page script failed/);
+  assert.ok(
+    axeOutcome.logged.some((line) => line.includes('page script failed')),
+    'no console.error diagnostic',
+  );
+});
+
+// 5.1 publishing through the site's own repository (ticket 16). Loaded late so
+// an import fault is reported per test rather than aborting the whole run.
+const publishLoad = await import('../src/main/publishing.ts').catch(
+  (error) => ({
+    error,
+  }),
+);
+function publishApi() {
+  if (publishLoad.error) throw publishLoad.error;
+  return publishLoad;
+}
+
+function gitIn(cwd, args) {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 60000,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_NOSYSTEM: '1',
+      HOME: cwd,
+    },
+  });
+  return result;
+}
+
+/** A site repository plus an isolated bare remote, both under one temp dir. */
+function publishFixture(label) {
+  const base = fs.mkdtempSync(
+    path.join(os.tmpdir(), `cauldron-publish-${label}-`),
+  );
+  const site = path.join(base, 'site');
+  const remote = path.join(base, 'remote.git');
+  const page = path.join(site, 'src/pages/index.astro');
+  fs.mkdirSync(path.dirname(page), { recursive: true });
+  fs.writeFileSync(page, '<h1>v1</h1>\n');
+  assert.equal(gitIn(site, ['init', '-q']).status, 0);
+  gitIn(site, ['checkout', '-q', '-b', 'main']);
+  gitIn(site, ['config', 'user.name', 'Cauldron Test']);
+  gitIn(site, ['config', 'user.email', 'test@example.invalid']);
+  gitIn(site, ['config', 'commit.gpgsign', 'false']);
+  assert.equal(gitIn(site, ['add', '-A']).status, 0);
+  assert.equal(gitIn(site, ['commit', '-q', '-m', 'First']).status, 0);
+  assert.equal(gitIn(base, ['init', '-q', '--bare', remote]).status, 0);
+  assert.equal(gitIn(site, ['remote', 'add', 'origin', remote]).status, 0);
+  assert.equal(gitIn(site, ['push', '-q', '-u', 'origin', 'main']).status, 0);
+  return { base, site, remote, page };
+}
+
+const commitCount = (repo, ref = 'HEAD') => {
+  const result = gitIn(repo, ['rev-list', '--count', ref]);
+  assert.equal(result.status, 0, result.stderr);
+  return Number.parseInt(result.stdout.trim(), 10);
+};
+
+test('5.1 a failed upload keeps the commit and a retry uploads it without a second commit', () => {
+  const { publish, repoState } = publishApi();
+  const { base, site, remote, page } = publishFixture('retry');
+  fs.writeFileSync(page, '<h1>v2</h1>\n');
+
+  // The remote is gone: the commit must still be made, and the upload reported
+  // as its own, visible failure.
+  gitIn(site, ['remote', 'set-url', 'origin', path.join(base, 'gone.git')]);
+  const failed = publish(site, { message: 'Second', push: true });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.committed, 1);
+  assert.match(failed.problem, /upload|push/i);
+  assert.equal(commitCount(site), 2);
+
+  // The retry happens on a clean tree: the commit exists but was never uploaded.
+  assert.equal(repoState(site).changes.length, 0);
+  assert.equal(repoState(site).unpushed, 1);
+
+  gitIn(site, ['remote', 'set-url', 'origin', remote]);
+  const retried = publish(site, { message: 'Second', push: true });
+  assert.equal(retried.ok, true, retried.problem);
+  assert.equal(retried.committed, 0);
+  assert.equal(retried.pushed, true);
+  assert.equal(commitCount(site), 2);
+  assert.equal(commitCount(remote, 'main'), 2);
+  assert.equal(repoState(site).unpushed, 0);
+});
+
+test('5.1 a site with no changes and nothing to upload still refuses', () => {
+  const { publish } = publishApi();
+  const { site } = publishFixture('clean');
+  const result = publish(site, { message: 'Nothing', push: true });
+  assert.equal(result.ok, false);
+  assert.match(result.problem, /Nothing has changed/);
+  assert.equal(commitCount(site), 1);
+});
+
+test('5.1 a commit-only publish reports the commit and the missing upload apart', () => {
+  const { publish } = publishApi();
+  const { site, remote, page } = publishFixture('local');
+  fs.writeFileSync(page, '<h1>v2</h1>\n');
+  const result = publish(site, { message: 'Local only', push: false });
+  assert.equal(result.ok, true, result.problem);
+  assert.equal(result.committed, 1);
+  assert.equal(result.pushed, false);
+  assert.match(result.commit, /Committed/);
+  assert.match(result.upload, /not uploaded|waiting/i);
+  assert.equal(commitCount(site), 2);
+  assert.equal(commitCount(remote, 'main'), 1);
+});
+
+test('5.1 publishing refuses while an edit has not reached recovery storage', () => {
+  const { publish } = publishApi();
+  const { site, remote, page } = publishFixture('unsaved');
+  fs.writeFileSync(page, '<h1>typed but not saved</h1>\n');
+  const result = publish(site, {
+    message: 'Should not happen',
+    push: true,
+    unsavedBuffers: 2,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.problem, /not saved|unsaved|still/i);
+  assert.equal(commitCount(site), 1);
+  assert.equal(commitCount(remote, 'main'), 1);
+});
+
 process.exitCode = failures ? 1 : 0;

@@ -45,15 +45,47 @@ export function saveDrafts(siteRoot: string, drafts: Draft[]): void {
   );
 }
 
-export function loadDrafts(siteRoot: string): Draft[] {
+export type DraftsRead = { drafts: Draft[]; problem: string | null };
+
+function problemFor(action: string, target: string, error: unknown): string {
+  const problem = `${action} could not be read from ${target}: ${
+    error instanceof Error ? error.message : String(error)
+  }`;
+  console.error(problem);
+  return problem;
+}
+
+/**
+ * Missing recovery data means there were no saved edits. Damaged recovery data
+ * is reported, never passed off as "nothing to recover" (plan 1.6).
+ */
+export function loadDrafts(siteRoot: string): DraftsRead {
   const target = fileFor(siteRoot);
+  let text: string;
   try {
-    const parsed = JSON.parse(fs.readFileSync(target, 'utf8')) as {
-      drafts?: Draft[];
+    text = fs.readFileSync(target, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return { drafts: [], problem: null };
+    return {
+      drafts: [],
+      problem: problemFor('Saved edits', target, error),
     };
-    return Array.isArray(parsed.drafts) ? parsed.drafts : [];
-  } catch {
-    return [];
+  }
+  try {
+    const parsed = JSON.parse(text) as { drafts?: Draft[] };
+    if (!Array.isArray(parsed.drafts))
+      return {
+        drafts: [],
+        problem: problemFor(
+          'Saved edits',
+          target,
+          new Error('it does not list any edits'),
+        ),
+      };
+    return { drafts: parsed.drafts, problem: null };
+  } catch (error) {
+    return { drafts: [], problem: problemFor('Saved edits', target, error) };
   }
 }
 

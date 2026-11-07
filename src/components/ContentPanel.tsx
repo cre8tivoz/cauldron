@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 type Props = {
   site: CauldronSite | null;
+  /** Reports whether the open entry has typed changes that are not saved yet. */
+  onUnsavedChange: (dirty: boolean) => void;
   onBack: () => void;
 };
 
@@ -9,7 +11,7 @@ type Props = {
  * Content editing (plan 3.4): a form built from the site's own content definitions,
  * a warning when the file has moved on, and plain-text editing as the fallback.
  */
-export function ContentPanel({ site, onBack }: Props) {
+export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
   const [collections, setCollections] = useState<CauldronCollection[]>([]);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [entry, setEntry] = useState<CauldronEntry | null>(null);
@@ -17,6 +19,7 @@ export function ContentPanel({ site, onBack }: Props) {
   const [asText, setAsText] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<Record<string, string> | null>(null);
 
   const load = useCallback(async () => {
     const result = await window.cauldron.collections();
@@ -30,6 +33,7 @@ export function ContentPanel({ site, onBack }: Props) {
   const open = async (file: string) => {
     setProblem(null);
     setSaved(null);
+    setConflict(null);
     const result = await window.cauldron.entry(file);
     if ('problem' in result) {
       setProblem(result.problem);
@@ -45,32 +49,72 @@ export function ContentPanel({ site, onBack }: Props) {
     collection.entries.some((item) => item.file === openFile),
   );
 
+  // Typed form values and typed plain text both count as unsaved (plan 5.1).
+  const dirty =
+    entry !== null &&
+    (asText !== null
+      ? asText !== entry.text
+      : Object.keys({ ...entry.values, ...values }).some(
+          (field) => (values[field] ?? '') !== (entry.values[field] ?? ''),
+        ));
+  useEffect(() => {
+    onUnsavedChange(dirty);
+    // Leaving the panel keeps the last report, so publish still refuses.
+    return () => onUnsavedChange(dirty);
+  }, [dirty, onUnsavedChange]);
+
   const keepDraft = (field: string, value: string | null) => {
     if (entry && openFile)
-      void window.cauldron.contentDraft({
-        file: openFile,
-        field,
-        value,
-        baseHash: entry.hash,
-        schemaHash: entry.schemaHash,
-      });
+      void window.cauldron
+        .contentDraft({
+          file: openFile,
+          field,
+          value,
+          baseHash: entry.hash,
+          schemaHash: entry.schemaHash,
+        })
+        .catch((error: unknown) => {
+          const message = `That change could not be kept as a draft: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+          console.error(message);
+          setProblem(message);
+        });
   };
-  const save = async (change: Record<string, string>) => {
+  const save = async (change: Record<string, string>, keepMine = false) => {
     if (!openFile || !entry) return;
     setProblem(null);
     const result = await window.cauldron.saveEntry({
       file: openFile,
       baseHash: entry.hash,
       change: { ...change, schemaHash: entry.schemaHash },
+      keepMine,
     });
     if (!result.ok) {
+      if (result.conflict) {
+        // Both versions are kept until the person chooses (plan 1.4).
+        setConflict(change);
+        return;
+      }
       setProblem(
         `${result.problem ?? 'That could not be saved.'} Reload the entry to see the current file.`,
       );
       return;
     }
+    setConflict(null);
     keepDraft(change.field ?? 'text', null);
-    setSaved('Saved.');
+    setSaved(
+      result.conflictCopy
+        ? `Saved. The disk version was kept as a copy: ${result.conflictCopy}`
+        : 'Saved.',
+    );
+    await open(openFile);
+  };
+
+  const useDisk = async () => {
+    if (!openFile || !conflict) return;
+    keepDraft(conflict.field ?? 'text', null);
+    setConflict(null);
     await open(openFile);
   };
 
@@ -92,6 +136,28 @@ export function ContentPanel({ site, onBack }: Props) {
       {problem ? (
         <div className="notice bad" style={{ marginTop: 12 }} role="alert">
           {problem}
+        </div>
+      ) : null}
+      {conflict ? (
+        <div className="notice bad" style={{ marginTop: 12 }} role="alert">
+          <strong>Changed on disk.</strong> This entry changed since the form
+          was opened. Nothing was overwritten.
+          <div className="notice-actions">
+            <button
+              className="button primary"
+              type="button"
+              onClick={() => void save(conflict, true)}
+            >
+              Keep mine
+            </button>
+            <button
+              className="button"
+              type="button"
+              onClick={() => void useDisk()}
+            >
+              Use the disk version
+            </button>
+          </div>
         </div>
       ) : null}
       {saved ? (

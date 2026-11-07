@@ -10,6 +10,12 @@ import { ContentPanel } from './components/ContentPanel';
 import { LibraryPanel } from './components/LibraryPanel';
 import { QualityPanel } from './components/QualityPanel';
 import { PublishPanel } from './components/PublishPanel';
+import {
+  DRAFT_SAVE_DELAY_MS,
+  clearDraftSchedule,
+  noteDraftChange,
+  type DraftSchedule,
+} from './draft-schedule';
 
 type PreviewState = { running: boolean; url: string | null };
 
@@ -48,7 +54,12 @@ export function App() {
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftSchedule = useRef<DraftSchedule>(clearDraftSchedule());
   const draftValues = useRef<Map<string, CauldronDraft>>(new Map());
+  // Edits typed in the window that have not reached recovery storage yet, so
+  // publishing can refuse them (plan 5.1).
+  const [unsavedEdits, setUnsavedEdits] = useState(0);
+  const [contentUnsaved, setContentUnsaved] = useState(false);
 
   // Load whatever the app already knows, then follow it.
   useEffect(() => {
@@ -70,6 +81,8 @@ export function App() {
       };
       if (draftTimer.current) clearTimeout(draftTimer.current);
       draftValues.current.clear();
+      setUnsavedEdits(0);
+      setContentUnsaved(false);
       setSite(next.site);
       setDrafts(next.drafts ?? []);
       void window.cauldron.direction().then(setDirection);
@@ -153,6 +166,8 @@ export function App() {
   }, [picking]);
 
   // Typed-but-not-saved text is kept outside the site every few seconds (plan item 1.6).
+  // The save is due a fixed time after the FIRST unsaved change, so continuous
+  // typing can never postpone it.
   const queueDraft = useCallback(
     (field: string, value: string) => {
       if (!selection) return;
@@ -168,10 +183,15 @@ export function App() {
         baseHash: selection.baseHash,
         savedAt: Date.now(),
       });
-      if (draftTimer.current) clearTimeout(draftTimer.current);
+      setUnsavedEdits(draftValues.current.size);
+      const next = noteDraftChange(draftSchedule.current, Date.now());
+      if (next.dueAt === draftSchedule.current.dueAt) return;
+      draftSchedule.current = next;
       draftTimer.current = setTimeout(() => {
+        draftTimer.current = null;
+        draftSchedule.current = clearDraftSchedule();
         void window.cauldron.saveDrafts([...draftValues.current.values()]);
-      }, 3000);
+      }, DRAFT_SAVE_DELAY_MS);
     },
     [selection],
   );
@@ -204,7 +224,10 @@ export function App() {
         setConflict(null);
         if (result.selection) setSelection(result.selection);
         draftValues.current.clear();
+        setUnsavedEdits(0);
         if (draftTimer.current) clearTimeout(draftTimer.current);
+        draftTimer.current = null;
+        draftSchedule.current = clearDraftSchedule();
         await window.cauldron.saveDrafts([]);
         return;
       }
@@ -399,7 +422,11 @@ export function App() {
 
         {view === 'publish' ? (
           <div className="panes">
-            <PublishPanel site={site} onBack={() => setView('build')} />
+            <PublishPanel
+              site={site}
+              unsavedBuffers={unsavedEdits + (contentUnsaved ? 1 : 0)}
+              onBack={() => setView('build')}
+            />
           </div>
         ) : view === 'quality' ? (
           <div className="panes">
@@ -416,7 +443,11 @@ export function App() {
           </div>
         ) : view === 'content' ? (
           <div className="panes">
-            <ContentPanel site={site} onBack={() => setView('build')} />
+            <ContentPanel
+              site={site}
+              onUnsavedChange={setContentUnsaved}
+              onBack={() => setView('build')}
+            />
           </div>
         ) : view === 'design' ? (
           <div className="panes">

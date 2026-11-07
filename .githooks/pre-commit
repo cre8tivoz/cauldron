@@ -1,0 +1,57 @@
+#!/bin/sh
+# Pre-commit gate for Cauldron. Runs the same required commands as CI.
+#
+# Installed per checkout on purpose with `npm run hooks:install`; nothing
+# installs it automatically. `git commit --no-verify` skips this hook and must
+# not be used to land work that fails these checks.
+
+set -u
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "Commit blocked: not inside a git work tree." >&2
+  exit 1
+}
+cd "$repo_root" || exit 1
+
+expected_node=$(tr -d '[:space:]' < .nvmrc 2>/dev/null)
+if [ -z "$expected_node" ]; then
+  echo "Commit blocked: .nvmrc is missing or empty, so the Node version cannot be checked." >&2
+  exit 1
+fi
+
+node_matches() {
+  command -v node >/dev/null 2>&1 && [ "$(node --version 2>/dev/null)" = "v$expected_node" ]
+}
+
+if ! node_matches; then
+  NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # Quietly try to switch. If this cannot work, the version check below
+    # still fails loudly rather than letting the commit through.
+    . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
+    nvm use >/dev/null 2>&1
+  fi
+fi
+
+if ! node_matches; then
+  found=$(node --version 2>/dev/null || echo "not installed")
+  echo "Commit blocked: Node $found is not v$expected_node from .nvmrc." >&2
+  echo "Switch Node (nvm use) or install v$expected_node, then commit again." >&2
+  exit 1
+fi
+
+export NODE_ENV=development
+
+run_required() {
+  label="$1"
+  shift
+  echo "pre-commit: running $label"
+  if ! "$@"; then
+    echo "" >&2
+    echo "Commit blocked: $label failed. Fix it, then commit again." >&2
+    exit 1
+  fi
+}
+
+run_required "npm run check" npm run check
+run_required "npm run smoke" npm run smoke

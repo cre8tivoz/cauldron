@@ -198,19 +198,34 @@ type CauldronApi = {
     file: string;
     baseHash: string;
     change: Record<string, string>;
-  }) => Promise<{ ok: boolean; problem?: string; hash?: string }>;
+    keepMine?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    problem?: string;
+    hash?: string;
+    conflict?: boolean;
+    conflictCopy?: string;
+  }>;
   repoState: () => Promise<{
     isRepo: boolean;
     branch: string;
     changes: Array<{ status: string; file: string }>;
     hasRemote: boolean;
     lastCommit: string;
+    unpushed: number;
   }>;
-  publish: (payload: { message: string; push: boolean }) => Promise<{
+  publish: (payload: {
+    message: string;
+    push: boolean;
+    unsavedBuffers?: number;
+  }) => Promise<{
     ok: boolean;
     problem?: string;
     details?: string;
     committed?: number;
+    pushed?: boolean;
+    commit?: string;
+    upload?: string;
     message?: string;
   }>;
   macBuild: () => Promise<{ zip: string | null; instructions: string }>;

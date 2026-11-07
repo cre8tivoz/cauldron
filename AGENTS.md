@@ -12,7 +12,7 @@ The application only. Research, design references and the delivered plan live ou
 
 Read Billy's original `WEB BUILDER IDEAS.md`, then the agreed plan in the sibling `cauldron-astro/CAULDRON-ASTRO-PLAN.md`, its `design/STARTER-SET.md` and `design/camillo/taste-tests.md`, then the relevant ADRs and glossary. The local research workspace's `START-HERE.md` is the entry point. Research suggestions and superseded prototypes carry no authority to expand the agreed scope.
 
-Before implementation, read the relevant local ticket and its exact plan/acceptance references. Update that ticket with actual evidence and remaining gaps. Generic skill suggestions about prefactoring, redesign or improvements do not authorise extra work. Billy resumed application development for ticket 11 only. After ticket 11 is committed, development pauses again until Billy decides how to approach the remaining tickets.
+Before implementation, read the relevant local ticket and its exact plan/acceptance references. Update that ticket with actual evidence and remaining gaps. Generic skill suggestions about prefactoring, redesign or improvements do not authorise extra work. Billy resumed application development batch by batch, in the order recorded in `.scratch/cauldron-v1/spec.md`. Ticket 11 is done. Batch 1 (tickets 31, 12, 13, 14, 15, 16) is authorised; after its commit, development pauses until Billy approves the next batch.
 
 1. **Do what was asked, and nothing more.** No unrequested features, redesigns, new libraries or refactors. If a change seems needed but wasn't asked for, say so instead of building it.
 2. **One official path.** Prefer the plain, documented way of doing something over workarounds, wrappers or clever patches.

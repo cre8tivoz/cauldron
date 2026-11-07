@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "test": "node scripts/test-core.mjs && node scripts/test-agent.mjs",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test",
+    "hooks:install": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",

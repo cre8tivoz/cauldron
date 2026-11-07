@@ -31,6 +31,7 @@ import { checkSite } from './quality';
 import { directionFromUrl } from './reference';
 import { macBuildInfo, publish, repoState } from './publishing';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
+import { draftEditOperation } from '../draft-restore';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
   applyEdit,
@@ -44,6 +45,10 @@ import {
 const SMOKE = process.env.CAULDRON_SMOKE === '1';
 let sawUnexpectedError = '';
 const E2E_SITE = process.env.CAULDRON_E2E_SITE ?? '';
+// Test runs can keep their app data in their own folder, so parallel or
+// repeated harness runs never share recovery, conflict or run records.
+if (E2E_SITE && process.env.CAULDRON_TEST_USER_DATA)
+  app.setPath('userData', process.env.CAULDRON_TEST_USER_DATA);
 
 type SelectionState = {
   id: string;
@@ -95,6 +100,28 @@ function status(message: string): void {
   if (E2E_SITE) console.log(`STATUS ${message}`);
   state.status = [...state.status.slice(-80), message];
   send('cauldron:status', message);
+}
+
+/** A failure the person must see, and a diagnostic for whoever reads the console. */
+function fail(message: string): void {
+  console.error(message);
+  status(message);
+}
+
+/** Saved edits, with damaged recovery data reported instead of shown as none. */
+function storedDrafts(root: string): Draft[] {
+  const read = loadDrafts(root);
+  if (read.problem) fail(read.problem);
+  return read.drafts;
+}
+
+/** The chosen design direction, with damaged settings reported instead of ignored. */
+function directionFor(
+  root: string,
+): ReturnType<typeof readDirection>['direction'] {
+  const read = readDirection(root);
+  if (read.problem) fail(read.problem);
+  return read.direction;
 }
 
 function relativeFile(file: string): string {
@@ -182,9 +209,9 @@ async function startMcp(site: Site): Promise<void> {
     state.mcp = await startMcpServer({
       root: site.root,
       siteName: site.name,
-      run: (request) => sharedAction(request),
+      run: (request) => sharedAction(request, true),
       readSelection: () => selectionView(),
-      readDesign: () => readDirection(site.root),
+      readDesign: () => directionFor(site.root),
     });
     status(`Outside agents can connect on ${state.mcp.url}`);
   } catch (error) {
@@ -211,11 +238,18 @@ async function openSiteAt(root: string) {
   state.selection = null;
   state.history = new History();
   state.runs = new Runs();
-  send('cauldron:site', { site: detected, drafts: loadDrafts(detected.root) });
+  // Read the saved edits once, and keep the failure for last: the status bar
+  // shows one message, so a later "site opened" line must not bury it (plan 1.6).
+  const recovery = loadDrafts(detected.root);
+  send('cauldron:site', {
+    site: detected,
+    drafts: recovery.drafts,
+  });
   status(
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
   );
   const preview = await startPreview();
+  if (recovery.problem) fail(recovery.problem);
   return 'problem' in preview
     ? { site: detected, ...preview }
     : { site: detected };
@@ -231,7 +265,14 @@ function collectLocs(): Promise<Array<{ loc: string; text: string }>> {
         .map((el) => ({ loc: el.getAttribute('data-cauldron-source-loc') || el.getAttribute('data-astro-source-loc') || '', text: JSON.stringify([(el.textContent || '').trim().slice(0, 160), ...['color','backgroundColor','fontSize','fontFamily','padding','margin','display','borderRadius'].map((key) => getComputedStyle(el)[key])]) }))
         .filter((item) => item.text !== ''))()`,
     )
-    .catch(() => []);
+    .catch((error: unknown) => {
+      fail(
+        `The page could not be compared: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    });
 }
 
 /** The Before/After toggle: outlines the parts of the page the run changed. */
@@ -259,7 +300,29 @@ function highlightLocs(locs: string[], on: boolean): void {
         return true;
       })()`,
     )
-    .catch(() => undefined);
+    .catch((error: unknown) => {
+      fail(
+        `The changed parts of the page could not be highlighted: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return undefined;
+    });
+}
+
+/** Files Cauldron's own editor wrote during a run, which the run did not own. */
+function outsideWrites(startedAt: number | undefined) {
+  const site = state.site;
+  if (!site || startedAt === undefined) return [];
+  return state.history.writtenSince(startedAt).map((item) => ({
+    file: path.relative(site.root, item.file),
+    beforeHash: item.beforeHash,
+    afterHash: item.afterHash,
+  }));
+}
+
+function runStartedAt(id: string): number | undefined {
+  return state.runs.get(id)?.startedAt;
 }
 
 function runSummary(run: Run) {
@@ -276,7 +339,21 @@ function runSummary(run: Run) {
   };
 }
 
-function sharedAction(request: ActionRequest) {
+/** Files each Cauldron-started agent run said it wrote, by run id (plan 2.2). */
+const runClaims = new Map<string, Set<string>>();
+
+function claimForRun(id: string | null, file: string): void {
+  if (!id) return;
+  const claims = runClaims.get(id) ?? new Set<string>();
+  claims.add(file);
+  runClaims.set(id, claims);
+}
+
+/**
+ * One path for every edit. `fromAgent` marks writes that arrive through the
+ * agent connection, so a run never mistakes the person's own edits for its own.
+ */
+function sharedAction(request: ActionRequest, fromAgent = false) {
   const site = state.site;
   if (!site) return { ok: false as const, problem: 'No site is open.' };
   const relative =
@@ -291,6 +368,7 @@ function sharedAction(request: ActionRequest) {
       ? readFile(full)
       : null;
   const result = runAction(site.root, request);
+  if (result.ok && fromAgent && full) claimForRun(state.agentRunId, full);
   if (result.ok && before && full) {
     const after = readFile(full);
     if (before.hash !== after.hash)
@@ -306,6 +384,9 @@ function sharedAction(request: ActionRequest) {
         beforeHash: before.hash,
         afterHash: after.hash,
         label: request.action,
+        // Agent-connection writes are never the person's own edits, even when
+        // an outside agent writes outside a Cauldron-started run.
+        runId: fromAgent ? (state.agentRunId ?? 'agent-connection') : undefined,
       });
     refreshSelectionFromDisk();
   }
@@ -324,6 +405,49 @@ function saveConflictCopy(file: string, text: string): string {
   const target = path.join(dir, `${stamp}-${path.basename(file)}`);
   fs.writeFileSync(target, text, 'utf8');
   return target;
+}
+
+/**
+ * Content saves follow the same outside-change rule as the editor (plan 1.4).
+ * `keepMine` re-applies the person's change on top of the current file after
+ * keeping the disk version as a copy; otherwise a stale save is refused.
+ */
+function saveContent(payload: {
+  file: string;
+  baseHash: string;
+  change: Record<string, string>;
+  keepMine?: boolean;
+}): {
+  ok: boolean;
+  problem?: string;
+  hash?: string;
+  conflict?: boolean;
+  conflictCopy?: string;
+} {
+  const site = state.site;
+  if (!site) return { ok: false, problem: 'No site is open.' };
+  if (!payload.keepMine) {
+    const result = saveEntry(
+      site.root,
+      payload.file,
+      payload.baseHash,
+      payload.change,
+    );
+    if (result.ok) status(`Saved ${payload.file}`);
+    return result;
+  }
+  const full = path.join(site.root, payload.file);
+  if (!isInside(site.root, full) || !fs.existsSync(full))
+    return { ok: false, problem: 'That entry is not inside the open site.' };
+  const disk = readFile(full);
+  const conflictCopy = saveConflictCopy(full, disk.text);
+  const result = saveEntry(site.root, payload.file, disk.hash, payload.change);
+  if (result.ok)
+    status(
+      `Saved ${payload.file}. The disk version was kept as a copy: ${conflictCopy}`,
+    );
+  else fail(result.problem ?? `${payload.file} could not be saved.`);
+  return { ...result, conflictCopy };
 }
 
 /**
@@ -455,7 +579,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
 } {
   const site = requireSite();
   if ('problem' in site) return { ok: false, problem: site.problem };
-  const direction = readDirection(site.root);
+  const direction = directionFor(site.root);
   if (!direction) {
     return {
       ok: false,
@@ -507,6 +631,10 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
     onEvent: (event) => {
       if (state.agentRunId !== run.id) return;
       lastAgentEvents.push(event);
+      if (event.type === 'tool' && event.paths) {
+        for (const file of event.paths)
+          claimForRun(run.id, path.resolve(site.root, file));
+      }
       if (event.type === 'session') {
         const next = {
           ...state.sessions.get(site.root),
@@ -563,7 +691,7 @@ function registerIpc(): void {
     url: state.server?.url ?? null,
     status: state.status,
     selection: selectionView(),
-    drafts: state.site ? loadDrafts(state.site.root) : [],
+    drafts: state.site ? storedDrafts(state.site.root) : [],
   }));
 
   handle('cauldron:start-preview', () => startPreview());
@@ -606,7 +734,7 @@ function registerIpc(): void {
 
   handle('cauldron:save-drafts', (_event, drafts: Draft[]) => {
     if (!state.site) return false;
-    const content = loadDrafts(state.site.root).filter(
+    const content = storedDrafts(state.site.root).filter(
       (draft) => draft.name === 'content',
     );
     saveDrafts(state.site.root, [...content, ...drafts]);
@@ -627,7 +755,7 @@ function registerIpc(): void {
     ) => {
       if (!state.site) return false;
       const key = `content:${payload.file}:${payload.field}`;
-      const drafts = loadDrafts(state.site.root).filter(
+      const drafts = storedDrafts(state.site.root).filter(
         (draft) => draft.key !== key,
       );
       if (payload.value !== null)
@@ -660,9 +788,14 @@ function registerIpc(): void {
     createPage(page),
   );
 
-  handle('cauldron:restore-draft', (_event, draft: Draft) =>
-    restoreDraft(draft),
-  );
+  handle('cauldron:restore-draft', (_event, draft: Draft) => {
+    const result = restoreDraft(draft);
+    // Shown in the status bar, so a refusal cannot hide behind a missing
+    // selection, a collapsed inspector or another tool view.
+    if (result.ok) status('Draft restored.');
+    else fail(result.problem ?? 'That draft could not be restored.');
+    return result;
+  });
 
   handle(
     'cauldron:run-start',
@@ -682,6 +815,9 @@ function registerIpc(): void {
   handle('cauldron:run-finish', async (_event, id: string) => {
     const site = requireSite();
     if ('problem' in site) return site;
+    // A comparison needs a page. Without one the run is still finished, but the
+    // outcome is uncertainty and must be said out loud (plan 2.2).
+    const comparable = Boolean(state.server) && state.preview.alive;
     const afterLocs = await collectLocs();
     const before = new Map(
       state.beforeLocs.map((item) => [item.loc, item.text]),
@@ -692,11 +828,21 @@ function registerIpc(): void {
     const removed = state.beforeLocs.filter(
       (item) => !afterLocs.some((current) => current.loc === item.loc),
     );
-    const run = state.runs.finish(site.root, id);
+    const run = state.runs.finish(site.root, id, {
+      outside: outsideWrites(runStartedAt(id)),
+    });
     if (!run) return { ok: false, problem: 'That run is not known.' };
     state.runs.setHighlighted(id, [...changed, ...removed]);
     state.preview.reload();
     status(run.note);
+    if (!comparable)
+      fail(
+        'The page could not be compared: the preview was not running, so this run was not compared.',
+      );
+    if (run.problems.length > 0)
+      console.error(
+        `Run ${run.id}: ${run.problems.join(', ')} could not be read. ${run.note}`,
+      );
     return { ok: true, run: runSummary(run) };
   });
 
@@ -738,18 +884,12 @@ function registerIpc(): void {
         file: string;
         baseHash: string;
         change: Record<string, string>;
+        keepMine?: boolean;
       },
     ) => {
       const site = requireSite();
       if ('problem' in site) return site;
-      const result = saveEntry(
-        site.root,
-        payload.file,
-        payload.baseHash,
-        payload.change,
-      );
-      if (result.ok) status(`Saved ${payload.file}`);
-      return result;
+      return saveContent(payload);
     },
   );
 
@@ -761,14 +901,15 @@ function registerIpc(): void {
 
   handle(
     'cauldron:publish',
-    (_event, payload: { message: string; push: boolean }) => {
+    (
+      _event,
+      payload: { message: string; push: boolean; unsavedBuffers?: number },
+    ) => {
       const site = requireSite();
       if ('problem' in site) return site;
       const result = publish(site.root, payload);
       if (result.ok) {
-        status(
-          `Published: ${result.committed} file(s)${result.pushed ? ', pushed' : ''}.`,
-        );
+        status(result.message);
       } else {
         status(result.problem);
       }
@@ -787,7 +928,7 @@ function registerIpc(): void {
     async (_event, payload: { pages?: string[] }) => {
       const site = requireSite();
       if ('problem' in site) return site;
-      const direction = readDirection(site.root);
+      const direction = directionFor(site.root);
       const pages =
         payload?.pages && payload.pages.length > 0
           ? payload.pages
@@ -884,7 +1025,7 @@ function registerIpc(): void {
   );
 
   handle('cauldron:direction', () => {
-    const direction = state.site ? readDirection(state.site.root) : null;
+    const direction = state.site ? directionFor(state.site.root) : null;
     return direction
       ? {
           ...direction,
@@ -1045,7 +1186,7 @@ function restoreDraft(draft: Draft): { ok: boolean; problem?: string } {
           },
     );
     if (result.ok) {
-      const remaining = loadDrafts(site.root).filter(
+      const remaining = storedDrafts(site.root).filter(
         (item) => item.key !== draft.key,
       );
       saveDrafts(site.root, remaining);
@@ -1065,6 +1206,13 @@ function restoreDraft(draft: Draft): { ok: boolean; problem?: string } {
       ok: false,
       problem: 'The element the draft belonged to has gone.',
     };
+  const operation = draftEditOperation(draft.field, draft.value);
+  if (!operation)
+    return {
+      ok: false,
+      problem:
+        'That draft cannot be restored in this version of Cauldron. The draft is kept.',
+    };
   state.selection = {
     id: `draft-${draft.key}`,
     location,
@@ -1072,9 +1220,9 @@ function restoreDraft(draft: Draft): { ok: boolean; problem?: string } {
     pageUrl: '',
     domPath: '',
   };
-  const result = writeSelection({ kind: 'text', value: draft.value });
+  const result = writeSelection(operation);
   if (!result.ok) return { ok: false, problem: result.problem };
-  const remaining = loadDrafts(site.root).filter(
+  const remaining = storedDrafts(site.root).filter(
     (item) => item.key !== draft.key,
   );
   saveDrafts(site.root, remaining);
@@ -1210,12 +1358,20 @@ async function finishAgentRun(note: string): Promise<void> {
   const removed = state.beforeLocs.filter(
     (item) => !afterLocs.some((current) => current.loc === item.loc),
   );
-  const run = state.runs.finish(site.root, id);
+  const run = state.runs.finish(site.root, id, {
+    outside: outsideWrites(runStartedAt(id)),
+    claimed: [...(runClaims.get(id) ?? [])],
+  });
+  runClaims.delete(id);
   if (!run) return;
   state.runs.setHighlighted(id, [...changed, ...removed]);
   if (note) state.runs.fail(id, note);
   state.preview.reload();
   status(run.note);
+  if (run.problems.length > 0)
+    console.error(
+      `Run ${run.id}: ${run.problems.join(', ')} could not be read. ${run.note}`,
+    );
   send('cauldron:agent-done', { runId: id, note: run.note });
   agentDoneWaiter?.({ ok: !note, runId: id, note: run.note });
   agentDoneWaiter = null;
@@ -1340,7 +1496,7 @@ function harnessApi() {
         };
       return checkSite({
         root: state.site.root,
-        direction: readDirection(state.site.root),
+        direction: directionFor(state.site.root),
         pages: payload?.pages ?? ['/'],
       });
     },
@@ -1350,15 +1506,9 @@ function harnessApi() {
       file: string;
       baseHash: string;
       change: Record<string, string>;
+      keepMine?: boolean;
     }) =>
-      state.site
-        ? saveEntry(
-            state.site.root,
-            payload.file,
-            payload.baseHash,
-            payload.change,
-          )
-        : { ok: false, problem: 'No site.' },
+      state.site ? saveContent(payload) : { ok: false, problem: 'No site.' },
     openSiteAt,
     startPreview,
     previewLoad: (url: string) => state.preview.load(url),
@@ -1393,6 +1543,8 @@ function harnessApi() {
     writeText: (value: string) => writeSelection({ kind: 'text', value }),
     writeStyle: (properties: Record<string, string>) =>
       writeSelection({ kind: 'style', properties }),
+    forceWrite: (operation: unknown) =>
+      writeSelection(operation as EditOperation, { force: true }),
     undo: () => undoLast(),
     createPage: (page: { path: string; title: string }) => createPage(page),
     runAction: (request: unknown) =>
@@ -1421,7 +1573,9 @@ function harnessApi() {
       const changed = afterLocs.filter(
         (item) => before.get(item.loc) !== item.text,
       );
-      const run = state.runs.finish(state.site.root, id);
+      const run = state.runs.finish(state.site.root, id, {
+        outside: outsideWrites(runStartedAt(id)),
+      });
       if (!run) return { ok: false };
       state.runs.setHighlighted(id, changed);
       return {
@@ -1454,7 +1608,7 @@ function harnessApi() {
         .map((event) => event.name ?? ''),
     buildPromptText: (request: string) => {
       const site = state.site;
-      const direction = site ? readDirection(site.root) : null;
+      const direction = site ? directionFor(site.root) : null;
       return buildPrompt({
         request,
         siteName: site?.name ?? '',
@@ -1565,6 +1719,17 @@ export function start(): void {
       return;
     }
 
+    if (E2E_SITE && process.env.CAULDRON_PUBLISH_UI_TEST) {
+      const { runPublishUiTest } = await import('./e2e');
+      await runPublishUiTest(
+        E2E_SITE,
+        state.window!,
+        harnessApi() as never,
+        openSiteAt,
+      );
+      return;
+    }
+
     if (E2E_SITE && process.env.CAULDRON_QUALITY_TEST) {
       const { runQualityTest } = await import('./e2e');
       await runQualityTest(E2E_SITE, harnessApi() as never);
@@ -1586,6 +1751,30 @@ export function start(): void {
     if (E2E_SITE && process.env.CAULDRON_AGENT_TEST) {
       const { runAgentTest } = await import('./e2e');
       await runAgentTest(E2E_SITE, harnessApi() as never);
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_FAILURE_TEST) {
+      const { runFailureTest } = await import('./e2e');
+      await runFailureTest(
+        E2E_SITE,
+        state.window!,
+        harnessApi() as never,
+        openSiteAt,
+        process.env.CAULDRON_FAILURE_CONTENT_SITE,
+      );
+      return;
+    }
+
+    if (E2E_SITE && process.env.CAULDRON_CRASH_TEST) {
+      const { runCrashTest } = await import('./e2e');
+      await runCrashTest(
+        E2E_SITE,
+        state.window!,
+        harnessApi() as never,
+        openSiteAt,
+        process.env.CAULDRON_CRASH_TEST === 'restore' ? 'restore' : 'type',
+      );
       return;
     }
 

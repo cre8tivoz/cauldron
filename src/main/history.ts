@@ -125,4 +125,17 @@ export class History {
   list(): Change[] {
     return this.changes.slice(0, this.cursor);
   }
+
+  /** Writes this history made since a moment, excluding work a run did itself. */
+  writtenSince(
+    at: number,
+  ): Array<{ file: string; beforeHash: string; afterHash: string }> {
+    return this.changes
+      .filter((change) => change.at >= at && !change.runId)
+      .map((change) => ({
+        file: change.file,
+        beforeHash: change.beforeHash,
+        afterHash: change.afterHash,
+      }));
+  }
 }

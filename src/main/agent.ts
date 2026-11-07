@@ -7,7 +7,7 @@ export type AgentTool = 'claude' | 'codex' | 'hermes';
 export type AgentEvent =
   | { type: 'session'; sessionId: string }
   | { type: 'text'; text: string; delta?: boolean }
-  | { type: 'tool'; name: string }
+  | { type: 'tool'; name: string; paths?: string[] }
   | { type: 'status'; text: string }
   | { type: 'done'; text: string }
   | { type: 'error'; text: string };
@@ -92,6 +92,23 @@ When you finish, reply with a short summary: which files you changed, and anythi
 did not do.`;
 }
 
+/**
+ * A tool call, with any file paths it names (Claude's Edit, Write, MultiEdit and
+ * NotebookEdit tools). A run treats these as the agent's own files (plan 2.2).
+ */
+function toolEvent(name: string, input: unknown): AgentEvent {
+  const paths: string[] = [];
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    for (const key of ['file_path', 'notebook_path']) {
+      const value = (input as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value) paths.push(value);
+    }
+  }
+  return paths.length > 0
+    ? { type: 'tool', name, paths }
+    : { type: 'tool', name };
+}
+
 function normaliseClaude(line: string): AgentEvent[] {
   const events: AgentEvent[] = [];
   let parsed: unknown;
@@ -111,7 +128,12 @@ function normaliseClaude(line: string): AgentEvent[] {
     api_error_status?: number;
     error?: string;
     message?: {
-      content?: Array<{ type?: string; text?: string; name?: string }>;
+      content?: Array<{
+        type?: string;
+        text?: string;
+        name?: string;
+        input?: unknown;
+      }>;
     };
   };
 
@@ -132,13 +154,18 @@ function normaliseClaude(line: string): AgentEvent[] {
     item.type === 'tool_use' &&
     typeof (item as { name?: string }).name === 'string'
   )
-    events.push({ type: 'tool', name: (item as { name: string }).name });
+    events.push(
+      toolEvent(
+        (item as { name: string }).name,
+        (item as { input?: unknown }).input,
+      ),
+    );
   if (item.type === 'assistant' && item.message?.content) {
     for (const block of item.message.content) {
       if (block.type === 'text' && block.text)
         events.push({ type: 'text', text: block.text });
       if (block.type === 'tool_use' && block.name)
-        events.push({ type: 'tool', name: block.name });
+        events.push(toolEvent(block.name, block.input));
     }
   }
   if (item.type === 'result') {

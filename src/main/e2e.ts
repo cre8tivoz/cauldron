@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
@@ -36,7 +37,14 @@ type Api = {
     file: string;
     baseHash: string;
     change: Record<string, string>;
-  }) => { ok: boolean; problem?: string; hash?: string };
+    keepMine?: boolean;
+  }) => {
+    ok: boolean;
+    problem?: string;
+    hash?: string;
+    conflict?: boolean;
+    conflictCopy?: string;
+  };
 
   openSiteAt: (root: string) => Promise<unknown>;
   startPreview: () => Promise<unknown>;
@@ -54,7 +62,9 @@ type Api = {
   writeStyle: (properties: Record<string, string>) => {
     ok: boolean;
     problem?: string;
+    conflict?: unknown;
   };
+  forceWrite: (operation: unknown) => { ok: boolean; problem?: string };
   undo: () => unknown;
   createPage: (page: { path: string; title: string }) => Promise<unknown>;
   runAction: (request: unknown) => { ok: boolean; [key: string]: unknown };
@@ -472,6 +482,384 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
   }
 }
 
+/** 5.1: the publishing panel, driven through the window a person uses. */
+export async function runPublishUiTest(
+  root: string,
+  window: import('electron').BrowserWindow,
+  api: Api,
+  open: (root: string) => Promise<unknown>,
+): Promise<void> {
+  const { execFileSync } = await import('node:child_process');
+  const git = (args: string[]) =>
+    execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  const js = async <T>(code: string): Promise<T> =>
+    (await window.webContents.executeJavaScript(code)) as T;
+  const click = (selector: string) =>
+    js<boolean>(
+      `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return false;
+        el.click();
+        return true;
+      })()`,
+    );
+  const rail = (title: string) => click(`button[title="${title}"]`);
+  const panel = () =>
+    js<{ text: string; buttons: Array<{ label: string; disabled: boolean }> }>(
+      `(() => {
+        const body = document.querySelector('.panes .pane-body');
+        return {
+          text: body ? body.innerText : '',
+          buttons: body
+            ? [...body.querySelectorAll('button')].map((button) => ({
+                label: (button.textContent || '').trim(),
+                disabled: Boolean(button.disabled),
+              }))
+            : [],
+        };
+      })()`,
+    );
+  const typedInto = (
+    selector: string,
+    value: string,
+    kind: 'input' | 'textarea',
+  ) =>
+    js<boolean>(
+      `(() => {
+        const field = document.querySelector(${JSON.stringify(selector)});
+        if (!field) return false;
+        const setter = Object.getOwnPropertyDescriptor(
+          window.${kind === 'input' ? 'HTMLInputElement' : 'HTMLTextAreaElement'}.prototype,
+          'value',
+        ).set;
+        setter.call(field, ${JSON.stringify(value)});
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        return field.value === ${JSON.stringify(value)};
+      })()`,
+    );
+  const recoveryDir = path.join(app.getPath('userData'), 'recovery');
+  const recoveryText = (): string => {
+    if (!fs.existsSync(recoveryDir)) return '';
+    return fs
+      .readdirSync(recoveryDir)
+      .map((name) => {
+        try {
+          return fs.readFileSync(path.join(recoveryDir, name), 'utf8');
+        } catch {
+          return '';
+        }
+      })
+      .join('\n');
+  };
+
+  try {
+    // A real changed file, so the publishing controls are on screen at all.
+    fs.appendFileSync(
+      path.join(root, 'src/pages/index.astro'),
+      '\n<!-- Ticket 16 UI proof -->\n',
+    );
+    await open(root);
+    await waitFor(
+      async () => js<boolean>(`Boolean(document.querySelector('.app'))`),
+      30000,
+    );
+    check(
+      '5.1 the window shows the site',
+      await waitFor(
+        async () =>
+          js<boolean>(
+            `Boolean(document.querySelector('button[title="Content"]'))`,
+          ),
+        20000,
+      ),
+    );
+
+    // (a) A content buffer that has not been saved.
+    await rail('Content');
+    const entryReady = await waitFor(
+      async () =>
+        js<boolean>(
+          `Boolean(document.querySelector('.pane-body ul li button'))`,
+        ),
+      20000,
+    );
+    check('5.1 a content entry is listed', entryReady);
+    await click('.pane-body ul li button');
+    const fieldReady = await waitFor(
+      async () =>
+        js<boolean>(`Boolean(document.querySelector('input[id^="content-"]'))`),
+      15000,
+    );
+    check('5.1 the content form is shown', fieldReady);
+    const field = await js<{ id: string; value: string } | null>(
+      `(() => {
+        const input = document.querySelector('input[id^="content-"]');
+        return input ? { id: input.id, value: input.value } : null;
+      })()`,
+    );
+    const contentValue = `${field?.value ?? ''} — ticket 16`;
+    const typedContent = await typedInto(
+      `#${field?.id}`,
+      contentValue,
+      'input',
+    );
+    check(
+      '5.1 a form value is typed and not saved',
+      typedContent,
+      `${field?.id} = ${contentValue}`,
+    );
+
+    await rail('Publishing');
+    const noticed = await waitFor(
+      async () =>
+        /still being typed and have not been saved/.test((await panel()).text),
+      10000,
+    );
+    const contentPanel = await panel();
+    const contentNotice =
+      contentPanel.text
+        .split('\n')
+        .find((line) => line.includes('still being typed')) ?? '';
+    console.log(`[a] NOTICE ${contentNotice}`);
+    console.log(
+      `[a] BUTTONS ${contentPanel.buttons
+        .map(
+          (button) =>
+            `${button.label}:${button.disabled ? 'disabled' : 'enabled'}`,
+        )
+        .join(' | ')}`,
+    );
+    const commitButton = contentPanel.buttons.find((b) => b.label === 'Commit');
+    const pushButton = contentPanel.buttons.find(
+      (b) => b.label === 'Commit and push',
+    );
+    check(
+      '5.1 the unsaved content notice is shown',
+      noticed && contentNotice !== '',
+      contentNotice,
+    );
+    check(
+      '5.1 commit and upload are disabled for the content buffer',
+      Boolean(commitButton?.disabled) && Boolean(pushButton?.disabled),
+      `${commitButton?.label}:${commitButton?.disabled} ${pushButton?.label}:${pushButton?.disabled}`,
+    );
+    const head = git(['rev-parse', 'HEAD']).trim();
+    const refusedContent = await js<{ ok: boolean; problem?: string }>(
+      `window.cauldron.publish({ message: 'Ticket 16 must not commit', push: false, unsavedBuffers: 1 })`,
+    );
+    console.log(`[a] IPC ${JSON.stringify(refusedContent)}`);
+    check(
+      '5.1 publishing through the panel IPC is refused while the buffer is unsaved',
+      refusedContent?.ok === false &&
+        Boolean(refusedContent.problem?.includes('unsaved edit')),
+      refusedContent?.problem ?? '',
+    );
+    check(
+      '5.1 the refusal made no commit',
+      git(['rev-parse', 'HEAD']).trim() === head,
+    );
+
+    // Reload the entry so the content buffer is clean again before (b).
+    await rail('Content');
+    await click('.pane-body ul li button');
+    await wait(400);
+
+    // (b) A visual buffer typed less than a second ago, not yet in recovery.
+    await rail('Sites');
+    const previewUp = await waitFor(
+      async () =>
+        (await api.previewHtml()).includes('data-cauldron-source-loc'),
+      60000,
+    );
+    check('5.1 the preview is up for the visual buffer', previewUp);
+    await api.previewClickLeaf();
+    check(
+      '5.1 an element is selected',
+      await waitFor(async () => Boolean(api.getSelection()), 15000),
+    );
+    const inspectorReady = await waitFor(
+      async () =>
+        js<boolean>(
+          `Boolean(document.querySelector('textarea[aria-label="Element text"]'))`,
+        ),
+      15000,
+    );
+    check('5.1 the inspector text field is shown', inspectorReady);
+    const visualValue = `Ticket 16 unsaved ${Date.now()}`;
+    const typedVisual = await typedInto(
+      'textarea[aria-label="Element text"]',
+      visualValue,
+      'textarea',
+    );
+    await rail('Publishing');
+    const visualPanel = await panel();
+    const visualNotice =
+      visualPanel.text
+        .split('\n')
+        .find((line) => line.includes('still being typed')) ?? '';
+    const visualCommit = visualPanel.buttons.find((b) => b.label === 'Commit');
+    console.log(
+      `[b] TYPED ${typedVisual} in recovery=${recoveryText().includes(visualValue)}`,
+    );
+    console.log(`[b] NOTICE ${visualNotice}`);
+    console.log(
+      `[b] BUTTONS ${visualPanel.buttons
+        .map(
+          (button) =>
+            `${button.label}:${button.disabled ? 'disabled' : 'enabled'}`,
+        )
+        .join(' | ')}`,
+    );
+    check(
+      '5.1 the visual buffer is blocked before recovery storage has it',
+      typedVisual &&
+        !recoveryText().includes(visualValue) &&
+        /still being typed and have not been saved/.test(visualPanel.text) &&
+        Boolean(visualCommit?.disabled),
+      `${visualNotice} · recovery has it: ${recoveryText().includes(visualValue)}`,
+    );
+
+    // (c) A failed upload, then an upload-only retry.
+    await wait(3600); // let the draft reach recovery, then discard it through the app
+    await js(`window.cauldron.discardDrafts()`);
+    window.webContents.reload();
+    await waitFor(
+      async () => js<boolean>(`Boolean(document.querySelector('.app'))`),
+      30000,
+    );
+    await wait(600);
+    fs.writeFileSync(
+      path.join(root, 'publish-ticket16.txt'),
+      'Ticket 16 failed upload proof.\n',
+    );
+    git(['remote', 'set-url', 'origin', '/nonexistent-cauldron-remote']);
+    await rail('Publishing');
+    const dirtyReady = await waitFor(
+      async () => /changed file\(s\)/.test((await panel()).text),
+      15000,
+    );
+    check('5.1 the changed files are shown before publishing', dirtyReady);
+    const beforeCommit = git(['rev-list', '--count', 'HEAD']).trim();
+    const messageTyped = await typedInto(
+      '#commit-message',
+      'Ticket 16 failed upload',
+      'input',
+    );
+    check('5.1 a commit message is typed', messageTyped);
+    await wait(200);
+    await js<boolean>(
+      `(() => {
+        const button = [...document.querySelectorAll('.panes .pane-body button')].find(
+          (item) => item.textContent.trim() === 'Commit and push',
+        );
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`,
+    );
+    const failed = await waitFor(
+      async () =>
+        /Committed \d+ file\(s\) locally/.test((await panel()).text) &&
+        /upload failed/i.test((await panel()).text),
+      30000,
+    );
+    const failedPanel = await panel();
+    console.log(`[c] FAILED-UPLOAD PANEL\n${failedPanel.text}`);
+    check(
+      '5.1 the commit and the failed upload are shown as separate lines',
+      failed &&
+        /Committed \d+ file\(s\) locally\./.test(failedPanel.text) &&
+        /upload failed/i.test(failedPanel.text),
+      failedPanel.text.split('\n').filter(Boolean).slice(-3).join(' / '),
+    );
+    const afterCommit = git(['rev-list', '--count', 'HEAD']).trim();
+    check(
+      '5.1 the failed upload still made exactly one local commit',
+      Number(afterCommit) === Number(beforeCommit) + 1,
+      `${beforeCommit} -> ${afterCommit}`,
+    );
+
+    git(['remote', 'set-url', 'origin', `${root}-remote.git`]);
+    await rail('Sites');
+    await wait(300);
+    await rail('Publishing');
+    const retryReady = await waitFor(
+      async () =>
+        /commit\(s\) not uploaded yet/.test((await panel()).text) &&
+        (await panel()).buttons.some((b) => b.label === 'Upload'),
+      15000,
+    );
+    const retryPanel = await panel();
+    console.log(`[c] RETRY PANEL\n${retryPanel.text}`);
+    check(
+      '5.1 the panel offers Upload for the already-committed change',
+      retryReady,
+      retryPanel.text
+        .split('\n')
+        .find((line) => line.includes('not uploaded yet')) ?? '',
+    );
+    check(
+      '5.1 nothing is left in the working tree for the retry',
+      git(['status', '--porcelain']).trim() === '',
+      git(['status', '--porcelain']).trim(),
+    );
+    await js<boolean>(
+      `(() => {
+        const button = [...document.querySelectorAll('.panes .pane-body button')].find(
+          (item) => item.textContent.trim() === 'Upload',
+        );
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`,
+    );
+    const uploaded = await waitFor(
+      async () => /Uploaded to/.test((await panel()).text),
+      30000,
+    );
+    const uploadedPanel = await panel();
+    console.log(`[c] UPLOAD PANEL\n${uploadedPanel.text}`);
+    check(
+      '5.1 the retry uploads the commit',
+      uploaded && /Uploaded to/.test(uploadedPanel.text),
+      uploadedPanel.text
+        .split('\n')
+        .find((line) => line.includes('Uploaded to')) ?? '',
+    );
+    const afterUpload = git(['rev-list', '--count', 'HEAD']).trim();
+    check(
+      '5.1 the retry created no second commit',
+      afterUpload === afterCommit,
+      `${afterCommit} -> ${afterUpload}`,
+    );
+    const branchName = git(['branch', '--show-current']).trim();
+    const remoteHead = execFileSync(
+      'git',
+      [
+        '--git-dir',
+        `${root}-remote.git`,
+        'rev-parse',
+        `refs/heads/${branchName}`,
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+    check(
+      '5.1 the remote now has the committed change',
+      remoteHead === git(['rev-parse', 'HEAD']).trim(),
+      `${remoteHead.slice(0, 7)} vs ${git(['rev-parse', 'HEAD']).trim().slice(0, 7)}`,
+    );
+
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+  } catch (error) {
+    console.error('PUBLISH UI TEST ERROR', error);
+    check('PUBLISH UI TEST ERROR', false, String(error));
+  } finally {
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
 /** 4.4: the built site is measured, and the numbers are real. */
 export async function runQualityTest(root: string, api: Api): Promise<void> {
   try {
@@ -620,6 +1008,35 @@ export async function runContentTest(root: string, api: Api): Promise<void> {
       '3.4 an out-of-date form is refused, not overwritten',
       stale?.ok === false,
       stale?.problem ?? '',
+    );
+
+    // Plan 1.4: a clash keeps both versions and offers keep mine / use the disk version.
+    check(
+      '1.4 a content clash is offered as a keep-mine / use-disk choice',
+      (stale as { conflict?: boolean } | undefined)?.conflict === true,
+      JSON.stringify(stale),
+    );
+    const diskBefore = fs.readFileSync(path.join(root, first.file), 'utf8');
+    const mine = `Cauldron keep mine ${Date.now()}`;
+    const kept = api.saveEntry?.({
+      file: first.file,
+      baseHash: opened.hash,
+      change: { field, value: mine, schemaHash: opened.schemaHash },
+      keepMine: true,
+    }) as { ok: boolean; problem?: string; conflictCopy?: string } | undefined;
+    const keptEntry = api.entry?.(first.file) as {
+      values: Record<string, string>;
+    };
+    check(
+      '1.4 keep mine writes my content version',
+      Boolean(kept?.ok) && keptEntry.values[field] === mine,
+      kept?.problem ?? keptEntry.values[field] ?? '',
+    );
+    check(
+      '1.4 keep mine keeps the disk content version as a copy',
+      Boolean(kept?.conflictCopy) &&
+        fs.readFileSync(kept!.conflictCopy!, 'utf8') === diskBefore,
+      kept?.conflictCopy ?? 'no copy',
     );
 
     console.log(
@@ -1017,6 +1434,146 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
       fs.writeFileSync(file, current, 'utf8');
     }
 
+    // 1.3 / 1.5: a style edit, an unrelated outside edit and undo, with the
+    // authored source Cauldron does not understand left byte-for-byte intact.
+    const beforeStyle = fs.readFileSync(file, 'utf8');
+    const styleEdit = api.writeStyle({ color: 'rgb(1, 2, 3)' });
+    const afterStyle = fs.readFileSync(file, 'utf8');
+    const beforeLines = beforeStyle.split('\n');
+    const afterLines = afterStyle.split('\n');
+    const changedLines = beforeLines
+      .map((line, index) => (line === afterLines[index] ? -1 : index))
+      .filter((index) => index !== -1);
+    const frontmatterOf = (text: string) =>
+      /^---\n[\s\S]*?\n---/.exec(text)?.[0] ?? '';
+    check('1.2 a style edit is written', styleEdit.ok, styleEdit.problem ?? '');
+    check(
+      '1.5 only the styled tag changes, authored source is byte-for-byte intact',
+      singleRegionChange(beforeStyle, afterStyle) &&
+        beforeLines.length === afterLines.length &&
+        changedLines.length > 0 &&
+        changedLines.every(
+          (index) =>
+            afterLines[index].replace(/\s?style="[^"]*"/, '') ===
+            beforeLines[index],
+        ) &&
+        frontmatterOf(beforeStyle).length > 0 &&
+        frontmatterOf(beforeStyle) === frontmatterOf(afterStyle),
+      `${changedLines.length} line(s) changed, frontmatter ${frontmatterOf(beforeStyle).length} bytes`,
+    );
+
+    const outsideMarker = `<!-- style outside edit ${Date.now()} -->`;
+    fs.writeFileSync(
+      file,
+      `${fs.readFileSync(file, 'utf8')}\n${outsideMarker}\n`,
+      'utf8',
+    );
+    const styleAgain = api.writeStyle({ color: 'rgb(4, 5, 6)' });
+    const mergedStyle = fs.readFileSync(file, 'utf8');
+    check(
+      '1.3 a style edit merges with an unrelated outside edit',
+      styleAgain.ok &&
+        mergedStyle.includes(outsideMarker) &&
+        mergedStyle.includes('rgb(4, 5, 6)'),
+      styleAgain.problem ?? '',
+    );
+
+    const undoStyle = api.undo() as { problem?: string } | null;
+    const undoneStyle = fs.readFileSync(file, 'utf8');
+    check(
+      '1.3 undo after an outside edit keeps the outside edit',
+      !undoStyle?.problem &&
+        undoneStyle.includes(outsideMarker) &&
+        undoneStyle.includes('rgb(1, 2, 3)'),
+      undoStyle?.problem ?? '',
+    );
+
+    // 1.4: an overlapping outside change keeps both versions and offers the
+    // keep-mine / use-the-disk choice.
+    const clashingStyle = fs
+      .readFileSync(file, 'utf8')
+      .replace('rgb(1, 2, 3)', 'rgb(9, 9, 9)');
+    fs.writeFileSync(file, clashingStyle, 'utf8');
+    const styleClash = api.writeStyle({ color: 'rgb(7, 8, 9)' });
+    const conflictDir = path.join(app.getPath('userData'), 'conflicts');
+    const copies = fs.existsSync(conflictDir)
+      ? fs.readdirSync(conflictDir)
+      : [];
+    check(
+      '1.4 an overlapping outside style change is refused',
+      !styleClash.ok && Boolean(styleClash.conflict),
+      styleClash.problem ?? '',
+    );
+    check(
+      '1.4 use the disk version leaves the outside version untouched',
+      fs.readFileSync(file, 'utf8') === clashingStyle,
+    );
+
+    const forced = api.forceWrite({
+      kind: 'style',
+      properties: { color: 'rgb(7, 8, 9)' },
+    });
+    const afterForce = fs.readFileSync(file, 'utf8');
+    const nowCopies = fs.existsSync(conflictDir)
+      ? fs.readdirSync(conflictDir)
+      : [];
+    const newCopies = nowCopies.filter((name) => !copies.includes(name));
+    const diskVersionKept = newCopies.some((name) =>
+      fs
+        .readFileSync(path.join(conflictDir, name), 'utf8')
+        .includes('rgb(9, 9, 9)'),
+    );
+    check(
+      '1.4 keep mine writes my version and keeps the disk version',
+      forced.ok && afterForce.includes('rgb(7, 8, 9)') && diskVersionKept,
+      forced.problem ?? `${newCopies.length} conflict copies`,
+    );
+
+    // 1.3: the content save path carries the version it started from too.
+    const collections = api.collections?.();
+    const contentFile = (collections ?? [])
+      .flatMap((collection) => collection.entries)
+      .map((entry) => entry.file)
+      .find(
+        (entryFile) =>
+          Boolean(entryFile) && fs.existsSync(path.join(root, entryFile)),
+      );
+    if (contentFile && api.saveEntry && api.entry) {
+      const fullContent = path.join(root, contentFile);
+      const entry = api.entry(contentFile) as { hash?: string } | undefined;
+      const originalContent = fs.readFileSync(fullContent, 'utf8');
+      fs.writeFileSync(
+        fullContent,
+        `${originalContent}\n<!-- content outside edit -->\n`,
+        'utf8',
+      );
+      const staleContent = api.saveEntry({
+        file: contentFile,
+        baseHash: entry?.hash ?? '',
+        change: { text: `${originalContent}\nplain text\n` },
+      });
+      check(
+        '1.3 a content save based on an older version is refused',
+        !staleContent.ok &&
+          fs
+            .readFileSync(fullContent, 'utf8')
+            .includes('<!-- content outside edit -->'),
+        staleContent.problem ?? '',
+      );
+      const freshContent = api.saveEntry({
+        file: contentFile,
+        baseHash: hashOf(fs.readFileSync(fullContent, 'utf8')),
+        change: { text: `${originalContent}\nplain text\n` },
+      });
+      check(
+        '1.3 a content save from the current version is written',
+        freshContent.ok &&
+          fs.readFileSync(fullContent, 'utf8').includes('plain text'),
+        freshContent.problem ?? '',
+      );
+      fs.writeFileSync(fullContent, originalContent, 'utf8');
+    }
+
     // 2.1: one set of actions, with the version stated on every write.
     const listed = api.runAction({ action: 'listPages' }) as {
       ok: boolean;
@@ -1227,5 +1784,520 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
   } finally {
     const failed = results.filter((r) => !r.ok).length;
     app.exit(failed === 0 ? 0 : 1);
+  }
+}
+
+/**
+ * 1.6 through the real window: phase "type" types into the inspector and is
+ * killed outright, phase "restore" restarts, finds the visible offer and clicks
+ * it. Both phases must run against the same userData (printed).
+ */
+export async function runCrashTest(
+  root: string,
+  window: import('electron').BrowserWindow,
+  api: Api,
+  open: (root: string) => Promise<unknown>,
+  phase: 'type' | 'restore',
+): Promise<void> {
+  const recoveryDir = path.join(app.getPath('userData'), 'recovery');
+  console.log(
+    `CRASH TEST phase=${phase} userData=${app.getPath('userData')} recovery=${recoveryDir} site=${root}`,
+  );
+  const readRecovery = (): {
+    file: string;
+    body: string;
+    drafts: Draft[];
+  } | null => {
+    if (!fs.existsSync(recoveryDir)) return null;
+    for (const name of fs.readdirSync(recoveryDir)) {
+      const file = path.join(recoveryDir, name);
+      try {
+        const body = fs.readFileSync(file, 'utf8');
+        if (!body.includes(root)) continue;
+        const parsed = JSON.parse(body) as { drafts?: Draft[] };
+        return { file, body, drafts: parsed.drafts ?? [] };
+      } catch {
+        // Being written right now.
+      }
+    }
+    return null;
+  };
+
+  try {
+    if (phase === 'type') {
+      await open(root);
+      const loaded = await waitFor(
+        async () =>
+          (await api.previewHtml()).includes('data-cauldron-source-loc'),
+        45000,
+      );
+      check('1.6 the site and its live preview are up', loaded);
+      if (!loaded) throw new Error('preview never rendered');
+
+      const picked = await api.previewClickLeaf();
+      console.log('PICK', JSON.stringify(picked));
+      const selected = await waitFor(
+        async () => Boolean(api.getSelection()),
+        15000,
+      );
+      check('1.6 a heading in the preview is selected', selected);
+      const selection = api.getSelection();
+      if (!selection) throw new Error('nothing selected');
+
+      const file = selection.location.file;
+      const original = fs.readFileSync(file, 'utf8');
+      const originalHash = hashOf(original);
+      console.log('SOURCE', file);
+
+      // Type into the visible inspector, several keystrokes over ~5s, and never
+      // press the save shortcut or leave the field.
+      const typed = `Crash recovered ${Date.now()}`;
+      // The inspector renders just after the selection arrives; wait for it so a
+      // slow render is not mistaken for a lost keystroke.
+      const fieldReady = await waitFor(
+        async () =>
+          Boolean(
+            await window.webContents.executeJavaScript(
+              `Boolean(document.querySelector('textarea[aria-label="Element text"]'))`,
+            ),
+          ),
+        15000,
+      );
+      check('1.6 the inspector text field is shown', fieldReady);
+      let accepted = 0;
+      const perStep: number[] = [];
+      for (let step = 1; step <= 6; step += 1) {
+        const value = typed.slice(0, Math.ceil((typed.length * step) / 6));
+        const ok = Number(
+          await window.webContents.executeJavaScript(`(() => {
+            const field = document.querySelector('textarea[aria-label="Element text"]');
+            if (!field) return 0;
+            const setter = Object.getOwnPropertyDescriptor(
+              window.HTMLTextAreaElement.prototype,
+              'value',
+            ).set;
+            setter.call(field, ${JSON.stringify(value)});
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            return field.value === ${JSON.stringify(value)} ? 1 : 0;
+          })()`),
+        );
+        perStep.push(ok);
+        accepted += ok;
+        await wait(900);
+      }
+      check(
+        '1.6 typed text reaches the inspector without being applied',
+        accepted === 6,
+        `${accepted}/6 keystrokes, per step ${perStep.join('')}`,
+      );
+      check(
+        '1.6 the source file is untouched while typing',
+        fs.readFileSync(file, 'utf8') === original,
+      );
+
+      const saved = await waitFor(async () => {
+        const read = readRecovery();
+        return Boolean(read?.drafts.some((draft) => draft.value === typed));
+      }, 10000);
+      const read = readRecovery();
+      console.log(`RECOVERY FILE ${read?.file ?? '(none)'}`);
+      console.log(`RECOVERY CONTENT ${read?.body ?? '(none)'}`);
+      check(
+        '1.6 continuous typing still reaches the recovery file',
+        saved,
+        read?.file ?? 'no recovery file',
+      );
+      if (!saved || !read) throw new Error('no recovery data to crash on');
+      check(
+        '1.6 the recovery draft keeps the original source version',
+        read.drafts.every(
+          (draft) => draft.baseHash === hashOf(fs.readFileSync(file, 'utf8')),
+        ),
+      );
+      check(
+        '1.6 the recovery data is outside the site',
+        !read.file.startsWith(root),
+      );
+      check(
+        '1.6 the site still holds its original source',
+        hashOf(fs.readFileSync(file, 'utf8')) === originalHash,
+      );
+
+      console.log(
+        'CRASH TEST: killing the process now (SIGKILL, no clean shutdown)',
+      );
+      await wait(300);
+      process.kill(process.pid, 'SIGKILL');
+      await wait(2000);
+      throw new Error('the process survived SIGKILL');
+    }
+
+    const before = readRecovery();
+    if (!before) {
+      check('1.6 recovery data survived the crash', false, recoveryDir);
+      throw new Error('no recovery data after the crash');
+    }
+    const draft = before.drafts[0];
+    console.log(`RECOVERY FILE ${before.file}`);
+    console.log(`RECOVERY CONTENT ${before.body}`);
+    const file = path.join(root, draft.file);
+    const disk = fs.readFileSync(file, 'utf8');
+    check(
+      '1.6 recovery data survived the crash',
+      before.drafts.length > 0,
+      `${before.drafts.length} change(s)`,
+    );
+    check(
+      '1.6 the source still holds the version the draft was typed against',
+      draft.baseHash === hashOf(disk),
+    );
+
+    await open(root);
+    const offered = await waitFor(
+      async () =>
+        Boolean(
+          await window.webContents.executeJavaScript(
+            `Boolean([...document.querySelectorAll('.notice')].find((n) => n.textContent.includes('Unsaved edits from last time')))`,
+          ),
+        ),
+      20000,
+    );
+    const notice = await window.webContents.executeJavaScript(
+      `(() => { const n = [...document.querySelectorAll('.notice')].find((el) => el.textContent.includes('Unsaved edits from last time')); return n ? n.textContent.trim() : null; })()`,
+    );
+    console.log(`RECOVERY OFFER ${JSON.stringify(notice)}`);
+    check('1.6 the visible interface offers the recovered edits', offered);
+
+    const clicked = await window.webContents.executeJavaScript(
+      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Restore the first one'); if (!b) return null; b.click(); return b.textContent.trim(); })()`,
+    );
+    console.log(`RESTORE CONTROL ${JSON.stringify(clicked)}`);
+    check(
+      '1.6 the offer has a restore control in the window',
+      Boolean(clicked),
+    );
+
+    const landed = await waitFor(
+      async () => fs.readFileSync(file, 'utf8').includes(String(draft.value)),
+      15000,
+    );
+    check(
+      '1.6 clicking restore writes the typed text to the source',
+      landed,
+      landed ? String(draft.value) : 'text never landed',
+    );
+    const consumed = await waitFor(
+      async () => (readRecovery()?.drafts.length ?? 0) === 0,
+      10000,
+    );
+    check('1.6 the restored change is cleared from recovery', consumed);
+    const noticeGone = await waitFor(
+      async () =>
+        Boolean(
+          await window.webContents.executeJavaScript(
+            `!([...document.querySelectorAll('.notice')].find((n) => n.textContent.includes('Unsaved edits from last time')))`,
+          ),
+        ),
+      10000,
+    );
+    check('1.6 the offer disappears once it is restored', noticeGone);
+  } catch (error) {
+    console.error('CRASH TEST ERROR', error);
+    check('CRASH TEST ERROR', false, String(error));
+  } finally {
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
+}
+
+/**
+ * 14: every failure has a visible result and a console diagnostic. Each case is
+ * injected through the real packaged app: damaged files on disk, a permission
+ * change, or the same IPC the buttons use.
+ */
+export async function runFailureTest(
+  root: string,
+  window: import('electron').BrowserWindow,
+  api: Api,
+  open: (root: string) => Promise<unknown>,
+  contentRoot?: string,
+): Promise<void> {
+  const recoveryDir = path.join(app.getPath('userData'), 'recovery');
+  const recoveryFile = path.join(
+    recoveryDir,
+    `${crypto.createHash('sha256').update(root).digest('hex').slice(0, 16)}.json`,
+  );
+  const errors: string[] = [];
+  const realError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map((arg) => String(arg)).join(' '));
+    realError(...args);
+  };
+  const since = (index: number) => errors.slice(index);
+
+  const js = (code: string) =>
+    window.webContents.executeJavaScript(code) as Promise<unknown>;
+  const dom = async (selector: string): Promise<string | null> =>
+    (await js(
+      `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el ? el.textContent.trim() : null; })()`,
+    )) as string | null;
+  const waitText = async (
+    selector: string,
+    needle: string,
+    timeout = 20000,
+  ) => {
+    let text: string | null = null;
+    const found = await waitFor(async () => {
+      text = await dom(selector);
+      return Boolean(text && text.includes(needle));
+    }, timeout);
+    return { found, text };
+  };
+  const reported = (from: number, needle: string): string | null =>
+    since(from).find((line) => line.includes(needle)) ?? null;
+
+  console.log(`FAILURE TEST userData=${app.getPath('userData')} site=${root}`);
+  try {
+    fs.mkdirSync(recoveryDir, { recursive: true });
+    fs.rmSync(path.join(root, 'cauldron/design.json'), { force: true });
+
+    // 1. Damaged recovery data, written before the site is opened.
+    fs.writeFileSync(recoveryFile, '{"drafts": [ this is not json', 'utf8');
+    let mark = errors.length;
+    await open(root);
+    const one = await waitText('.statusbar', 'could not be read');
+    console.log(`CASE 1 DOM ${JSON.stringify(one.text)}`);
+    console.log(
+      `CASE 1 STDERR ${JSON.stringify(reported(mark, 'Saved edits could not be read'))}`,
+    );
+    check(
+      '14.1 damaged recovery data is visible in the window',
+      one.found,
+      String(one.text),
+    );
+    check(
+      '14.1 damaged recovery data has a console diagnostic',
+      Boolean(reported(mark, 'Saved edits could not be read')),
+    );
+
+    // 5a. Damaged design settings: opened site, then a damaged file, then reopen.
+    mark = errors.length;
+    fs.mkdirSync(path.join(root, 'cauldron'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'cauldron/design.json'),
+      '{ broken',
+      'utf8',
+    );
+    await open(root);
+    const five = await waitText(
+      '.statusbar',
+      'design setting could not be read',
+    );
+    console.log(`CASE 5 DOM ${JSON.stringify(five.text)}`);
+    console.log(
+      `CASE 5 STDERR ${JSON.stringify(reported(mark, 'design setting could not be read'))}`,
+    );
+    check(
+      '14.5a damaged design settings are visible in the window',
+      five.found,
+      String(five.text),
+    );
+    check(
+      '14.5a damaged design settings have a console diagnostic',
+      Boolean(reported(mark, 'design setting could not be read')),
+    );
+
+    // 5b. A missing design.json is not a failure: missing must stay distinguishable.
+    //     Clear the damaged recovery file first so only the design setting is tested.
+    fs.rmSync(path.join(root, 'cauldron/design.json'), { force: true });
+    fs.rmSync(recoveryFile, { force: true });
+    mark = errors.length;
+    await open(root);
+    await wait(4000);
+    const missing = await dom('.statusbar');
+    console.log(`CASE 5b DOM ${JSON.stringify(missing)}`);
+    console.log(
+      `CASE 5b STDERR ${JSON.stringify(since(mark).filter((line) => line.includes('design setting')))}`,
+    );
+    check(
+      '14.5b a missing design file reports no failure',
+      Boolean(missing) && !missing!.includes('design setting'),
+      String(missing),
+    );
+    check(
+      '14.5b a missing design file writes no diagnostic',
+      since(mark).every((line) => !line.includes('design setting')),
+    );
+
+    // 2. A file the scan cannot read, during a real run.
+    const scanTarget = path.join(root, 'src/pages/about.astro');
+    fs.chmodSync(scanTarget, 0o000);
+    mark = errors.length;
+    const started = (await js(
+      `window.cauldron.startRun({ tool: 'claude', prompt: 'Failure injection run' })`,
+    )) as { ok: boolean; run?: { id: string } };
+    await wait(1200);
+    const finished = (await js(
+      `window.cauldron.finishRun(${JSON.stringify(started.run?.id ?? '')})`,
+    )) as { ok: boolean };
+    fs.chmodSync(scanTarget, 0o644);
+    const two = await waitText('.statusbar', 'could not be read');
+    console.log(
+      `CASE 2 START ${JSON.stringify(started)} FINISH ${JSON.stringify(finished)}`,
+    );
+    console.log(`CASE 2 DOM ${JSON.stringify(two.text)}`);
+    console.log(
+      `CASE 2 STDERR ${JSON.stringify(reported(mark, 'could not be read'))}`,
+    );
+    check(
+      '14.2 an unreadable file during a run is visible in the window',
+      two.found,
+      String(two.text),
+    );
+    check(
+      '14.2 an unreadable file during a run has a console diagnostic',
+      Boolean(reported(mark, 'could not be read')),
+    );
+
+    // 4. Restore refusal with another tool view open, the inspector collapsed and
+    //    nothing selected. The draft is written the way the app writes one.
+    api.saveDraft([
+      {
+        key: 'text:src/pages/index.astro:1:1',
+        file: 'src/pages/index.astro',
+        line: 1,
+        column: 1,
+        name: 'h1',
+        field: 'text',
+        value: 'Stale draft text',
+        baseHash: 'not-the-current-file-version',
+        savedAt: Date.now(),
+      },
+    ]);
+    mark = errors.length;
+    await open(root);
+    const offered = await waitFor(
+      async () =>
+        (await dom('.notice')) !== null &&
+        String(await dom('.notice')).includes('Unsaved edits from last time'),
+      20000,
+    );
+    check('14.4 the recovered draft is offered before the refusal', offered);
+    await js(
+      `document.querySelector('nav.rail button[title="Content"]').click()`,
+    );
+    await wait(600);
+    await js(
+      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim().startsWith('Element')); if (b) b.click(); return true; })()`,
+    );
+    await wait(400);
+    const view = (await js(
+      `(async () => ({ view: document.querySelector('.pane-body h2')?.textContent?.trim() ?? null, selection: (await window.cauldron.state()).selection }))()`,
+    )) as { view: string | null; selection: unknown };
+    console.log(`CASE 4 VIEW ${JSON.stringify(view)}`);
+    const restored = (await js(
+      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Restore the first one'); if (!b) return 'no restore control'; b.click(); return 'clicked'; })()`,
+    )) as string;
+    const four = await waitText('.statusbar', 'no longer matches');
+    console.log(`CASE 4 CONTROL ${restored} DOM ${JSON.stringify(four.text)}`);
+    console.log(
+      `CASE 4 STDERR ${JSON.stringify(reported(mark, 'no longer matches'))}`,
+    );
+    check(
+      '14.4 restore refusal is visible with another view open and no selection',
+      four.found && view.selection === null,
+      `view=${JSON.stringify(view.view)} ${JSON.stringify(four.text)}`,
+    );
+    check(
+      '14.4 restore refusal has a console diagnostic',
+      Boolean(reported(mark, 'no longer matches')),
+    );
+
+    // 3. Preview comparison: the preview is stopped before the run finishes, so
+    //    there is no page to compare against. The outcome must be reported, not
+    //    passed off as "nothing changed".
+    await open(root);
+    await waitFor(
+      async () =>
+        String(await api.previewHtml()).includes('data-cauldron-source-loc'),
+      45000,
+    );
+    mark = errors.length;
+    const run3 = (await js(
+      `window.cauldron.startRun({ tool: 'claude', prompt: 'Comparison failure' })`,
+    )) as { ok: boolean; run?: { id: string } };
+    await js(`window.cauldron.stopPreview()`);
+    await wait(800);
+    const finished3 = (await js(
+      `window.cauldron.finishRun(${JSON.stringify(run3.run?.id ?? '')})`,
+    )) as { ok: boolean };
+    const three = await waitText('.statusbar', 'could not be compared', 12000);
+    console.log(
+      `CASE 3 FINISH ${JSON.stringify(finished3)} DOM ${JSON.stringify(three.text)}`,
+    );
+    console.log(
+      `CASE 3 STDERR ${JSON.stringify(reported(mark, 'could not be compared'))}`,
+    );
+    check(
+      '14.3 a failed preview comparison is visible in the window',
+      three.found,
+      String(three.text),
+    );
+    check(
+      '14.3 a failed preview comparison has a console diagnostic',
+      Boolean(reported(mark, 'could not be compared')),
+    );
+
+    // 6. A content draft that cannot be persisted. Recovery storage is made
+    //    unwritable, then a form field is typed into in the real panel.
+    if (!contentRoot) {
+      console.log('CASE 6 NOT RUN: no content site supplied');
+    } else {
+      fs.chmodSync(recoveryDir, 0o500);
+      await open(contentRoot);
+      await js(
+        `document.querySelector('nav.rail button[title="Content"]').click()`,
+      );
+      await wait(2500);
+      const entry = (await js(
+        `(() => { const b = [...document.querySelectorAll('ul button')][0]; if (!b) return null; b.click(); return b.textContent.trim(); })()`,
+      )) as string | null;
+      await wait(1200);
+      mark = errors.length;
+      const typed = (await js(
+        `(() => { const f = document.querySelector('input[id^="content-"]'); if (!f) return 'no field'; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(f, 'Injected failure value'); f.dispatchEvent(new Event('input', { bubbles: true })); return f.value; })()`,
+      )) as string;
+      const six = await waitText(
+        '.notice.bad',
+        'could not be kept as a draft',
+        12000,
+      );
+      console.log(
+        `CASE 6 ENTRY ${JSON.stringify(entry)} FIELD ${JSON.stringify(typed)}`,
+      );
+      console.log(`CASE 6 DOM ${JSON.stringify(six.text)}`);
+      console.log(`CASE 6 STDERR ${JSON.stringify(since(mark).slice(-3))}`);
+      check(
+        '14.6 an unpersistable content draft is visible in the panel',
+        six.found,
+        String(six.text),
+      );
+      fs.chmodSync(recoveryDir, 0o700);
+    }
+  } catch (error) {
+    console.error('FAILURE TEST ERROR', error);
+    check('FAILURE TEST ERROR', false, String(error));
+  } finally {
+    try {
+      fs.chmodSync(recoveryDir, 0o700);
+    } catch {
+      // Already writable.
+    }
+    console.log(
+      `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
+    );
+    app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
 }

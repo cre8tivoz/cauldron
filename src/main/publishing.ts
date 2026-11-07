@@ -16,6 +16,8 @@ export type RepoState = {
   changes: Change[];
   hasRemote: boolean;
   lastCommit: string;
+  /** Commits made locally that the upstream does not have yet. */
+  unpushed: number;
 };
 
 function git(root: string, args: string[]) {
@@ -41,6 +43,7 @@ export function repoState(root: string): RepoState {
       changes: [],
       hasRemote: false,
       lastCommit: '',
+      unpushed: 0,
     };
   }
   const status = git(root, ['status', '--porcelain']);
@@ -56,22 +59,58 @@ export function repoState(root: string): RepoState {
   const lastCommit = (
     git(root, ['log', '-1', '--pretty=%s']).stdout ?? ''
   ).trim();
+
+  // A commit whose upload failed is invisible to `git status`, so it has to be
+  // counted from the branch or a retry can never be offered (plan 5.1).
+  let unpushed = 0;
+  const upstream = git(root, [
+    'rev-parse',
+    '--abbrev-ref',
+    '--symbolic-full-name',
+    '@{u}',
+  ]);
+  if (upstream.status === 0) {
+    const ahead = git(root, ['rev-list', '--count', '@{u}..HEAD']);
+    const counted = Number.parseInt((ahead.stdout ?? '').trim(), 10);
+    if (ahead.status === 0 && Number.isFinite(counted)) unpushed = counted;
+  } else if (remotes !== '' && branch !== 'HEAD') {
+    const all = git(root, ['rev-list', '--count', 'HEAD']);
+    const counted = Number.parseInt((all.stdout ?? '').trim(), 10);
+    if (all.status === 0 && Number.isFinite(counted)) unpushed = counted;
+  }
+
   return {
     isRepo: true,
     branch,
     changes,
     hasRemote: remotes !== '',
     lastCommit,
+    unpushed,
   };
 }
 
 export type PublishResult =
-  | { ok: true; committed: number; pushed: boolean; message: string }
-  | { ok: false; problem: string; details?: string };
+  | {
+      ok: true;
+      committed: number;
+      pushed: boolean;
+      /** What happened to the local commit, on its own. */
+      commit: string;
+      /** What happened to the upload, on its own. */
+      upload: string;
+      message: string;
+    }
+  | {
+      ok: false;
+      problem: string;
+      details?: string;
+      /** Files committed before the upload failed, when that is the case. */
+      committed?: number;
+    };
 
 export function publish(
   root: string,
-  options: { message: string; push: boolean },
+  options: { message: string; push: boolean; unsavedBuffers?: number },
 ): PublishResult {
   if (!repoState(root).isRepo) {
     return {
@@ -81,101 +120,145 @@ export function publish(
     };
   }
 
-  // No publishing with edits still being typed.
-  const drafts = loadDrafts(root);
-  if (drafts.length > 0) {
+  // Edits still being typed in the window have not reached recovery storage yet,
+  // so they are as unsaved as the drafts that did (plan 5.1).
+  const unsaved = options.unsavedBuffers ?? 0;
+  if (unsaved > 0) {
     return {
       ok: false,
-      problem: `There ${drafts.length === 1 ? 'is' : 'are'} ${drafts.length} unsaved edit${drafts.length === 1 ? '' : 's'}. Save or discard them first.`,
+      problem: `There ${unsaved === 1 ? 'is' : 'are'} ${unsaved} unsaved edit${unsaved === 1 ? '' : 's'} still in the editor. Save or discard ${unsaved === 1 ? 'it' : 'them'} first.`,
+    };
+  }
+
+  // No publishing with edits still being typed.
+  const drafts = loadDrafts(root);
+  if (drafts.problem) return { ok: false, problem: drafts.problem };
+  if (drafts.drafts.length > 0) {
+    return {
+      ok: false,
+      problem: `There ${drafts.drafts.length === 1 ? 'is' : 'are'} ${drafts.drafts.length} unsaved edit${drafts.drafts.length === 1 ? '' : 's'}. Save or discard them first.`,
     };
   }
 
   const state = repoState(root);
-  if (state.changes.length === 0) {
+  if (state.changes.length === 0 && state.unpushed === 0) {
     return { ok: false, problem: 'Nothing has changed since the last commit.' };
   }
 
-  const message = options.message.trim();
-  if (message === '') {
-    return {
-      ok: false,
-      problem: 'A commit needs a message describing the change.',
-    };
-  }
-
-  const add = git(root, ['add', '-A']);
-  if (add.status !== 0) {
-    return {
-      ok: false,
-      problem: 'The changed files could not be staged.',
-      details: add.stderr ?? '',
-    };
-  }
-
-  const commit = git(root, ['commit', '-m', message]);
-  if (commit.status !== 0) {
-    return {
-      ok: false,
-      problem: 'The commit did not go through.',
-      details: `${commit.stdout ?? ''}${commit.stderr ?? ''}`
-        .trim()
-        .slice(-600),
-    };
-  }
-
-  let pushed = false;
-  if (options.push) {
-    if (!state.hasRemote) {
-      return {
-        ok: true,
-        committed: state.changes.length,
-        pushed: false,
-        message:
-          'Committed locally. This site has no remote, so nothing was pushed.',
-      };
-    }
-    const upstream = git(root, [
-      'rev-parse',
-      '--abbrev-ref',
-      '--symbolic-full-name',
-      '@{u}',
-    ]);
-    const remotes = (git(root, ['remote']).stdout ?? '')
-      .trim()
-      .split('\n')
-      .filter(Boolean);
-    const remote = remotes.includes('origin')
-      ? 'origin'
-      : remotes.length === 1
-        ? remotes[0]
-        : null;
-    if (upstream.status !== 0 && (!remote || state.branch === 'HEAD'))
+  let committed = 0;
+  if (state.changes.length > 0) {
+    const message = options.message.trim();
+    if (message === '') {
       return {
         ok: false,
-        problem:
-          'Committed locally. Choose a remote and branch in Git before pushing.',
-      };
-    const push = git(
-      root,
-      upstream.status === 0
-        ? ['push']
-        : ['push', '--set-upstream', remote!, state.branch],
-    );
-    if (push.status !== 0) {
-      return {
-        ok: false,
-        problem: 'The commit is in place, but the push failed.',
-        details: `${push.stdout ?? ''}${push.stderr ?? ''}`.trim().slice(-600),
+        problem: 'A commit needs a message describing the change.',
       };
     }
-    pushed = true;
+
+    const add = git(root, ['add', '-A']);
+    if (add.status !== 0) {
+      return {
+        ok: false,
+        problem: 'The changed files could not be staged.',
+        details: add.stderr ?? '',
+      };
+    }
+
+    const commit = git(root, ['commit', '-m', message]);
+    if (commit.status !== 0) {
+      return {
+        ok: false,
+        problem: 'The commit did not go through.',
+        details: `${commit.stdout ?? ''}${commit.stderr ?? ''}`
+          .trim()
+          .slice(-600),
+      };
+    }
+    committed = state.changes.length;
   }
 
+  const commitSummary =
+    committed > 0
+      ? `Committed ${committed} file(s) locally.`
+      : state.unpushed > 0
+        ? `${state.unpushed} commit(s) were already made locally; nothing new to commit.`
+        : 'Nothing new to commit.';
+
+  if (!options.push) {
+    const upload =
+      committed > 0 || state.unpushed > 0
+        ? 'Not uploaded: you asked for a commit only.'
+        : 'Not uploaded.';
+    return {
+      ok: true,
+      committed,
+      pushed: false,
+      commit: commitSummary,
+      upload,
+      message: `${commitSummary} ${upload}`,
+    };
+  }
+
+  if (!state.hasRemote) {
+    const upload = 'Not uploaded: this site has no remote.';
+    return {
+      ok: true,
+      committed,
+      pushed: false,
+      commit: commitSummary,
+      upload,
+      message: `${commitSummary} ${upload}`,
+    };
+  }
+
+  const upstream = git(root, [
+    'rev-parse',
+    '--abbrev-ref',
+    '--symbolic-full-name',
+    '@{u}',
+  ]);
+  const remotes = (git(root, ['remote']).stdout ?? '')
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  const remote = remotes.includes('origin')
+    ? 'origin'
+    : remotes.length === 1
+      ? remotes[0]
+      : null;
+  if (upstream.status !== 0 && (!remote || state.branch === 'HEAD'))
+    return {
+      ok: false,
+      problem:
+        'Committed locally. Choose a remote and branch in Git before pushing.',
+      committed,
+    };
+  const push = git(
+    root,
+    upstream.status === 0
+      ? ['push']
+      : ['push', '--set-upstream', remote!, state.branch],
+  );
+  if (push.status !== 0) {
+    return {
+      ok: false,
+      problem:
+        committed > 0
+          ? 'The commit is in place locally, but the upload failed.'
+          : 'The upload failed. The commit was already made earlier and is still local.',
+      details: `${push.stdout ?? ''}${push.stderr ?? ''}`.trim().slice(-600),
+      committed,
+    };
+  }
+
+  const upload = `Uploaded to ${(upstream.stdout ?? '').trim() || `${remote}/${state.branch}`}.`;
   return {
     ok: true,
-    committed: state.changes.length,
-    pushed,
-    message: 'Published.',
+    committed,
+    pushed: true,
+    commit: commitSummary,
+    upload,
+    message: `${commitSummary} ${upload}`,
   };
 }
 

@@ -65,11 +65,15 @@ const api = {
     file: string;
     baseHash: string;
     change: Record<string, string>;
+    keepMine?: boolean;
   }) => ipcRenderer.invoke('cauldron:save-entry', payload),
   library: () => ipcRenderer.invoke('cauldron:library'),
   repoState: () => ipcRenderer.invoke('cauldron:repo-state'),
-  publish: (payload: { message: string; push: boolean }) =>
-    ipcRenderer.invoke('cauldron:publish', payload),
+  publish: (payload: {
+    message: string;
+    push: boolean;
+    unsavedBuffers?: number;
+  }) => ipcRenderer.invoke('cauldron:publish', payload),
   macBuild: () => ipcRenderer.invoke('cauldron:mac-build'),
   qualityRun: (payload: { pages?: string[] }) =>
     ipcRenderer.invoke('cauldron:quality-run', payload),

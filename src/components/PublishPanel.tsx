@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 
 type Props = {
   site: CauldronSite | null;
+  /** Edits typed in the window that have not reached recovery storage yet. */
+  unsavedBuffers: number;
   onBack: () => void;
 };
 
 /** Publishing through the site's own Git repository (plan 5.1, 5.2). */
-export function PublishPanel({ site, onBack }: Props) {
+export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   const [state, setState] = useState<Awaited<
     ReturnType<CauldronApi['repoState']>
   > | null>(null);
@@ -26,13 +28,31 @@ export function PublishPanel({ site, onBack }: Props) {
   const send = async (push: boolean) => {
     setBusy(true);
     setResult(null);
-    const outcome = await window.cauldron.publish({ message, push });
+    const outcome = await window.cauldron.publish({
+      message,
+      push,
+      unsavedBuffers,
+    });
     setBusy(false);
-    setResult(
-      outcome.ok
-        ? (outcome.message ?? 'Published.')
-        : `${outcome.problem ?? 'That did not go through.'}${outcome.details ? `\n${outcome.details}` : ''}`,
-    );
+    const commit =
+      outcome.ok && outcome.commit
+        ? outcome.commit
+        : !outcome.ok && (outcome.committed ?? 0) > 0
+          ? `Committed ${outcome.committed} file(s) locally.`
+          : '';
+    const upload = outcome.ok && outcome.upload ? outcome.upload : '';
+    if (outcome.ok) {
+      setResult([commit, upload].filter(Boolean).join('\n'));
+    } else {
+      setResult(
+        [
+          commit,
+          `${outcome.problem ?? 'That did not go through.'}${outcome.details ? `\n${outcome.details}` : ''}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      );
+    }
     if (outcome.ok) setState(await window.cauldron.repoState());
   };
 
@@ -71,7 +91,17 @@ export function PublishPanel({ site, onBack }: Props) {
             {state.hasRemote
               ? ' · has a remote'
               : ' · no remote (commits stay local)'}
+            {state.unpushed > 0
+              ? ` · ${state.unpushed} commit(s) not uploaded yet`
+              : ''}
           </p>
+
+          {unsavedBuffers > 0 ? (
+            <div className="notice" style={{ marginTop: 12 }}>
+              {unsavedBuffers} edit(s) are still being typed and have not been
+              saved. Save or discard them before publishing.
+            </div>
+          ) : null}
 
           <h3 style={{ fontSize: 13, marginTop: 16 }}>
             {state.changes.length} changed file(s)
@@ -99,7 +129,7 @@ export function PublishPanel({ site, onBack }: Props) {
                 <button
                   className="button primary"
                   type="button"
-                  disabled={busy || message.trim() === ''}
+                  disabled={busy || unsavedBuffers > 0 || message.trim() === ''}
                   onClick={() => void send(false)}
                 >
                   Commit
@@ -108,12 +138,37 @@ export function PublishPanel({ site, onBack }: Props) {
                   <button
                     className="button"
                     type="button"
-                    disabled={busy || message.trim() === ''}
+                    disabled={
+                      busy || unsavedBuffers > 0 || message.trim() === ''
+                    }
                     onClick={() => void send(true)}
                   >
                     Commit and push
                   </button>
                 ) : null}
+              </div>
+            </>
+          ) : state.unpushed > 0 ? (
+            <>
+              <p className="hint">
+                The working tree is clean, but {state.unpushed} commit(s) have
+                not been uploaded yet.
+              </p>
+              <div className="notice-actions">
+                {state.hasRemote ? (
+                  <button
+                    className="button primary"
+                    type="button"
+                    disabled={busy || unsavedBuffers > 0}
+                    onClick={() => void send(true)}
+                  >
+                    Upload
+                  </button>
+                ) : (
+                  <p className="hint">
+                    Add a remote in Git before uploading. No commit was made.
+                  </p>
+                )}
               </div>
             </>
           ) : (

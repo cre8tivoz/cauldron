@@ -60,6 +60,22 @@ try {
     (events) => assert.equal(events.at(-1).type, 'error'),
   );
   await test(
+    '2.2 Claude edit tools report the file they wrote',
+    'claude',
+    `console.log(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',name:'Edit',input:{file_path:'/site/src/pages/index.astro',old_string:'a',new_string:'b'}},{type:'tool_use',name:'Bash',input:{command:'ls'}}]}})); console.log(JSON.stringify({type:'result',subtype:'success',result:'done'}));`,
+    (events) => {
+      const tools = events.filter((event) => event.type === 'tool');
+      assert.deepEqual(tools, [
+        {
+          type: 'tool',
+          name: 'Edit',
+          paths: ['/site/src/pages/index.astro'],
+        },
+        { type: 'tool', name: 'Bash' },
+      ]);
+    },
+  );
+  await test(
     '3.2 nonzero process exit overrides a success event',
     'claude',
     `console.log(JSON.stringify({type:'result',subtype:'success',result:'premature'})); process.exitCode=7;`,

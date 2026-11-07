@@ -215,6 +215,9 @@ export function Inspector({
               <input
                 id={`attr-${attribute.name}`}
                 defaultValue={attribute.value}
+                onChange={(event) =>
+                  onDraft(`attribute:${attribute.name}`, event.target.value)
+                }
                 onBlur={(event) => {
                   if (event.target.value !== attribute.value) {
                     onApplyAttribute(attribute.name, event.target.value);
@@ -298,6 +301,9 @@ export function Inspector({
               <input
                 id={`style-${name}`}
                 defaultValue={value}
+                onChange={(event) =>
+                  onDraft(`style:${name}`, event.target.value)
+                }
                 onBlur={(event) => {
                   if (event.target.value !== value) {
                     onApplyStyle({ [name]: event.target.value });
@@ -316,6 +322,9 @@ export function Inspector({
               <input
                 id={`style-new-${name}`}
                 placeholder="value"
+                onChange={(event) =>
+                  onDraft(`style:${name}`, event.target.value)
+                }
                 onBlur={(event) => {
                   if (event.target.value.trim() !== '') {
                     onApplyStyle({ [name]: event.target.value });

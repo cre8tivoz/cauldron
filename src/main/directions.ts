@@ -453,11 +453,28 @@ export function writeDirection(
   return { ok: true, id: direction.id, folder: 'cauldron' };
 }
 
-export function readDirection(root: string): DesignDirection | null {
+export type DirectionRead = {
+  direction: DesignDirection | null;
+  problem: string | null;
+};
+
+/** A missing design.json means no direction; a damaged one is reported (plan 4.2). */
+export function readDirection(root: string): DirectionRead {
+  const target = path.join(root, 'cauldron/design.json');
+  let text: string;
   try {
-    const parsed = JSON.parse(
-      fs.readFileSync(path.join(root, 'cauldron/design.json'), 'utf8'),
-    ) as {
+    text = fs.readFileSync(target, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return { direction: null, problem: null };
+    const problem = `The design setting could not be read: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    console.error(problem);
+    return { direction: null, problem };
+  }
+  try {
+    const parsed = JSON.parse(text) as {
       id?: string;
       tokens?: DesignDirection;
     };
@@ -468,9 +485,16 @@ export function readDirection(root: string): DesignDirection | null {
       parsed.tokens.fonts?.display?.family &&
       parsed.tokens.colours
     )
-      return parsed.tokens;
-    return parsed.id ? findDirection(parsed.id) : null;
-  } catch {
-    return null;
+      return { direction: parsed.tokens, problem: null };
+    return {
+      direction: parsed.id ? findDirection(parsed.id) : null,
+      problem: null,
+    };
+  } catch (error) {
+    const problem = `The design setting could not be read: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    console.error(problem);
+    return { direction: null, problem };
   }
 }
