@@ -14,6 +14,8 @@ Visual editing, the built-in agent and built-in design taste are all core. Desig
 
 ## 2. One authority, with history preserved
 
+**Original material is now in this repository.** Billy consolidated the research and evaluation folders under [`originalresearch/`](originalresearch/) and requested their inclusion so the receiving agent can inspect the underlying evidence, not just trust this plan or the audit. See [`REFERENCE-MATERIAL.md`](REFERENCE-MATERIAL.md) for the contents, preserved history, explicit exclusions and credential redactions, and the full transfer manifest. Use the original sources to check claims; reconcile dated decisions rather than treating old status text as current.
+
 This plan is the current rescue execution order and consolidated acceptance checklist, authorised by Billy's handoff request. It reconciles rather than silently replaces the original functional requirements. Resolve any genuinely new product choice with Billy; do not invent a deferral.
 
 Read in this order:
