@@ -1,0 +1,13 @@
+{
+  "id": "run-1794108191056",
+  "tool": "claude",
+  "prompt": "CLIENT BRIEF — PeNtA (artist website)\n\nThe client: PeNtA, a Melbourne experimental visual artist working across street art, generative work, audio, video and image-to-Python-code. Studio address 250 Brunswick St, Fitzroy VIC. Contact pentaco@proton.me.\n\nBuild a three-page static Astro site: Home, Gallery, Contact.\n\nHome: a type-led landing page. Make the artist's name the primary visual event; follow it with a short manifesto-style statement about process and experimentation, a small selection of works using images/selected1.webp to images/selected4.webp, and clear links to Gallery and Contact.\n\nGallery: an archive of still and moving work with a working filter for Stills / Video (no backend). Use the supplied images: IMG_5841.webp, IMG_5845.webp, abstract-composition-9.webp, abstract-shape-38.webp, retro collage 1.webp, retro collage 2.webp, retro collage 3.webp, san-francisco-cable-car-on-sunny-california-street-2-picjumbo-com.webp, plus images/herobg.webp and images/penta-artists.webp where useful. Treat the video items as poster tiles linking out; no embedded player required.\n\nContact: studio address, email link, and a labelled contact form that opens the visitor's mail client (or is clearly presented as a direct-email form); keep it simple and usable by keyboard.\n\nDesired feel: severe, type-led and gallery-like — closer to an art catalogue or a monochrome studio poster than a commercial portfolio. Type and space should carry the page. No colour accents, no soft cards, no gradients, no stock-photo gloss. All other design decisions are yours. Do not add pages, a CMS or a shop. Accessibility and mobile layouts matter. The site must build with `npm run build`.",
+  "startedAt": 1794108191056,
+  "finishedAt": 1794108194955,
+  "status": "finished",
+  "outside": [],
+  "problems": [],
+  "note": "No files changed.",
+  "highlighted": [],
+  "files": []
+}

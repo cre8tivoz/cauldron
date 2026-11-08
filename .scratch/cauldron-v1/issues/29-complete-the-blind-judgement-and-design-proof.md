@@ -178,3 +178,35 @@ Bounded fix pass on the current 10-direction enrichment; no new proof run, no ga
 
 `npm run check` exit 0; `npm run package` exit 0; packaged UI harness **28/28 passed**
 (`scratch/t29-enrich-final-result.md`). Ticket 29 and the release gate stay **open**.
+
+## Enriched-guidance PeNtA run — 8 Nov 2026 (Claude Code, blocked at auth)
+
+One intended real run, revision `df28b3f` plus the uncommitted `AGENTS.md` wording and a
+test-only `runBriefTest` tool selector (`CAULDRON_AGENT_TOOL`, default `codex`). Packaged
+once; brief byte-identical to `B-penta.txt` (sha256 `389bb121…a5773`); direction
+**Silver Screen**, whose enriched structure text was written to the site's
+`cauldron/DESIGN.md`/`design.json` and is part of the prompt built by `agent.ts`.
+
+Run `run-1794108191056` (tool `claude`) stopped immediately with
+`Not logged in · Please run /login`; `claude auth status` reports `loggedIn: false`,
+`authMethod: none`. No retry, no alternate provider, no credential change. `qualityRun`
+built the untouched scaffold (`built: true`, 1 page; 253 findings: 206 pass / 43 fail /
+4 opinion — `/gallery` and `/contact` measured as missing 404 routes). The stored run
+record says `finished` / `No files changed` while the app log and `waitForAgent` say
+failed. That was a real stored-history bug, corrected below; the run itself remains a
+failure at auth.
+
+Evidence: `.scratch/cauldron-v1/penta-enriched/` (README, app log, run record, quality
+report, site source, site tar.gz). No generated-site claim is made; no Home/Gallery/
+Contact content, filter, contact semantics, threshold or preview-route check exists.
+Ticket 29 and the release gate stay **open**; no waiver.
+
+### Correction — 8 Nov 2026 (stored record of a failed run)
+
+`Runs.fail()` corrected the run in memory but never saved it, so the record written by the
+earlier `finish()` — `finished` / `No files changed` — stayed on disk. `fail()` now saves the
+corrected run (`src/main/runs.ts`), covering agent errors, cancellation and library failures
+on the same path. `scripts/test-core.mjs` adds "a run that fails after its diff is saved as
+failed, not finished": red before (`saved record says finished`), green after; `npm run check`
+passes. This corrects the ticket 14/18 failure-reporting guarantee at the saved-history layer.
+The PeNtA run is unchanged: still blocked at auth, no site generated, release gate open.

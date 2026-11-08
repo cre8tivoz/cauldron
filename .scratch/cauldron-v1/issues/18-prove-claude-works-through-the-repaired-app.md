@@ -49,3 +49,11 @@ Ticket breakdown approved by Billy through the to-tickets approval form. Impleme
 - FIXTURE (a stand-in that speaks Claude's stream-json and calls the real connection, `scripts/fixtures/claude-standin.mjs`, through the same app path): conversation resume and memory, progress events, cancellation (process gone, run failed, never shown as success), a crash exit and an `is_error` result reported as failures, undo of an edit and an added file.
 
 **Limitations:** conversation memory, cancellation and failure were proven with the stand-in, not live Claude. The first proof attempts were refused because Claude Code was signed out on this Mac; Billy signed in and the real checks then passed.
+
+### Correction — 8 Nov 2026 (saved record)
+
+The failure guarantee above held in the app and in `waitForAgent`, but the saved run record
+still said `finished` / `No files changed` when the provider failed (seen with a signed-out
+Claude run). `Runs.fail()` now saves the corrected record (`src/main/runs.ts`); regression in
+`scripts/test-core.mjs` fails before the fix and passes after. No new Claude run was made and
+authentication was not changed.

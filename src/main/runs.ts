@@ -99,6 +99,8 @@ export class Runs {
     string,
     { files: Map<string, Buffer>; problems: string[] }
   >();
+  /** Where each run's site lives, so a later status change can be saved too. */
+  private roots = new Map<string, string>();
 
   start(root: string, tool: string, prompt: string): Run {
     const run: Run = {
@@ -115,6 +117,7 @@ export class Runs {
       highlighted: [],
     };
     this.before.set(run.id, snapshot(root));
+    this.roots.set(run.id, root);
     this.runs.push(run);
     return run;
   }
@@ -228,6 +231,11 @@ export class Runs {
     run.status = 'failed';
     run.finishedAt = Date.now();
     run.note = note;
+    // A run is diffed and saved as finished before its final event is known
+    // (finishAgentRun). Saving again here is what keeps the record the person
+    // reads — and the history on disk — from reporting a failed job as success.
+    const root = this.roots.get(id);
+    if (root) this.persist(root, run);
   }
 
   setHighlighted(

@@ -1,0 +1,7 @@
+# The untouched scaffold is preserved locally and in the archive, not app source.
+site/
+node_modules/
+dist/
+.astro/
+.DS_Store
+*.tar.gz

@@ -1,0 +1,2557 @@
+{
+  "built": true,
+  "builtAt": "2026-11-08T03:23:21.054Z",
+  "buildLog": "\u001b[2m14:23:15\u001b[22m \u001b[34m[vite]\u001b[39m Re-optimizing dependencies because vite config has changed\n\u001b[2m14:23:15\u001b[22m \u001b[34m[types]\u001b[39m Generated \u001b[2m83ms\u001b[22m\n\u001b[2m14:23:15\u001b[22m \u001b[34m[build]\u001b[39m output: \u001b[34m\"static\"\u001b[39m\n\u001b[2m14:23:15\u001b[22m \u001b[34m[build]\u001b[39m mode: \u001b[34m\"static\"\u001b[39m\n\u001b[2m14:23:15\u001b[22m \u001b[34m[build]\u001b[39m directory: \u001b[34m/Users/habibi/.hermes/profiles/claudia/cache/scratch/penta-enriched/sites/penta-cauldron/dist/\u001b[39m\n\u001b[2m14:23:15\u001b[22m \u001b[34m[build]\u001b[39m Collecting build info...\n\u001b[2m14:23:15\u001b[22m \u001b[34m[build]\u001b[39m \u001b[32m✓ Completed in 93ms.\u001b[39m\n\u001b[2m14:23:15\u001b[22m \u001b[34m[build]\u001b[39m Building static entrypoints...\n\u001b[2m14:23:16\u001b[22m \u001b[34m[vite]\u001b[39m \u001b[32m✓ built in 320ms\u001b[39m\n\u001b[2m14:23:16\u001b[22m \u001b[34m[vite]\u001b[39m \u001b[32m✓ built in 18ms\u001b[39m\n\u001b[2m14:23:16\u001b[22m \u001b[34m[build]\u001b[39m Rearranging server assets...\n\n\u001b[42m\u001b[30m generating static routes \u001b[39m\u001b[49m\n\u001b[2m14:23:16\u001b[22m   \u001b[34m├─\u001b[39m \u001b[2m/index.html\u001b[22m \u001b[2m(+5ms)\u001b[22m \n\u001b[2m14:23:16\u001b[22m \u001b[32m✓ Completed in 12ms.\n\u001b[39m\n\u001b[2m14:23:16\u001b[22m \u001b[34m[build]\u001b[39m \u001b[32m✓ Completed in 370ms.\u001b[39m\n\u001b[2m14:23:16\u001b[22m \u001b[34m[build]\u001b[39m 1 page(s) built in \u001b[1m465ms\u001b[22m\n\u001b[2m14:23:16\u001b[22m \u001b[34m[build]\u001b[39m \u001b[1mComplete!\u001b[22m\n\nnpm notice run build\nnpm notice run astro build",
+  "findings": [
+    {
+      "kind": "measured",
+      "id": "overflow-/-375",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/-375",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/-375",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/-375",
+      "label": "Automated accessibility (axe)",
+      "status": "pass",
+      "detail": "No axe violations against WCAG 2.1 A and AA.",
+      "page": "/",
+      "width": 375
+    },
+    {
+      "id": "taste-default-fonts-/-375",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/-375",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/-375",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/-375",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-accents-/-375",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/-375",
+      "label": "First fonts match the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "Observed: times.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/-375",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/-375",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:21.44px on h1; marginBottom:21.44px on h1",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/-375",
+      "label": "Type sizes use the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "32px on h1",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/-375",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/-375",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/-375",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/-375",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/-375",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured 21:1.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/-375",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/-375",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/-375",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/-375",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/-375",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/-375",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/-375",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/-768",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/-768",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/-768",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/-768",
+      "label": "Automated accessibility (axe)",
+      "status": "pass",
+      "detail": "No axe violations against WCAG 2.1 A and AA.",
+      "page": "/",
+      "width": 768
+    },
+    {
+      "id": "taste-default-fonts-/-768",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/-768",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/-768",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/-768",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-accents-/-768",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/-768",
+      "label": "First fonts match the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "Observed: times.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/-768",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/-768",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:21.44px on h1; marginBottom:21.44px on h1",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/-768",
+      "label": "Type sizes use the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "32px on h1",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/-768",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/-768",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/-768",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/-768",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/-768",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured 21:1.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/-768",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/-768",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/-768",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/-768",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/-768",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/-768",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/-768",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/-1280",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "fonts-/",
+      "label": "Fonts were ready before measuring",
+      "status": "pass",
+      "detail": "The page reported its fonts loaded before any measurement.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/-1280",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/-1280",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/-1280",
+      "label": "Automated accessibility (axe)",
+      "status": "pass",
+      "detail": "No axe violations against WCAG 2.1 A and AA.",
+      "page": "/",
+      "width": 1280
+    },
+    {
+      "id": "taste-default-fonts-/-1280",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/-1280",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/-1280",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/-1280",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "opinion-gradients-/",
+      "label": "Design opinion: blue-purple colours are part of this direction",
+      "status": "info",
+      "kind": "opinion",
+      "detail": "The direction names blue-purple colours, so the gradient is not counted as a failure. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/",
+      "width": 1280
+    },
+    {
+      "id": "taste-accents-/-1280",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/-1280",
+      "label": "First fonts match the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "Observed: times.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/-1280",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/-1280",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:21.44px on h1; marginBottom:21.44px on h1",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/-1280",
+      "label": "Type sizes use the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "32px on h1",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/-1280",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/-1280",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/-1280",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/-1280",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/-1280",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured 21:1.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/-1280",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/-1280",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/-1280",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/-1280",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/-1280",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/-1280",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/-1280",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "alt-/",
+      "label": "Images have alternative text",
+      "status": "pass",
+      "detail": "Every image has an alt.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "labels-/",
+      "label": "Form fields are labelled",
+      "status": "pass",
+      "detail": "Every field has a label.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "headings-/",
+      "label": "Headings are in order",
+      "status": "pass",
+      "detail": "1 h1, 1 headings.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "lang-/",
+      "label": "The page says what language it is",
+      "status": "pass",
+      "detail": "lang set, main landmark.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "names-/",
+      "label": "Buttons and links say what they do",
+      "status": "pass",
+      "detail": "Every control has a name.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "hierarchy-/",
+      "label": "The hierarchy is clear",
+      "status": "pass",
+      "detail": "Headings 32px, body 0px.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "links-/",
+      "label": "Internal links work",
+      "status": "pass",
+      "detail": "Checked 0 internal links.",
+      "page": "/"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/gallery-375",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/gallery",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/gallery-375",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/gallery",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/gallery-375",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/gallery",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/gallery-375",
+      "label": "Automated accessibility (axe)",
+      "status": "fail",
+      "detail": "2 rule(s) failed: document-title (1×), html-has-lang (1×)",
+      "page": "/gallery",
+      "width": 375
+    },
+    {
+      "id": "taste-default-fonts-/gallery-375",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/gallery-375",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/gallery-375",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/gallery-375",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-accents-/gallery-375",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/gallery-375",
+      "label": "First fonts match the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Observed: .",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/gallery-375",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/gallery-375",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:13px on pre; marginBottom:13px on pre",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/gallery-375",
+      "label": "Type sizes use the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/gallery-375",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/gallery-375",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/gallery-375",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/gallery-375",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/gallery-375",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured none.",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/gallery-375",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/gallery-375",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/gallery-375",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/gallery-375",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/gallery-375",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/gallery-375",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/gallery-375",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/gallery-768",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/gallery",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/gallery-768",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/gallery",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/gallery-768",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/gallery",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/gallery-768",
+      "label": "Automated accessibility (axe)",
+      "status": "fail",
+      "detail": "2 rule(s) failed: document-title (1×), html-has-lang (1×)",
+      "page": "/gallery",
+      "width": 768
+    },
+    {
+      "id": "taste-default-fonts-/gallery-768",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/gallery-768",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/gallery-768",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/gallery-768",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-accents-/gallery-768",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/gallery-768",
+      "label": "First fonts match the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Observed: .",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/gallery-768",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/gallery-768",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:13px on pre; marginBottom:13px on pre",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/gallery-768",
+      "label": "Type sizes use the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/gallery-768",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/gallery-768",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/gallery-768",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/gallery-768",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/gallery-768",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured none.",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/gallery-768",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/gallery-768",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/gallery-768",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/gallery-768",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/gallery-768",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/gallery-768",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/gallery-768",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/gallery-1280",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/gallery",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "fonts-/gallery",
+      "label": "Fonts were ready before measuring",
+      "status": "pass",
+      "detail": "The page reported its fonts loaded before any measurement.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/gallery-1280",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/gallery",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/gallery-1280",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/gallery",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/gallery-1280",
+      "label": "Automated accessibility (axe)",
+      "status": "fail",
+      "detail": "2 rule(s) failed: document-title (1×), html-has-lang (1×)",
+      "page": "/gallery",
+      "width": 1280
+    },
+    {
+      "id": "taste-default-fonts-/gallery-1280",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/gallery-1280",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/gallery-1280",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/gallery-1280",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "opinion-gradients-/gallery",
+      "label": "Design opinion: blue-purple colours are part of this direction",
+      "status": "info",
+      "kind": "opinion",
+      "detail": "The direction names blue-purple colours, so the gradient is not counted as a failure. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/gallery",
+      "width": 1280
+    },
+    {
+      "id": "taste-accents-/gallery-1280",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/gallery-1280",
+      "label": "First fonts match the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Observed: .",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/gallery-1280",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/gallery-1280",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:13px on pre; marginBottom:13px on pre",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/gallery-1280",
+      "label": "Type sizes use the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/gallery-1280",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/gallery-1280",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/gallery-1280",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/gallery-1280",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/gallery-1280",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured none.",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/gallery-1280",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/gallery-1280",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/gallery-1280",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/gallery-1280",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/gallery-1280",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/gallery-1280",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/gallery-1280",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/gallery",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "alt-/gallery",
+      "label": "Images have alternative text",
+      "status": "pass",
+      "detail": "Every image has an alt.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "labels-/gallery",
+      "label": "Form fields are labelled",
+      "status": "pass",
+      "detail": "Every field has a label.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "headings-/gallery",
+      "label": "Headings are in order",
+      "status": "fail",
+      "detail": "0 h1, 0 headings.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "lang-/gallery",
+      "label": "The page says what language it is",
+      "status": "fail",
+      "detail": "no lang, no main landmark.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "names-/gallery",
+      "label": "Buttons and links say what they do",
+      "status": "pass",
+      "detail": "Every control has a name.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "hierarchy-/gallery",
+      "label": "The hierarchy is clear",
+      "status": "pass",
+      "detail": "Headings px, body 0px.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "links-/gallery",
+      "label": "Internal links work",
+      "status": "pass",
+      "detail": "Checked 0 internal links.",
+      "page": "/gallery"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/contact-375",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/contact",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/contact-375",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/contact",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/contact-375",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/contact",
+      "width": 375
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/contact-375",
+      "label": "Automated accessibility (axe)",
+      "status": "fail",
+      "detail": "2 rule(s) failed: document-title (1×), html-has-lang (1×)",
+      "page": "/contact",
+      "width": 375
+    },
+    {
+      "id": "taste-default-fonts-/contact-375",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/contact-375",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/contact-375",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/contact-375",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-accents-/contact-375",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/contact-375",
+      "label": "First fonts match the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Observed: .",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/contact-375",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/contact-375",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:13px on pre; marginBottom:13px on pre",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/contact-375",
+      "label": "Type sizes use the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/contact-375",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/contact-375",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/contact-375",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/contact-375",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/contact-375",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured none.",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/contact-375",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/contact-375",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/contact-375",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/contact-375",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/contact-375",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/contact-375",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/contact-375",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 375,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/contact-768",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/contact",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/contact-768",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/contact",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/contact-768",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/contact",
+      "width": 768
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/contact-768",
+      "label": "Automated accessibility (axe)",
+      "status": "fail",
+      "detail": "2 rule(s) failed: document-title (1×), html-has-lang (1×)",
+      "page": "/contact",
+      "width": 768
+    },
+    {
+      "id": "taste-default-fonts-/contact-768",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/contact-768",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/contact-768",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/contact-768",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-accents-/contact-768",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/contact-768",
+      "label": "First fonts match the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Observed: .",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/contact-768",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/contact-768",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:13px on pre; marginBottom:13px on pre",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/contact-768",
+      "label": "Type sizes use the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/contact-768",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/contact-768",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/contact-768",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/contact-768",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/contact-768",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured none.",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/contact-768",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/contact-768",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/contact-768",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/contact-768",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/contact-768",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/contact-768",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/contact-768",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 768,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "overflow-/contact-1280",
+      "label": "No horizontal overflow",
+      "status": "pass",
+      "detail": "Fits the window.",
+      "page": "/contact",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "fonts-/contact",
+      "label": "Fonts were ready before measuring",
+      "status": "pass",
+      "detail": "The page reported its fonts loaded before any measurement.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "contrast-/contact-1280",
+      "label": "Text has enough contrast",
+      "status": "pass",
+      "detail": "Checked 1 text nodes; lowest 21:1.",
+      "page": "/contact",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "buttons-/contact-1280",
+      "label": "Button text has enough contrast",
+      "status": "pass",
+      "detail": "No buttons on this page.",
+      "page": "/contact",
+      "width": 1280
+    },
+    {
+      "kind": "measured",
+      "id": "axe-/contact-1280",
+      "label": "Automated accessibility (axe)",
+      "status": "fail",
+      "detail": "2 rule(s) failed: document-title (1×), html-has-lang (1×)",
+      "page": "/contact",
+      "width": 1280
+    },
+    {
+      "id": "taste-default-fonts-/contact-1280",
+      "label": "No unchosen default fonts",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-black-/contact-1280",
+      "label": "No pure black",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-cards-/contact-1280",
+      "label": "No cards inside cards",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-gradients-/contact-1280",
+      "label": "No tired blue-purple gradients",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Direction exception: blue-purple colours are named. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "opinion-gradients-/contact",
+      "label": "Design opinion: blue-purple colours are part of this direction",
+      "status": "info",
+      "kind": "opinion",
+      "detail": "The direction names blue-purple colours, so the gradient is not counted as a failure. Risk: a generic SaaS feel; prefer a solid colour for large areas.",
+      "page": "/contact",
+      "width": 1280
+    },
+    {
+      "id": "taste-accents-/contact-1280",
+      "label": "No unchosen generic SaaS accents",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-fonts-/contact-1280",
+      "label": "First fonts match the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "Observed: .",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-colours-/contact-1280",
+      "label": "Colours follow the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "1 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-spacing-/contact-1280",
+      "label": "Spacing follows the direction",
+      "status": "fail",
+      "kind": "measured",
+      "detail": "marginTop:13px on pre; marginBottom:13px on pre",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-type-/contact-1280",
+      "label": "Type sizes use the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-radius-/contact-1280",
+      "label": "Radii follow the direction",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-tokens-/contact-1280",
+      "label": "Tokens rather than hard-coded values",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 colour/spacing declarations hard-coded. ",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-emoji-/contact-1280",
+      "label": "No emoji used as interface icons",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-labels-/contact-1280",
+      "label": "Labels are not truncated",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-text-contrast-/contact-1280",
+      "label": "Text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured none.",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-button-contrast-/contact-1280",
+      "label": "Button text contrast meets the approved threshold",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 button(s) under 4.5:1.",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-keyboard-/contact-1280",
+      "label": "Interactive parts can be reached by keyboard",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0/0 reached using Tab.",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-/contact-1280",
+      "label": "Focus is visible on controls",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 without an indicator, 0 under 3:1. 0 control(s) not reached; the keyboard check reports those.",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-focus-threshold-/contact-1280",
+      "label": "Focus indicator is visible at 3:1 or better",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 reached control(s) had no indicator or one under 3:1 against its background. 0 control(s) could not be reached and are counted by the keyboard check.",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-hover-/contact-1280",
+      "label": "Controls have a visible hover state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-disabled-/contact-1280",
+      "label": "Controls have a visible disabled state",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "id": "taste-motion-/contact-1280",
+      "label": "Motion respects reduced-motion",
+      "status": "pass",
+      "kind": "measured",
+      "detail": "0 violation(s).",
+      "page": "/contact",
+      "width": 1280,
+      "scope": "site"
+    },
+    {
+      "kind": "measured",
+      "id": "alt-/contact",
+      "label": "Images have alternative text",
+      "status": "pass",
+      "detail": "Every image has an alt.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "labels-/contact",
+      "label": "Form fields are labelled",
+      "status": "pass",
+      "detail": "Every field has a label.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "headings-/contact",
+      "label": "Headings are in order",
+      "status": "fail",
+      "detail": "0 h1, 0 headings.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "lang-/contact",
+      "label": "The page says what language it is",
+      "status": "fail",
+      "detail": "no lang, no main landmark.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "names-/contact",
+      "label": "Buttons and links say what they do",
+      "status": "pass",
+      "detail": "Every control has a name.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "hierarchy-/contact",
+      "label": "The hierarchy is clear",
+      "status": "pass",
+      "detail": "Headings px, body 0px.",
+      "page": "/contact"
+    },
+    {
+      "kind": "measured",
+      "id": "links-/contact",
+      "label": "Internal links work",
+      "status": "pass",
+      "detail": "Checked 0 internal links.",
+      "page": "/contact"
+    },
+    {
+      "id": "opinion-ai-look",
+      "label": "The overall “AI look” is a person’s call",
+      "status": "info",
+      "kind": "opinion",
+      "detail": "No automatic measurement can decide whether a page feels generic. Camillo or Billy reviews the built page (approved taste test 4.1 #13)."
+    }
+  ],
+  "measured": [
+    {
+      "label": "Load (/ at 375px)",
+      "value": "64ms"
+    },
+    {
+      "label": "Scripts (/ at 375px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/ at 375px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/ at 768px)",
+      "value": "6ms"
+    },
+    {
+      "label": "Scripts (/ at 768px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/ at 768px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/ at 1280px)",
+      "value": "6ms"
+    },
+    {
+      "label": "Scripts (/ at 1280px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/ at 1280px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/gallery at 375px)",
+      "value": "7ms"
+    },
+    {
+      "label": "Scripts (/gallery at 375px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/gallery at 375px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/gallery at 768px)",
+      "value": "6ms"
+    },
+    {
+      "label": "Scripts (/gallery at 768px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/gallery at 768px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/gallery at 1280px)",
+      "value": "7ms"
+    },
+    {
+      "label": "Scripts (/gallery at 1280px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/gallery at 1280px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/contact at 375px)",
+      "value": "5ms"
+    },
+    {
+      "label": "Scripts (/contact at 375px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/contact at 375px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/contact at 768px)",
+      "value": "6ms"
+    },
+    {
+      "label": "Scripts (/contact at 768px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/contact at 768px)",
+      "value": "0kb"
+    },
+    {
+      "label": "Load (/contact at 1280px)",
+      "value": "6ms"
+    },
+    {
+      "label": "Scripts (/contact at 1280px)",
+      "value": "0"
+    },
+    {
+      "label": "HTML size (/contact at 1280px)",
+      "value": "0kb"
+    }
+  ]
+}

@@ -74,3 +74,12 @@ Ticket breakdown approved by Billy through the to-tickets approval form.
 ### Addendum — 7 Nov 2026 (batch 2)
 
 Batch 2's final verification found that damaged design settings were reported during start-up but then covered by "Preview running…", so they were not visible (`CAULDRON_FAILURE_TEST` 13/14). Fix (`src/main/index.ts` `openSiteAt`): after the preview starts, damaged recovery data and damaged design settings are reported together, so neither hides the other. New check "14.5a two failures at once both stay visible"; the failure suite now passes **15/15**.
+
+### Correction — 8 Nov 2026 (saved run record)
+
+A failed agent job was visible as failed in the app and in `waitForAgent`, but its saved run
+record still said `finished` / `No files changed`: `Runs.fail()` changed the status in memory
+only, after `Runs.finish()` had already written the record. `fail()` now saves the corrected
+record (`src/main/runs.ts`), so the failure stays visible in stored run history too; this also
+covers cancellation and library failures. Regression in `scripts/test-core.mjs`: "a run that
+fails after its diff is saved as failed, not finished"; red before, green after.

@@ -1952,7 +1952,11 @@ export async function runBriefTest(
         chosen.problem ?? '',
       );
     }
-    const started = api.sendAgent({ tool: 'codex', request });
+    const tool = (process.env.CAULDRON_AGENT_TOOL ?? 'codex') as
+      | 'claude'
+      | 'codex'
+      | 'hermes';
+    const started = api.sendAgent({ tool, request });
     check('brief agent started', started.ok, started.problem ?? '');
     if (!started.ok) return;
     const timeout = Number(process.env.CAULDRON_BRIEF_TIMEOUT ?? '900000');

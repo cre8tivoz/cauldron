@@ -1,5 +1,6 @@
 // Regression checks for the file-safety requirements in plan 1.3–1.5 and 2.1.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -975,6 +976,37 @@ test('2.2 added and removed files are listed and undone', () => {
     fs.readFileSync(path.join(site, 'src/pages/old.astro'), 'utf8'),
     'old page\n',
   );
+});
+
+// Ticket 29: a job that fails at the provider (signed out, cancelled) is diffed
+// and saved as finished before the failure is known. The saved record must be
+// corrected too, or the run history reports success for a job that did nothing.
+test('2.2 a run that fails after its diff is saved as failed, not finished', () => {
+  const { Runs } = runsApi();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-runs-home-'));
+  globalThis.__cauldronUserData = home;
+  const site = runSite('failed-persist');
+  const runs = new Runs();
+  const run = runs.start(site, 'claude', 'signed-out job');
+  const finished = runs.finish(site, run.id);
+  assert.equal(finished.status, 'finished');
+  assert.equal(finished.note, 'No files changed.');
+  runs.fail(run.id, 'Not logged in · Please run /login');
+  assert.equal(runs.get(run.id).status, 'failed');
+  const dir = path.join(
+    home,
+    'runs',
+    crypto
+      .createHash('sha256')
+      .update(Buffer.from(site))
+      .digest('hex')
+      .slice(0, 12),
+  );
+  const saved = JSON.parse(
+    fs.readFileSync(path.join(dir, `${run.id}.json`), 'utf8'),
+  );
+  assert.equal(saved.status, 'failed', `saved record says ${saved.status}`);
+  assert.match(saved.note, /Not logged in/);
 });
 
 // Ticket 14: uncertainty is never reported as an empty or successful result.
