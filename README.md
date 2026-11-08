@@ -4,7 +4,7 @@ Cauldron is a free Mac app for building websites with [Astro](https://astro.buil
 
 It's open source and free, and it stays that way.
 
-**It's early days.** Right now Cauldron opens a window and that's about it. There's no editor to use yet and no download. This repository is where it's being built, in public.
+**Rescue in progress — not release-ready.** The editor and packaged test build exist, but ordinary site generation has a confirmed failure: unresolved generated font imports can break rendering while the run is recorded as finished. Start with [RESCUE-PLAN.md](RESCUE-PLAN.md) for the consolidated specification, priority order, audit evidence and whole-product acceptance checklist. Existing test totals do not establish a working product.
 
 ## Try it
 

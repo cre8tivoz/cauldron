@@ -1,0 +1,991 @@
+{
+  "audit": "cauldron-original-intent-vs-current-build",
+  "round": 2,
+  "source_commit_verified": "e144e1f46c96b19b9dc5fbd6a037b1764de031ac",
+  "jev": {
+    "round1": {
+      "requests": 36,
+      "input_tokens": 23686,
+      "estimated_usd": 0.000995,
+      "ledger": "raw/results.jsonl"
+    },
+    "round2": {
+      "requests": 23,
+      "input_tokens": 23018,
+      "estimated_usd": 0.000967,
+      "ledger": "raw2/results.jsonl",
+      "reversed_choice_agreement": "19/20 (1.4 disagreed: review band, kept as saved)",
+      "controls": {
+        "C-P4": {
+          "supported": 0.62,
+          "verdict": "review",
+          "note": "true claim landed in the review band - saved raw, not tuned; consistent with a summary (not raw logs) supplied as state"
+        },
+        "C-N6": {
+          "supported": 0.02,
+          "verdict": "rejected"
+        },
+        "C-N7": {
+          "supported": 0.02,
+          "verdict": "rejected",
+          "note": "tinydogs first-use false claim correctly rejected"
+        }
+      }
+    },
+    "model_returned": "jev-1.14.0",
+    "total_estimated_usd": 0.001962,
+    "cap_usd": 0.5,
+    "note": "estimate from API-reported input tokens x published rate US$0.042/Mtok (output free); not a verified charge"
+  },
+  "controls_round1": [
+    {
+      "id": "C-P1",
+      "supported": 0.88,
+      "goes_beyond": 0.06,
+      "verdict": "holds"
+    },
+    {
+      "id": "C-P2",
+      "supported": 0.42,
+      "goes_beyond": 0.8,
+      "verdict": "review"
+    },
+    {
+      "id": "C-P3",
+      "supported": 0.89,
+      "goes_beyond": 0.14,
+      "verdict": "holds"
+    },
+    {
+      "id": "C-N1",
+      "supported": 0.02,
+      "goes_beyond": 0.89,
+      "verdict": "rejected"
+    },
+    {
+      "id": "C-N2",
+      "supported": 0.03,
+      "goes_beyond": 0.96,
+      "verdict": "rejected"
+    },
+    {
+      "id": "C-N3",
+      "supported": 0.04,
+      "goes_beyond": 0.89,
+      "verdict": "rejected"
+    },
+    {
+      "id": "C-N4",
+      "supported": 0.02,
+      "goes_beyond": 0.71,
+      "verdict": "rejected"
+    },
+    {
+      "id": "C-N5",
+      "supported": 0.03,
+      "goes_beyond": 0.63,
+      "verdict": "rejected"
+    }
+  ],
+  "real_use_failure": {
+    "case": "tinydogs new-project workflow, Billy Mac, 8 Nov 2026",
+    "observed": "Created project under /Users/habibi/Documents/OPENAI PROJECTS/tinydogs. Agent wrote src/layouts/Base.astro:2-4 importing @fontsource/playfair-display/500.css and @fontsource/jost/{400,500}.css; package.json dependencies contain only astro 7.4.7. Parent APFS-cloned the project unchanged and npm run build exits 1: [vite]: Rolldown failed to resolve import \"@fontsource/playfair-display/500.css\". No preview ran; only project creation worked.",
+    "saved_run": "/Users/habibi/Library/Application Support/Cauldron/runs/c805630eb824/run-1794138419087.json: Codex prompt \"Design a site for a boutique breeder called tiny dogs\", status finished, problems [], 4 files changed.",
+    "source_facts": "src/main/index.ts:1787-1814 finishAgentRun: reloadPreview + collectLocs, then runs.finish; only marks failed if the agent reported an error note; collectLocs problem discards highlights, not an error; no build/render-health validation at run completion.",
+    "product_gaps": [
+      "Generated dependency failure: an agent may import packages absent from dependencies; nothing validates this or offers to install them.",
+      "Completion does not check render/build health: a site that cannot build is recorded as a finished run with no problems and no preview."
+    ],
+    "handling": "Decisive primary evidence overriding generic positive test summaries. Cause analysis and any repair remain with the parent; no app repair performed by this audit."
+  },
+  "requirements": [
+    {
+      "id": "0.1",
+      "title": "Repository, licence, scaffold, automated checks",
+      "priority": "core",
+      "source": {
+        "path": "cauldron-astro/CAULDRON-ASTRO-PLAN.md:63",
+        "quote": "In cre8tivoz/cauldron: MIT licence, README, an Electron app that opens a window, and automatic checks on every change... Everything on current versions. CI green."
+      },
+      "implementation": "App repo at HEAD e144e1f; AGENTS.md requires npm run check + smoke before every commit; CI gate.",
+      "evidence": "CI run 42476500982 passed check/package + separate-Mac launch on current head (parent-reported); live git HEAD verified e144e1f.",
+      "my_status": "built_exercised",
+      "caveat": "Shutdown-time IPC sender-refusal warnings still printed by smoke (plan-verification.md R6/finding 10).",
+      "jev": {
+        "id": "0.1",
+        "implemented": 0.59,
+        "real_user_path": 0.38,
+        "any_fits": 0.86,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Shutdown warning not reproduced at 3778e10 (3x CLOSE PASS) but not proven absent; 16 moderate dev-only advisories upstream-unfixed (ticket 26).",
+      "jev_round2": {
+        "implemented": 0.37,
+        "real_user_path": 0.3,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.84,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "0.2",
+      "title": "Research and application-code separation (nothing copied)",
+      "priority": "core",
+      "source": {
+        "path": "plan 0.2 + ADR 0002",
+        "quote": "Research stays outside the Cauldron repository. We use it to understand how things work, then write our own code."
+      },
+      "implementation": "Research lives in cauldron-astro workspace; app README says research is reference only.",
+      "evidence": "docs inspected; no code-authorship/licence audit claimed (plan-verification 0.2 row).",
+      "my_status": "built_exercised",
+      "caveat": "No complete provenance audit; claims of authorship rest on inspection only.",
+      "jev": {
+        "id": "0.2",
+        "implemented": 0.29,
+        "real_user_path": 0.08,
+        "any_fits": 0.65,
+        "strength_choice": "source_or_docs_only",
+        "jev_view": "missing",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "No complete code-authorship/licence audit claimed (plan-verification 0.2).",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "0.3",
+      "title": "Named real test-site copies (WDLsite, rudeboycoffee)",
+      "priority": "core",
+      "source": {
+        "path": "plan 0.3",
+        "quote": "Cauldron is tested against them from its first working build, not just against a tiny practice site."
+      },
+      "implementation": "Disposable copies used in editor/library/content suites.",
+      "evidence": "Both copied sites exercised at checkpoint 82fc6c6 (23/23 editor each); originals excluded from edits.",
+      "my_status": "built_exercised",
+      "caveat": "Each later acceptance run must use fresh copies.",
+      "jev": {
+        "id": "0.3",
+        "implemented": 0.7,
+        "real_user_path": 0.47,
+        "any_fits": 0.85,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Fresh copies used per run; originals excluded.",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "1.1",
+      "title": "Open an Astro site and preview it (install never silent)",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.1",
+        "quote": "Open a folder, confirm it's an Astro site, and start its live preview automatically. If something needs installing, say so and ask. Never install silently."
+      },
+      "implementation": "src/main/site.ts detectSite/startDevServer; index.ts open flow; dependencies.ts consent-gated installs (line 94).",
+      "evidence": "issue32 71/71 packaged UI run includes open, consent, refused/missing-folder paths; editor suites 23/23 both sites; embedded preview proven from child view.",
+      "my_status": "built_exercised",
+      "caveat": "Native Finder dialog itself never clicked in foreground (manifest native_dialog_foreground_verified:false).",
+      "jev": {
+        "id": "1.1",
+        "implemented": 0.7,
+        "real_user_path": 0.8,
+        "any_fits": 0.81,
+        "strength_choice": "real_user_path_exercised",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Native Finder dialog itself never clicked in a foreground session (issue32 manifest native_dialog_foreground_verified:false).",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "1.2",
+      "title": "Select element in preview, edit text/settings/styles into real files",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.2",
+        "quote": "Click an element in the preview to select it, then change its text, settings and styles. Changes land in the real Astro files and appear in the preview."
+      },
+      "implementation": "Inspector.tsx, PreviewStage.tsx, src/main/edit.ts, actions.ts.",
+      "evidence": "Editor suites 23/23 on both sites (checkpoint 82fc6c6) cover selection and text edits.",
+      "my_status": "built_exercised",
+      "caveat": "Evidence predates issue32 corrections; broader attribute/style paths flagged as needing full walkthrough (finding 01).",
+      "jev": {
+        "id": "1.2",
+        "implemented": 0.57,
+        "real_user_path": 0.49,
+        "any_fits": 0.82,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Re-proven by tickets 15 (30/30, 32/32 packaged) and 22 after checkpoint 82fc6c6; ticket-15 evidence precedes issue-32 changes, whose diff touched no editor call path (verified: e144e1f touched agent.ts/index.ts/preview.ts only).",
+      "jev_round2": {
+        "implemented": 0.92,
+        "real_user_path": 0.91,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.87,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "1.3",
+      "title": "Version-checked saves, Undo/Redo with base versions; outside edit survives undo",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.3",
+        "quote": "Every save knows what it was based on... change a style, edit something else in the same file outside the app, press Undo, and the outside edit must survive. (This is exactly where Stacki fails.)"
+      },
+      "implementation": "src/main/history.ts, edit.ts; merge-or-refuse undo.",
+      "evidence": "Deterministic stale-write and non-overlapping-undo regression tests pass (plan-verification 1.3).",
+      "my_status": "built_exercised",
+      "caveat": "Not every save/style/source path re-verified against the literal acceptance scenario on final head.",
+      "jev": {
+        "id": "1.3",
+        "implemented": 0.56,
+        "real_user_path": 0.07,
+        "any_fits": 0.8,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 15 packaged runs cover merge/refuse/keep-mine/use-disk and outside-edit-survives-undo.",
+      "jev_round2": {
+        "implemented": 0.86,
+        "real_user_path": 0.84,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.89,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "1.4",
+      "title": "One outside-change rule across all save paths",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.4",
+        "quote": "merge automatically if the changes don't overlap. If they do, keep both and ask 'keep mine / use the disk version'. Every save path follows the same rule."
+      },
+      "implementation": "Inspector merge/refuse + conflict choice; shared action path version-checked.",
+      "evidence": "Safe merge and overlapping refusal exercised (plan-verification 1.4).",
+      "my_status": "partial",
+      "caveat": "Keep-mine/use-disk choice and action-path consistency flagged as remaining acceptance work.",
+      "jev": {
+        "id": "1.4",
+        "implemented": 0.45,
+        "real_user_path": 0.29,
+        "any_fits": 0.79,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Content keep-mine/use-disk added by ticket 15; 9/9 content suite; Jev reversed-order Choice disagreed (review band) - kept as saved.",
+      "jev_round2": {
+        "implemented": 0.55,
+        "real_user_path": 0.47,
+        "strength": "source_or_docs_only",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": false,
+        "any_fits": 0.84,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "1.5",
+      "title": "Files keep their shape (unknown syntax preserved)",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.5",
+        "quote": "Anything Cauldron doesn't understand in a file stays exactly as written. Tested on the Phase 0.3 sites, not assumed."
+      },
+      "implementation": "Surgical edit path; byte-exact regression cases in scripts/test-core.mjs.",
+      "evidence": "Opaque syntax, escaping, byte-exact regression cases pass (plan-verification 1.5).",
+      "my_status": "built_exercised",
+      "caveat": "Bounded fixtures; arbitrary Astro source not provable.",
+      "jev": {
+        "id": "1.5",
+        "implemented": 0.38,
+        "real_user_path": 0.09,
+        "any_fits": 0.8,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Byte-for-byte checks in ticket 15 editor suites; bounded fixtures.",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "1.6",
+      "title": "Crash recovery of unsaved edits",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.6",
+        "quote": "Unsaved edits are saved every few seconds to a recovery area outside the site, and offered back after a crash."
+      },
+      "implementation": "src/main/recovery.ts; persisted-draft guard (issue32).",
+      "evidence": "Draft storage/restore exercised; issue32 UI run covers unsaved-switch guard with explicit discard.",
+      "my_status": "partial",
+      "caveat": "Actual crash/restart and all buffer paths not covered (finding 01); CAULDRON_CRASH_TEST exists but evidence at final head not shown.",
+      "jev": {
+        "id": "1.6",
+        "implemented": 0.19,
+        "real_user_path": 0.19,
+        "any_fits": 0.74,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "missing",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Real SIGKILL crash/restart restore 7/7 through packaged UI (ticket 13, 4 runs); only element text typed in the crash run.",
+      "jev_round2": {
+        "implemented": 0.86,
+        "real_user_path": 0.95,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.9,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "1.7",
+      "title": "New page appears in preview without reload",
+      "priority": "important",
+      "source": {
+        "path": "plan 1.7",
+        "quote": "A newly created page shows in the preview without a reload."
+      },
+      "implementation": "Route-readiness path in site/preview.",
+      "evidence": "Both editor suites pass the route-readiness scenario (plan-verification 1.7).",
+      "my_status": "built_exercised",
+      "caveat": "",
+      "jev": {
+        "id": "1.7",
+        "implemented": 0.81,
+        "real_user_path": 0.36,
+        "any_fits": 0.9,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "partial",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 15 editor suites include new-page-without-reload.",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "1.8",
+      "title": "Preview cannot reach the editor",
+      "priority": "core",
+      "source": {
+        "path": "plan 1.8",
+        "quote": "The website preview only gets a small reporting channel... A website, or a script an agent adds to one, can never reach editing powers."
+      },
+      "implementation": "Isolated preview bridge; IPC sender validation; symlink path checks.",
+      "evidence": "Isolation regressions pass; live preview lacks Node/editor bridge (plan-verification 1.8).",
+      "my_status": "built_exercised",
+      "caveat": "Hostile frame/channel coverage incomplete; smoke shutdown warnings remain.",
+      "jev": {
+        "id": "1.8",
+        "implemented": 0.69,
+        "real_user_path": 0.39,
+        "any_fits": 0.77,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 15 suites confirm no editing bridge/Node access in preview; shutdown warnings not reproduced (ticket 26).",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "2.1",
+      "title": "One set of shared editing actions (visual, agent, outside agents)",
+      "priority": "core",
+      "source": {
+        "path": "plan 2.1",
+        "quote": "The visual controls, the agent panel and outside agents all use these same actions. Every change states which version it was based on."
+      },
+      "implementation": "src/main/actions.ts shared action layer; agents guided to mcp__cauldron__ actions (agent.ts:137-145).",
+      "evidence": "Claude MCP tool use shown in real run; visual/action/MCP code inspected (plan-verification 2.1).",
+      "my_status": "partial",
+      "caveat": "Codex/Hermes action-connection proof and all direct-writer paths incomplete (finding 02); issue32 Codex reply used Cauldron actions read-only.",
+      "jev": {
+        "id": "2.1",
+        "implemented": 0.33,
+        "real_user_path": 0.56,
+        "any_fits": 0.79,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 17: same edit via visual, in-app action channel and outside-agent connection; stale refused on all three; 35/35 re-run on final code.",
+      "jev_round2": {
+        "implemented": 0.75,
+        "real_user_path": 0.86,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.91,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "2.2",
+      "title": "Reviewable agent runs; whole-run undo; Before/After toggle",
+      "priority": "core",
+      "source": {
+        "path": "plan 2.2",
+        "quote": "Each agent job becomes a run... A whole run can be undone in one step... Version one also has a Before/After toggle that highlights the parts of the page a run changed."
+      },
+      "implementation": "src/main/runs.ts, compare.ts; run review UI.",
+      "evidence": "Changed-file list, run undo, conflict refusal exercised (plan-verification 2.2).",
+      "my_status": "partial",
+      "caveat": "Full rendered text/style/removal comparison evidence incomplete (finding 03).",
+      "jev": {
+        "id": "2.2",
+        "implemented": 0.28,
+        "real_user_path": 0.26,
+        "any_fits": 0.79,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "missing",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Tickets 12 (whole-run undo packaged 30/30, 32/32) and 21 (Before/After 16/16 driving real buttons); failed runs now saved as failed (regression).",
+      "jev_round2": {
+        "implemented": 0.87,
+        "real_user_path": 0.92,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.9,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "3.1",
+      "title": "Agreed desktop workspace: agent left, preview centre, controls right; 1280x800 min",
+      "priority": "core",
+      "source": {
+        "path": "plan 3.1",
+        "quote": "Agent column on the left, live preview in the centre, visual controls on the right (Billy's decision). Resizable, collapsible panels... Smallest supported window: 1280 x 800."
+      },
+      "implementation": "App.tsx layout, Splitter.tsx, TopBar, StatusBar; ProjectHome for pre-open state.",
+      "evidence": "Three columns and minimum size exist; UI harness added (plan-verification 3.1); screenshots 3/4 show real editor and home.",
+      "my_status": "partial",
+      "caveat": "Selection context, device-width scaling, panel persistence need reconciliation (finding 04).",
+      "jev": {
+        "id": "3.1",
+        "implemented": 0.75,
+        "real_user_path": 0.83,
+        "any_fits": 0.85,
+        "strength_choice": "real_user_path_exercised",
+        "jev_view": "built_exercised",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 22: 20/20 at 3.1; real splitter/collapse controls; fonts/accent verified; no device scaling/panel persistence (out of v1 or unverified).",
+      "jev_round2": {
+        "implemented": 0.86,
+        "real_user_path": 0.89,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.88,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "3.2",
+      "title": "Agent panel running Claude Code, Codex and Hermes, each tested end to end",
+      "priority": "core",
+      "source": {
+        "path": "plan 3.2",
+        "quote": "Version one supports Claude Code, Codex and Hermes, each tested end to end before support is claimed (Billy's decision)."
+      },
+      "implementation": "src/main/agent.ts commands for all three (lines 400-526); AgentPanel UI.",
+      "evidence": "Claude 12/12 with edit, resume (82fc6c6); Codex single real read-only reply through UI at issue32; screenshots 1-4 show real app.",
+      "my_status": "partial",
+      "caveat": "Hermes not proven through repaired home; Codex continuity unverified; one read-only reply is thin support for 'tested end to end'.",
+      "jev": {
+        "id": "3.2",
+        "implemented": 0.15,
+        "real_user_path": 0.46,
+        "any_fits": 0.72,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "missing",
+        "n_answers": 1
+      },
+      "status": "partial",
+      "caveat_round2": "All three agents have real packaged-app proofs (Claude 37/37, Codex 20/20, Hermes 13/13, each re-run on final code). BUT real-use failure: the tinydogs Codex job wrote an unbuildable site recorded as finished/problems[] - run-outcome accuracy at whole-site generation scope not held; proof harnesses did not cover ad-hoc whole-site generation.",
+      "jev_round2": {
+        "implemented": 0.71,
+        "real_user_path": 0.88,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.87,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "3.3",
+      "title": "Outside-agent MCP access on localhost with per-site code",
+      "priority": "important",
+      "source": {
+        "path": "plan 3.3",
+        "quote": "The same actions are offered to Claude Code, Codex, Hermes and others through a local MCP connection... only on this computer, with a per-site access code."
+      },
+      "implementation": "src/main/mcp.ts; connection details exposed in UI (screenshot shows 'Connect an outside agent').",
+      "evidence": "Claude MCP tools invoked through real adapter; wrong-code protocol test passes (plan-verification 3.3).",
+      "my_status": "partial",
+      "caveat": "Only Claude proven end to end; other claimed clients need proof.",
+      "jev": {
+        "id": "3.3",
+        "implemented": 0.45,
+        "real_user_path": 0.41,
+        "any_fits": 0.83,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 17 security matrix (401, port refusal after close); Codex/Hermes receive the connection; scope note: standalone reverse control outside v1 per current AGENTS.md (supersedes historical 3.3 plan wording about reverse control).",
+      "jev_round2": {
+        "implemented": 0.89,
+        "real_user_path": 0.72,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.89,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "3.4",
+      "title": "Content forms from Astro content definitions with fallback",
+      "priority": "important",
+      "source": {
+        "path": "plan 3.4",
+        "quote": "Forms built from your site's Astro content definitions, with a warning when they're out of date and plain-text editing as a fallback."
+      },
+      "implementation": "ContentPanel.tsx, src/main/content.ts; schema-hash checks.",
+      "evidence": "Rudeboycoffee content 6/6; schema and quoting regressions pass (plan-verification 3.4).",
+      "my_status": "built_exercised",
+      "caveat": "Nested/unsupported definitions and recovery edges remain bounded (finding 05).",
+      "jev": {
+        "id": "3.4",
+        "implemented": 0.78,
+        "real_user_path": 0.44,
+        "any_fits": 0.87,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "partial",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 11 fixes + regressions; 6/6 + 9/9 packaged content suites.",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    },
+    {
+      "id": "4.1",
+      "title": "Taste rules always on, direction wins with explanation",
+      "priority": "core",
+      "source": {
+        "path": "plan 4.1",
+        "quote": "Every agent job carries Cauldron's taste rules... When a site's chosen direction clashes with a taste rule, the direction wins, but Cauldron tells the person why."
+      },
+      "implementation": "tastes.ts tasteRulesText injected on every agent job (agent.ts:163); taste-check.ts.",
+      "evidence": "Rules carried in prompts; negative controls and scoped library checks exist (plan-verification 4.1).",
+      "my_status": "partial",
+      "caveat": "Four-target changed-output scope and exact focus-contrast criterion incomplete (finding 06).",
+      "jev": {
+        "id": "4.1",
+        "implemented": 0.68,
+        "real_user_path": 0.17,
+        "any_fits": 0.82,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 24 change-scope 16/16 + whole-site 20/20 with negative controls; ticket 29 false-positive fixes with red/green.",
+      "jev_round2": {
+        "implemented": 0.84,
+        "real_user_path": 0.12,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.89,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "4.2",
+      "title": "Design direction per site from starter set or reference URL, saved as tokens",
+      "priority": "core",
+      "source": {
+        "path": "plan 4.2",
+        "quote": "Each site gets a chosen direction from Cauldron's small starter set... or a look pulled from a reference URL... saved inside the site as design tokens plus a plain design document the agent reads on every job."
+      },
+      "implementation": "directions.ts (10 enriched directions incl. Componine/Niki/Henry From Online, df28b3f); reference.ts.",
+      "evidence": "Seven named references, site-owned tokens, inspector choices exist (plan-verification 4.2).",
+      "my_status": "partial",
+      "caveat": "Reference-URL extraction walkthrough unverified at final head; direction-token output compliance only scoped-checked.",
+      "jev": {
+        "id": "4.2",
+        "implemented": 0.42,
+        "real_user_path": 0.26,
+        "any_fits": 0.83,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Reference-URL direction measured/saved/used (ticket 24); harness-bypass 4.2 fixed (ticket 29 follow-up 28/28).",
+      "jev_round2": {
+        "implemented": 0.84,
+        "real_user_path": 0.82,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.86,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "4.3",
+      "title": "Component library starter set, copied into site, plain Astro, direction-shaped",
+      "priority": "core",
+      "source": {
+        "path": "plan 4.3",
+        "quote": "A small starter set... Built-in pieces drop into a site with previews and 'add' or 'replace'... Added components are copied into the site as its own normal, editable files."
+      },
+      "implementation": "library.ts LIBRARY/addPiece/piecePreview; LibraryPanel.tsx; transactional ops.",
+      "evidence": "Both site copies 11/11 including real build, direction/state checks, three widths, axe (plan-verification 4.3).",
+      "my_status": "built_exercised",
+      "caveat": "All nine per-component criteria (exact Replace/undo) not fully covered (finding 07).",
+      "jev": {
+        "id": "4.3",
+        "implemented": 0.38,
+        "real_user_path": 0.75,
+        "any_fits": 0.84,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 25: all nine checks x five pieces x both sites; rudeboy 69/69, WDL 68/69 (one intermittent Tab-reach, cause not isolated).",
+      "jev_round2": {
+        "implemented": 0.61,
+        "real_user_path": 0.79,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.84,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "4.4",
+      "title": "Measured quality and critique loop to the agent",
+      "priority": "important",
+      "source": {
+        "path": "plan 4.4",
+        "quote": "measure: layout overflow at phone/tablet/desktop sizes, keyboard use, automated accessibility, broken links and speed... Plain-English feedback goes to the agent to apply."
+      },
+      "implementation": "quality.ts, contrast.ts, QualityPanel.tsx.",
+      "evidence": "Both quality harnesses 9/9; real quality feedback proof recorded (8b94c06); site failures reported separately.",
+      "my_status": "partial",
+      "caveat": "Keyboard/focus thresholds and feedback-to-agent acceptance incomplete (finding 06).",
+      "jev": {
+        "id": "4.4",
+        "implemented": 0.3,
+        "real_user_path": 0.47,
+        "any_fits": 0.79,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "partial",
+      "caveat_round2": "Feedback->agent->remeasure proven once 12/12 with real Codex (ticket 23 final); reliability over many runs rests on one run; measured/failure/opinion separation implemented.",
+      "jev_round2": {
+        "implemented": 0.65,
+        "real_user_path": 0.43,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.7,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "4.5",
+      "title": "Two real briefs built twice; Cauldron must win Billy's blind judgement",
+      "priority": "core",
+      "source": {
+        "path": "plan 4.5",
+        "quote": "Two contrasting real briefs, each built twice... Billy judges the results blind... Cauldron's versions must win... If they don't, version one doesn't ship. (Agreed by Billy.)"
+      },
+      "implementation": "Brief/comparison harness (CAULDRON_BRIEF_TEST, CAULDRON_COMPARE_TEST); briefs recorded e15138f.",
+      "evidence": "spec.md: Billy accepted the reviewed PeNtA iteration as the design win; verdict closed (AGENTS.md). Earlier fictional drafts were rejected as insufficient.",
+      "my_status": "built_exercised",
+      "caveat": "Whether the final comparisons used two genuinely 'real' briefs rests on ticket records; Billy's judgement is the release gate and it is recorded as passed.",
+      "jev": {
+        "id": "4.5",
+        "implemented": 0.6,
+        "real_user_path": 0.09,
+        "any_fits": 0.71,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "superseded_by_billy_decision",
+      "caveat_round2": "Original gate (Cauldron wins both blind comparisons) unmet: PeNtA won twice, Moretti lost twice (rounds 1 and 2, condition keys verified after Billy chose). Billy amended scope 8 Nov 2026: reviewed PeNtA iteration accepted as the design win; judgement closed (ticket 29, AGENTS.md). PeNtA acceptance conditional on three comments - implemented and verified. Not a release authorisation.",
+      "jev_round2": {
+        "implemented": 0.11,
+        "real_user_path": 0.28,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.66,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "5.1",
+      "title": "Publishing through your own Git repo; never with unsaved edits",
+      "priority": "important",
+      "source": {
+        "path": "plan 5.1",
+        "quote": "Show changed files and publish through your own Git repository. No publishing with unsaved edits, and nothing is ever committed without you asking."
+      },
+      "implementation": "publishing.ts; safeguards; CAULDRON_PUBLISH_TEST.",
+      "evidence": "Local commit test passed; safeguards inspected (plan-verification 5.1); publish UI test exists.",
+      "my_status": "partial",
+      "caveat": "Remote push/retry and unsaved-content-form evidence outstanding (finding 09).",
+      "jev": {
+        "id": "5.1",
+        "implemented": 0.36,
+        "real_user_path": 0.16,
+        "any_fits": 0.77,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Ticket 16: retry-after-failed-upload fixed and proven 21/21 in packaged UI with a local bare remote; hosted remotes/credential prompts not exercised.",
+      "jev_round2": {
+        "implemented": 0.48,
+        "real_user_path": 0.83,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.79,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "5.2",
+      "title": "Unsigned Mac download with first-launch instructions, tested on separate Mac",
+      "priority": "important",
+      "source": {
+        "path": "plan 5.2",
+        "quote": "An unsigned download with first-launch instructions, tested on a separate Mac."
+      },
+      "implementation": "Forge package/make; CI upload + separate-mac-launch job.",
+      "evidence": "ZIP downloaded/unpacked/launched on fresh macOS CI runner (both jobs succeeded, run 42316697137 at 82fc6c6; current head CI 42476500982 also passed).",
+      "my_status": "unproven",
+      "caveat": "Manual first-launch on a second physical Mac and instruction verification remain pending (ticket 30). The delivered issue32 zip itself has not had a fresh-Mac launch claim shown in supplied evidence.",
+      "jev": {
+        "id": "5.2",
+        "implemented": 0.21,
+        "real_user_path": 0.57,
+        "any_fits": 0.73,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "missing",
+        "n_answers": 1
+      },
+      "status": "partial",
+      "caveat_round2": "Automated separate-Mac launch verified (CI 42476500982, fresh runner, head e144e1f - checked live); delivered zip sha matches manifest and out/make build. Human first launch on a second physical Mac still pending (ticket 30). Real-use: delivered app on Billy's Mac launched and created a project, but the preview never ran (unbuildable generated site).",
+      "jev_round2": {
+        "implemented": 0.24,
+        "real_user_path": 0.3,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.72,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "P-HOME",
+      "title": "Project home: New Astro project, Open existing, persisted recents library (UI research 14)",
+      "priority": "core",
+      "source": {
+        "path": "CAULDRON-UI-RESEARCH.md:230-236 + ticket 32",
+        "quote": "Two clear actions: New site / Open folder... Real screenshots... path, Git branch and last edited... Remove from recents. Ticket 32: 'This is a requirements-to-implementation omission, not an approved deferral.'"
+      },
+      "implementation": "ProjectHome.tsx; projects.ts loadRecents/addRecent/removeRecent (exclusive mkdir); index.ts:136-1155; recents persisted JSON.",
+      "evidence": "71/71 packaged renderer checks including create, open, restart reopen, refused opens, missing-folder recovery, remove-entry; screenshots 1,4,5.",
+      "my_status": "built_exercised",
+      "caveat": "Native Finder picker and menu clicks unverified; thumbnails/Git branch in tiles may be partial vs research take.",
+      "jev": {
+        "id": "P-HOME",
+        "implemented": 0.37,
+        "real_user_path": 0.8,
+        "any_fits": 0.85,
+        "strength_choice": "real_user_path_exercised",
+        "jev_view": "review",
+        "n_answers": 1
+      },
+      "status": "partial",
+      "caveat_round2": "New/Open/recents implemented and 71/71 packaged renderer checks; project creation worked on Billy's Mac. BUT first real use failed at preview (tinydogs: generated imports of uninstalled fonts, build exits 1, no preview) and the run record said finished/problems[]; native picker/menu clicks unverified; research-take thumbnails/branch/last-edited not implemented (takes are suggestions, not requirements).",
+      "jev_round2": {
+        "implemented": 0.09,
+        "real_user_path": 0.21,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.75,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "P-DEPS",
+      "title": "Shared dependency storage via pnpm store, real reuse, per-project resolution",
+      "priority": "core",
+      "source": {
+        "path": "ticket 32 required result",
+        "quote": "Use the existing pnpm tool and its documented content-addressable shared store... Prove actual reuse between two projects, rather than treating npm's download cache as deduplication."
+      },
+      "implementation": "dependencies.ts prepareDependencies with --store-dir; index.ts pnpmStoreDir(); per-project node_modules.",
+      "evidence": "Two real projects installed to one store; second install --offline succeeded; .modules.yaml point to same store; sha512 objects match store files; APFS clonefiles noted (no physical-disk savings claimed).",
+      "my_status": "built_exercised",
+      "caveat": "Store size reported (165M) but no before/after disk-delta measurement; honestly framed.",
+      "jev": {
+        "id": "P-DEPS",
+        "implemented": 0.86,
+        "real_user_path": 0.45,
+        "any_fits": 0.87,
+        "strength_choice": "partial_or_bounded",
+        "jev_view": "partial",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "Shared pnpm store reuse proven (18/18 backend, offline second install, object match; APFS clonefile caveat). Real-use gap: generated dependency imports (@fontsource) were never validated/installed, so dependency preparation did not keep a generated site buildable.",
+      "jev_round2": {
+        "implemented": 0.59,
+        "real_user_path": 0.42,
+        "strength": "partial_or_bounded",
+        "strength_reversed": "partial_or_bounded",
+        "order_agree": true,
+        "any_fits": 0.83,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "P-RUNTIME",
+      "title": "Resolve Node/agents/pnpm for GUI launch without terminal PATH",
+      "priority": "core",
+      "source": {
+        "path": "ticket 32 required result",
+        "quote": "Resolve installed Node and agents for a GUI launch; do not depend on the development terminal PATH."
+      },
+      "implementation": "runtime.ts childEnvForTools/resolveToolPath; nvm/homebrew/usr-local preference; Electron execPath never used as Node.",
+      "evidence": "Packaged-app 71/71 run exercised creation/open/preview/agent through the GUI context; focused runtime tests in test-projects.mjs (18/18).",
+      "my_status": "built_exercised",
+      "caveat": "Second-Mac (reduced-tool) GUI launch not independently re-verified here.",
+      "jev": {
+        "id": "P-RUNTIME",
+        "implemented": 0.79,
+        "real_user_path": 0.94,
+        "any_fits": 0.84,
+        "strength_choice": "real_user_path_exercised",
+        "jev_view": "built_exercised",
+        "n_answers": 1
+      },
+      "status": "built_exercised",
+      "caveat_round2": "runtime.ts resolution + GUI context exercised 71/71 and 18/18; Billy's real launch worked for creation/agent (not a PATH failure).",
+      "jev_round2": {
+        "implemented": 0.86,
+        "real_user_path": 0.93,
+        "strength": "real_user_path_exercised",
+        "strength_reversed": "real_user_path_exercised",
+        "order_agree": true,
+        "any_fits": 0.85,
+        "ledger": "raw2/results.jsonl",
+        "evidence_basis": "full ticket-11..32 excerpts incl. real-use counter-evidence where present"
+      }
+    },
+    {
+      "id": "X-BYOK",
+      "title": "BYOK and reverse control from external agent apps",
+      "priority": "out_of_scope_v1",
+      "source": {
+        "path": "plan 'Parked until later' + AGENTS.md",
+        "quote": "Optional bring-your-own-key, once the agent paths work. ... Reverse control from other agent apps and BYOK are outside v1."
+      },
+      "implementation": "Not implemented (correctly).",
+      "evidence": "AGENTS.md states explicitly outside v1; plan lists as parked.",
+      "my_status": "deferred",
+      "caveat": "Correctly excluded; a v1 plan containing it would be a violation.",
+      "jev": {
+        "id": "X-BYOK",
+        "implemented": 0.23,
+        "real_user_path": 0.02,
+        "any_fits": 0.82,
+        "strength_choice": "source_or_docs_only",
+        "jev_view": "missing",
+        "n_answers": 1
+      },
+      "status": "deferred",
+      "caveat_round2": "Correctly outside v1 per plan Parked list and current AGENTS.md.",
+      "jev_round2": null,
+      "jev_round2_note": "Not re-judged: evidence not materially changed by tickets 11-32 (rows 0.2, 0.3, 1.5, 1.7, 1.8, 3.4, X-BYOK); round-1 values stand with their documented weak-evidence caveat."
+    }
+  ]
+}

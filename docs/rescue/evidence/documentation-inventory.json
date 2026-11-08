@@ -1,0 +1,406 @@
+{
+  "audit": "cauldron-original-intent-vs-current-build",
+  "round": 2,
+  "created": "2026-11-08",
+  "enumeration_method": "Explicit find over both workspaces and the Obsidian CAULDRON-OS note folder, excluding node_modules/.git/out/dist/.env/vendor build outputs and other unrelated projects. Every relevant authored document is listed below with its exact absolute path and read level. No wildcard paths or /.../ placeholders remain.",
+  "governing_originals_full_read": [
+    {
+      "path": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/WEB BUILDER IDEAS.md",
+      "bytes": 1694,
+      "read": "full",
+      "role": "Billy's original pivot brief (URL list + HyperFrames model + BYOK weighing). Original ambition only."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/CAULDRON-ASTRO-PLAN.md",
+      "bytes": 21570,
+      "read": "full",
+      "role": "The agreed 24-item plan (phases 0-5, parked list, decisions). Governing baseline."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/CAULDRON-UI-RESEARCH.md",
+      "bytes": 18484,
+      "read": "full",
+      "role": "UI research; section 14 project home take (thumbnails/branch/last-edited) is a suggestion; Billy's seven recorded decisions at :278-287 govern."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/design/STARTER-SET.md",
+      "bytes": 2515,
+      "read": "full",
+      "role": "Approved 7 directions / 5 components / links shelf (Claudia's delegated picks)."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/design/camillo/taste-tests.md",
+      "bytes": 6264,
+      "read": "full",
+      "role": "Approved pass/fail bar: 13 taste checks, 7 direction checks, 9 per-component checks on four targets at 375/768/1280."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/START-HERE.md",
+      "bytes": 6988,
+      "read": "full",
+      "role": "Research entry point and read order; checkpoint status (historical to 82fc6c6)."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/AGENTS.md",
+      "bytes": 7697,
+      "read": "full",
+      "role": "Current governing rules: finish-up authorisation, BYOK/reverse-control outside v1, PeNtA judgement closed."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/AGENTS.md",
+      "bytes": 861,
+      "read": "full",
+      "role": "Research-workspace tracker rules."
+    }
+  ],
+  "app_docs_full_read": [
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/plan-verification.md",
+      "bytes": 33319,
+      "read": "full",
+      "role": "Corrective audit at checkpoint 82fc6c6; explicitly HISTORICAL - superseded for findings 11-32 by the ticket completion records."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/spec.md",
+      "bytes": 7345,
+      "read": "full",
+      "role": "Ticket index; status header updated 8 Nov 2026 (tickets 11-29,31 done; 30 second-Mac pending)."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/cauldron-code-review.md",
+      "bytes": 8330,
+      "read": "full (round 1)",
+      "role": "Whole-repository review establishing faults tickets 11-31 repaired."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/cauldron-retro.md",
+      "bytes": 7401,
+      "read": "full (round 1)",
+      "role": "Retrospective; recommendation 4 became safeguard ticket 31."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/README.md",
+      "read": "full",
+      "role": "Current public readme: 'early days... no editor to use yet and no download' contradicts the delivered build - stale doc, flagged."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/CONTRIBUTING.md",
+      "read": "full",
+      "role": "Hook install, commit rules."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/GLOSSARY.md",
+      "bytes": 1054,
+      "read": "full",
+      "role": "Fixed vocabulary (site, design direction, taste rules, agent run, outside agent)."
+    }
+  ],
+  "tickets_full_read": [
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/00-process-and-traceability.md",
+      "read": "full",
+      "note": "Retrospective finding 00, historical, needs-triage."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/01-core-save-and-recovery-evidence.md",
+      "read": "full",
+      "note": "Historical finding, superseded by tickets 11-15 evidence."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/02-shared-actions-and-agent-support.md",
+      "read": "full",
+      "note": "Historical finding, superseded by tickets 17-20."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/03-before-after-and-run-undo.md",
+      "read": "full",
+      "note": "Historical finding, superseded by tickets 12/21."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/04-workspace-and-selection-context.md",
+      "read": "full",
+      "note": "Historical finding, superseded by ticket 22."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/05-content-definition-and-fallback.md",
+      "read": "full",
+      "note": "Historical finding, superseded by ticket 11."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/06-approved-taste-criteria.md",
+      "read": "full",
+      "note": "Historical finding, superseded by tickets 23/24/29."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/07-library-nine-checks.md",
+      "read": "full",
+      "note": "Historical finding, superseded by ticket 25."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/08-real-brief-blind-proof.md",
+      "read": "full",
+      "note": "Historical finding, superseded by tickets 27-29."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/09-publishing-and-mac-release.md",
+      "read": "full",
+      "note": "Historical finding, superseded by tickets 16/30."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/10-shutdown-and-build-risks.md",
+      "read": "full",
+      "note": "Historical finding, superseded by ticket 26."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/11-save-content-without-damaging-the-file.md",
+      "read": "full",
+      "note": "DONE 7 Nov: 5 content.ts fixes, red/green, packaged 6/6 x2."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/12-undo-an-agent-run-without-losing-other-work.md",
+      "read": "full",
+      "note": "DONE: raw-bytes snapshots, ownership attribution; packaged 30/30 + 32/32."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/13-recover-every-unsaved-edit-after-a-crash.md",
+      "read": "full",
+      "note": "DONE: real SIGKILL crash/restore 7/7 x3 clean runs."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/14-make-failures-visible-wherever-they-happen.md",
+      "read": "full",
+      "note": "DONE: CAULDRON_FAILURE_TEST 15/15 incl. two-failures-at-once; saved-record correction 8 Nov."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/15-verify-consistent-safe-saving-across-the-editor.md",
+      "read": "full",
+      "note": "DONE: 30/30 + 32/32 editor, 9/9 content; keep-mine/use-disk on content path."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/16-publish-safely-and-retry-a-failed-upload.md",
+      "read": "full",
+      "note": "DONE: retry fixed; publish UI 21/21 with local bare remote."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/17-use-the-same-checked-editing-actions-everywhere.md",
+      "read": "full",
+      "note": "DONE: actions parity 35/35 incl. real JSON-RPC outside connection; security matrix."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/18-prove-claude-works-through-the-repaired-app.md",
+      "read": "full",
+      "note": "DONE: Claude real edit 37/37 (+ is_error fix + 8 Nov saved-record correction)."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/19-finish-and-prove-codex-support.md",
+      "read": "full",
+      "note": "DONE: Codex real edit/resume/cancel 20/20."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/20-finish-and-prove-hermes-support.md",
+      "read": "full",
+      "note": "DONE: Hermes real edit/resume/cancel 13/13 + 11/11; profile .env wiring."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/21-show-the-changes-an-agent-run-actually-made.md",
+      "read": "full",
+      "note": "DONE: compare.ts rewrite; 16/16 driving real buttons."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/22-verify-the-agreed-desktop-workspace.md",
+      "read": "full",
+      "note": "DONE: 20/20 at 3.1 at two sizes; 4.2 failure shown pre-existing then fixed."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/23-make-quality-measurements-and-feedback-reliable.md",
+      "read": "full",
+      "note": "DONE after Codex-brief fix: real feedback run 12/12; cause established from rollouts."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/24-verify-taste-and-design-direction-compliance.md",
+      "read": "full",
+      "note": "DONE: change-taste 16/16, whole-site 20/20 with negative controls."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/25-prove-all-five-library-components-work.md",
+      "read": "full",
+      "note": "DONE: nine checks x five pieces x two sites; 69/69 and 68/69 (intermittent Tab-reach)."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/26-resolve-or-clearly-account-for-shutdown-and-build-risks.md",
+      "read": "full",
+      "note": "DONE: shutdown warning not reproduced 3x; dev-only advisories dispositioned."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/27-build-and-measure-the-first-real-brief-comparison.md",
+      "read": "full",
+      "note": "DONE: Moretti pair built; read_source/write_source correction; 120->78 distinct failures."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/28-build-and-measure-the-second-real-brief-comparison.md",
+      "read": "full",
+      "note": "DONE: PeNtA pair built after quota pause; 52->43 distinct failures."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/29-complete-the-blind-judgement-and-design-proof.md",
+      "read": "full",
+      "note": "DONE under amended scope: Billy's verdicts both rounds; PeNtA conditional win accepted; final PeNtA recheck 249 pass/0 fail; checker false-positive batch."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/30-verify-the-final-mac-download-and-first-launch.md",
+      "read": "full",
+      "note": "ready-for-second-Mac: zip prepared (note: its recorded rebuilt-zip sha ff4831... not on disk; delivered artifact is the issue32 zip 9d8082...), second-Mac launch pending."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/31-block-local-commits-when-existing-checks-fail.md",
+      "read": "full",
+      "note": "DONE: hook installed and proven blocking in this checkout."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/32-restore-project-workflow.md",
+      "read": "full",
+      "note": "Implemented: 71/71 packaged UI, 18/18 backend, Codex read-only chat, zip 9d8082...; native picker/menu and second Mac open."
+    }
+  ],
+  "adrs_full_read": [
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0001-own-application-not-a-fork.md",
+      "read": "full/head-verified"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0002-studied-code-is-reference-not-source.md",
+      "read": "full/head-verified"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0003-mit-licence.md",
+      "read": "full/head-verified"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0004-react-typescript-interface.md",
+      "read": "full/head-verified"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0005-design-taste-is-core-to-v1.md",
+      "read": "full"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0006-actions-run-inside-the-app.md",
+      "read": "full/head-verified"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0007-library-components-are-copied-into-the-site.md",
+      "read": "full/head-verified"
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/docs/adr/0008-library-components-are-plain-astro.md",
+      "read": "full/head-verified"
+    }
+  ],
+  "delivery_evidence": [
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/Cauldron-darwin-arm64-0.0.1-issue32.zip",
+      "read": "sha256 verified live = 9d80823791fe9683fe3db06ff2477884967c659f334ca96240f0779e9d7ddd21 (matches manifest and fresh out/make/zip build byte-for-byte)"
+    },
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/issue32-proof/manifest.json",
+      "read": "full"
+    },
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/issue32-proof/cauldron-projects-backend-result.md",
+      "read": "full (round 1)"
+    },
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/issue32-proof/cauldron-projects-ui-result.md",
+      "read": "head (round 1)"
+    },
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/issue32-proof/packaged-ui-71.log",
+      "read": "tail+counts (round 1)"
+    },
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/issue32-proof/10-codex-chat-reply.txt",
+      "read": "full (round 1)"
+    },
+    {
+      "path": "/Users/habibi/hermes/cauldron-builds/issue32-proof/cauldron-navigation-green.log",
+      "read": "tail (round 1)"
+    },
+    {
+      "path": "/Users/habibi/Library/Application Support/Cauldron/runs/c805630eb824/run-1794138419087.json",
+      "read": "via parent (tinydogs run record: finished, problems [], 4 files changed)"
+    }
+  ],
+  "research_findings_reference_only": [
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/STACKI-REA-ASSESSMENT.md",
+      "read": "not_full",
+      "role": "Supports plan 1.3-1.8; reference-only, not independent requirements."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/STACKI-RUNTIME-EVALUATION.md",
+      "read": "not_full",
+      "role": "Hands-on Stacki evidence informing 1.3-1.8."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/SITEREAL-REA-ASSESSMENT.md",
+      "read": "not_full",
+      "role": "Supports 2.1/2.2 shared actions."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/ZEKU-REA-ASSESSMENT.md",
+      "read": "not_full",
+      "role": "Supports 3.4/1.6 content and recovery."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/FOUNDATION-ASSESSMENT.md",
+      "read": "not_full",
+      "role": "Superseded foundation proposal (ADR 0001)."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/evaluation/ (plan-review-v2 Jev ledger etc.)",
+      "read": "not_full",
+      "role": "Historical Jev plan review; declared reference-only, not asserted fully read in this audit."
+    }
+  ],
+  "excluded": [
+    {
+      "path": "node_modules/, .git/, out/, dist/, .env, *.lock",
+      "reason": "build/vendor/secret internals"
+    },
+    {
+      "path": "/Users/habibi/OBSIDIAN-VAULT/.../CAULDRON-OS/ (other 7 notes: App Note, v0.40/v0.50 Release Plans, Unification Plan, Bidirectional Agent Integration Scope, Camillo UX Research, Pivot Initial Reference Read)",
+      "reason": "retired predecessor app (Cauldron OS Node/Alpine) and pivot-process notes; ADR 0002 rewrites fresh; not requirements for the new app. Read at head in round 1; not re-read full."
+    },
+    {
+      "path": "old blind-comparison/directions-v2 folders (SUPERSEDED.md)",
+      "reason": "rejected by Billy, recorded superseded"
+    },
+    {
+      "path": "~/.hermes profile skills/plugins/cron",
+      "reason": "agent tooling, not product docs"
+    }
+  ],
+  "supersession_trace": [
+    "WEB BUILDER IDEAS (ambition) -> CAULDRON-ASTRO-PLAN (24-item v1 scope; BYOK/Win/Linux/8-agents parked) -> tickets 11-31 (repaired narrowed baseline) -> ticket 32 (restored New/Open/recents/shared store; requirements omission, not deferral)",
+    "docs/plan-verification.md is the 82fc6c6 snapshot; tickets 11-32 are the current evidence record and supersede its 'remaining work' rows where they were later completed",
+    "4.5: fictional drafts rejected -> real Moretti/PeNtA comparisons (27/28) -> Billy blind verdicts rounds 1-2 -> amended scope: PeNtA reviewed iteration accepted as the design win; win-both gate recorded unmet but closed by Billy",
+    "AGENTS.md 3.3 historical plan wording (reverse control offered to outside agents) superseded by current AGENTS.md: reverse control and BYOK outside v1",
+    "README.md 'no editor to use yet and no download' is stale against the delivered build and ticket records"
+  ],
+  "stale_docs_found": [
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/README.md",
+      "quote": "Right now Cauldron opens a window and that's about it. There's no editor to use yet and no download.",
+      "why_stale": "The delivered build has editor, agents, library, publishing, project home and a delivered zip; contradicts README and ticket records."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron/.scratch/cauldron-v1/issues/30-verify-the-final-mac-download-and-first-launch.md",
+      "quote": "sha256 ff4831cb81a78e584ea8f5dc964a6d0c92120bbbb0fc4b22a13fa96c2eb5005a",
+      "why_stale": "That rebuilt zip does not exist on disk; the delivered artifact is the issue32 zip (9d8082...). Ticket 30's distribution step needs re-anchoring to the actual delivered zip."
+    },
+    {
+      "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/START-HERE.md + docs/plan-verification.md",
+      "why_stale": "Both freeze status at checkpoint 82fc6c6 / 'development paused'; tickets 11-32 (all done except 30) postdate them."
+    }
+  ]
+}
