@@ -15,6 +15,21 @@ npm install
 npm start
 ```
 
+## Download (unsigned test build)
+
+A packaged macOS (Apple silicon) zip can be built from source:
+
+```bash
+npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-<version>.zip
+```
+
+The build is **unsigned and not notarised**, so macOS Gatekeeper may warn that it cannot
+verify the developer on first launch. If that happens, do not retry blindly: open
+**System Settings → Privacy & Security**, find the blocked-app message, and press
+**Open Anyway** (then Open). This is the supported macOS path for opening an unsigned,
+not-notarised app you built yourself. No public release has been published yet — this
+is a local test build only.
+
 ## Checks
 
 ```bash

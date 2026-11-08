@@ -46,6 +46,61 @@ export function focusOutcome(input: {
   };
 }
 
+/**
+ * A visually-hidden (screen-reader-only) element: absolutely positioned,
+ * clipped or collapsed to a pixel. Its computed margins, font size and
+ * colours do not participate in the visible design, so measuring them
+ * produced false failures (ticket 29: `-1px` margins on `.visually-hidden`
+ * helpers, a heading whose only text is a hidden span). It is defined here
+ * so the page-side checks and the tests share one rule.
+ */
+export function isVisuallyHidden(
+  style: { position?: string; clip?: string; textIndent?: string },
+  rect: { width: number; height: number },
+): boolean {
+  if (style.position !== 'absolute' && style.position !== 'fixed') return false;
+  if (rect.width <= 1 && rect.height <= 1) return true;
+  if (/^rect\(0/.test(style.clip ?? '')) return true;
+  const indent = Number.parseFloat(style.textIndent ?? '');
+  return Number.isFinite(indent) && indent < -999;
+}
+
+/**
+ * True when text uses an emoji as an interface icon. Typographic arrows
+ * (the Unicode Arrows block, e.g. `→`, `↗`) are punctuation that reads as
+ * part of the label — often already wrapped in `aria-hidden` — and are not
+ * emoji standing in for an icon. Everything else pictographic still fails.
+ */
+export function usesEmojiAsIcon(text: string): boolean {
+  const withoutArrows = text.replace(/[\u2190-\u21FF]/gu, '');
+  return /[\p{Extended_Pictographic}\p{Regional_Indicator}]/u.test(
+    withoutArrows,
+  );
+}
+
+/**
+ * The computed properties a hover or disabled state may visibly change.
+ * Text-decoration thickness and underline offset are included because a
+ * common link hover thickens an underline or moves it without touching the
+ * shorthand (ticket 29: nav links read as "no hover change").
+ * `textUnderlineOffset` is the real computed property name; the long-deprecated
+ * `text-decoration-offset` is not, and reading a made-up name always returned
+ * undefined, so an underline-offset-only hover was invisible to the signature.
+ */
+export const INTERACTION_PROPERTIES = [
+  'color',
+  'backgroundColor',
+  'borderColor',
+  'boxShadow',
+  'outline',
+  'textDecoration',
+  'textDecorationThickness',
+  'textUnderlineOffset',
+  'opacity',
+  'transform',
+  'filter',
+];
+
 /** The approved automatic taste tests. A scope limits judgement to newly added pieces. */
 export async function measureTaste(
   window: BrowserWindow,
@@ -73,7 +128,11 @@ export async function measureTaste(
     const roots = [...document.querySelectorAll(${JSON.stringify(scope)})];
     if (!roots.length) throw new Error('No rendered elements matched the taste-check scope.');
     const elements = [...new Set(roots.flatMap(root => [root,...root.querySelectorAll('*')]))]
-      .filter(el => { const s=getComputedStyle(el); return s.display!=='none' && s.visibility!=='hidden' && el.getBoundingClientRect().width>0; });
+      .filter(el => { const s=getComputedStyle(el); return s.display!=='none' && s.visibility!=='hidden' && el.getBoundingClientRect().width>0 && !(${isVisuallyHidden.toString()})(s, el.getBoundingClientRect()) && (el.checkVisibility ? el.checkVisibility() : true); });
+    // A heading's type scale is its visible typography. Text that only screen
+    // readers see (including SVG wordmark <text>, which is a drawing sized by
+    // its viewBox, not a type-scale size) does not set the element's type size.
+    const visibleText = el => [el,...el.querySelectorAll('*')].some(node => [...node.childNodes].some(n => n.nodeType===3 && n.textContent.trim() && !n.parentElement.closest('svg') && !(${isVisuallyHidden.toString()})(getComputedStyle(n.parentElement), n.parentElement.getBoundingClientRect())));
     const canvas = document.createElement('canvas'); canvas.width=canvas.height=1;
     const context = canvas.getContext('2d',{willReadFrequently:true});
     const rgba = value => { context.clearRect(0,0,1,1); context.fillStyle=value; context.fillRect(0,0,1,1); return [...context.getImageData(0,0,1,1).data]; };
@@ -137,7 +196,7 @@ export async function measureTaste(
         const family=s.fontFamily.split(',')[0].replace(/["']/g,'').trim().toLowerCase();fontNames.add(family);
         if(!allowedFonts.includes(family))counts.fonts++;
         if(['inter','roboto','arial','system-ui'].includes(family)&&!allowedFonts.includes(family))counts.defaultFonts++;
-        if(!near(parseFloat(s.fontSize),direction.typeScale)){counts.type++;if(off.type.length<4)off.type.push(s.fontSize+' on '+name(el));}
+        if(visibleText(el)&&!near(parseFloat(s.fontSize),direction.typeScale)){counts.type++;if(off.type.length<4)off.type.push(s.fontSize+' on '+name(el));}
         // Approved contrast thresholds (taste-tests.md 4.2 #6 and #7).
         if(directText||el.matches('button')){
           const size=parseFloat(s.fontSize), bold=parseInt(s.fontWeight)>=700;
@@ -155,7 +214,7 @@ export async function measureTaste(
       for(const property of ['borderTopLeftRadius','borderTopRightRadius','borderBottomLeftRadius','borderBottomRightRadius']){
         const value=parseFloat(s[property]);if(Number.isFinite(value)&&!near(value,direction.radii))counts.radius++;
       }
-      if(el.matches('button,nav,li')&&/[\\p{Extended_Pictographic}\\p{Regional_Indicator}]/u.test(el.textContent))counts.emoji++;
+      if(el.matches('button,nav,li')&&(${usesEmojiAsIcon.toString()})(el.textContent||''))counts.emoji++;
       if(el.matches('button,nav a')&&(s.textOverflow==='ellipsis'||el.scrollWidth>el.clientWidth+1))counts.labels++;
       if(judgeRules) declarations(el.style);
       if(el.matches('a[href],button,input,select,textarea,[tabindex]')&&!el.disabled&&el.tabIndex>=0){el.setAttribute('data-cauldron-audit-control',String(controls.length));controls.push(controls.length);}
@@ -313,7 +372,12 @@ export async function measureTaste(
   const focusProblems: string[] = [];
   const hoverProblems: string[] = [];
   const disabledProblems: string[] = [];
-  const signature = `['color','backgroundColor','borderColor','boxShadow','outline','textDecoration','opacity','transform'].map(p=>getComputedStyle(el)[p]).join('|')`;
+  // The hover and disabled signatures cover the control AND its visible
+  // descendants: a link whose hover moves its arrow span or scales its image
+  // does have visible hover feedback (ticket 29). Text-decoration
+  // thickness/offset are in the property list because a hover that only
+  // thickens an underline changes none of the shorthand properties.
+  const signature = `(() => [el, ...[...el.querySelectorAll('*')].slice(0, 40)].map(node => { const s = getComputedStyle(node); return [${INTERACTION_PROPERTIES.map((p) => `'${p}'`).join(',')}].map(p => s[p]).join('|'); }).join('::'))()`;
   const activeIndex = () =>
     window.webContents.executeJavaScript(
       `(() => {const el=document.activeElement;return Number(el?.getAttribute?.('data-cauldron-audit-control')??-1);})()`,
@@ -436,28 +500,66 @@ export async function measureTaste(
       `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`,
     );
     await force(index, []);
-    const before = await window.webContents.executeJavaScript(
-      `(() => {const el=document.querySelector(${JSON.stringify(selector)});return {signature:${signature},rect:el.getBoundingClientRect().toJSON()};})()`,
-    );
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Every sample (resting, hover, disabled) is read with the element's own
+    // transitions suppressed and each touched element's inline transition
+    // value and priority restored exactly afterwards. Waiting a fixed time is
+    // not enough: a transition longer than the wait (or a sample taken
+    // mid-flight) misread both resting and hover signatures (ticket 29
+    // recheck: one gallery filter was flagged at 375px only, intermittently).
+    const sample = (body: string) => `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        const settled = [el, ...[...el.querySelectorAll('*')].slice(0, 40)];
+        const saved = settled.map(node => [node.style.getPropertyValue('transition'), node.style.getPropertyPriority('transition')]);
+        try {
+          for (const node of settled) node.style.setProperty('transition', 'none', 'important');
+          ${body}
+        } finally {
+          settled.forEach((node, i) => { const [value, priority] = saved[i];
+            if (value) node.style.setProperty('transition', value, priority);
+            else node.style.removeProperty('transition'); });
+        }
+      })()`;
+    const before = (await window.webContents.executeJavaScript(
+      sample(
+        `return {signature:${signature},rect:el.getBoundingClientRect().toJSON()};`,
+      ),
+    )) as { signature: string; rect: { width: number; height: number } };
     await force(index, ['hover']);
     await new Promise((resolve) => setTimeout(resolve, 160));
-    const states = (await window.webContents.executeJavaScript(
-      `(() => {const el=document.querySelector(${JSON.stringify(selector)});const hover=${signature};let disabled=null;if('disabled' in el){el.disabled=true;disabled=${signature};el.disabled=false;}return {hover,disabled,where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40)};})()`,
-    )) as {
-      hover: string;
-      disabled: string | null;
-      where: string;
-      name: string;
-    };
+    const hover = (await window.webContents.executeJavaScript(
+      sample(
+        `return {signature:${signature},where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40)};`,
+      ),
+    )) as { signature: string; where: string; name: string };
+    // The forced :hover must be removed before the disabled probe: it was not
+    // once, and the settled disabled style was compared against a hovered one
+    // (ticket 29 recheck).
     await force(index, []);
-    const label = states.name
-      ? `${states.where} (“${states.name}”)`
-      : states.where;
-    if (states.hover === before.signature) {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const disabled = (await window.webContents.executeJavaScript(
+      sample(`if (!('disabled' in el)) return null;
+          const wasDisabled = el.disabled;
+          el.disabled = true;
+          const disabledSignature = ${signature};
+          el.disabled = wasDisabled;
+          return disabledSignature;`),
+    )) as string | null;
+    await force(index, []);
+    const label = hover.name ? `${hover.where} (“${hover.name}”)` : hover.where;
+    // Every control is measured normally. A control already in a selected or
+    // pressed state (aria-pressed, aria-current) is measured the same way: the
+    // selected style does not excuse a missing hover state. A control whose
+    // hover changes only its underline offset, or whose hover styles only a
+    // descendant, still counts as changing.
+    if (hover.signature === before.signature) {
       hoverless++;
       hoverProblems.push(label);
     }
-    if (states.disabled !== null && states.disabled === states.hover) {
+    // A control with hover styling and NO disabled CSS fails here: the
+    // disabled signature equals the resting one. A control whose disabled
+    // style is visibly different passes.
+    if (disabled !== null && disabled === before.signature) {
       disabledUnchanged++;
       disabledProblems.push(label);
     }

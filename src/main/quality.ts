@@ -7,7 +7,7 @@ import { BrowserWindow } from 'electron';
 // node_modules on disk, so reading it from there never worked outside development.
 import axeScript from 'axe-core/axe.min.js?raw';
 import type { DesignDirection } from './directions';
-import { measureTaste } from './taste-check';
+import { isVisuallyHidden, measureTaste } from './taste-check';
 import {
   BUTTON_CONTRAST,
   contrastRatio,
@@ -198,7 +198,11 @@ const PAGE_PROBE = `(async () => {
   const text = (el) => (el.textContent || '').replace(/\\s+/g, ' ').trim();
   const visible = (el) => {
     const style = getComputedStyle(el);
-    return style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().width > 0;
+    return style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().width > 0 &&
+      // content-visibility:hidden (e.g. a closed <details> disclosure) keeps
+      // layout boxes but shows nothing, so it is not visible to the person
+      // using the page (ticket 29: closed mobile-menu links were measured).
+      (el.checkVisibility ? el.checkVisibility() : true);
   };
 
   // Layout overflow
@@ -321,14 +325,38 @@ const PAGE_PROBE = `(async () => {
   result.spacing = [...spacingValues].sort((a, b) => a - b);
 
   const headingSizes = {};
-  for (const heading of headings) {
+  // The hierarchy check compares visible sizes. A heading whose only text is
+  // visually hidden (screen-reader-only span, or an SVG wordmark whose glyphs
+  // are drawn, not typed) has no visible type size and must not force the
+  // smallest-heading comparison (ticket 29: the PeNtA h1 carries a hidden
+  // "PeNtA" span and a full-width SVG wordmark).
+  const headingHasVisibleText = (heading) =>
+    [heading, ...heading.querySelectorAll('*')].some((node) =>
+      [...node.childNodes].some(
+        (n) =>
+          n.nodeType === 3 &&
+          n.textContent.trim() &&
+          !n.parentElement.closest('svg') &&
+          !(${isVisuallyHidden.toString()})(getComputedStyle(n.parentElement), n.parentElement.getBoundingClientRect()),
+      ),
+    );
+  for (const heading of headings.filter(headingHasVisibleText)) {
     const size = Math.round(Number.parseFloat(getComputedStyle(heading).fontSize) * 10) / 10;
     const key = 'h' + heading.tagName[1];
     headingSizes[key] = Math.max(headingSizes[key] ?? 0, size);
   }
   const paragraphs = [...document.querySelectorAll('p')].filter(visible);
+  // Body size is the size body copy actually uses — the most common paragraph
+  // size — not the largest. A single display-size statement paragraph (an
+  // ordinary editorial pattern) is not body copy, and taking the max made the
+  // hierarchy check fail every page that has one (ticket 29).
+  const sizeCounts = new Map();
+  for (const p of paragraphs) {
+    const size = Math.round(Number.parseFloat(getComputedStyle(p).fontSize) * 10) / 10;
+    sizeCounts.set(size, (sizeCounts.get(size) ?? 0) + 1);
+  }
   const bodySize = paragraphs.length
-    ? Math.max(...paragraphs.map((p) => Number.parseFloat(getComputedStyle(p).fontSize)))
+    ? [...sizeCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
     : 0;
   result.hierarchy = { headingSizes, bodySize };
 

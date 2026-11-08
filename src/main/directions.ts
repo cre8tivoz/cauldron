@@ -710,7 +710,11 @@ force every site into the same layout.
 - Decorative faded imagery behind a text section is a contextual option, not a requirement
 across directions. Use it only when it suits the direction or the person asks. Keep it
 low-opacity, non-interactive and behind the text, and only when body text still measures
-4.5:1 (large text 3:1) against the actual composite background.`;
+4.5:1 (large text 3:1) against the actual composite background.
+- Interaction states are visible and distinct on every control: a hover change, a pressed
+or selected state that stays readable when hovered (a selected filter button must not
+turn into light text on a light background), and a clearly different disabled style.
+Typographic arrows (→, ↗) in labels are punctuation, not emoji icons.`;
 
 export function designDocument(direction: DesignDirection): string {
   const colours = Object.entries(direction.colours)

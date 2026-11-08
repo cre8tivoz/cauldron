@@ -1,7 +1,7 @@
 # Cauldron v1 — source pointers and issue index
 
 Status: needs-triage
-Execution: tickets 11, batch 1 (31, 12, 13, 14, 15, 16) and batch 2 (17, 18, 19, 20, 21) done (7 Nov 2026); batch 3a (24, 25 done; 23 in progress) committed 8 Nov 2026; paused until Billy approves the rest of batch 3.
+Execution: tickets 11–29 and 31 are complete under Billy's explicitly approved finish-up scope (8 Nov 2026). His reviewed PeNtA design verdict is closed. Ticket 30 is ready for actual download/unpack/first-launch verification on a second Apple-silicon Mac; the unsigned local candidate is prepared, but no public release is authorised. Earlier execution notes below are historical.
 
 ## Authority
 

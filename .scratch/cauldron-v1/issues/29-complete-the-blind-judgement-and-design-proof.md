@@ -4,7 +4,7 @@
 
 **Blocked by:** [25: Prove all five library components work](25-prove-all-five-library-components-work.md), [27: Build and measure the first real-brief comparison](27-build-and-measure-the-first-real-brief-comparison.md), [28: Build and measure the second real-brief comparison](28-build-and-measure-the-second-real-brief-comparison.md)
 
-**Status:** open — Billy's blind verdicts recorded; Cauldron won PeNtA, lost Moretti Estate, and measured checks still have failures
+**Status:** done — Billy accepted the reviewed PeNtA design; the authorised technical finish-up passes. Final whole-site report: 249 pass, 4 design opinions, zero failures across the three approved routes and three widths. Historical comparisons and agent-change reports remain preserved; no new agent generation was run.
 
 **Parent findings:** [06: approved taste criteria](06-approved-taste-criteria.md), [07: library nine checks](07-library-nine-checks.md), [08: real brief blind proof](08-real-brief-blind-proof.md)
 
@@ -14,12 +14,12 @@
 
 ## Acceptance criteria
 
-- [ ] Record the approved automatic and human checks across both test-site copies and both real-brief targets.
+- [x] Preserve the recorded automatic and human checks for the earlier test-site and real-brief comparisons; retain their original failures as historical evidence.
 - [x] Billy judges both comparison pairs before the condition key is revealed; no model substitutes its own preference.
-- [ ] Cauldron must win both comparisons and pass the agreed measured checks.
-- [ ] A loss, failed measurement or missing verdict remains an open release gate; record it honestly.
-- [ ] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
-- [ ] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
+- [x] **Amended scope, explicitly approved by Billy on 2026-11-08:** the reviewed PeNtA iteration is the accepted design win. No further Moretti win, blind judgement or generation is required. Complete the bounded technical finish-up and record the final measurement of the existing PeNtA output with its small authorised corrections.
+- [x] Record real failures and missing evidence honestly. The final whole-site check has zero failures; the historical agent-change layer was not rerun. Separate-Mac release evidence remains with ticket 30.
+- [x] Retain focused behavioural red/green regressions for the confirmed checker bugs, including negative controls that must still fail.
+- [x] Record exercised user paths and the tested source state; pass project checks before committing. See the final evidence and controller closure below.
 
 ## Sources and boundaries
 
@@ -214,3 +214,112 @@ The PeNtA run is unchanged: still blocked at auth, no site generated, release ga
 ## User verdict on the three PeNtA comments (2026-11-08): CONDITIONAL win
 
 Billy: "Overall ... very good iteration ... wins if those comments ... factored in for standard cauldron work." All three comments were implemented and verified; the standards were carried into both the agent prompt (src/main/agent.ts via shared `generatedSiteStandards` in src/main/directions.ts) and the saved DESIGN.md template, guarded by a narrow regression in scripts/test-agent.mjs (24 PASS). Evidence: /Users/habibi/.hermes/profiles/claudia/cache/scratch/penta-comments-result.md; screenshots in /Users/habibi/.hermes/profiles/claudia/cache/scratch/penta-comment-proof/. Site build exit 0; app `npm run check` exit 0. Measured: hero glyph/kicker overlap +214px→clearance at 1280 (font-verified), mobile hamburger semantics (44px target, Escape, outside-click, closed links unfocusable, desktop inline retained), statement faded image 14.39:1 worst-case text contrast. Ticket stays open; this does NOT erase the Moretti blind-round losses or the measured quality failures, and does not authorise release or ticket 30. Generated-site code deliberately not staged into the app repo.
+
+## Bounded checker-finish batch — 8 Nov 2026 (implementation subagent, uncommitted work tree on 79aef82)
+
+Billy authorised one finish-up batch (AGENTS.md). Draft evidence below; ticket completion stays with the controller.
+
+### Confirmed checker false positives fixed (each with a behavioural red→green regression)
+
+1. **Screen-reader-only helpers measured.** `.visually-hidden` elements (1px, clipped,
+   absolute) were audited, so standard `-1px` margins failed spacing/tokens at every width.
+   Fix: shared `isVisuallyHidden()` (src/main/taste-check.ts) excludes them in the taste
+   page filter and in quality.ts's trace. Skip-links and real content are still measured.
+2. **Typographic arrows counted as emoji.** `↗`/`→` in labels ("Open in mail app ↗")
+   matched `Extended_Pictographic`. Fix: `usesEmojiAsIcon()` strips only the Unicode Arrows
+   block (U+2190–U+21FF); real pictographs (🚀) still fail — regression asserts both sides.
+3. **Hover signature missed real feedback.** It sampled the control only and omitted
+   text-decoration thickness/offset. A descendant hover (`.onward__link:hover .onward__word`)
+   and a thickness-only hover (nav links) read as "no hover change". Fix: signature covers
+   the control and up to 40 descendants across 11 properties including thickness/offset.
+4. **Disabled state measured under forced hover, mid-transition.** The disabled signature
+   was captured while `:hover` was still forced and compared against hover, immediately
+   after `el.disabled = true` with transitions running. Fix: compare against the resting
+   signature, with hover cleared and transitions suppressed during sampling.
+5. **SVG wordmark hierarchy/type.** A heading whose only typed text is visually hidden
+   (hidden span + full-width SVG wordmark) was measured at its default font size (34px) and
+   broke both "type sizes" and "hierarchy" (32/34px, 76px). Fix: hierarchy and type measure
+   visible text only (SVG `<text>` excluded; `checkTasteOfCss` skips font-size on SVG-text
+   selectors — a wordmark's 440px is a drawing size, not off-scale type).
+6. **Closed-disclosure links measured.** Chromium keeps layout boxes for content inside a
+   closed `<details>` (content-visibility:hidden), so mobile-menu links were counted as
+   controls and failed keyboard reachability at 375. Fix: both checkers now use
+   `Element.checkVisibility()` in addition to display/width.
+7. **Selected controls required hover change.** A pressed filter (`aria-pressed`) and the
+   current nav link (`aria-current`) are distinguished by their selected state, which
+   deliberately overrides hover. Fix: hover is required only for unselected controls.
+8. **Body size measured as the largest paragraph.** One display-size statement `<p>` (76px)
+   made body "larger than the smallest heading". Fix: bodySize is the most common paragraph
+   size (mode), with the smallest on ties.
+
+### Red→green evidence (real checker, real Electron)
+
+- e2e `runTasteTest` gained an on-brand `/helpers` fixture page exercising all of 1–4.
+  Original source: `FAIL` on Spacing, Type, Emoji, Hover, Disabled, Tokens
+  (`cauldron-finish-proof/taste-red.log`, 21/27).
+  Fixed source: all six `PASS` (`taste-green3.log`, 27/27, incl. real-emoji negative control).
+- e2e `runQualityTest` gained a hierarchy fixture (hidden-span h1 + SVG wordmark + 76px h2 +
+  76px statement p). Original: `FAIL 29 hierarchy ignores visually-hidden heading text —
+  Headings do not step down in size: 32px, 76px` (`quality-red.log`). Fixed: `PASS —
+  Headings 76px, body 16px` (`quality-green.log`).
+- `scripts/test-core.mjs` adds three focused tests (arrows, hidden helpers, SVG wordmark
+  type/tokens); the wordmark test fails behaviourally on original source (`tc-red2.log`:
+  `FAIL — 1 violation(s)`, type and tokens both count 440px) and passes after (`tc-g3.log`).
+
+### Site fixes on a disposable copy (approved output untouched)
+
+Disposable copy: `/Users/habibi/.hermes/profiles/claudia/cache/scratch/penta-finish/site`
+(node_modules symlinked; approved source and reviewed archive unchanged). Only change:
+gallery.astro — a pressed filter keeps its filled ink/surface state on hover (was light-on-
+light), and filter buttons gain `:disabled` styling matching the shared `.button` pattern.
+Reusable interaction-state guidance (readable pressed-on-hover, distinct disabled style,
+arrows-not-emoji) added to `generatedSiteStandards` (src/main/directions.ts), so it reaches
+both the agent prompt and saved DESIGN.md.
+Playwright proof (`site-behaviour-proof.txt`, 19 recorded PASS checks): gallery all/stills/video visibility,
+status line, pressed follows selection, selected hover readable, unselected hover visible,
+disabled styling differs, keyboard reach+toggle+focus ring, mobile menu open/Escape,
+no overflow at 375, contact mailto links, form builds a prefilled mailto without sending
+(no backend claimed), required fields block empty submit.
+
+### Re-measurement of the unchanged approved PeNtA design (real Cauldron checker)
+
+Measured-only brief path (no agent/provider run: `CAULDRON_BRIEF_MEASURE_ONLY`) added to
+`runBriefTest` in src/main/e2e.ts. Report:
+`/Users/habibi/.hermes/profiles/claudia/cache/scratch/cauldron-finish-proof/penta-quality-recheck.json`
+(`measure-recheck2.log`; fresh test user-data; supersedes the earlier one-failure report). Pages /, /gallery, /contact at 375/768/1280.
+
+**253 findings: 249 pass / 4 opinion / 0 fail** (historical report: 65 fail rows incl.
+repeats across sites/kinds/widths; 12 were the hidden-helper margins, 12 arrow "emoji",
+18 hover, 6 disabled, 2 hierarchy).
+
+Former remaining failure — now fixed (2026-11-08 recheck, Billy-authorised finishing
+batch):
+
+- `/contact` — "Body text (17px) is not smaller than the smallest heading." The contact
+  h2 labels ("Studio", "Email", "Visits", form title) are genuine section headings, so
+  the markup was kept; on the disposable copy only they now use the next direction type
+  token up (`--cauldron-size-4`, 20px) while staying label-styled. The re-measured
+  report (`penta-quality-recheck.json`, `measure-recheck2.log`) shows **0 failures**.
+- The same recheck also exposed the real cost of removing the selected-state hover
+  exemption: the gallery pressed filter and the `aria-current` nav link had NO hover
+  delta (their `:hover` rules duplicated the resting selected style). Minimal CSS on
+  the disposable copy gives each a visible hover change (pressed filter lifts via
+  `filter: brightness(1.35)`; current nav link thickens one token), using existing
+  direction tokens only.
+
+Recheck evidence: `recheck-red.log` (old behaviour: both new negative checks FAIL to
+fire — 0 violations reported), `recheck-green.log` / `recheck-green2.log` (29/29 incl.
+"a selected (aria-pressed) control with no hover change still fails hover" and "a
+control with hover styling but no disabled CSS fails the disabled check").
+
+Known harness note (not a site finding): `runQualityTest`'s "button text is held to 4.5:1"
+assertion reports `No buttons on this page` on this site (the home page has no `<button>`);
+pre-existing harness assumption, unchanged.
+
+### Gates on the final work tree
+
+`npm run check` exit 0 (typecheck, lint, 98 core + 24 agent tests); `npm run smoke` exit 0.
+Tested revision: HEAD 79aef82 + uncommitted modifications to `scripts/test-core.mjs`,
+`src/main/directions.ts`, `src/main/e2e.ts`, `src/main/quality.ts`, `src/main/taste-change.ts`,
+`src/main/taste-check.ts` (diff summary: cauldron-finish-result.md). No commits made by the
+subagent; no provider runs; no installs.

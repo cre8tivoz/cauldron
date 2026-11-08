@@ -277,6 +277,12 @@ const SPACING_PROPERTY =
   /^((margin|padding)(-(top|right|bottom|left))?|(row-|column-)?gap)$/;
 const RADIUS_PROPERTY = /^border(-(top|bottom)-(left|right))?-radius$/;
 
+/** A selector that targets SVG `text` elements, i.e. drawn wordmark glyphs. */
+export function isSvgTextSelector(selector: string | undefined): boolean {
+  if (!selector) return false;
+  return /(^|[,\s>+~(])text(\s*[,{\s]|$)/.test(selector);
+}
+
 /**
  * Judges a run's own CSS against the site's chosen tokens, using the approved
  * thresholds: exact token colours, the direction's spacing/type/radius scales,
@@ -372,6 +378,11 @@ export function checkTasteOfCss(
       continue;
     }
     if (item.property === 'font-size') {
+      // An SVG wordmark's font-size sets the drawing's coordinate size inside
+      // its viewBox, not reading typography on the type scale (ticket 29: a
+      // full-width SVG wordmark's 440px glyph size is not an off-scale type
+      // size or a stray hard-coded value).
+      if (isSvgTextSelector(item.selector)) continue;
       counts.declarations++;
       if (!value.includes('var(--cauldron-')) {
         counts.hardcoded++;

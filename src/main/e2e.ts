@@ -1443,6 +1443,54 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
       .map((page) => page.trim())
       .filter(Boolean);
     const report = await api.qualityRun?.({ pages });
+
+    // Ticket 29: a heading whose only typed text is visually hidden (an SVG
+    // wordmark with a screen-reader-only label) has no visible type size and
+    // must not break the hierarchy ordering. The real checker measures this.
+    const hierarchyPage = path.join(root, 'src/pages/quality-hierarchy.astro');
+    fs.writeFileSync(
+      hierarchyPage,
+      `---
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hierarchy fixture</title>
+    <style>
+      .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+      h2 { font-size: 76px; margin: 24px 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1><span class="visually-hidden">Wordmark</span><svg viewBox="0 -60 200 120" width="300" height="180" aria-hidden="true" focusable="false"><text x="0" y="40" font-size="90" fill="currentColor">PeNtA</text></svg></h1>
+      <h2>Selected work</h2>
+      <p style="font-size:76px; margin:0">A display-size statement paragraph.</p>
+      <p>Body copy under the larger second-level heading.</p>
+      <p>More ordinary body copy, the size body text actually uses.</p>
+    </main>
+  </body>
+</html>
+`,
+    );
+    try {
+      const hierarchyReport = await api.qualityRun?.({
+        pages: ['/quality-hierarchy/'],
+      });
+      const hierarchy = hierarchyReport?.findings?.find(
+        (finding: { label: string }) =>
+          finding.label === 'The hierarchy is clear',
+      );
+      check(
+        '29 hierarchy ignores visually-hidden heading text',
+        hierarchy?.status === 'pass',
+        hierarchy?.detail ?? 'not measured',
+      );
+    } finally {
+      fs.rmSync(hierarchyPage, { force: true });
+    }
+
     check(
       '4.4 the site builds before anything is measured',
       Boolean(report?.built),
@@ -1956,20 +2004,30 @@ export async function runBriefTest(
       | 'claude'
       | 'codex'
       | 'hermes';
-    const started = api.sendAgent({ tool, request });
-    check('brief agent started', started.ok, started.problem ?? '');
-    if (!started.ok) return;
-    const timeout = Number(process.env.CAULDRON_BRIEF_TIMEOUT ?? '900000');
-    const finished = await api.waitForAgent(timeout);
-    check('brief agent finished', finished.ok, finished.note ?? '');
-    console.log('BRIEF REPLY START\n' + api.agentReply() + '\nBRIEF REPLY END');
-    console.log(
-      'BRIEF MCP CALLS: ' +
-        (api.mcpCalls?.() ?? []).map((call) => call.name).join(', '),
-    );
-    for (const run of api.runs()) {
+    // CAULDRON_BRIEF_MEASURE_ONLY re-runs the real quality measurement on an
+    // already-built site without any agent/provider run (ticket 29 recheck).
+    if (!process.env.CAULDRON_BRIEF_MEASURE_ONLY) {
+      const started = api.sendAgent({ tool, request });
+      check('brief agent started', started.ok, started.problem ?? '');
+      if (!started.ok) return;
+      const timeout = Number(process.env.CAULDRON_BRIEF_TIMEOUT ?? '900000');
+      const finished = await api.waitForAgent(timeout);
+      check('brief agent finished', finished.ok, finished.note ?? '');
       console.log(
-        `BRIEF RUN ${run.id} ${run.tool} ${run.status} ${run.note ?? ''} FILES ${run.files.join(', ')}`,
+        'BRIEF REPLY START\n' + api.agentReply() + '\nBRIEF REPLY END',
+      );
+      console.log(
+        'BRIEF MCP CALLS: ' +
+          (api.mcpCalls?.() ?? []).map((call) => call.name).join(', '),
+      );
+      for (const run of api.runs()) {
+        console.log(
+          `BRIEF RUN ${run.id} ${run.tool} ${run.status} ${run.note ?? ''} FILES ${run.files.join(', ')}`,
+        );
+      }
+    } else {
+      console.log(
+        'BRIEF MEASURE ONLY: no agent run, measuring the site as it stands.',
       );
     }
     if (process.env.CAULDRON_BRIEF_MEASURE) {
@@ -3462,6 +3520,38 @@ export async function runTasteTest(): Promise<void> {
     body{background:#000000;color:#efe6d5;font-family:'Libre Franklin',sans-serif;font-size:17px;margin:0;padding:16px}
     h1{font-family:'Cormorant Garamond',serif;font-size:49px;margin:0 0 16px}
   </style></head><body><h1>After Hours</h1><p>Programme text on theatre black.</p></body></html>`;
+  // Ticket 29: on-brand page carrying the confirmed checker false positives —
+  // screen-reader-only helper styles, a typographic arrow in a label, hover
+  // feedback on a descendant and on text-decoration thickness only, a
+  // transition-animated disabled state, and a heading whose only typed text is
+  // hidden behind an SVG wordmark.
+  const helpers = `<!doctype html><html><head><meta charset="utf-8"><style>
+    ${tokensCss(direction).replace(/^@import[^\\n]*\\n/, '')}
+    body{background:var(--cauldron-c-bg);color:var(--cauldron-c-ink);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-3);margin:0;padding:var(--cauldron-space-4)}
+    h1{font-size:34px;font-family:var(--cauldron-font-display);margin:0}
+    h2{font-family:var(--cauldron-font-display);font-size:var(--cauldron-size-6);margin:var(--cauldron-space-4) 0 0}
+    p{font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-3);margin:var(--cauldron-space-3) 0}
+    .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+    nav a{font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);text-decoration-line:underline;text-decoration-thickness:var(--cauldron-space-1);transition:text-decoration-thickness var(--cauldron-motion-quick) var(--cauldron-motion-easing)}
+    nav a:hover{text-decoration-thickness:var(--cauldron-space-2)}
+    .onward{display:inline-block;font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2)}
+    .onward__word{display:inline-block;transition:transform var(--cauldron-motion-quick) var(--cauldron-motion-easing)}
+    .onward:hover .onward__word{transform:translateX(var(--cauldron-space-3))}
+    .offset-link{font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);text-underline-offset:var(--cauldron-space-2);transition:text-underline-offset var(--cauldron-motion-quick) var(--cauldron-motion-easing)}
+    .offset-link:hover{text-underline-offset:var(--cauldron-space-3)}
+    .btn{background:var(--cauldron-c-primary);color:var(--cauldron-c-surface);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);padding:var(--cauldron-space-3) var(--cauldron-space-4);border:0;border-radius:var(--cauldron-radius-1);transition:opacity var(--cauldron-motion-quick) var(--cauldron-motion-easing)}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn:hover{background:var(--cauldron-c-primary-deep)}
+    .btn:focus-visible{outline:2px solid var(--cauldron-c-ink);outline-offset:2px}
+  </style></head><body>
+    <h1><span class="visually-hidden">Helpers</span><svg viewBox="0 -60 200 120" width="180" height="110" aria-hidden="true" focusable="false"><text x="0" y="40" font-size="90" fill="currentColor">PeNtA</text></svg></h1>
+    <h2>Section heading</h2>
+    <p>Body copy on the direction's own tokens.</p>
+    <nav><a href="/x/">Index</a><a href="/z/">Open in mail app <span aria-hidden="true">↗</span></a></nav>
+    <a class="onward" href="/y/"><span class="onward__word">Gallery →</span></a>
+    <a class="offset-link" href="/o/">Offset only</a>
+    <button class="btn">Book a table</button>
+  </body></html>`;
   // Host code that is off-brand, with one part the "agent" added, on-brand.
   const agentChange = `<!doctype html><html><head><meta charset="utf-8"><style>
     ${tokensCss(direction).replace(/^@import[^\n]*\n/, '')}
@@ -3476,6 +3566,28 @@ export async function runTasteTest(): Promise<void> {
     .agent-callout .book:focus-visible{outline:2px solid var(--cauldron-c-ink);outline-offset:2px}
   </style></head><body><div class="host-box">Host code, unchanged</div>
     <section class="agent-callout"><h2>Book a table</h2><p>Open Tuesday to Sunday.</p><button class="book">Book now</button></section></body></html>`;
+  // Ticket 29 recheck: the selected-state hover exemption is gone. A pressed
+  // control with no hover change must fail the hover check, a control with
+  // hover styling but no disabled CSS must fail the disabled check, and a
+  // properly styled control on the same page must not be named.
+  const selectedBad = `<!doctype html><html><head><meta charset="utf-8"><style>
+    ${tokensCss(direction).replace(/^@import[^\\n]*\\n/, '')}
+    body{background:var(--cauldron-c-bg);color:var(--cauldron-c-ink);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-3);margin:0;padding:var(--cauldron-space-4)}
+    p{margin:var(--cauldron-space-3) 0}
+    .pill{background:var(--cauldron-c-surface);color:var(--cauldron-c-ink);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);padding:var(--cauldron-space-3) var(--cauldron-space-4);border:1px solid var(--cauldron-c-ink);border-radius:var(--cauldron-radius-1)}
+    .pill:disabled{opacity:.4}
+    .flip{background:var(--cauldron-c-primary);color:var(--cauldron-c-surface);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);padding:var(--cauldron-space-3) var(--cauldron-space-4);border:0;border-radius:var(--cauldron-radius-1)}
+    .flip:hover{background:var(--cauldron-c-primary-deep)}
+    .safe{background:var(--cauldron-c-primary);color:var(--cauldron-c-surface);font-family:var(--cauldron-font-body);font-size:var(--cauldron-size-2);padding:var(--cauldron-space-3) var(--cauldron-space-4);border:0;border-radius:var(--cauldron-radius-1)}
+    .safe:hover{background:var(--cauldron-c-primary-deep)}
+    .safe:disabled{opacity:.4;cursor:not-allowed}
+    :focus-visible{outline:2px solid var(--cauldron-c-ink);outline-offset:2px}
+  </style></head><body>
+    <p>Filters and actions on the direction's own tokens.</p>
+    <button class="pill" aria-pressed="true">Filter: prints</button>
+    <button class="flip">Send enquiry</button>
+    <button class="safe">Book a table</button>
+  </body></html>`;
   const server = createServer((request, response) => {
     const path = (request.url ?? '/').split('?')[0];
     if (path === '/weak-focus') {
@@ -3486,8 +3598,16 @@ export async function runTasteTest(): Promise<void> {
       response.end(namedBlack);
       return;
     }
+    if (path === '/helpers') {
+      response.end(helpers);
+      return;
+    }
     if (path === '/agent-change') {
       response.end(agentChange);
+      return;
+    }
+    if (path === '/selected-bad') {
+      response.end(selectedBad);
       return;
     }
     response.end(negative);
@@ -3593,6 +3713,69 @@ export async function runTasteTest(): Promise<void> {
           finding.label.startsWith('Agent changes:'),
       ),
     );
+
+    // Ticket 29: the confirmed checker false positives must pass on an
+    // on-brand page. Each one was measured as a failure before the fix.
+    await window.loadURL(`${base}/helpers`);
+    const helpersFindings = await measureTaste(window, direction, '/helpers');
+    for (const label of [
+      'Spacing follows the direction',
+      'Type sizes use the direction',
+      'No emoji used as interface icons',
+      'Controls have a visible hover state',
+      'Controls have a visible disabled state',
+      'Tokens rather than hard-coded values',
+    ]) {
+      const found = statusOf(helpersFindings, label);
+      check(
+        `29 helpers page: ${label}`,
+        found?.status === 'pass',
+        found?.detail ?? 'not measured',
+      );
+    }
+    // The checks stay strict: the negative control's 🚀 button still fails.
+    await window.loadURL(`${base}/`);
+    const emojiFindings = await measureTaste(
+      window,
+      direction,
+      '/negative-control',
+    );
+    check(
+      '29 a real emoji in a nav still fails the emoji check',
+      statusOf(emojiFindings, 'No emoji used as interface icons')?.status ===
+        'fail',
+      statusOf(emojiFindings, 'No emoji used as interface icons')?.detail ??
+        'not measured',
+    );
+
+    // Ticket 29 recheck: the selected-state exemption is gone and the disabled
+    // probe reads the settled disabled style, not a hovered one. The
+    // /selected-bad page carries one deliberately broken control of each kind
+    // and one properly styled control that must not be named.
+    await window.loadURL(`${base}/selected-bad`);
+    const badFindings = await measureTaste(window, direction, '/selected-bad');
+    const badHover = statusOf(
+      badFindings,
+      'Controls have a visible hover state',
+    );
+    check(
+      '29 a selected (aria-pressed) control with no hover change still fails hover',
+      badHover?.status === 'fail' && /pill/.test(badHover.detail ?? ''),
+      badHover?.detail ?? 'not measured',
+    );
+    const badDisabled = statusOf(
+      badFindings,
+      'Controls have a visible disabled state',
+    );
+    check(
+      '29 a control with hover styling but no disabled CSS fails the disabled check',
+      badDisabled?.status === 'fail' &&
+        /flip/.test(badDisabled.detail ?? '') &&
+        !/pill/.test(badDisabled.detail ?? '') &&
+        !/safe/.test(badDisabled.detail ?? ''),
+      badDisabled?.detail ?? 'not measured',
+    );
+
     console.log(
       `\n${results.filter((r) => r.ok).length}/${results.length} passed`,
     );

@@ -64,6 +64,9 @@ const qualityRules = await import('../src/main/quality.ts').catch(() => null);
 const tasteChange = await import('../src/main/taste-change.ts').catch(
   () => null,
 );
+// Ticket 29: shared checker helpers, imported once so the tests stay
+// synchronous (the harness below only sees synchronous results).
+const tasteCheck = await import('../src/main/taste-check.ts').catch(() => null);
 // Ticket 14 case 7: an accessibility-check exception must be reported, not
 // discarded. A window whose page scripts fail stands in for a broken check.
 const axeOutcome = await (async () => {
@@ -2057,6 +2060,83 @@ test('29 a run’s own taste findings do not reuse the whole-site ids', async ()
   assert.equal(
     tasteCheck.tasteFindingId('hover', '/gallery', 1280, 'change'),
     'taste-change-hover-/gallery-1280',
+  );
+});
+
+test('29 typographic arrows are punctuation, not emoji icons', () => {
+  assert.ok(tasteCheck, 'taste-check module missing');
+  assert.equal(
+    tasteCheck.usesEmojiAsIcon('Open in mail app ↗'),
+    false,
+    'an arrow glyph in a label was counted as an emoji icon',
+  );
+  assert.equal(tasteCheck.usesEmojiAsIcon('Gallery →'), false);
+  assert.equal(tasteCheck.usesEmojiAsIcon('Image → Python'), false);
+  assert.equal(tasteCheck.usesEmojiAsIcon('🚀 Launch'), true);
+  assert.equal(tasteCheck.usesEmojiAsIcon('Save 👍'), true);
+  assert.equal(tasteCheck.usesEmojiAsIcon('→'), false);
+});
+
+test('29 screen-reader-only helpers are recognised and skipped', () => {
+  assert.ok(tasteCheck, 'taste-check module missing');
+  // The .visually-hidden pattern: absolute, 1px, clipped.
+  assert.equal(
+    tasteCheck.isVisuallyHidden(
+      { position: 'absolute', clip: 'rect(0 0 0 0)' },
+      { width: 1, height: 1 },
+    ),
+    true,
+  );
+  // A skip-link is absolute but full-sized and unclipped: still measured.
+  assert.equal(
+    tasteCheck.isVisuallyHidden(
+      { position: 'absolute', clip: 'auto' },
+      { width: 140, height: 44 },
+    ),
+    false,
+  );
+  // Static in-flow content is never visually hidden.
+  assert.equal(
+    tasteCheck.isVisuallyHidden(
+      { position: 'static', clip: 'auto' },
+      { width: 300, height: 40 },
+    ),
+    false,
+  );
+});
+
+test('29 an SVG wordmark’s font-size is a drawing size, not off-scale type', () => {
+  assert.ok(tasteChange && directions, 'taste-change/directions missing');
+  const checkTasteOfCss = tasteChange.checkTasteOfCss;
+  const direction = directions.findDirection('long-lunch');
+  const css = [
+    '.hero__wordmark text { font-size: 440px; letter-spacing: -0.04em; }',
+    '.hero__wordmark { width: 100%; }',
+  ].join('\n');
+  const findings = checkTasteOfCss(css, direction, '/ (src/pages/index.astro)');
+  const type = findings.find((finding) =>
+    finding.label.endsWith('Type sizes use the direction'),
+  );
+  const tokens = findings.find((finding) =>
+    finding.label.endsWith('Tokens rather than hard-coded values'),
+  );
+  assert.equal(type?.status, 'pass', type?.detail ?? 'type finding missing');
+  assert.equal(
+    tokens?.status,
+    'pass',
+    tokens?.detail ?? 'tokens finding missing',
+  );
+  // The rule stays strict for real typography.
+  const offScale = checkTasteOfCss(
+    '.hero__title { font-size: 440px; }',
+    direction,
+    '/ (src/pages/index.astro)',
+  );
+  assert.equal(
+    offScale.find((finding) =>
+      finding.label.endsWith('Type sizes use the direction'),
+    )?.status,
+    'fail',
   );
 });
 
