@@ -2,6 +2,10 @@
 
 A Mac desktop app for designing and building real Astro websites, with design taste built in. Electron, React and TypeScript. MIT.
 
+## Rescue handoff — current entry point (8 Nov 2026)
+
+Read `RESCUE-PLAN.md` before implementation or completion claims. Billy requested this consolidated, prioritised handoff after the delivered app failed his tinydogs workflow. It supplies the current scope amendments, known failure, whole-product acceptance checklist and execution order. The older pause/batch/ticket status sections below are historical where they conflict with that plan; they are not proof of readiness or permission to omit core functionality. Preserve safety rules and work only under Billy's actual implementation authorisation. This documentation handoff makes no application repair or release-ready claim.
+
 ## What this repository is
 
 The application only. Research, design references and the delivered plan live outside this repository, in Billy's research workspace, and are reference only: nothing is copied from them as code (see `docs/adr/0002`).
