@@ -17,6 +17,7 @@ registerHooks({
 });
 const { runAgent, writeHermesConnection, hermesPickupWaitMs, buildPrompt } =
   await import('../src/main/agent.ts');
+const { designDocument } = await import('../src/main/directions.ts');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-agent-fixtures-'));
 // Never touch the real Hermes profile from a fixture run.
 process.env.CAULDRON_HERMES_ENV_FILE = path.join(dir, 'hermes-profile.env');
@@ -262,6 +263,69 @@ try {
       assert.match(events.at(-1).text, /stream disconnected/);
     },
   );
+  // Ticket 29 PeNtA feedback: both the agent prompt and the saved DESIGN.md
+  // must carry the generated-site standards — no unintended overlaps with the
+  // real loaded font, a usable mobile disclosure menu when navigation
+  // collapses, and decorative faded imagery as a contextual option only.
+  try {
+    const fixtureDirection = {
+      name: 'Fixture',
+      forWhom: 'fixture',
+      learnedFrom: 'fixture study',
+      character: 'A fixture direction.',
+      colours: { bg: '#ffffff', surface: '#ffffff', ink: '#0b0b0c' },
+      structure: {
+        density: 'fixture',
+        displayType: 'fixture',
+        surfaces: 'fixture',
+        states: 'fixture',
+        mobile: 'fixture',
+      },
+      fonts: {
+        display: {
+          family: 'Anton',
+          package: '@fontsource/anton',
+          weights: [400],
+        },
+        body: {
+          family: 'Space Grotesk',
+          package: '@fontsource/space-grotesk',
+          weights: [400, 500],
+        },
+      },
+      typeScale: [16, 24, 64],
+      spacing: [8, 16, 32],
+      radii: [0, 4],
+      motion: { quick: '120ms', settle: '320ms', easing: 'ease-out' },
+      watch: 'Fixture watch note.',
+    };
+    const prompt = buildPrompt({
+      request: 'fixture',
+      siteName: 'Fixture site',
+      direction: fixtureDirection,
+      selection: null,
+      catalogue: [],
+    });
+    assert.match(prompt, /## Generated-site standards/);
+    assert.match(prompt, /must not collide at any/);
+    assert.match(prompt, /document\.fonts\.ready/);
+    assert.match(prompt, /Escape to close/);
+    assert.match(prompt, /44px touch target/);
+    assert.match(prompt, /contextual option/);
+    const doc = designDocument(fixtureDirection);
+    assert.match(doc, /## Generated-site standards/);
+    assert.match(doc, /must not collide at any/);
+    assert.match(doc, /Escape to close/);
+    assert.match(doc, /contextual option/);
+    console.log(
+      'PASS 29 the prompt and the saved DESIGN.md carry the generated-site standards',
+    );
+  } catch (error) {
+    failed += 1;
+    console.error(
+      `FAIL 29 the prompt and the saved DESIGN.md carry the generated-site standards: ${error.message}`,
+    );
+  }
   // Ticket 23: a real Codex run once declined the job because the brief said
   // "use Cauldron's actions" without saying where they come from, so the agent
   // tried to drive the app's own interface instead. The brief now says both.

@@ -691,6 +691,27 @@ ${direction.fonts.detail ? detailFont : ''}  --cauldron-motion-quick: ${directio
 `;
 }
 
+/**
+ * Standards every generated site must meet, carried into both the agent prompt
+ * and the saved DESIGN.md (ticket 29 PeNtA feedback: SVG wordmark overlap with
+ * the kicker, desktop nav shipped inline on mobile, decorative imagery rules).
+ */
+export const generatedSiteStandards = `## Generated-site standards
+
+- No unintended overlaps. Text, SVG wordmarks, headings and images must not collide at any
+width. If an SVG wordmark or heading relies on a loaded webfont, verify the layout with that
+font actually loaded (\`document.fonts.ready\`, not the fallback) and size its viewBox or
+flow to the real glyph box. Glyphs must never escape a short viewBox over other content.
+- When the main navigation collapses on mobile, it becomes a usable disclosure menu: a small
+native \`details\`/\`summary\` is enough. It needs a visible toggle, an accessible
+"Menu" label, a 44px touch target, visible keyboard focus, Escape to close, and no focusable
+links while closed. Keep inline links on desktop. This is a default, not a template: do not
+force every site into the same layout.
+- Decorative faded imagery behind a text section is a contextual option, not a requirement
+across directions. Use it only when it suits the direction or the person asks. Keep it
+low-opacity, non-interactive and behind the text, and only when body text still measures
+4.5:1 (large text 3:1) against the actual composite background.`;
+
 export function designDocument(direction: DesignDirection): string {
   const colours = Object.entries(direction.colours)
     .map(([name, value]) => `| ${name} | \`${value}\` |`)
@@ -813,6 +834,8 @@ Everything stops under \`prefers-reduced-motion: reduce\`.
 ## Watch out
 
 ${direction.watch}
+
+${generatedSiteStandards}
 
 ## Token names
 

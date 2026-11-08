@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { DesignDirection } from './directions';
+import { generatedSiteStandards } from './directions';
 import { tasteRulesText } from './tastes';
 
 /** The .env of the Hermes profile Cauldron runs (ticket 20). */
@@ -117,6 +118,8 @@ DESIGN.md measures the safe colour pairs: small text needs 4.5:1, large text 3:1
 Watch out for: ${direction.watch}`
     : 'No design direction has been chosen for this site yet.';
 
+  const standardsBlock = `\n${generatedSiteStandards}\n`;
+
   const selectionBlock = context.selection
     ? `## What is selected right now
 
@@ -154,7 +157,7 @@ stop: do not substitute another way of editing and do not report the job as done
 Site: ${context.siteName}. The site's own files are the truth, and the person is watching a live preview.
 
 ${directionBlock}
-
+${standardsBlock}
 ## Taste rules — these are not optional
 ${tasteRulesText()}
 

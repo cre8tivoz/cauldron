@@ -210,3 +210,7 @@ on the same path. `scripts/test-core.mjs` adds "a run that fails after its diff 
 failed, not finished": red before (`saved record says finished`), green after; `npm run check`
 passes. This corrects the ticket 14/18 failure-reporting guarantee at the saved-history layer.
 The PeNtA run is unchanged: still blocked at auth, no site generated, release gate open.
+
+## User verdict on the three PeNtA comments (2026-11-08): CONDITIONAL win
+
+Billy: "Overall ... very good iteration ... wins if those comments ... factored in for standard cauldron work." All three comments were implemented and verified; the standards were carried into both the agent prompt (src/main/agent.ts via shared `generatedSiteStandards` in src/main/directions.ts) and the saved DESIGN.md template, guarded by a narrow regression in scripts/test-agent.mjs (24 PASS). Evidence: /Users/habibi/.hermes/profiles/claudia/cache/scratch/penta-comments-result.md; screenshots in /Users/habibi/.hermes/profiles/claudia/cache/scratch/penta-comment-proof/. Site build exit 0; app `npm run check` exit 0. Measured: hero glyph/kicker overlap +214px→clearance at 1280 (font-verified), mobile hamburger semantics (44px target, Escape, outside-click, closed links unfocusable, desktop inline retained), statement faded image 14.39:1 worst-case text contrast. Ticket stays open; this does NOT erase the Moretti blind-round losses or the measured quality failures, and does not authorise release or ticket 30. Generated-site code deliberately not staged into the app repo.
