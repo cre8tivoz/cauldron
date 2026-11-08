@@ -4,7 +4,7 @@
 
 **Blocked by:** [25: Prove all five library components work](25-prove-all-five-library-components-work.md), [27: Build and measure the first real-brief comparison](27-build-and-measure-the-first-real-brief-comparison.md), [28: Build and measure the second real-brief comparison](28-build-and-measure-the-second-real-brief-comparison.md)
 
-**Status:** ready-for-human
+**Status:** open — Billy's blind verdicts recorded; Cauldron won PeNtA, lost Moretti Estate, and measured checks still have failures
 
 **Parent findings:** [06: approved taste criteria](06-approved-taste-criteria.md), [07: library nine checks](07-library-nine-checks.md), [08: real brief blind proof](08-real-brief-blind-proof.md)
 
@@ -15,7 +15,7 @@
 ## Acceptance criteria
 
 - [ ] Record the approved automatic and human checks across both test-site copies and both real-brief targets.
-- [ ] Billy judges both comparison pairs before the condition key is revealed; no model substitutes its own preference.
+- [x] Billy judges both comparison pairs before the condition key is revealed; no model substitutes its own preference.
 - [ ] Cauldron must win both comparisons and pass the agreed measured checks.
 - [ ] A loss, failed measurement or missing verdict remains an open release gate; record it honestly.
 - [ ] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
@@ -45,9 +45,30 @@ These include contrast, keyboard/focus and design-direction findings; none were 
 silently fixed for the comparison. Building and measuring the pairs completes preparation,
 not the release gate. The measured-check requirement is currently failed.
 
-Billy's verdicts are still required on both pairs. No model preference is substituted.
-The condition key remains outside the repository and must not be revealed before verdicts.
-Neutral local previews: Pair A on ports 8811/8812; Pair B on ports 8813/8814.
-Preview servers are temporary and can be restarted from the preserved built outputs.
+## Billy's completed blind judgement
 
-Ticket 29 stays open. Ticket 30's final-release verification remains blocked by this gate.
+Billy submitted both preferences before the condition key was read and revealed. The preserved
+key at `~/.hermes/profiles/claudia/cache/cauldron-blind-condition-key.json` identifies version 1
+as Codex alone and version 2 as Codex through Cauldron for both pairs.
+
+### Moretti Estate — version 1 wins (Codex alone)
+
+Billy described version 1 as far superior: unique, modern, clean, responsive from mobile to
+desktop, and feeling designed rather than vibe-coded. Version 2 felt dated, like a 2022
+small-business template. Version 2's more shop-like oil arrangement was a useful detail that
+could inform version 1; this was a minor observation, not a requested edit. Version 1 is locked
+in as his preferred design.
+
+### PeNtA — version 2 wins (Codex through Cauldron)
+
+Billy preferred version 2's flatter treatment, likening it to opening a box of brand-new pastel
+pencils with a really good charcoal, fitting an artist's site. Version 1 felt more like a gallery
+or studio. Its progressive image loading/zoom could complement version 2. Selected homepage
+images missing from the full gallery were a minor observation, not a requested edit.
+
+### Release result
+
+Cauldron won one comparison and lost one. The requirement to win both is unmet. Recorded
+measured failures also remain unresolved. No thresholds or winning conditions have changed,
+no model has substituted a verdict, and no sites were edited after judgement. Ticket 29 and
+ticket 30 remain open; no release is authorised by these results.
