@@ -10,13 +10,33 @@ import {
 } from './contrast';
 
 /**
- * The seven design directions in Cauldron's starter set (design/STARTER-SET.md),
+ * The ten design directions in Cauldron's starter set (design/STARTER-SET.md),
  * each learned from a real site, with free (SIL OFL) type to stand in for paid fonts.
  * A chosen direction is saved inside the site as tokens plus a design document the
  * agent reads on every job (plan 4.2).
  */
 
-export type FontChoice = { family: string; package: string; weights: number[] };
+export type FontChoice = {
+  family: string;
+  package: string;
+  weights: number[];
+  /** Correct generic fallback while the web font loads or if it fails. */
+  generic?: 'serif' | 'sans-serif' | 'monospace';
+};
+
+/**
+ * The layout, type treatment, surface, state and mobile rules the source design
+ * files describe. These are our own translations, written against Cauldron's
+ * allowed token scales, not copied prose. They are rendered into DESIGN.md and
+ * carried on every agent job so a direction is a system, not just a palette.
+ */
+export type DirectionStructure = {
+  density: string;
+  displayType: string;
+  surfaces: string;
+  states: string;
+  mobile: string;
+};
 
 export type DesignDirection = {
   id: string;
@@ -24,18 +44,58 @@ export type DesignDirection = {
   forWhom: string;
   learnedFrom: string;
   colours: Record<string, string>;
-  fonts: { display: FontChoice; body: FontChoice };
+  fonts: { display: FontChoice; body: FontChoice; detail?: FontChoice };
   typeScale: number[];
   spacing: number[];
   radii: number[];
   motion: { quick: string; settle: string; easing: string };
   character: string;
   watch: string;
+  structure: DirectionStructure;
 };
 
 const TYPE_SCALE = [13, 15, 17, 20, 25, 31, 39, 49, 61, 76];
 const SPACING = [0, 1, 4, 8, 12, 16, 24, 32, 48, 64, 96];
 const RADII = [0, 4, 10, 20, 999];
+// Niki Studio needs a display step above the shared scale without forcing every
+// other direction to grow. Body stays at 16px or above for readability.
+const NIKI_TYPE_SCALE = [14, 16, 18, 22, 28, 36, 46, 58, 72, 92];
+
+/**
+ * Used only for directions measured from a reference URL. The measurement does
+ * not describe structure, so a safe, explicit default keeps old imports valid
+ * without pretending the reference supplied layout rules.
+ */
+export const REFERENCE_STRUCTURE: DirectionStructure = {
+  density:
+    'Use a centred content column capped at 72rem. Section padding comes from the spacing scale (space-8 or space-9); card and grid gutters from space-5 or space-6. Keep body text in a 60-75 character measure rather than stretching it to the full shell.',
+  displayType:
+    'Hierarchy comes from the measured size scale, not invented in-between sizes. Keep body copy at size-3 (17px) or larger; use size-2 (15px) only for short labels, never for essential body text. Leave case and tracking neutral unless the measured site clearly uses them.',
+  surfaces:
+    'Prefer flat measured colour fields and 1px line hairlines. Do not add shadows or extra surfaces that were not measured; depth must come from the measured palette until a person chooses a starter direction.',
+  states:
+    'Every control still needs a visible hover and focus-visible change: darken or lighten the measured primary by one step on hover, and use a 2px ink or primary outline at 3:1 or better on focus-visible. Disabled controls keep readable text at 4.5:1; never simulate disabled with low-opacity text.',
+  mobile:
+    'Below 768px collapse multi-column layouts to one column, keep section padding at space-8 (48px), and let display type scale down without changing family or weight. Navigation becomes a labelled text menu. All motion stops under prefers-reduced-motion: reduce.',
+};
+
+function completeStructure(
+  value: unknown,
+  fallback: DirectionStructure,
+): DirectionStructure {
+  const saved = (value ?? {}) as Partial<DirectionStructure>;
+  const field = (key: keyof DirectionStructure) =>
+    typeof saved[key] === 'string' && saved[key]!.trim()
+      ? saved[key]!
+      : fallback[key];
+  return {
+    density: field('density'),
+    displayType: field('displayType'),
+    surfaces: field('surfaces'),
+    states: field('states'),
+    mobile: field('mobile'),
+  };
+}
 
 export const DIRECTIONS: DesignDirection[] = [
   {
@@ -64,6 +124,11 @@ export const DIRECTIONS: DesignDirection[] = [
         package: '@fontsource/karla',
         weights: [400, 600],
       },
+      detail: {
+        family: 'IBM Plex Mono',
+        package: '@fontsource/ibm-plex-mono',
+        weights: [400, 500],
+      },
     },
     typeScale: TYPE_SCALE,
     spacing: SPACING,
@@ -77,6 +142,18 @@ export const DIRECTIONS: DesignDirection[] = [
       'Mediterranean warmth: cream paper, terracotta and deep red, generous margins, calm serif headings with a friendly sans body. Feels like a well-run dining room, not a startup.',
     watch:
       'Keep the cream warm, never yellow. Photographs carry the appetite: give food real space rather than small tiles.',
+    structure: {
+      density:
+        'Content caps at 76rem, centred, with outer gutters of space-9 (64px) and section padding of space-9 or space-10. Menu and story sections alternate a cream field with full-bleed photography; dish cards use a three-column grid with space-5 (16px) gutters, never a single narrow reading column.',
+      displayType:
+        'Headings are uppercase at weight 400 only, tracking 0.02em, leading 1.2; H2 at size-6 (31px) is the menu-board voice and H3 at size-3 (17px) keeps the uppercase label language. Body is sentence case at size-3 or size-4 (17-20px). The detail mono runs at size-2 (15px) for prices and small details, never for essential body copy.',
+      surfaces:
+        'Flat colour fields: cream bg, white form fields, terracotta sections and a full-bleed terracotta footer with cream text. No shadows. Separate layers with a 1px line hairline or a change of colour field, not elevation.',
+      states:
+        'Buttons and links: terracotta fill to primary-deep fill on hover (one step darker), with a 2px ink underline on focus-visible and a 3:1 ring. Disabled keeps the shape but uses muted text on surface with a line border; never lower text below 4.5:1.',
+      mobile:
+        'Below 768px the three-column dish grid becomes one column with space-5 gaps and the carousel shows one image. The nav collapses to a full-width menu panel under the header, section padding drops to space-8 (48px), and headings keep uppercase but drop one size step. Stop parallax and autoplay under reduced motion.',
+    },
   },
   {
     id: 'clear-ground',
@@ -91,6 +168,7 @@ export const DIRECTIONS: DesignDirection[] = [
       primary: '#003f3c',
       'primary-soft': '#dfeae8',
       accent: '#f2d06b',
+      danger: '#eb0000',
       line: '#e4e0d8',
     },
     fonts: {
@@ -117,6 +195,18 @@ export const DIRECTIONS: DesignDirection[] = [
       'Calm, not clinical: warm white, deep forest green, soft yellow highlights. Airy line lengths and quiet borders. Reassuring rather than medical.',
     watch:
       'Never let green turn minty or the page turn sterile. Keep body text large enough for older readers and every tap target generous.',
+    structure: {
+      density:
+        'Content caps at 80rem with space-9 (64px) side padding on desktop; sections use space-9 top and bottom, cards use a space-3 (8px) gutter, and the service grid is two columns that become one below 768px. Keep a narrower 42rem text column inside the wide shell for 60-75 character measures.',
+      displayType:
+        'One humanist sans for everything; headings sit at weight 400 at size-7 or size-8, separated by size and space rather than weight. Body is size-3 or size-4 (17-20px) with 1.6 leading; labels are size-2 (15px) with 0.02em tracking, uppercase only on short badges. Use 600 only for inline emphasis.',
+      surfaces:
+        'Soft but restrained: cream bg, white cards with a 1px line hairline and at most one small shadow mixed from line. Media is square-cornered (radius-0); cards may use radius-1 or radius-2. No stacked shadows; modals use a scrim rather than floating glass.',
+      states:
+        'Primary buttons: deep green fill to ink fill on hover, with a 3:1 accent ring on focus-visible. Secondary buttons are green text on bg with a line border. Inputs are surface with a line border; danger is for validation text and icons only. Disabled uses muted text with a line border and no shadow.',
+      mobile:
+        'The header collapses to one labelled menu button in a sticky bar no taller than space-10; the desktop 8px grid becomes vertical stacking with space-6 (24px) gaps. Section padding drops to space-8 (48px), body stays at least size-3 (17px), and the slide-in entrance is removed under reduced motion.',
+    },
   },
   {
     id: 'solid-ground',
@@ -138,6 +228,7 @@ export const DIRECTIONS: DesignDirection[] = [
         family: 'Archivo',
         package: '@fontsource/archivo',
         weights: [600, 700],
+        generic: 'sans-serif',
       },
       body: {
         family: 'Work Sans',
@@ -157,6 +248,18 @@ export const DIRECTIONS: DesignDirection[] = [
       'Practical workwear: charcoal, bone, stone and toffee. Square-ish corners, sturdy weights, information laid out like a job sheet.',
     watch:
       'Do not turn it into a corporate brochure. Real jobs, real materials, real names; prices and availability easy to find.',
+    structure: {
+      density:
+        'Full-bleed photography panels run edge to edge with a bone content band between them; text columns cap at 68rem on a 12-column grid with space-5 (16px) gutters. Job-sheet blocks run three across on desktop and stack at 768px; section padding is space-9 (64px) with space-4 (12px) internal gaps.',
+      displayType:
+        'Sturdy sans headings at weight 600 or 700, size-9 or size-10 for hero words, leading 1.05-1.15 and tracking -0.01em; section headings sit at size-6 or size-7. Body is size-3 or size-4 (17-20px) with 1.55 leading. Labels are sentence case or uppercase at size-2 (15px) with 0.04em tracking; no condensed or decorative faces.',
+      surfaces:
+        'Flat bone and white panels; depth comes from photography and a 1px line hairline. Use radius-1 (4px) on controls and radius-2 (10px) on medium cards, with no shadows on cards or images. Pricing and availability sit on a white surface against bone, not in a floating card.',
+      states:
+        'Buttons use toffee or primary-deep fills with light text; hover darkens by one step, focus-visible adds a 2px accent outline with 2px offset. Secondary actions are ink text with a line underline on hover. Disabled is a line-bordered surface with muted text; sold or complete states use ink labels plus a rule, not colour alone.',
+      mobile:
+        'Below 768px the three-across job blocks become one column, full-bleed images keep their 3:4 or 16:9 ratios, and the nav becomes a compact labelled menu row, not icons alone. Section padding drops to space-8 (48px); display type scales down without changing weight; no sticky parallax.',
+    },
   },
   {
     id: 'silver-screen',
@@ -177,6 +280,7 @@ export const DIRECTIONS: DesignDirection[] = [
         family: 'Anton',
         package: '@fontsource/anton',
         weights: [400],
+        generic: 'sans-serif',
       },
       body: {
         family: 'Space Grotesk',
@@ -196,6 +300,18 @@ export const DIRECTIONS: DesignDirection[] = [
       'Cool cinematic silver, near-black type, one red-orange signal colour, oversized lettering that does the designing. Work is the hero; the interface gets out of the way.',
     watch:
       'Keep the red-orange to a single signal per screen. Oversized type needs real contrast and generous line breaks, not shouting.',
+    structure: {
+      density:
+        'Viewport-led: huge display type may run near full width, but body and listings cap at 72rem with space-6 (24px) gutters. Sections are tall (space-10 padding) and separated by luminance shifts, not rules; the work grid is two-up on desktop and one-up below 768px.',
+      displayType:
+        'Two extremes, no middle: display at size-10 with tight tracking -0.04em and leading 0.9-1; micro labels at size-1 (13px) uppercase with 0.08em tracking. Body sits at size-3 or size-4 (17-20px) with 1.5 leading. Never bold display type; scale and space carry hierarchy.',
+      surfaces:
+        'Sharp corners (radius-0) and no shadows. Depth comes from the silver canvas, a near-white intro panel and the one red-orange footer or active state. A 1px line hairline is the only divider. No glass, no gradients, no card shadows.',
+      states:
+        'Links are ink with a red-orange underline; hover moves the label to primary, focus-visible draws a 2px primary outline with 2px offset. Keep red-orange to one signal per screen: active nav or footer, not both plus buttons. Disabled is muted text with no strike-through and no opacity trick.',
+      mobile:
+        'Display type clamps to roughly half its desktop size while keeping tight leading; below 768px the work grid is one column with space-5 gaps and the nav collapses to a minimal text row. Section padding drops to space-9 (64px); scroll and hover motion stop under reduced motion.',
+    },
   },
   {
     id: 'the-edit',
@@ -209,6 +325,7 @@ export const DIRECTIONS: DesignDirection[] = [
       muted: '#5a6472',
       primary: '#4a4af4',
       'primary-soft': '#e6e6fe',
+      danger: '#de1c24',
       line: '#e6e7ea',
     },
     fonts: {
@@ -235,6 +352,18 @@ export const DIRECTIONS: DesignDirection[] = [
       'Editorial white with ink and one vivid indigo. Tight grids, tall images, small caps labels, lots of white space around product.',
     watch:
       'One accent only. Do not let indigo creep onto body copy; save it for actions and marks.',
+    structure: {
+      density:
+        'Editorial shell capped at 80rem; product grids use three or four columns with space-5 (16px) gutters, and section padding is space-9 (64px) with a space-10 (96px) gap before the footer. Images are tall (4:5 or 3:4) and text blocks stay in a 60-70 character measure. Keep product density visible above the fold rather than a hero-only page.',
+      displayType:
+        'Display serif at weight 500, size-8 or size-9, leading 1.05, tracking -0.01em, sentence case. Body is a geometric sans at size-3 or size-4 (17-20px) with 1.5 leading. Small-caps labels at size-2 (15px) with 0.06em tracking are the only uppercase. No weight above 600 and no second accent colour.',
+      surfaces:
+        'Hard white and ink editorial surfaces, sharp corners (radius-0, or radius-1 on inputs), no shadows; 1px line hairlines separate grid rows. The footer is a black field with white text. Indigo is an event: one CTA or mark, never a background wash. Danger is reserved for sold-out or alert states.',
+      states:
+        'Primary buttons: indigo fill with surface text to ink on hover; focus-visible is a 2px indigo outline with 2px offset. Secondary buttons are ink text with a line border and invert to an ink fill on hover. Sold-out uses danger fill with white text and a non-interactive cursor; disabled is muted text on surface with a line border.',
+      mobile:
+        'Below 768px the product grid becomes two columns, and one column under 480px, with space-4 gaps; the nav collapses to a labelled text menu, not icons alone. Section padding drops to space-8 (48px), display drops two size steps, and image ratios stay 4:5. Transitions stay at 100-150ms and stop under reduced motion.',
+    },
   },
   {
     id: 'after-hours',
@@ -274,6 +403,18 @@ export const DIRECTIONS: DesignDirection[] = [
       'Dark theatre black with antique-ivory type and a brass hairline. Programme-like listings, restrained serif, images allowed to glow.',
     watch:
       "This direction names pure black for its background, which Cauldron's taste rules normally avoid. It works here because the ivory type carries the contrast; keep text at 4.5:1 or better and never put small grey copy on black.",
+    structure: {
+      density:
+        'Cinema-wide: hero and film stills run full-bleed, while programme text caps at 66rem and listings use a two-column grid with space-6 (24px) gutters. Sections are tall (space-10 padding) and alternate dense type blocks with full-bleed images; never centre a small card in a sea of black.',
+      displayType:
+        'Display at size-10 uppercase, tracking -0.03em, leading 0.9-1 for title cards; a second, open tracking of 0.06em at size-2 (15px) is for labels. Body sits at size-4 or size-5 (20-25px) at weight 400 with 1.5 leading, ivory on black. One weight only: hierarchy by size, case and tracking, never bold.',
+      surfaces:
+        'Pure black is the named exception; depth is photography and the ivory-on-black contrast, not shadow. Use radius-1 (4px) on controls and radius-4 for programme pills. No glass panels, no grey cards, no gradients.',
+      states:
+        'Text buttons only: ivory label with a 1px ivory underline; hover brightens to ink and thickens the rule, focus-visible draws a 2px ivory outline with 3px offset. Never introduce a chromatic hover. Disabled is muted ivory at 4.5:1 or better with the rule removed; a selected programme row uses an ivory left rule, not a fill.',
+      mobile:
+        'Below 768px the programme grid becomes one column, hero display drops to roughly half its desktop size while keeping uppercase and tracking, and the nav collapses to a minimal labelled text row. Section padding drops to space-9 (64px); preserve black and ivory contrast, and stop video autoplay under reduced motion.',
+    },
   },
   {
     id: 'open-house',
@@ -314,11 +455,184 @@ export const DIRECTIONS: DesignDirection[] = [
       'Heritage label: warm honey paper, amber and burnt orange, crafted serif with a sturdy slab body. Playful details kept small so the product stays believable.',
     watch:
       'Warmth is not clutter. Keep playful touches to labels and dividers, not to body copy.',
+    structure: {
+      density:
+        'Story-driven full-bleed sections; content caps at 76rem with product grids of three or four cards and space-6 (24px) gutters. Sections use space-10 (96px) padding and end on an accent footer. Keep the rhythm dense: oversized display followed immediately by short reading copy, not a hero with empty space.',
+      displayType:
+        'Display at weight 400 only, uppercase at the top of the scale (size-9 or size-10), leading 0.85-0.95; mid headings drop to sentence case at size-7 or size-8. Body is size-3 or size-4 (17-20px) with 1.6 leading. Labels and CTAs use the display face at size-2 (15px); never bold any text.',
+      surfaces:
+        'No shadows. Depth is colour: cream ground, white inputs, full-bleed accent (honey-gold) and primary (burnt orange) section grounds, and circle-wipe transitions. Everything rounds to pills or circles (radius-4); the footer commits to accent with ink text. Primary and accent belong to transitions and grounds, not persistent chrome.',
+      states:
+        'Buttons are outline-only: transparent fill, ink text and an ink 1px border; hover fills with primary-soft while keeping ink text, and focus-visible draws a 3:1 ink outline with 2px offset. Links use the primary animated underline. Disabled uses muted text with a dashed line border; never lower text below 4.5:1.',
+      mobile:
+        'Below 700px every type role drops one or two steps (display stays at 40px or more but body stays at size-3/17px or larger), the product grid becomes one column with space-5 gaps, and the nav switches to the display face in a full-width panel. Circle wipes shorten or become simple fades, and all motion stops under reduced motion.',
+    },
+  },
+  {
+    id: 'componine',
+    name: 'Componine',
+    forWhom: 'Creative studios and art-led portfolios',
+    learnedFrom: 'componine.com — https://www.componine.com/',
+    colours: {
+      bg: '#0d0b09',
+      surface: '#1e140f',
+      ink: '#f2f1ef',
+      muted: '#b9b0a4',
+      primary: '#f9a602',
+      'primary-soft': '#373828',
+      line: '#373828',
+    },
+    fonts: {
+      display: {
+        family: 'Instrument Serif',
+        package: '@fontsource/instrument-serif',
+        weights: [400],
+      },
+      body: {
+        family: 'Instrument Sans',
+        package: '@fontsource/instrument-sans',
+        weights: [400, 500, 600],
+      },
+    },
+    typeScale: TYPE_SCALE,
+    spacing: SPACING,
+    radii: RADII,
+    motion: {
+      quick: '180ms',
+      settle: '340ms',
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    },
+    character:
+      'Warm-dark editorial theatre: a near-black with a brown cast, warm off-white type, patterned serif headings and one amber flame of an accent. The work and a single motion layer carry the drama, not chrome.',
+    watch:
+      'The near-black must stay warm, never cool grey or pure black. Amber is the only saturated colour: one highlight per screen, never body copy.',
+    structure: {
+      density:
+        'Centred dark stage capped at 72rem, with section padding of space-9 or space-10 and space-6 (24px) gutters. Prose stays in a 58-65 character column; feature blocks may run wider but not edge to edge. Generous dark space below the hero is deliberate, but each section must follow with substance rather than empty scroll.',
+      displayType:
+        'Display serif at weight 400 only, size-6 or size-7 (31-39px), tracking -0.01em and leading 1.12-1.2; a larger display step is allowed for one hero line. Body is a neutral sans at size-3 (17px) with 1.4 leading; labels are size-2 (15px) at normal tracking. Never bold the display; hierarchy comes from size and the amber accent.',
+      surfaces:
+        'Warm-dark stack: bg near-black, a slightly warmer surface for featured sections, line as separator and one light panel filled with ink as the only light surface. No shadows; depth comes from colour and a single motion layer. Use radius-3 (20px) on major containers and radius-4 for pills, not a different radius on every card.',
+      states:
+        'Buttons use a surface fill with ink text; hover raises the surface one step and adds a 1px primary border, focus-visible draws a 2px primary outline with 2px offset. Primary is the sole accent: one highlighted element per screen. Disabled is surface with muted text and no primary border; never use primary on body copy.',
+      mobile:
+        'Below 768px the stage becomes one column with space-8 (48px) section padding and space-5 gutters; display drops one or two size steps but keeps tight tracking. The nav collapses to a full-width panel over the dark ground; reduce the motion layer to a static image and stop all motion under reduced motion. Body stays at least size-3 (17px).',
+    },
+  },
+  {
+    id: 'niki-studio',
+    name: 'Niki Studio',
+    forWhom: 'Branding studios and artist portfolios',
+    learnedFrom:
+      'bynikistudio.com — https://sparkbites.dev/website/Niki%20Studio',
+    colours: {
+      bg: '#0a0a0a',
+      surface: '#1a1a1a',
+      ink: '#ffffff',
+      muted: '#a3a3a3',
+      primary: '#ffffff',
+      'primary-soft': '#2b2b2b',
+      line: '#2b2b2b',
+    },
+    fonts: {
+      display: {
+        family: 'Archivo Black',
+        package: '@fontsource/archivo-black',
+        weights: [400],
+        generic: 'sans-serif',
+      },
+      body: {
+        family: 'DM Sans',
+        package: '@fontsource/dm-sans',
+        weights: [400, 500],
+      },
+    },
+    typeScale: NIKI_TYPE_SCALE,
+    spacing: SPACING,
+    radii: RADII,
+    motion: {
+      quick: '180ms',
+      settle: '320ms',
+      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    },
+    character:
+      'Unapologetically bold and luxury-dark: near-black canvas, pure white type and glass-thin surfaces. One extended display face performs the whole brand, with a binary scale of huge statement and tiny utility.',
+    watch:
+      'The display statement needs to overwhelm, not sit politely in a card. Keep the canvas near-black rather than pure black, use no accent hue, and never let utility text drop below readable size.',
+    structure: {
+      density:
+        'Cinematic single-stage layout: one oversized statement fills the first viewport, then a narrow 64rem content band and a two-column work index with space-6 (24px) gutters. Sections use space-10 padding. Do not add a third content column; the emptiness around the statement is the layout.',
+      displayType:
+        'One extended display sans at size-10 (92px), weight 400 with the weight baked into the family, tracking -0.01em and leading 0.75-0.8. Body and utility text are plain sans at size-2 or size-3 (16-18px) with 1.5 leading. Hierarchy is binary: statement versus utility. Never add a mid-weight heading or a second display face.',
+      surfaces:
+        'Monochrome glass, no colour: near-black canvas, a 10% white button glass, a 17% white panel and one darker glass step. Depth comes from opacity, not shadow. Sharp corners are the default; if a radius is used, keep it at radius-1 (4px) or radius-4, never on the display block. No gradients and no accent hue.',
+      states:
+        'Glass buttons: a 10% white fill to a 17% white fill on hover with an ink border, focus-visible a 2px ink outline with 2px offset. Text links brighten from muted to ink on hover. Disabled is 10% glass with muted text at 4.5:1 or better and no border shift; never use colour to signal state.',
+      mobile:
+        'The 92px statement scales to roughly 40-52px below 768px while keeping negative tracking and leading under 0.9; body stays at size-2 (16px) or larger. The work index becomes one column, the nav a single labelled text menu, and section padding drops to space-9 (64px). Backdrop blur is optional: fall back to a solid surface where unsupported, and stop all motion under reduced motion.',
+    },
+  },
+  {
+    id: 'henry-from-online',
+    name: 'Henry From Online',
+    forWhom: 'Designers and writer-portfolios',
+    learnedFrom: 'henry.codes — https://henry.codes/',
+    colours: {
+      bg: '#fafafa',
+      surface: '#f2f1ed',
+      ink: '#2a2722',
+      muted: '#6b655e',
+      primary: '#2a2722',
+      'primary-soft': '#e8e4dc',
+      line: '#dedad2',
+    },
+    fonts: {
+      display: {
+        family: 'Bodoni Moda',
+        package: '@fontsource/bodoni-moda',
+        weights: [400, 500],
+      },
+      body: {
+        family: 'Hanken Grotesk',
+        package: '@fontsource/hanken-grotesk',
+        weights: [400, 500],
+      },
+    },
+    typeScale: TYPE_SCALE,
+    spacing: SPACING,
+    radii: RADII,
+    motion: {
+      quick: '120ms',
+      settle: '200ms',
+      easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)',
+    },
+    character:
+      'Typographically rigorous and analogue: warm off-white paper, warm brown-black ink, uppercase running as the default grammar, and one high-contrast display serif that sits quieter than the body. A full footer inversion is the only colour event.',
+    watch:
+      'No accent colour, no bold and no rounded corners: the restraint is the identity. Keep uppercase body only if line length and size stay readable; switch long prose to sentence case rather than shrinking it.',
+    structure: {
+      density:
+        'Newspaper-tight: content in a narrow 60-68 character measure capped at 64rem, with space-5 (16px) section padding and space-9 (64px) chapter gaps. The page can run long and text-led; do not spread it into a wide marketing grid. Use a single column for prose and at most two columns for an index or list.',
+      displayType:
+        'H1 display serif uppercase at size-6 (31px), weight 400, leading 0.9 and normal tracking, set in muted grey rather than ink. H2, H3 and body use the geometric sans, uppercase for headings and labels; body is size-3 (17px) with 1.5 leading. No bold anywhere and no accent colour.',
+      surfaces:
+        'Two surfaces only: a near-white page and a full footer inversion to ink brown with near-white text. Sharp corners (radius-0), no shadows and no card borders; 1px line rules may separate lists. The inverted footer is the only depth event.',
+      states:
+        'Links are muted with a 1px line underline; hover removes the underline and shifts to ink, focus-visible draws a 2px ink outline with 2px offset. Buttons, where needed, are uppercase text-only with a line rule; disabled uses muted grey at 4.5:1 or better and keeps the rule. No state colour beyond the ink and grey pair.',
+      mobile:
+        'Below 768px keep the single reading column, drop H1 to size-5 or size-6 while keeping leading at 0.9-1, and keep body at size-3 (17px) or larger; section padding stays space-5 while chapter gaps drop to space-8 (48px). The nav becomes a text-only list, the footer inverts as on desktop, and link and focus transitions stop under reduced motion.',
+    },
   },
 ];
 
 export function findDirection(id: string): DesignDirection | null {
   return DIRECTIONS.find((direction) => direction.id === id) ?? null;
+}
+
+function fontFallback(font: FontChoice, fallback: string): string {
+  if (font.generic === 'sans-serif') return 'ui-sans-serif, sans-serif';
+  if (font.generic === 'monospace') return 'ui-monospace, monospace';
+  return fallback;
 }
 
 export function tokensCss(direction: DesignDirection): string {
@@ -335,7 +649,12 @@ export function tokensCss(direction: DesignDirection): string {
     .map((radius, index) => `  --cauldron-radius-${index}: ${radius}px;`)
     .join('\n');
 
-  const families = [direction.fonts.display, direction.fonts.body]
+  const families = [
+    direction.fonts.display,
+    direction.fonts.body,
+    direction.fonts.detail,
+  ]
+    .filter((font): font is FontChoice => Boolean(font))
     .filter((font) => font.package.startsWith('@fontsource/'))
     .map(
       (font) =>
@@ -344,15 +663,18 @@ export function tokensCss(direction: DesignDirection): string {
   const fontImport = families.length
     ? `@import url('https://fonts.googleapis.com/css2?${[...new Set(families)].join('&')}&display=swap');\n`
     : '';
+  const detailFont = direction.fonts.detail
+    ? `  --cauldron-font-detail: '${direction.fonts.detail.family}', ui-monospace, monospace;\n`
+    : '';
   return `${fontImport}/* ${direction.name} — chosen in Cauldron. The site owns this file. */
 :root {
 ${colours}
 ${sizes}
 ${spacing}
 ${radii}
-  --cauldron-font-display: '${direction.fonts.display.family}', Georgia, serif;
-  --cauldron-font-body: '${direction.fonts.body.family}', ui-sans-serif, sans-serif;
-  --cauldron-motion-quick: ${direction.motion.quick};
+  --cauldron-font-display: '${direction.fonts.display.family}', ${fontFallback(direction.fonts.display, 'Georgia, serif')};
+  --cauldron-font-body: '${direction.fonts.body.family}', ${fontFallback(direction.fonts.body, 'ui-sans-serif, sans-serif')};
+${direction.fonts.detail ? detailFont : ''}  --cauldron-motion-quick: ${direction.motion.quick};
   --cauldron-motion-settle: ${direction.motion.settle};
   --cauldron-motion-easing: ${direction.motion.easing};
 }
@@ -381,7 +703,7 @@ export function designDocument(direction: DesignDirection): string {
   // The threshold is decided on the unrounded ratio; rounding is only for
   // display. Otherwise 4.46 prints as 4.5 and is wrongly allowed for small
   // text, and 2.99 prints as 3.0 and is wrongly offered for large text.
-  const textPairs = ['ink', 'muted', 'primary']
+  const textPairs = ['ink', 'muted', 'primary', 'danger']
     .filter((name) => direction.colours[name])
     .flatMap((name) =>
       ['bg', 'surface']
@@ -430,6 +752,19 @@ ${colours}
 
 Every colour on the page comes from this table. Nothing else.
 
+## Layout and structure
+
+These are Cauldron's own translations of the published design notes for
+${direction.learnedFrom}, written against this direction's spacing and type
+scales. Where the source used a value that is not on the scale, it has been
+snapped to the nearest allowed token.
+
+- **Density and grid:** ${direction.structure.density}
+- **Display type:** ${direction.structure.displayType}
+- **Surfaces and depth:** ${direction.structure.surfaces}
+- **States:** ${direction.structure.states}
+- **Mobile:** ${direction.structure.mobile}
+
 ## Text and buttons
 
 Measured from this direction's own colours:
@@ -452,6 +787,7 @@ cannot carry button text at 4.5:1, use \`ink\` as the fill or an \`ink\` border 
 
 - Display: ${direction.fonts.display.family} (${direction.fonts.display.package}), weights ${direction.fonts.display.weights.join(', ')}
 - Body: ${direction.fonts.body.family} (${direction.fonts.body.package}), weights ${direction.fonts.body.weights.join(', ')}
+${direction.fonts.detail ? `- Detail mono: ${direction.fonts.detail.family} (${direction.fonts.detail.package}), weights ${direction.fonts.detail.weights.join(', ')}. Use it for prices, codes and small metadata, never for essential body copy.` : ''}
 
 Sizes, in rem: ${direction.typeScale.map((size) => size / 16).join(', ')}.
 No other sizes.
@@ -556,8 +892,29 @@ export function readDirection(root: string): DirectionRead {
       Array.isArray(parsed.tokens.typeScale) &&
       parsed.tokens.fonts?.display?.family &&
       parsed.tokens.colours
-    )
-      return { direction: parsed.tokens, problem: null };
+    ) {
+      // Sites saved before ticket 29 have no structure block and, for Long
+      // Lunch, no detail font. Fill those from the matching starter direction
+      // without touching the saved colours or other overrides. A measured
+      // reference direction has no preset, so it gets the explicit reference
+      // default rather than crashing on an undefined structure.
+      const preset = findDirection(parsed.tokens.id);
+      const fonts = parsed.tokens.fonts;
+      return {
+        direction: {
+          ...parsed.tokens,
+          structure: completeStructure(
+            parsed.tokens.structure,
+            preset?.structure ?? REFERENCE_STRUCTURE,
+          ),
+          fonts: {
+            ...fonts,
+            detail: fonts.detail ?? preset?.fonts.detail,
+          },
+        },
+        problem: null,
+      };
+    }
     return {
       direction: parsed.id ? findDirection(parsed.id) : null,
       problem: null,

@@ -32,6 +32,7 @@ import {
   findDirection,
   readDirection,
   writeDirection,
+  type DesignDirection,
 } from './directions';
 import { startMcpServer, mcpCalls, type McpHandle } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
@@ -132,6 +133,24 @@ function directionFor(
   const read = readDirection(root);
   if (read.problem) fail(read.problem);
   return read.direction;
+}
+
+/**
+ * The renderer gets font families as plain strings. Nothing from a saved
+ * design file, a measured reference or a future plugin can reach the renderer
+ * as markup through this shape.
+ */
+function rendererDirection(direction: DesignDirection) {
+  return {
+    ...direction,
+    fonts: {
+      display: direction.fonts.display.family,
+      body: direction.fonts.body.family,
+      ...(direction.fonts.detail
+        ? { detail: direction.fonts.detail.family }
+        : {}),
+    },
+  };
 }
 
 function relativeFile(file: string): string {
@@ -1183,36 +1202,11 @@ function registerIpc(): void {
     state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
   );
 
-  handle('cauldron:directions', () =>
-    DIRECTIONS.map((direction) => ({
-      id: direction.id,
-      name: direction.name,
-      forWhom: direction.forWhom,
-      learnedFrom: direction.learnedFrom,
-      colours: direction.colours,
-      typeScale: direction.typeScale,
-      spacing: direction.spacing,
-      radii: direction.radii,
-      fonts: {
-        display: direction.fonts.display.family,
-        body: direction.fonts.body.family,
-      },
-      character: direction.character,
-      watch: direction.watch,
-    })),
-  );
+  handle('cauldron:directions', () => DIRECTIONS.map(rendererDirection));
 
   handle('cauldron:direction', () => {
     const direction = state.site ? directionFor(state.site.root) : null;
-    return direction
-      ? {
-          ...direction,
-          fonts: {
-            display: direction.fonts.display.family,
-            body: direction.fonts.body.family,
-          },
-        }
-      : null;
+    return direction ? rendererDirection(direction) : null;
   });
 
   handle('cauldron:reference-direction', async (_event, url: string) => {
@@ -1229,13 +1223,7 @@ function registerIpc(): void {
       return result.ok
         ? {
             ok: true,
-            direction: {
-              ...direction,
-              fonts: {
-                display: direction.fonts.display.family,
-                body: direction.fonts.body.family,
-              },
-            },
+            direction: rendererDirection(direction),
           }
         : result;
     } catch (error) {

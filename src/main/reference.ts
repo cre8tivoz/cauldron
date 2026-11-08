@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { hashOf } from './files';
 import type { DesignDirection } from './directions';
+import { REFERENCE_STRUCTURE } from './directions';
 
 /** Plan 4.2: measure a reference URL. No source code, images or font files are copied. */
 export async function directionFromUrl(
@@ -93,6 +94,7 @@ export async function directionFromUrl(
       character: `Measured colours, type, spacing and corners from ${url.href} at 1280px. This is a reference, not a copy of its layout or assets.`,
       watch:
         'Font names were measured, not licensed or downloaded. Supply licensed files or choose a starter direction before relying on those fonts.',
+      structure: REFERENCE_STRUCTURE,
     };
   } finally {
     if (timer) clearTimeout(timer);

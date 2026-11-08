@@ -51,12 +51,19 @@ type CauldronDirectionSummary = {
   forWhom: string;
   learnedFrom: string;
   colours: Record<string, string>;
-  fonts: { display: string; body: string };
+  fonts: { display: string; body: string; detail?: string };
   typeScale: number[];
   spacing: number[];
   radii: number[];
   character: string;
   watch: string;
+  structure: {
+    density: string;
+    displayType: string;
+    surfaces: string;
+    states: string;
+    mobile: string;
+  };
 };
 
 type CauldronAgentEvent =

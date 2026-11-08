@@ -57,6 +57,14 @@ const TOKEN_STYLES: Record<
       label: `body — ${direction.fonts.body}`,
       value: 'var(--cauldron-font-body)',
     },
+    ...(direction.fonts.detail
+      ? [
+          {
+            label: `detail — ${direction.fonts.detail}`,
+            value: 'var(--cauldron-font-detail)',
+          },
+        ]
+      : []),
   ],
   'font-size': (direction) =>
     direction.typeScale.map((size, index) => ({

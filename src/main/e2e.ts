@@ -3089,6 +3089,74 @@ export async function runUiTest(
       return typeof direction.fonts.display === 'string' && direction.id === 'long-lunch';
     })()`);
     check('3.1 saved direction returns renderer-safe fonts', chosen);
+    // Ticket 29: the three approved artist/designer directions must be visible
+    // and selectable through the same renderer path as the original seven.
+    const catalogue = await window.webContents.executeJavaScript(
+      `(async () => {
+        const list = await window.cauldron.directions();
+        const ids = list.map(direction => direction.id);
+        return {
+          count: list.length,
+          ids,
+          safeFonts: list.every(direction =>
+            typeof direction.fonts.display === 'string' &&
+            typeof direction.fonts.body === 'string' &&
+            (direction.fonts.detail === undefined || typeof direction.fonts.detail === 'string')),
+          guided: list.every(direction =>
+            direction.structure &&
+            ['density','displayType','surfaces','states','mobile'].every(key =>
+              typeof direction.structure[key] === 'string' && direction.structure[key].length > 40)),
+        };
+      })()`,
+    );
+    check(
+      '29 the direction catalogue offers ten guided renderer-safe directions',
+      catalogue.count === 10 &&
+        ['componine', 'niki-studio', 'henry-from-online'].every((id) =>
+          catalogue.ids.includes(id),
+        ) &&
+        catalogue.safeFonts &&
+        catalogue.guided,
+      `${catalogue.count} directions: ${catalogue.ids.join(', ')}`,
+    );
+    const artist = await window.webContents.executeJavaScript(`(async () => {
+      const saved = await window.cauldron.setDirection('niki-studio');
+      const current = await window.cauldron.direction();
+      return {
+        saved: saved.ok,
+        problem: saved.problem ?? null,
+        id: current?.id ?? null,
+        display: current?.fonts?.display ?? null,
+        density: current?.structure?.density ?? null,
+      };
+    })()`);
+    check(
+      '29 a new artist direction can be selected and its guidance returns',
+      artist.saved &&
+        artist.id === 'niki-studio' &&
+        artist.display === 'Archivo Black' &&
+        typeof artist.density === 'string' &&
+        artist.density.includes('Cinematic single-stage'),
+      artist.problem ?? `${artist.id}: ${artist.display}`,
+    );
+    const savedDesign = (await import('./directions')).readDirection(
+      root,
+    ).direction;
+    const designFile = fs.readFileSync(
+      path.join(root, 'cauldron/DESIGN.md'),
+      'utf8',
+    );
+    check(
+      '29 the chosen artist direction writes its structure to the site',
+      Boolean(savedDesign?.structure?.mobile) &&
+        designFile.includes('## Layout and structure') &&
+        designFile.includes(savedDesign?.structure?.density ?? '') &&
+        designFile.includes(savedDesign?.structure?.mobile ?? ''),
+    );
+    // Restore the original direction for the rest of this harness.
+    await window.webContents.executeJavaScript(
+      `window.cauldron.setDirection('long-lunch')`,
+    );
     await open(root);
     await wait(500);
     for (const title of [
@@ -3107,6 +3175,27 @@ export async function runUiTest(
         preview.getBounds().width === 0,
       );
     }
+    await window.webContents.executeJavaScript(
+      `document.querySelector('button[title="Design directions"]').click()`,
+    );
+    await wait(300);
+    const visibleCards = await window.webContents.executeJavaScript(
+      `({
+        cards: document.querySelectorAll('details').length,
+        names: [...document.querySelectorAll('details')].map((_, index) => {
+          const strong = document.querySelectorAll('details')[index].closest('div').querySelector('strong');
+          return strong ? strong.textContent : '';
+        }),
+      })`,
+    );
+    check(
+      '29 all ten directions are visible in the design panel',
+      visibleCards.cards === 10 &&
+        ['Componine', 'Niki Studio', 'Henry From Online'].every((name) =>
+          visibleCards.names.includes(name),
+        ),
+      `${visibleCards.cards} cards: ${visibleCards.names.join(', ')}`,
+    );
     await window.webContents.executeJavaScript(
       `document.querySelector('button[title="Sites"]').click()`,
     );
@@ -3248,21 +3337,56 @@ export async function runUiTest(
     );
     try {
       const port = (server.address() as import('node:net').AddressInfo).port;
+      const reference = `http://127.0.0.1:${port}/`;
+      // Drive the real Design panel: open it from the rail, type the URL with
+      // native events (React's controlled input only sees those), submit the
+      // form and wait for the app to leave the panel. Calling the preload API
+      // directly skipped React's onChosen, so the Inspector kept the old
+      // direction and the token check below failed for the wrong reason.
+      const opened = await window.webContents.executeJavaScript(
+        `(() => { const b = document.querySelector('button[title="Design directions"]'); if (!b) return false; b.click(); return true })()`,
+      );
+      await wait(300);
+      const typed = await window.webContents.executeJavaScript(
+        `(() => {
+          const input = document.querySelector('input[aria-label="Reference URL"]');
+          if (!input) return false;
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(input, ${JSON.stringify(reference)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return input.value === ${JSON.stringify(reference)};
+        })()`,
+      );
+      const submitted = await window.webContents.executeJavaScript(
+        `(() => { const form = document.querySelector('input[aria-label="Reference URL"]')?.closest('form'); const b = form?.querySelector('button'); if (!b) return false; b.click(); return true })()`,
+      );
+      let applied = false;
+      for (let attempt = 0; attempt < 100 && !applied; attempt += 1) {
+        applied = await window.webContents.executeJavaScript(
+          `document.querySelector('input[aria-label="Reference URL"]') === null`,
+        );
+        if (!applied) await wait(200);
+      }
       const result = await window.webContents.executeJavaScript(
-        `window.cauldron.referenceDirection('http://127.0.0.1:${port}/')`,
+        'window.cauldron.direction()',
       );
       check(
         '4.2 a reference URL is measured through the real renderer action',
-        result.ok &&
-          result.direction.colours.ink === '#123456' &&
-          result.direction.typeScale.includes(48),
+        opened &&
+          typed &&
+          submitted &&
+          applied &&
+          result?.id?.startsWith('reference-') &&
+          result?.colours?.ink === '#123456' &&
+          result?.typeScale?.includes(48),
+        `open=${opened} typed=${typed} submit=${submitted} applied=${applied}; ${result?.id ?? 'no direction'}`,
       );
       const loaded = await window.webContents.executeJavaScript(
         'window.cauldron.direction()',
       );
       check(
         '4.2 measured direction survives disk reload',
-        loaded?.id === result.direction?.id && loaded?.fonts.body === 'Georgia',
+        loaded?.id === result?.id && loaded?.fonts.body === 'Georgia',
       );
     } finally {
       server.close();

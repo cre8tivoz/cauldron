@@ -137,6 +137,44 @@ are unchanged. Fresh original scaffold + same supplied images, real cloned `node
 
 New neutral pairs with fresh random labels are preserved in
 `.scratch/cauldron-v1/blind-round2/` (archive gitignored; screenshots per label). The condition
-key is private, outside the repository. Billy's verdict on the new labels is pending; measured
-failures remain, so the release gate is **not** passed and no comparison win is claimed.
-Full record: `scratch/t29-proof2-result.md`.
+key remained private until Billy submitted both verdicts. Measured failures remain, so the
+release gate is **not** passed. Full run record: `scratch/t29-proof2-result.md`.
+
+### Billy's round-two verdicts
+
+Billy chose **option A for both pairs**, before the new condition key was read and revealed.
+The served mapping was verified against the preserved round-two key:
+
+- **Moretti option A** (port 8911, `label-15085d`): frozen Codex-alone baseline — winner.
+  Option B (port 8912, `label-7f7d44`): new Cauldron build using The Edit.
+  Billy said A remained the strongest. B was vastly improved and good, with too much white
+  space; he considered both designs very good, but A still won.
+- **PeNtA option A** (port 8913, `label-28b57d`): new Cauldron build using Silver Screen — winner.
+  Option B (port 8914, `label-65dfdc`): frozen Codex-alone baseline.
+  Billy said A was definitely the strongest.
+
+**Outcome:** Cauldron again won PeNtA and lost Moretti. Its Moretti design improved in Billy's
+assessment, but it did not meet the requirement to win both. The 37 and 84 measured failing
+rows remain unresolved. Ticket 29 and the final-release gate stay open. No new builds, changes
+to the judged sites, automatic retries or acceptance reductions are authorised by recording
+this feedback.
+
+## Correctness follow-up — 8 Nov 2026 (uncommitted enrichment)
+
+Bounded fix pass on the current 10-direction enrichment; no new proof run, no gate change.
+
+- Removed undefined token references from structure prose: `primary-deep` in clear-ground,
+  the-edit and henry-from-online; unshipped source colours in open-house (dusty-cyan,
+  meadow-green, brick-red, honey-gold, cocoa) and componine's prose-only "amber"/"cream";
+  open-house's reference to a detail face it does not ship. Values were mapped to shipped
+  tokens only; palettes unchanged.
+- Added `29 direction structure prose names only shipped tokens` to `scripts/test-core.mjs`,
+  checking colour-token names, 1-based size and 0-based space/radius indices, detail fonts.
+- UI harness 4.2 failure was a harness bypass, not an app fault: calling
+  `window.cauldron.referenceDirection` directly skipped `DesignPanel`'s `onChosen`, so React's
+  direction state (and the Inspector tokens) stayed old. The harness now clicks the rail
+  Design button, fills the real form with native events, submits, and waits for the form to
+  unmount before selecting an element. Assertions unchanged.
+
+`npm run check` exit 0; `npm run package` exit 0; packaged UI harness **28/28 passed**
+(`scratch/t29-enrich-final-result.md`). Ticket 29 and the release gate stay **open**.

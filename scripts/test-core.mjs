@@ -1704,6 +1704,45 @@ test('29 every direction document states measured text pairs and the rem root ru
   );
 });
 
+// Ticket 29 follow-up: a direction's structure prose must only name tokens it
+// actually ships, or the site is told to use a colour/scale step it lacks.
+test('29 direction structure prose names only shipped tokens', () => {
+  assert.ok(directions, 'directions module missing');
+  for (const direction of directions.DIRECTIONS) {
+    const prose = Object.values(direction.structure).join('\n');
+    for (const colour of prose.match(/\bprimary-(?:deep|soft)\b/g) ?? []) {
+      assert.ok(
+        direction.colours[colour],
+        `${direction.id}: structure names ${colour}, which is not shipped`,
+      );
+    }
+    for (const [, index] of prose.matchAll(/\bsize-(\d+)\b/g)) {
+      assert.ok(
+        Number(index) >= 1 && Number(index) <= direction.typeScale.length,
+        `${direction.id}: size-${index} is outside ${direction.typeScale.length} sizes`,
+      );
+    }
+    for (const [, index] of prose.matchAll(/\bspace-(\d+)\b/g)) {
+      assert.ok(
+        Number(index) < direction.spacing.length,
+        `${direction.id}: space-${index} is outside ${direction.spacing.length} steps`,
+      );
+    }
+    for (const [, index] of prose.matchAll(/\bradius-(\d+)\b/g)) {
+      assert.ok(
+        Number(index) < direction.radii.length,
+        `${direction.id}: radius-${index} is outside ${direction.radii.length} radii`,
+      );
+    }
+    if (/\bdetail\b/i.test(prose)) {
+      assert.ok(
+        direction.fonts.detail,
+        `${direction.id}: structure names a detail face it does not ship`,
+      );
+    }
+  }
+});
+
 test('29 contrast use is classified on the raw ratio, not the rounded display', async () => {
   assert.ok(directions && contrast, 'directions/contrast module missing');
   // #777 on white is 4.4781:1 and prints as 4.5:1. #959595 is 2.9953:1 and
@@ -1736,6 +1775,198 @@ test('29 contrast use is classified on the raw ratio, not the rounded display', 
     '4.478:1 printed as 4.5 is wrongly allowed for button labels',
   );
   assert.doesNotMatch(doc, /small text and above \|/);
+});
+
+// Ticket 29 enrichment: every direction is a system, not just a palette, and
+// the three approved artist/designer sources are selectable beside the seven.
+test('29 all ten directions carry source-led structure and render it', async () => {
+  assert.ok(directions, 'directions module missing');
+  const { buildPrompt } = await import('../src/main/agent.ts');
+  assert.equal(directions.DIRECTIONS.length, 10, 'the catalogue is not ten');
+  for (const id of ['componine', 'niki-studio', 'henry-from-online']) {
+    assert.ok(directions.findDirection(id), `${id} is not in the catalogue`);
+  }
+  for (const direction of directions.DIRECTIONS) {
+    for (const field of [
+      'density',
+      'displayType',
+      'surfaces',
+      'states',
+      'mobile',
+    ]) {
+      assert.ok(
+        typeof direction.structure[field] === 'string' &&
+          direction.structure[field].length > 40,
+        `${direction.id}: structure.${field} is empty or too short`,
+      );
+    }
+    const doc = directions.designDocument(direction);
+    assert.match(
+      doc,
+      /## Layout and structure/,
+      `${direction.id}: DESIGN.md has no structure section`,
+    );
+    assert.ok(
+      doc.includes(direction.structure.density),
+      `${direction.id}: density missing from DESIGN.md`,
+    );
+    assert.ok(
+      doc.includes(direction.structure.mobile),
+      `${direction.id}: mobile guidance missing from DESIGN.md`,
+    );
+    const prompt = buildPrompt({
+      request: 'build the site',
+      siteName: 'fixture',
+      direction,
+      selection: null,
+      catalogue: [],
+    });
+    for (const field of [
+      'density',
+      'displayType',
+      'surfaces',
+      'states',
+      'mobile',
+    ]) {
+      assert.ok(
+        prompt.includes(direction.structure[field]),
+        `${direction.id}: buildPrompt drops structure.${field}`,
+      );
+    }
+  }
+  // Ten palettes on one skeleton was the original defect. Guidance must be
+  // genuinely per-direction, not the same boilerplate under ten names.
+  assert.equal(
+    new Set(directions.DIRECTIONS.map((entry) => entry.structure.density)).size,
+    10,
+    'directions share the same density guidance',
+  );
+  assert.equal(
+    new Set(directions.DIRECTIONS.map((entry) => entry.structure.states)).size,
+    10,
+    'directions share the same state guidance',
+  );
+});
+
+test('29 approved artist directions use free faces and true source credit', () => {
+  assert.ok(directions, 'directions module missing');
+  const paid = [
+    'Memoir',
+    'Monument Extended',
+    'Louize',
+    'Neue Montreal',
+    'Apercu',
+    'Riposte',
+    'DenimWeb',
+    'Söhne',
+  ];
+  for (const id of ['componine', 'niki-studio', 'henry-from-online']) {
+    const direction = directions.findDirection(id);
+    assert.match(direction.learnedFrom, /https?:\/\//, `${id}: no source link`);
+    for (const font of [direction.fonts.display, direction.fonts.body]) {
+      assert.ok(
+        !paid.some((name) => font.family.includes(name)),
+        `${id}: ships a paid source face (${font.family})`,
+      );
+    }
+  }
+  const longLunch = directions.findDirection('long-lunch');
+  assert.equal(longLunch.fonts.detail.family, 'IBM Plex Mono');
+  assert.doesNotMatch(
+    directions.designDocument(longLunch),
+    /Apercu Mono/,
+    'the paid source face leaked into DESIGN.md',
+  );
+});
+
+test('29 structure and detail survive save, reload and old saves', () => {
+  assert.ok(directions, 'directions module missing');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-enrich-'));
+  const niki = directions.findDirection('niki-studio');
+  assert.ok(directions.writeDirection(root, niki).ok);
+  const reloaded = directions.readDirection(root).direction;
+  assert.deepEqual(reloaded.structure, niki.structure);
+  assert.deepEqual(reloaded.typeScale, niki.typeScale);
+  const design = fs.readFileSync(path.join(root, 'cauldron/DESIGN.md'), 'utf8');
+  assert.match(design, /92px|5\.75rem/, 'the display step is not documented');
+  assert.match(
+    design,
+    /Archivo Black/,
+    'the chosen free display face is absent',
+  );
+  const tokens = fs.readFileSync(
+    path.join(root, 'cauldron/tokens.css'),
+    'utf8',
+  );
+  assert.match(
+    tokens,
+    /--cauldron-font-display: 'Archivo Black', ui-sans-serif/,
+  );
+  const solidTokens = directions.tokensCss(
+    directions.findDirection('solid-ground'),
+  );
+  assert.match(
+    solidTokens,
+    /--cauldron-font-display: 'Archivo', ui-sans-serif/,
+    'a sans display still falls back to a serif',
+  );
+
+  // A site saved before ticket 29 has no structure or detail font. It must
+  // still load, keep its saved colours, and gain the known preset guidance.
+  const oldRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-old-'));
+  const preset = directions.findDirection('long-lunch');
+  const legacy = {
+    id: 'long-lunch',
+    name: 'Long Lunch',
+    forWhom: preset.forWhom,
+    learnedFrom: preset.learnedFrom,
+    colours: { ...preset.colours, ink: '#123456' },
+    fonts: {
+      display: preset.fonts.display,
+      body: preset.fonts.body,
+    },
+    typeScale: preset.typeScale,
+    spacing: preset.spacing,
+    radii: preset.radii,
+    motion: preset.motion,
+    character: preset.character,
+    watch: preset.watch,
+  };
+  fs.mkdirSync(path.join(oldRoot, 'cauldron'), { recursive: true });
+  fs.writeFileSync(
+    path.join(oldRoot, 'cauldron/design.json'),
+    JSON.stringify({ id: legacy.id, name: legacy.name, tokens: legacy }),
+  );
+  const old = directions.readDirection(oldRoot);
+  assert.equal(old.problem, null);
+  assert.equal(old.direction.colours.ink, '#123456', 'saved colour was lost');
+  assert.deepEqual(
+    old.direction.structure,
+    preset.structure,
+    'an old preset save did not gain its structure guidance',
+  );
+  assert.equal(
+    old.direction.fonts.detail.family,
+    'IBM Plex Mono',
+    'an old Long Lunch save did not gain its detail face',
+  );
+
+  // A measured reference has no preset to fall back to.
+  const referenceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-ref-'));
+  fs.mkdirSync(path.join(referenceRoot, 'cauldron'), { recursive: true });
+  fs.writeFileSync(
+    path.join(referenceRoot, 'cauldron/design.json'),
+    JSON.stringify({
+      id: 'reference-old',
+      tokens: { ...legacy, id: 'reference-old', name: 'Old reference' },
+    }),
+  );
+  const reference = directions.readDirection(referenceRoot);
+  assert.equal(reference.problem, null);
+  assert.deepEqual(
+    reference.direction.structure,
+    directions.REFERENCE_STRUCTURE,
+  );
 });
 
 test('29 the agent brief carries the contrast and rem root rules', async () => {

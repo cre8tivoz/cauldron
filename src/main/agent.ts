@@ -96,11 +96,18 @@ ${direction.character}
 Colours: ${Object.entries(direction.colours)
         .map(([name, value]) => `${name} ${value}`)
         .join(', ')}
-Display font: ${direction.fonts.display.family}. Body font: ${direction.fonts.body.family}.
+Display font: ${direction.fonts.display.family}. Body font: ${direction.fonts.body.family}.${direction.fonts.detail ? ` Detail mono: ${direction.fonts.detail.family}.` : ''}
 Type sizes (rem): ${direction.typeScale.map((size) => size / 16).join(', ')}
 Spacing steps (rem): ${direction.spacing.map((step) => step / 16).join(', ')}
 Radii (px): ${direction.radii.join(', ')}
 Motion: ${direction.motion.quick} and ${direction.motion.settle}, ${direction.motion.easing}, nothing under prefers-reduced-motion.
+
+### Structure — build to this, not to a generic layout
+- Density and grid: ${direction.structure.density}
+- Display type: ${direction.structure.displayType}
+- Surfaces and depth: ${direction.structure.surfaces}
+- States: ${direction.structure.states}
+- Mobile: ${direction.structure.mobile}
 
 The full document is in cauldron/DESIGN.md and the CSS variables are in cauldron/tokens.css.
 Use var(--cauldron-c-…), var(--cauldron-size-…), var(--cauldron-space-…) and var(--cauldron-radius-…) for every colour, size,

@@ -7,7 +7,7 @@ type Props = {
   onBack: () => void;
 };
 
-/** The starter set: seven looks learned from real sites (plan 4.2). */
+/** The starter set: ten looks learned from real sites (plan 4.2). */
 export function DesignPanel({ site, current, onChosen, onBack }: Props) {
   const [directions, setDirections] = useState<CauldronDirectionSummary[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 20 }}>Design directions</h2>
         <span className="hint">
-          Seven looks, learned from real sites. Pick one for this site.
+          Ten looks, learned from real sites. Pick one for this site.
         </span>
         <span className="spacer" />
         <button className="button" type="button" onClick={onBack}>
@@ -126,10 +126,31 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
 
               <div className="hint">
                 {direction.fonts.display} · {direction.fonts.body}
+                {direction.fonts.detail ? ` · ${direction.fonts.detail}` : ''}
               </div>
               <p className="hint" style={{ margin: 0 }}>
                 {direction.character}
               </p>
+              <details>
+                <summary className="hint" style={{ cursor: 'pointer' }}>
+                  Layout, states and mobile
+                </summary>
+                <p className="hint" style={{ margin: '6px 0 0' }}>
+                  {direction.structure.density}
+                </p>
+                <p className="hint" style={{ margin: '6px 0 0' }}>
+                  {direction.structure.displayType}
+                </p>
+                <p className="hint" style={{ margin: '6px 0 0' }}>
+                  {direction.structure.surfaces}
+                </p>
+                <p className="hint" style={{ margin: '6px 0 0' }}>
+                  {direction.structure.states}
+                </p>
+                <p className="hint" style={{ margin: '6px 0 0' }}>
+                  {direction.structure.mobile}
+                </p>
+              </details>
               <p className="hint" style={{ margin: 0, color: 'var(--faint)' }}>
                 Learned from {direction.learnedFrom}
               </p>
