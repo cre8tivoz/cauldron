@@ -1,0 +1,13 @@
+4551e0369b2da868f73942d5a5866b807fd50e5d4161a39b0ce0aafc78cf72c8  A-moretti.txt
+389bb12188c4956912128b9a55ea83998066be24c0def71abdc2de2c947a5773  B-penta.txt
+
+# Post-repair outputs (sha256 of the sorted per-file sha256 list; node_modules and .git excluded)
+35401858da0baf10595e178b6761a66d15174ec39c6a72ac86be750644beb8f4  pair-A/output-1
+da59d6b13c50c045db1638b644759ac2efa4883c70e71eadb4b3241150de416d  pair-A/output-2
+4423954ea314993c51dee2df8d8ef9a8ab374b15677a779dc962ea28d71c4127  pair-B/output-1
+5007932fd48f31b7d1e40d476012d473dd95e03de6b4f8fcd49b10f6d6e6f950  pair-B/output-2
+
+# Run record
+revision=e99b008
+provider=OpenAI Codex CLI 0.152.0, saved config model gpt-5.6-terra
+pair-B=resumed build 2026-11-08; both outputs complete

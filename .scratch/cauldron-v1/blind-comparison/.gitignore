@@ -1,0 +1,2 @@
+# Preserve rendered-site archives locally without adding image bundles to Git.
+*.tar.gz

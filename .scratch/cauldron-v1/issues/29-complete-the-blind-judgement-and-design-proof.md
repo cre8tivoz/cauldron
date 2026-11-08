@@ -32,4 +32,22 @@ Use the existing implementation and tracker. Preserve the original sites, settle
 
 ## Comments
 
-Ticket breakdown approved by Billy through the to-tickets approval form. Implementation has not started.
+Ticket breakdown approved by Billy through the to-tickets approval form.
+
+## Current evidence — 8 Nov 2026
+
+Both real-brief pairs have complete built outputs, preserved under neutral labels in
+`.scratch/cauldron-v1/blind-comparison/outputs.tar.gz`. The app build used revision `e99b008`.
+Brief provenance, identical-input hashes and measurements are recorded in tickets 27 and 28.
+
+Automatic checks recorded 120 failures on the first app-built site and 52 on the second.
+These include contrast, keyboard/focus and design-direction findings; none were waived or
+silently fixed for the comparison. Building and measuring the pairs completes preparation,
+not the release gate. The measured-check requirement is currently failed.
+
+Billy's verdicts are still required on both pairs. No model preference is substituted.
+The condition key remains outside the repository and must not be revealed before verdicts.
+Neutral local previews: Pair A on ports 8811/8812; Pair B on ports 8813/8814.
+Preview servers are temporary and can be restarted from the preserved built outputs.
+
+Ticket 29 stays open. Ticket 30's final-release verification remains blocked by this gate.

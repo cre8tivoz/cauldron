@@ -4,7 +4,7 @@
 
 **Blocked by:** [14: Make failures visible wherever they happen](14-make-failures-visible-wherever-they-happen.md), [16: Publish safely and retry a failed upload](16-publish-safely-and-retry-a-failed-upload.md), [19: Finish and prove Codex support](19-finish-and-prove-codex-support.md), [20: Finish and prove Hermes support](20-finish-and-prove-hermes-support.md), [21: Show the changes an agent run actually made](21-show-the-changes-an-agent-run-actually-made.md), [22: Verify the agreed desktop workspace](22-verify-the-agreed-desktop-workspace.md), [26: Resolve or clearly account for shutdown and build risks](26-resolve-or-clearly-account-for-shutdown-and-build-risks.md), [29: Complete the blind judgement and design proof](29-complete-the-blind-judgement-and-design-proof.md)
 
-**Status:** ready-for-agent
+**Status:** blocked by ticket 29 — measured checks have failures and Billy's blind verdicts are outstanding; no release published
 
 **Parent findings:** [09: publishing and mac release](09-publishing-and-mac-release.md)
 

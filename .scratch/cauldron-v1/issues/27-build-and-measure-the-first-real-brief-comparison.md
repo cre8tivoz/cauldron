@@ -4,7 +4,7 @@
 
 **Blocked by:** [18: Prove Claude works through the repaired app](18-prove-claude-works-through-the-repaired-app.md), [24: Verify taste and design-direction compliance](24-verify-taste-and-design-direction-compliance.md)
 
-**Status:** open — the source-editing gap is corrected; the rebuilt comparison and blind judgement have not been run
+**Status:** done — the app half was built by Codex through the corrected app and measured; blind judgement stays with ticket 29
 
 **Parent findings:** [08: real brief blind proof](08-real-brief-blind-proof.md)
 
@@ -14,12 +14,12 @@
 
 ## Acceptance criteria
 
-- [ ] Record real-brief provenance and use identical brief text for the two conditions.
-- [ ] Build both versions independently and apply the unchanged agreed measurements/taste checks to the Cauldron output.
-- [ ] Preserve outputs and evidence under neutral labels; keep the condition key out of Billy’s view before judgement.
-- [ ] Do not require the standalone version to fail, invent real-brief provenance or add another mandatory brief-approval gate.
-- [ ] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
-- [ ] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
+- [x] Record real-brief provenance and use identical brief text for the two conditions.
+- [x] Build both versions independently and apply the unchanged agreed measurements/taste checks to the Cauldron output.
+- [x] Preserve outputs and evidence under neutral labels; keep the condition key out of Billy’s view before judgement.
+- [x] Do not require the standalone version to fail, invent real-brief provenance or add another mandatory brief-approval gate.
+- [x] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
+- [x] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
 
 ## Sources and boundaries
 
@@ -55,3 +55,14 @@ Ticket breakdown approved by Billy through the to-tickets approval form. Impleme
 - Tests: 16 focused core checks, red before implementation (`readSource`/`writeSource` were unknown actions; undo of a created file left an empty file), all green afterwards; packaged action-parity run 41/41 passed including MCP create, hash-checked replace, stale refusal and undo delete. `npm run check` passes.
 
 **Still open:** no whole-site brief has been rebuilt through the corrected app, so the blind comparison remains not judgement-ready and whole-site building is **not** claimed proven. The next real proof is to rerun the ticket 27 pair through Cauldron, then measure and hold the blind judgement.
+
+**Run 2026-11-08, revision e99b008 (packaged app).** The Cauldron half was rebuilt from a fresh copy of the same initial three-file scaffold and the same copied project images; the saved standalone build and both brief texts were reused unchanged (SHA-256 `4551e036…cf72c8`). No standalone output was shown to the app run.
+
+- Environment: `npm run package` once with Node 26.13.0, `NODE_ENV=development`; hidden window, `CAULDRON_TEST_USER_DATA` and `CAULDRON_E2E_SITE` pointed at disposable folders under `scratch/t27-28-complete/`. Existing `CAULDRON_BRIEF_TEST` mode through the real agent path; installed Codex CLI 0.152.0 with the saved `gpt-5.6-terra` config, unchanged.
+- App-side run: `read_design`, `list_pages`, `read_source` ×9, `create_page` ×2, `write_source` ×5, then outline reads. Finished normally in about 6 minutes with **5 files changed**: `src/layouts/MorettiLayout.astro`, `src/styles/moretti.css`, `src/pages/index.astro`, `oils.astro`, `visit.astro`.
+- The agent reported a Vite cache `EPERM` during its own build check because the scaffold's `node_modules` is a symlink to a shared read-only tree; it verified in a writable copy and removed its temporary config. `astro.config.mjs` is unchanged and the app's own build/measurement succeeded, so this is an environment note, not the deliverable.
+- Result: a real three-page site — hero, provenance and process copy, three products with tier/price/tasting note, cellar-door hours and a front-end enquiry form; all six supplied images used.
+- Measurement (unchanged `checkSite`): builds, three routes. 446 findings, **120 failures** — `/` 36, `/oils` 33, `/visit` 51: text/button contrast under threshold (lowest 3.26:1), spacing off the direction scale (17px padding), type sizes off scale (26.5625px, 15.9375px), missing hover states, focus reachability and indicator failures, keyboard reach 5/7, disabled states on `/visit`. No threshold was relaxed and no shell output was counted complete.
+- Evidence: `scratch/t27-28-complete/` (`logs/A-cauldron.log`, `measure/A-quality.json`, `measure/summary.json`); neutral copies `.scratch/cauldron-v1/blind-comparison/outputs.tar.gz` + `measurements.md`. Condition key stays in `scratch/t27-28/condition-key.json`.
+- `npm run check` passes at `e99b008` with the test-only brief mode (`logs/check3.log`). No commit was made (out of scope for this run).
+- Judgement is not made here: ticket 29 holds the blind comparison. Ticket 28's app-side run was stopped by the provider's usage limit, recorded there.

@@ -1,0 +1,17 @@
+CLIENT BRIEF — MORETTI ESTATE (website)
+
+The client: Moretti Estate, a single-estate olive oil producer at 145 Traylen Rd, Heathcote VIC 3523. The family planted its first grove in 2003; three generations, two brothers, one rule: only harvest what the land will give. Heathcote's 540-million-year-old Cambrian greenstone and red-brown soil are central to the story.
+
+Build a three-page static Astro site: Home, Oils, Visit.
+
+Home: introduce the estate and the place; a hero using images/hero-olive-grove.webp; the three-generation provenance story; harvest/process in brief using images/process-harvest.webp; a short lead-in to the oils and a link to Visit.
+
+Oils: the three products, each with name, tier, price and tasting note.
+- Frantoio Extra Virgin — Signature — $38/500ml. Picked early at peak polyphenol; assertive and green, grassy, peppery, long finish.
+- Classico Estate Blend — Estate Blend — $32/500ml. Frantoio, Leccino and Koroneiki; rounder, buttery, gentle peppery close.
+- Koroneiki Reserve — Reserve — $52/500ml. Limited run from the oldest grove; complex, intensely fruity, high polyphenol, for drizzling not cooking.
+Use images/product-frantoio.webp, images/product-classico.webp, images/product-koroneiki.webp. Shop links are placeholders (#).
+
+Visit: cellar-door address and hours (Sat & Sun, 10am–4pm, harvest season; no bookings, arrive before 4pm), a short directions-from-Melbourne note, and a front-end-only enquiry form (name, email, message; does not send). Use images/visit-estate.webp.
+
+Desired feel: editorial and provenance-led, warm and grown-up; it should read like a small producer with real land and history, not a generic farm-shop template. The client will supply photography; all other design decisions are yours. Do not add pages, a shopping backend or a CMS. Accessibility and mobile layouts matter. The site must build with `npm run build`.
