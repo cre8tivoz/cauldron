@@ -1,0 +1,421 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import {
+  fetchBranchHeadSHA,
+  fetchDeployments,
+  triggerDeployment,
+} from '$lib/services/backends/git/gitlab/deployment';
+import { repository } from '$lib/services/backends/git/gitlab/repository';
+import { fetchAPI } from '$lib/services/backends/git/shared/api';
+import { cmsConfig } from '$lib/services/config';
+import { createMockDeployTarget } from '$lib/test/factories';
+
+vi.mock('$lib/services/backends/git/gitlab/repository', () => {
+  const mockRepository = { owner: 'group/sub', repo: 'project', branch: 'main' };
+
+  return {
+    repository: mockRepository,
+    /**
+     * Get the project ID the same way the real module does.
+     * @returns {string} URL-encoded project path.
+     */
+    getProjectId: () => encodeURIComponent(`${mockRepository.owner}/${mockRepository.repo}`),
+    /**
+     * Get the branch path the same way the real module does.
+     * @param {string} branch Branch name.
+     * @returns {string} REST API path.
+     */
+    getBranchPath: (branch) =>
+      `/projects/${encodeURIComponent(`${mockRepository.owner}/${mockRepository.repo}`)}` +
+      `/repository/branches/${encodeURIComponent(branch)}`,
+  };
+});
+vi.mock('$lib/services/backends/git/shared/api');
+vi.mock('$lib/services/config', () => ({ cmsConfig: { current: undefined } }));
+
+const PROJECT_ID = encodeURIComponent('group/sub/project');
+
+describe('GitLab deployment service', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    cmsConfig.current = /** @type {any} */ ({ backend: { name: 'gitlab' } });
+  });
+
+  describe('triggerDeployment', () => {
+    test('creates a pipeline on the configured branch', async () => {
+      const mockResponse = { status: 201, ok: true };
+
+      vi.mocked(fetchAPI).mockResolvedValue(mockResponse);
+
+      await expect(triggerDeployment()).resolves.toBe(mockResponse);
+
+      expect(fetchAPI).toHaveBeenCalledWith(`/projects/${PROJECT_ID}/pipeline`, {
+        method: 'POST',
+        body: { ref: 'main' },
+        responseType: 'raw',
+      });
+    });
+
+    test('propagates API errors', async () => {
+      vi.mocked(fetchAPI).mockRejectedValue(new Error('API Error'));
+
+      await expect(triggerDeployment()).rejects.toThrow('API Error');
+    });
+  });
+
+  describe('fetchBranchHeadSHA', () => {
+    test('returns the head commit of the configured branch', async () => {
+      vi.mocked(fetchAPI).mockResolvedValue({ name: 'main', commit: { id: 'abc123' } });
+
+      await expect(fetchBranchHeadSHA()).resolves.toBe('abc123');
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        `/projects/${PROJECT_ID}/repository/branches/${encodeURIComponent('main')}`,
+      );
+    });
+
+    test('sends no request before the default branch has been detected', async () => {
+      Object.assign(repository, { branch: undefined });
+
+      await expect(fetchBranchHeadSHA()).resolves.toBeUndefined();
+      expect(fetchAPI).not.toHaveBeenCalled();
+
+      Object.assign(repository, { branch: 'main' });
+    });
+
+    test('returns undefined when the response has no commit', async () => {
+      vi.mocked(fetchAPI).mockResolvedValue({});
+
+      await expect(fetchBranchHeadSHA()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('fetchDeployments', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-17T00:00:00Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * Resolve the deployments request with the given list, and every commit statuses request with
+     * the given list.
+     * @param {object} args Arguments.
+     * @param {any[]} [args.deployments] Deployments.
+     * @param {any[]} [args.statuses] Commit statuses.
+     */
+    const mockAPI = ({ deployments = [], statuses = [] }) => {
+      vi.mocked(fetchAPI).mockImplementation(async (path) =>
+        path.includes('/deployments') ? deployments : statuses,
+      );
+    };
+
+    test('sends no request without a usable target', async () => {
+      await expect(fetchDeployments([])).resolves.toEqual({});
+      await expect(fetchDeployments([createMockDeployTarget({ sha: '' })])).resolves.toEqual({});
+      expect(fetchAPI).not.toHaveBeenCalled();
+    });
+
+    test('requests the deployments within a seven-day window', async () => {
+      mockAPI({});
+
+      await fetchDeployments([createMockDeployTarget()]);
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        `/projects/${PROJECT_ID}/deployments?order_by=updated_at&sort=desc&per_page=100` +
+          `&updated_after=${encodeURIComponent('2026-08-10T00:00:00.000Z')}`,
+      );
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        `/projects/${PROJECT_ID}/repository/commits/abc123/statuses?per_page=100`,
+      );
+    });
+
+    test('reads a review app URL from a matching deployment', async () => {
+      mockAPI({
+        deployments: [
+          {
+            sha: 'abc123',
+            status: 'success',
+            environment: { name: 'review/hello', external_url: 'https://review.example.com' },
+          },
+        ],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123).toEqual({
+        state: 'ready',
+        url: 'https://review.example.com',
+        context: 'review/hello',
+        checkedTime: expect.any(Number),
+      });
+    });
+
+    test('ignores a deployment for another commit', async () => {
+      mockAPI({
+        deployments: [
+          {
+            sha: 'def456',
+            ref: 'cms/posts/hello',
+            status: 'success',
+            environment: { name: 'review/hello', external_url: 'https://review.example.com' },
+          },
+          {
+            status: 'success',
+            environment: { name: 'review/other', external_url: 'https://other.example.com' },
+          },
+        ],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123).toEqual({ state: 'unknown', checkedTime: expect.any(Number) });
+    });
+
+    test('reports a fresh commit as pending despite a finished deployment on the branch', async () => {
+      // @see https://github.com/sveltia/sveltia-cms/issues/967
+      mockAPI({
+        deployments: [
+          {
+            sha: 'abc123',
+            ref: 'main',
+            status: 'running',
+            environment: { name: 'production', external_url: 'https://www.example.com' },
+          },
+          {
+            sha: 'def456',
+            ref: 'main',
+            status: 'success',
+            environment: { name: 'production', external_url: 'https://www.example.com' },
+          },
+        ],
+        statuses: [{ name: 'pages', status: 'running', target_url: 'https://gitlab.com/job/1' }],
+      });
+
+      const result = await fetchDeployments([
+        createMockDeployTarget({ branch: 'main', kind: 'production' }),
+      ]);
+
+      expect(result.abc123).toEqual(
+        expect.objectContaining({ state: 'pending', url: undefined, context: 'production' }),
+      );
+    });
+
+    test('reports a fresh commit as pending when `preview_context` names the environment', async () => {
+      // @see https://github.com/sveltia/sveltia-cms/issues/967
+      cmsConfig.current = /** @type {any} */ ({
+        backend: { name: 'gitlab', preview_context: 'production' },
+      });
+
+      mockAPI({
+        deployments: [
+          {
+            sha: 'abc123',
+            ref: 'main',
+            status: 'created',
+            environment: { name: 'production', external_url: 'https://www.example.com' },
+          },
+          {
+            sha: 'def456',
+            ref: 'main',
+            status: 'success',
+            environment: { name: 'production', external_url: 'https://www.example.com' },
+          },
+        ],
+        statuses: [{ name: 'pages', status: 'running', target_url: 'https://gitlab.com/job/1' }],
+      });
+
+      const result = await fetchDeployments([
+        createMockDeployTarget({ branch: 'main', kind: 'production' }),
+      ]);
+
+      expect(result.abc123).toEqual(
+        expect.objectContaining({ state: 'pending', url: undefined, context: 'production' }),
+      );
+    });
+
+    test('ignores a deployment with an unmapped status', async () => {
+      mockAPI({
+        deployments: [
+          {
+            sha: 'abc123',
+            status: 'skipped',
+            environment: { name: 'review', external_url: 'https://review.example.com' },
+          },
+        ],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123.state).toBe('unknown');
+    });
+
+    test('tolerates a deployment without environment details', async () => {
+      mockAPI({
+        deployments: [{ sha: 'abc123', status: 'running', environment: null }],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123).toEqual(
+        expect.objectContaining({ state: 'pending', url: undefined, context: '' }),
+      );
+    });
+
+    test('reads a deploy preview URL from a commit status', async () => {
+      mockAPI({
+        statuses: [
+          {
+            name: 'netlify/site/deploy-preview',
+            status: 'success',
+            target_url: 'https://preview.netlify.app',
+          },
+        ],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123).toEqual(
+        expect.objectContaining({ state: 'ready', url: 'https://preview.netlify.app' }),
+      );
+    });
+
+    test('skips a canceled deploy in favour of the one that ran', async () => {
+      // @see https://github.com/decaporg/decap-cms/issues/5107
+      mockAPI({
+        statuses: [
+          {
+            name: 'netlify/site-a/deploy-preview',
+            status: 'success',
+            target_url: 'https://canceled.example.com',
+            description: 'Deploy preview canceled.',
+          },
+          {
+            name: 'netlify/site-b/deploy-preview',
+            status: 'success',
+            target_url: 'https://ready.example.com',
+            description: 'Deploy preview ready!',
+          },
+        ],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123.url).toBe('https://ready.example.com');
+    });
+
+    test('ignores a commit status with an unmapped status', async () => {
+      mockAPI({
+        statuses: [{ name: 'lint', status: 'skipped', target_url: 'https://lint.example.com' }],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123.state).toBe('unknown');
+    });
+
+    test('tolerates a commit status without a name or URL', async () => {
+      mockAPI({ statuses: [{ status: 'pending' }] });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123).toEqual(
+        expect.objectContaining({ state: 'pending', url: undefined, context: '' }),
+      );
+    });
+
+    test('prefers the newest of two matching deployments', async () => {
+      // The API returns the newest first
+      mockAPI({
+        deployments: [
+          {
+            sha: 'abc123',
+            status: 'success',
+            environment: { name: 'review', external_url: 'https://new.example.com' },
+          },
+          {
+            sha: 'abc123',
+            status: 'success',
+            environment: { name: 'review', external_url: 'https://old.example.com' },
+          },
+        ],
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123.url).toBe('https://new.example.com');
+    });
+
+    test('keeps the commit status data when the deployments request fails', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      vi.mocked(fetchAPI).mockImplementation(async (path) => {
+        if (path.includes('/deployments')) {
+          throw new Error('Forbidden');
+        }
+
+        return [{ name: 'deploy', status: 'success', target_url: 'https://preview.example.com' }];
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123).toEqual(
+        expect.objectContaining({ state: 'ready', url: 'https://preview.example.com' }),
+      );
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    test('keeps the deployment data when a commit statuses request fails', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      vi.mocked(fetchAPI).mockImplementation(async (path) => {
+        if (path.includes('/statuses')) {
+          throw new Error('Not found');
+        }
+
+        return [
+          {
+            sha: 'abc123',
+            status: 'success',
+            environment: { name: 'review', external_url: 'https://review.example.com' },
+          },
+        ];
+      });
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123.url).toBe('https://review.example.com');
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    test('tolerates an empty response body', async () => {
+      vi.mocked(fetchAPI).mockResolvedValue(/** @type {any} */ (null));
+
+      const result = await fetchDeployments([createMockDeployTarget()]);
+
+      expect(result.abc123.state).toBe('unknown');
+    });
+
+    test('looks a shared head commit up only once, but reports it for every target', async () => {
+      mockAPI({});
+
+      const result = await fetchDeployments([
+        createMockDeployTarget({ branch: 'cms/posts/a' }),
+        createMockDeployTarget({ branch: 'cms/posts/b' }),
+      ]);
+
+      const statusCalls = vi
+        .mocked(fetchAPI)
+        .mock.calls.filter(([path]) => path.includes('/statuses'));
+
+      expect(statusCalls).toHaveLength(1);
+      expect(Object.keys(result)).toEqual(['abc123']);
+    });
+  });
+});

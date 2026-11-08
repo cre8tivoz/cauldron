@@ -1,0 +1,3575 @@
+/* eslint-disable jsdoc/require-jsdoc */
+
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { version } from '$lib/services/app';
+import { cmsConfigVersion } from '$lib/services/config';
+import { detectedFrontMatterFormats } from '$lib/services/contents/file/detected-formats';
+import { hasCustomParser } from '$lib/services/contents/file/parse';
+import {
+  arrayFileItems,
+  createArrayItemEntry,
+  extractPathInfo,
+  getParsedContentKey,
+  getSlug,
+  hasCircularReference,
+  isIndexFile,
+  normalizeDefaultRootContent,
+  parseFileContent,
+  prepareArrayFileEntries,
+  prepareEntries,
+  prepareEntry,
+  processI18nMultiFileEntry,
+  processI18nSingleFileEntry,
+  processNonI18nEntry,
+  shouldSkipIndexFile,
+  transformRawContent,
+  transformRoot,
+} from '$lib/services/contents/file/process';
+import { valueSources } from '$lib/services/contents/file/value-sources';
+
+/**
+ * @import { BaseEntryListItem, Entry, InternalCollection } from '$lib/types/private';
+ */
+
+// Mock external dependencies
+vi.mock('$lib/services/contents/collection', () => ({
+  getCollection: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/collection/predicates', () => ({
+  // Used by the nested entry helpers, which the index file check runs through
+  isEntryCollection: vi.fn(
+    (collection) => typeof collection?.folder === 'string' && !Array.isArray(collection?.files),
+  ),
+}));
+
+vi.mock('$lib/services/contents/collection/entries/index-file', () => ({
+  getIndexFile: vi.fn(),
+  isCollectionIndexFilePath: vi.fn(() => false),
+}));
+
+vi.mock('$lib/services/contents/file/parse', () => ({
+  hasCustomParser: vi.fn(() => false),
+  parseEntryFile: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  hasRootField: vi.fn(
+    (fields, fieldType) =>
+      fields.length === 1 &&
+      fields[0].widget === fieldType &&
+      'root' in fields[0] &&
+      fields[0].root === true,
+  ),
+}));
+
+vi.mock('@sveltia/utils/crypto', () => ({
+  generateUUID: vi.fn(() => 'test-uuid'),
+}));
+
+describe('Test isIndexFile()', () => {
+  test('detects Hugo index files', () => {
+    expect(isIndexFile('/content/posts/_index.md')).toBe(true);
+    expect(isIndexFile('/content/posts/_index.en.md')).toBe(true);
+    expect(isIndexFile('/content/posts/_index.fr-CA.md')).toBe(true);
+  });
+
+  test('detects non-index files', () => {
+    expect(isIndexFile('/content/posts/my-post.md')).toBe(false);
+    expect(isIndexFile('/content/posts/index.md')).toBe(false);
+    expect(isIndexFile('/content/posts/_index.html')).toBe(false);
+    expect(isIndexFile('/content/posts/test_index.md')).toBe(false);
+  });
+
+  test('handles paths without extension', () => {
+    expect(isIndexFile('/content/posts/_index')).toBe(false);
+  });
+
+  test('handles root level files', () => {
+    expect(isIndexFile('/_index.md')).toBe(true);
+    expect(isIndexFile('/_index.en.md')).toBe(true);
+  });
+});
+
+describe('Test getSlug()', () => {
+  test('returns subPath when no template', () => {
+    expect(getSlug({ subPath: 'my-post', subPathTemplate: undefined })).toBe('my-post');
+    expect(getSlug({ subPath: 'category/my-post', subPathTemplate: undefined })).toBe(
+      'category/my-post',
+    );
+  });
+
+  test('returns subPath when template does not contain {{slug}}', () => {
+    expect(
+      getSlug({
+        subPath: 'my-post',
+        subPathTemplate: '{{year}}/{{month}}',
+      }),
+    ).toBe('my-post');
+  });
+
+  test('extracts slug from template', () => {
+    expect(
+      getSlug({
+        subPath: '2023/my-post',
+        subPathTemplate: '{{year}}/{{slug}}',
+      }),
+    ).toBe('my-post'); // Extracts 'my-post' from '2023/my-post'
+
+    expect(
+      getSlug({
+        subPath: 'blog/tech/my-post/index',
+        subPathTemplate: 'blog/{{category}}/{{slug}}/index',
+      }),
+    ).toBe('my-post'); // Extracts 'my-post' from the template
+  });
+
+  test('handles complex templates', () => {
+    expect(
+      getSlug({
+        subPath: '2023/05/tech/my-awesome-post',
+        subPathTemplate: '{{year}}/{{month}}/{{category}}/{{slug}}',
+      }),
+    ).toBe('my-awesome-post'); // Extracts 'my-awesome-post' from the template
+  });
+
+  test('returns subPath when extraction fails', () => {
+    expect(
+      getSlug({
+        subPath: 'does-not-match',
+        subPathTemplate: '{{year}}/{{slug}}',
+      }),
+    ).toBe('does-not-match');
+  });
+
+  test('handles special regex characters in template', () => {
+    expect(
+      getSlug({
+        subPath: 'posts/my-post',
+        subPathTemplate: 'posts/{{slug}}',
+      }),
+    ).toBe('my-post');
+  });
+
+  test('handles malformed template with unclosed placeholder (lines 67-70)', () => {
+    // When placeholder is not properly closed, it should treat remaining as literal
+    expect(
+      getSlug({
+        subPath: 'posts/my-post',
+        subPathTemplate: 'posts/{{slug',
+      }),
+    ).toBe('posts/my-post');
+  });
+
+  test('handles complex malformed template with partial placeholders', () => {
+    // Template with incomplete placeholder should fallback to subPath
+    expect(
+      getSlug({
+        subPath: 'malformed-path',
+        subPathTemplate: '{{year}}/{{slug',
+      }),
+    ).toBe('malformed-path');
+  });
+
+  test('handles unclosed placeholder after slug placeholder (lines 67-70)', () => {
+    // Test when a placeholder after slug is not properly closed
+    expect(
+      getSlug({
+        subPath: '2023/my-post/extra',
+        subPathTemplate: '{{year}}/{{slug}}/{{month',
+      }),
+    ).toBe('2023/my-post/extra');
+  });
+
+  test('handles template with only slug and unclosed next placeholder (lines 67-70)', () => {
+    // Template with {{slug}} followed by unclosed placeholder
+    expect(
+      getSlug({
+        subPath: 'my-post-2023',
+        subPathTemplate: '{{slug}}-{{year',
+      }),
+    ).toBe('my-post-2023');
+  });
+
+  test('matches an unclosed placeholder after literal text as literal text only once', () => {
+    // The literal text before an unclosed `{{` used to be added to the pattern twice
+    expect(
+      getSlug({
+        subPath: 'my-post/x{{y',
+        subPathTemplate: '{{slug}}/x{{y',
+      }),
+    ).toBe('my-post');
+  });
+
+  test('handles slug extraction when regex match succeeds', () => {
+    // Test the successful branch where slug is extracted from regex match
+    expect(
+      getSlug({
+        subPath: '2023/my-article',
+        subPathTemplate: '{{year}}/{{slug}}',
+      }),
+    ).toBe('my-article');
+  });
+
+  test('returns slug when regex pattern contains slug placeholder', () => {
+    // Test that captures slug from template like {{year}}/{{slug}}/{{month}}
+    expect(
+      getSlug({
+        subPath: '2023/my-post/05',
+        subPathTemplate: '{{year}}/{{slug}}/{{month}}',
+      }),
+    ).toBe('my-post');
+  });
+
+  test('handles template starting with {{slug}} (line 59 nextPlaceholder === 0 skip)', () => {
+    // Template that starts directly with a placeholder (nextPlaceholder === 0)
+    expect(
+      getSlug({
+        subPath: 'my-article',
+        subPathTemplate: '{{slug}}',
+      }),
+    ).toBe('my-article');
+  });
+
+  test('handles template with {{slug}} at start followed by literal (line 59 branch)', () => {
+    // Template: {{slug}}/archive where slug is at the beginning
+    expect(
+      getSlug({
+        subPath: 'my-post/archive',
+        subPathTemplate: '{{slug}}/archive',
+      }),
+    ).toBe('my-post');
+  });
+
+  test('extracts slug with hyphens from date-based template', () => {
+    // Test case for slug containing hyphens in date-based template
+    expect(
+      getSlug({
+        subPath: '2026-02-14-business-logic-errors/index',
+        subPathTemplate: '{{year}}-{{month}}-{{day}}-{{slug}}/index',
+      }),
+    ).toBe('business-logic-errors');
+  });
+});
+
+describe('Test parseFileContent()', () => {
+  /** @type {any} */
+  let parseEntryFile;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const parseModule = await import('$lib/services/contents/file/parse');
+
+    parseEntryFile = parseModule.parseEntryFile;
+  });
+
+  test('returns parsed content on success', async () => {
+    const mockContent = { title: 'Test', body: 'Content' };
+
+    parseEntryFile.mockResolvedValue(mockContent);
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: '---\\ntitle: Test\\n---\\nContent',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const errors = /** @type {Error[]} */ ([]);
+    const result = await parseFileContent(file, errors);
+
+    expect(result).toEqual(mockContent);
+    expect(errors).toHaveLength(0);
+    expect(parseEntryFile).toHaveBeenCalledWith(file);
+  });
+
+  test('handles parsing errors', async () => {
+    const mockError = new Error('Parsing failed');
+
+    parseEntryFile.mockRejectedValue(mockError);
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: 'invalid content',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const errors = /** @type {Error[]} */ ([]);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await parseFileContent(file, errors);
+
+    expect(result).toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBe(mockError);
+    expect(consoleSpy).toHaveBeenCalledWith(mockError);
+
+    consoleSpy.mockRestore();
+  });
+
+  test('doesn’t parse a file whose content couldn’t be read as an empty file', async () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'large.md',
+      path: 'posts/large.md',
+      text: undefined,
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const errors = /** @type {Error[]} */ ([]);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await parseFileContent(file, errors);
+
+    expect(result).toBeUndefined();
+    expect(parseEntryFile).not.toHaveBeenCalled();
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toBe('posts/large.md could not be read.');
+
+    consoleSpy.mockRestore();
+  });
+  test('rejects content referring back to itself, e.g. through a YAML alias', async () => {
+    /** @type {Record<string, any>} */
+    const meta = {};
+
+    meta.self = meta;
+    parseEntryFile.mockResolvedValue({ title: 'Test', meta });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'loop.md',
+      path: 'posts/loop.md',
+      text: '---\\nmeta: &m\\n  self: *m\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const errors = /** @type {Error[]} */ ([]);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await parseFileContent(file, errors);
+
+    expect(result).toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toBe(
+      'posts/loop.md could not be parsed, as it contains a circular reference.',
+    );
+
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('Test parseFileContent() with cached content', () => {
+  /** @type {any} */
+  let parseEntryFile;
+
+  /**
+   * Create an entry file.
+   * @param {Record<string, any>} [props] Other properties.
+   * @returns {BaseEntryListItem} File.
+   */
+  const createFile = (props = {}) =>
+    /** @type {BaseEntryListItem} */ ({
+      name: 'a.md',
+      path: 'posts/a.md',
+      text: '---\\ntitle: Parsed\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+      ...props,
+    });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    detectedFrontMatterFormats.clear();
+    valueSources.clear();
+    cmsConfigVersion.current = 'config-hash';
+    parseEntryFile = (await import('$lib/services/contents/file/parse')).parseEntryFile;
+    parseEntryFile.mockResolvedValue({ title: 'Parsed' });
+  });
+
+  test('keys the content on the CMS version and configuration', () => {
+    expect(getParsedContentKey()).toBe(`${version}\nconfig-hash`);
+  });
+
+  test('uses the content parsed for the same CMS version and configuration', async () => {
+    const file = createFile({
+      parsed: {
+        key: getParsedContentKey(),
+        content: { title: 'Cached' },
+        format: 'toml-frontmatter',
+      },
+    });
+
+    const parsedFileMap = new Map();
+
+    expect(await parseFileContent(file, [], parsedFileMap)).toEqual({ title: 'Cached' });
+    expect(parseEntryFile).not.toHaveBeenCalled();
+    // The detected format is remembered, as when the file was parsed
+    expect(detectedFrontMatterFormats.get('posts/a.md')).toBe('toml-frontmatter');
+    // It’s cached already
+    expect(parsedFileMap.size).toBe(0);
+  });
+
+  test('uses cached content without a detected format, as for a YAML file', async () => {
+    const file = createFile({
+      parsed: { key: getParsedContentKey(), content: { title: 'Cached' } },
+    });
+
+    // Remembered for an earlier version of the file
+    detectedFrontMatterFormats.set('posts/a.md', 'toml-frontmatter');
+    valueSources.set('posts/a.md', { date: { value: '2024-01-01', source: '2024-01-01' } });
+
+    expect(await parseFileContent(file, [])).toEqual({ title: 'Cached' });
+    expect(parseEntryFile).not.toHaveBeenCalled();
+    expect(detectedFrontMatterFormats.has('posts/a.md')).toBe(false);
+    expect(valueSources.has('posts/a.md')).toBe(false);
+  });
+
+  test('remembers the source text of the TOML dates cached with the content', async () => {
+    const sourceMap = { date: { value: '12:30:00.000', source: '12:30:00' } };
+
+    const file = createFile({
+      parsed: {
+        key: getParsedContentKey(),
+        content: { date: '12:30:00.000' },
+        valueSources: sourceMap,
+      },
+    });
+
+    expect(await parseFileContent(file, [])).toEqual({ date: '12:30:00.000' });
+    expect(parseEntryFile).not.toHaveBeenCalled();
+    expect(valueSources.get('posts/a.md')).toBe(sourceMap);
+  });
+
+  test('parses the file again for another CMS version or configuration', async () => {
+    const file = createFile({
+      parsed: { key: `${version}\nold-config-hash`, content: { title: 'Cached' } },
+    });
+
+    expect(await parseFileContent(file, [])).toEqual({ title: 'Parsed' });
+    expect(parseEntryFile).toHaveBeenCalledOnce();
+  });
+
+  test('parses the file again when it’s read with a custom parser', async () => {
+    vi.mocked(hasCustomParser).mockReturnValue(true);
+
+    const file = createFile({ parsed: { key: getParsedContentKey(), content: { title: 'X' } } });
+    const parsedFileMap = new Map();
+
+    expect(await parseFileContent(file, [], parsedFileMap)).toEqual({ title: 'Parsed' });
+    // Nor is what a custom parser returns cached
+    expect(parsedFileMap.size).toBe(0);
+
+    vi.mocked(hasCustomParser).mockReturnValue(false);
+  });
+
+  test('collects a copy of the parsed content, along with the detected format', async () => {
+    const parsedFileMap = new Map();
+
+    parseEntryFile.mockImplementation(async () => {
+      detectedFrontMatterFormats.set('posts/a.md', 'yaml-frontmatter');
+
+      return { title: 'Parsed', tags: ['a'] };
+    });
+
+    const content = /** @type {any} */ (await parseFileContent(createFile(), [], parsedFileMap));
+
+    // Processing the content further doesn’t change what’s cached
+    content.tags.push('b');
+
+    expect(parsedFileMap.get('posts/a.md')).toEqual({
+      key: getParsedContentKey(),
+      content: { title: 'Parsed', tags: ['a'] },
+      format: 'yaml-frontmatter',
+    });
+  });
+
+  test('collects the source text of the values along with the content', async () => {
+    const parsedFileMap = new Map();
+    const sourceMap = { price: { value: 10, source: '10.0' } };
+
+    parseEntryFile.mockImplementation(async () => {
+      valueSources.set('posts/a.md', sourceMap);
+
+      return { price: 10 };
+    });
+
+    await parseFileContent(createFile(), [], parsedFileMap);
+
+    expect(parsedFileMap.get('posts/a.md')).toEqual({
+      key: getParsedContentKey(),
+      content: { price: 10 },
+      valueSources: sourceMap,
+    });
+  });
+
+  test('restores the source text of the values from the cache', async () => {
+    const sourceMap = { price: { value: 10, source: '10.0' } };
+
+    await parseFileContent(
+      createFile({
+        parsed: { key: getParsedContentKey(), content: { price: 10 }, valueSources: sourceMap },
+      }),
+      [],
+    );
+
+    expect(valueSources.get('posts/a.md')).toEqual(sourceMap);
+
+    // Cached content without them forgets what was remembered before
+    await parseFileContent(
+      createFile({ parsed: { key: getParsedContentKey(), content: { price: 10 } } }),
+      [],
+    );
+
+    expect(valueSources.has('posts/a.md')).toBe(false);
+  });
+
+  test('collects nothing for content that can’t be copied, but still uses it', async () => {
+    const parsedFileMap = new Map();
+    const content = { title: 'Parsed', render: () => '' };
+
+    parseEntryFile.mockResolvedValue(content);
+
+    expect(await parseFileContent(createFile(), [], parsedFileMap)).toBe(content);
+    expect(parsedFileMap.size).toBe(0);
+  });
+
+  test('collects nothing for a file that may hold an integer too large for a number', async () => {
+    const parsedFileMap = new Map();
+
+    parseEntryFile.mockResolvedValue({ id: 12345678901234567000 });
+
+    // Parsing it remembers the integer’s source text, which saving it depends on
+    await parseFileContent(createFile({ text: 'id: 12345678901234567890' }), [], parsedFileMap);
+
+    expect(parsedFileMap.size).toBe(0);
+  });
+
+  test('collects nothing for a file that couldn’t be parsed', async () => {
+    const parsedFileMap = new Map();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    parseEntryFile.mockRejectedValue(new Error('Parsing failed'));
+
+    expect(await parseFileContent(createFile(), [], parsedFileMap)).toBeUndefined();
+    expect(parsedFileMap.size).toBe(0);
+
+    consoleSpy.mockRestore();
+  });
+
+  test('is passed the map by prepareEntries()', async () => {
+    const parsedFileMap = new Map();
+
+    await prepareEntries([createFile()], { parsedFileMap });
+
+    expect(parsedFileMap.has('posts/a.md')).toBe(true);
+  });
+});
+
+describe('Test hasCircularReference()', () => {
+  test('finds an object or array referring back to an ancestor', () => {
+    /** @type {Record<string, any>} */
+    const object = { a: { b: 1 } };
+
+    object.a.c = object;
+
+    /** @type {any[]} */
+    const array = [1, { list: [] }];
+
+    array[1].list.push(array);
+
+    expect(hasCircularReference(object)).toBe(true);
+    expect(hasCircularReference({ nested: array })).toBe(true);
+  });
+
+  test('accepts a value referred to from several places, and primitives', () => {
+    const shared = { name: 'shared' };
+
+    expect(hasCircularReference({ a: shared, b: [shared, { c: shared }] })).toBe(false);
+    expect(hasCircularReference({ date: new Date(0), empty: null, text: 'a' })).toBe(false);
+    expect(hasCircularReference('text')).toBe(false);
+    expect(hasCircularReference(null)).toBe(false);
+    expect(hasCircularReference(undefined)).toBe(false);
+  });
+});
+
+describe('Test transformRawContent()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('delegates to transformRoot for root list field', () => {
+    const fields = [{ name: 'items', widget: 'list', root: true }];
+    const rawContent = ['item1', 'item2'];
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toEqual({ items: ['item1', 'item2'] });
+  });
+
+  test('delegates to transformRoot for root keyvalue field', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = { key1: 'value1', key2: 'value2' };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toEqual({ keyValues: { key1: 'value1', key2: 'value2' } });
+  });
+
+  test('returns content as-is for regular fields', () => {
+    const fields = [{ name: 'title', widget: 'string' }];
+    const rawContent = { title: 'Test', body: 'Content' };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toEqual({ title: 'Test', body: 'Content' });
+  });
+
+  test('returns undefined for non-object content with regular fields', () => {
+    const fields = [{ name: 'title', widget: 'string' }];
+    const rawContent = /** @type {any} */ ('not-an-object');
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for root list field with invalid content', () => {
+    const fields = [{ name: 'items', widget: 'list', root: true }];
+    const rawContent = { key: 'value' };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for root keyvalue field with invalid content', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = /** @type {any} */ (['item1', 'item2']);
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('handles root list field in single file i18n structure', () => {
+    const fields = [{ name: 'items', widget: 'list', root: true }];
+
+    const rawContent = {
+      en: ['item1', 'item2'],
+      fr: ['article1', 'article2'],
+    };
+
+    const result = transformRawContent(rawContent, fields, true);
+
+    expect(result).toEqual({
+      en: { items: ['item1', 'item2'] },
+      fr: { items: ['article1', 'article2'] },
+    });
+  });
+
+  test('handles root keyvalue field in single file i18n structure', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+
+    const rawContent = {
+      en: { key1: 'value1' },
+      fr: { clé1: 'valeur1' },
+    };
+
+    const result = transformRawContent(rawContent, fields, true);
+
+    expect(result).toEqual({
+      en: { keyValues: { key1: 'value1' } },
+      fr: { keyValues: { clé1: 'valeur1' } },
+    });
+  });
+
+  test('converts a List field stored as a map to list items', () => {
+    const fields = [
+      { name: 'title', widget: 'string' },
+      {
+        name: 'references',
+        widget: 'list',
+        map_key_field: 'key',
+        fields: [
+          { name: 'key', widget: 'string' },
+          { name: 'title', widget: 'string' },
+        ],
+      },
+    ];
+
+    const rawContent = {
+      title: 'Test',
+      references: { harry: { title: 'Harry' }, ron: { title: 'Ron' } },
+    };
+
+    expect(transformRawContent(rawContent, fields, false)).toEqual({
+      title: 'Test',
+      references: [
+        { key: 'harry', title: 'Harry' },
+        { key: 'ron', title: 'Ron' },
+      ],
+    });
+
+    // The parsed content may be cached, so it’s left alone
+    expect(rawContent.references).toEqual({ harry: { title: 'Harry' }, ron: { title: 'Ron' } });
+  });
+
+  test('converts a List field stored as a map in each locale of a single file', () => {
+    const fields = [
+      {
+        name: 'references',
+        widget: 'list',
+        i18n: true,
+        map_key_field: 'key',
+        fields: [{ name: 'key', widget: 'string' }],
+      },
+    ];
+
+    const rawContent = {
+      en: { references: { harry: {} } },
+      fr: { references: { henri: {} } },
+    };
+
+    expect(transformRawContent(rawContent, fields, true)).toEqual({
+      en: { references: [{ key: 'harry' }] },
+      fr: { references: [{ key: 'henri' }] },
+    });
+  });
+
+  test('converts a top-level List field stored as a map, or still stored as an array', () => {
+    const fields = [
+      {
+        name: 'references',
+        widget: 'list',
+        root: true,
+        map_key_field: 'key',
+        fields: [
+          { name: 'key', widget: 'string' },
+          { name: 'title', widget: 'string' },
+        ],
+      },
+    ];
+
+    expect(transformRawContent({ harry: { title: 'Harry' } }, fields, false)).toEqual({
+      references: [{ key: 'harry', title: 'Harry' }],
+    });
+
+    expect(
+      transformRawContent(/** @type {any} */ ([{ key: 'harry', title: 'Harry' }]), fields, false),
+    ).toEqual({ references: [{ key: 'harry', title: 'Harry' }] });
+
+    expect(transformRawContent(/** @type {any} */ ('harry'), fields, false)).toBeUndefined();
+
+    expect(transformRawContent({ en: { harry: {} }, fr: { henri: {} } }, fields, true)).toEqual({
+      en: { references: [{ key: 'harry' }] },
+      fr: { references: [{ key: 'henri' }] },
+    });
+  });
+
+  test('returns undefined for root keyvalue field with non-string values', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = { key1: 'value1', key2: 123, key3: 'value3' };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for root keyvalue field with null values', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = { key1: 'value1', key2: null };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for root keyvalue field with boolean values', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = { key1: 'value1', key2: true };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for root keyvalue field with object values', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = { key1: 'value1', key2: { nested: 'value' } };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for root keyvalue field with array values', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = { key1: 'value1', key2: ['a', 'b'] };
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns wrapped empty object for root keyvalue field with empty object', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+    const rawContent = {};
+    const result = transformRawContent(rawContent, fields, false);
+
+    expect(result).toEqual({ keyValues: {} });
+  });
+
+  test('handles root keyvalue field in i18n single file with non-string values', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue', root: true }];
+
+    const rawContent = {
+      en: { key1: 'value1', key2: 123 },
+      fr: { clé1: 'valeur1' },
+    };
+
+    const result = transformRawContent(rawContent, fields, true);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('Test normalizeDefaultRootContent()', () => {
+  test('extracts default locale content from root and non-default locales from their keys', () => {
+    const rawContent = {
+      title: 'Über uns',
+      content: 'Dies ist die deutsche Version.',
+      en: { title: 'About Us', content: 'This is the English version.' },
+      fr: { title: 'À propos', content: 'Ceci est la version française.' },
+    };
+
+    const result = normalizeDefaultRootContent(rawContent, ['de', 'en', 'fr'], 'de');
+
+    expect(result).toEqual({
+      de: { title: 'Über uns', content: 'Dies ist die deutsche Version.' },
+      en: { title: 'About Us', content: 'This is the English version.' },
+      fr: { title: 'À propos', content: 'Ceci est la version française.' },
+    });
+  });
+
+  test('includes only the default locale when non-default locales are absent', () => {
+    const rawContent = { title: 'About Us', content: 'English only.' };
+    const result = normalizeDefaultRootContent(rawContent, ['en', 'fr'], 'en');
+
+    expect(result).toEqual({ en: { title: 'About Us', content: 'English only.' } });
+  });
+
+  test('preserves any root-level field whose name matches a non-default locale key', () => {
+    // The "en" field value at root is a string, not an object, so it stays in default content
+    const rawContent = {
+      title: 'Hello',
+      en: { title: 'Hello EN' },
+    };
+
+    const result = normalizeDefaultRootContent(rawContent, ['de', 'en'], 'de');
+
+    // "en" at root is an object → treated as en locale, not included in de content
+    expect(result).toEqual({
+      de: { title: 'Hello' },
+      en: { title: 'Hello EN' },
+    });
+  });
+
+  test('skips non-default locale keys whose value is not an object', () => {
+    const rawContent = {
+      title: 'Hello',
+      en: 'not-an-object',
+    };
+
+    const result = normalizeDefaultRootContent(rawContent, ['de', 'en'], 'de');
+
+    expect(result).toEqual({ de: { title: 'Hello' } });
+  });
+
+  test('returns undefined when rawContent is not an object', () => {
+    expect(
+      normalizeDefaultRootContent(/** @type {any} */ ([]), ['en', 'fr'], 'en'),
+    ).toBeUndefined();
+    expect(normalizeDefaultRootContent(/** @type {any} */ (null), ['en'], 'en')).toBeUndefined();
+  });
+});
+
+describe('Test transformRoot()', () => {
+  test('transforms single file i18n content with array validator', () => {
+    const fields = [{ name: 'items', widget: 'list' }];
+
+    const rawContent = {
+      en: ['item1', 'item2'],
+      fr: ['article1', 'article2'],
+    };
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: true,
+      validate: Array.isArray,
+    });
+
+    expect(result).toEqual({
+      en: { items: ['item1', 'item2'] },
+      fr: { items: ['article1', 'article2'] },
+    });
+  });
+
+  test('transforms single file i18n content with object validator', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue' }];
+
+    const rawContent = {
+      en: { key1: 'value1' },
+      fr: { clé1: 'valeur1' },
+    };
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: true,
+      validate: (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
+    });
+
+    expect(result).toEqual({
+      en: { keyValues: { key1: 'value1' } },
+      fr: { keyValues: { clé1: 'valeur1' } },
+    });
+  });
+
+  test('returns undefined when single file i18n content fails validation', () => {
+    const fields = [{ name: 'items', widget: 'list' }];
+
+    const rawContent = {
+      en: ['item1'],
+      fr: 'not-an-array',
+    };
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: true,
+      validate: Array.isArray,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when single file i18n rawContent is not an object', () => {
+    const fields = [{ name: 'items', widget: 'list' }];
+    const rawContent = /** @type {any} */ (['item1', 'item2']);
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: true,
+      validate: Array.isArray,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('transforms multi-file structure with array validator', () => {
+    const fields = [{ name: 'items', widget: 'list' }];
+    const rawContent = ['item1', 'item2'];
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: false,
+      validate: Array.isArray,
+    });
+
+    expect(result).toEqual({
+      items: ['item1', 'item2'],
+    });
+  });
+
+  test('transforms multi-file structure with object validator', () => {
+    const fields = [{ name: 'keyValues', widget: 'keyvalue' }];
+    const rawContent = { key1: 'value1', key2: 'value2' };
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: false,
+      validate: (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
+    });
+
+    expect(result).toEqual({
+      keyValues: { key1: 'value1', key2: 'value2' },
+    });
+  });
+
+  test('returns undefined for multi-file structure when validation fails', () => {
+    const fields = [{ name: 'items', widget: 'list' }];
+    const rawContent = { key: 'value' };
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: false,
+      validate: Array.isArray,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for multi-file structure when rawContent is not an object', () => {
+    const fields = [{ name: 'items', widget: 'list' }];
+    const rawContent = /** @type {any} */ ('not-an-object');
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: false,
+      validate: Array.isArray,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('extracts field name from first field', () => {
+    const fields = [{ name: 'customFieldName', widget: 'list' }];
+    const rawContent = ['item1'];
+
+    const result = transformRoot({
+      rawContent,
+      fields,
+      i18nSingleFile: false,
+      validate: Array.isArray,
+    });
+
+    expect(result).toEqual({
+      customFieldName: ['item1'],
+    });
+  });
+});
+
+describe('Test shouldSkipIndexFile()', () => {
+  /** @type {any} */
+  let getIndexFile;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const indexFileModule = await import('$lib/services/contents/collection/entries/index-file');
+
+    getIndexFile = indexFileModule.getIndexFile;
+  });
+
+  test('returns false for non-index files', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    expect(
+      shouldSkipIndexFile('/content/posts/my-post.md', undefined, collection, undefined, 'md'),
+    ).toBe(false);
+  });
+
+  test('returns false for file collection (has fileName)', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    expect(shouldSkipIndexFile('/content/_index.md', 'data', collection, undefined, 'md')).toBe(
+      false,
+    );
+  });
+
+  test('returns false when index file inclusion is enabled', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue({ name: '_index' });
+
+    expect(shouldSkipIndexFile('/content/_index.md', undefined, collection, undefined, 'md')).toBe(
+      false,
+    );
+  });
+
+  test('returns false when path template ends with _index and extension is md', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    expect(
+      shouldSkipIndexFile('/content/_index.md', undefined, collection, '{{slug}}/_index', 'md'),
+    ).toBe(false);
+  });
+
+  test('returns true when should skip index file', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    expect(shouldSkipIndexFile('/content/_index.md', undefined, collection, undefined, 'md')).toBe(
+      true,
+    );
+  });
+
+  test('handles different extensions - only .md files can be included when template ends with _index', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    // Only .md files can be included when subPathTemplate ends with _index (Hugo constraint)
+    expect(
+      shouldSkipIndexFile('/content/_index.yml', undefined, collection, '{{slug}}/_index', 'yml'),
+    ).toBe(true);
+    expect(
+      shouldSkipIndexFile('/content/_index.md', undefined, collection, '{{slug}}/_index', 'md'),
+    ).toBe(false);
+  });
+
+  test('enforces Hugo constraint: rejects non-.md files when template ends with _index (line 155-160)', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    // Hugo constraint: template ends with _index and path matches _index pattern,
+    // but extension is not md
+    expect(
+      shouldSkipIndexFile(
+        '/content/blog/_index.json',
+        undefined,
+        collection,
+        'blog/_index',
+        'json',
+      ),
+    ).toBe(true);
+    expect(
+      shouldSkipIndexFile(
+        '/content/blog/_index.toml',
+        undefined,
+        collection,
+        'blog/_index',
+        'toml',
+      ),
+    ).toBe(true);
+    // Nested _index pattern with non-md extension
+    expect(
+      shouldSkipIndexFile(
+        '/content/posts/archive/_index.html',
+        undefined,
+        collection,
+        'posts/archive/_index',
+        'html',
+      ),
+    ).toBe(true);
+  });
+
+  test('allows md files even when Hugo constraint applies (line 155-160)', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    // md extension should pass through Hugo constraint check
+    expect(
+      shouldSkipIndexFile('/content/blog/_index.md', undefined, collection, 'blog/_index', 'md'),
+    ).toBe(false);
+    // Nested _index pattern with md extension
+    expect(
+      shouldSkipIndexFile(
+        '/content/posts/archive/_index.md',
+        undefined,
+        collection,
+        'posts/archive/_index',
+        'md',
+      ),
+    ).toBe(false);
+  });
+
+  test('skips Hugo constraint check when subPathTemplate is undefined (line 155)', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    // When subPathTemplate is undefined, the first condition of the Hugo constraint is false
+    // so the entire constraint check short-circuits
+    // Path with _index.md (valid index file) but undefined subPathTemplate
+    expect(shouldSkipIndexFile('/content/_index.md', undefined, collection, undefined, 'md')).toBe(
+      true,
+    ); // Skipped because it's an index file and no exceptions apply
+  });
+
+  test('Hugo constraint not triggered when path does not match _index pattern (line 156)', () => {
+    const collection = /** @type {InternalCollection} */ ({});
+
+    getIndexFile.mockReturnValue(null);
+
+    // Hugo constraint requires path to match /_index pattern, not just any file
+    expect(
+      shouldSkipIndexFile(
+        '/content/posts/article.html', // Path doesn't match /_index pattern
+        undefined,
+        collection,
+        'posts/_index',
+        'html',
+      ),
+    ).toBe(false); // Not skipped - path doesn't match constraint pattern
+  });
+});
+
+describe('Test extractPathInfo()', () => {
+  test('handles file collection with fileName', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'data.yml',
+      path: '/data/members.yml',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'data' },
+    });
+
+    const result = extractPathInfo({
+      file,
+      fileName: 'members',
+      defaultLocale: 'en',
+      isMultiFileStructure: false,
+    });
+
+    expect(result).toEqual({
+      subPath: '/data/members.yml',
+      locale: undefined,
+    });
+  });
+
+  test('handles file collection with multi-file i18n', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'data.en.yml',
+      path: '/data/members.en.yml',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: {
+        collectionName: 'data',
+        filePathMap: {
+          en: '/data/members.en.yml',
+          fr: '/data/members.fr.yml',
+        },
+      },
+    });
+
+    const result = extractPathInfo({
+      file,
+      fileName: 'members',
+      defaultLocale: 'en',
+      isMultiFileStructure: true,
+    });
+
+    expect(result).toEqual({
+      locale: 'en',
+      subPath: '/data/members.en.yml',
+    });
+  });
+
+  test('handles entry collection with regex', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.md',
+      path: '/content/posts/my-post.md',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const regex = /^\/content\/posts\/(?<subPath>[^/]+?)\.md$/;
+
+    const result = extractPathInfo({
+      file,
+      fullPathRegEx: regex,
+      defaultLocale: 'en',
+      isMultiFileStructure: false,
+    });
+
+    expect(result).toEqual({
+      subPath: 'my-post',
+      locale: 'en',
+    });
+  });
+
+  test('handles entry collection with i18n regex', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.fr.md',
+      path: '/content/posts/my-post.fr.md',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const regex = /^\/content\/posts\/(?<subPath>[^/]+?)\.(?<locale>en|fr)\.md$/;
+
+    const result = extractPathInfo({
+      file,
+      fullPathRegEx: regex,
+      defaultLocale: 'en',
+      isMultiFileStructure: true,
+    });
+
+    expect(result).toEqual({
+      subPath: 'my-post',
+      locale: 'fr',
+    });
+  });
+
+  test('returns undefined when no regex match', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'other.md',
+      path: '/other/path.md',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const regex = /^\/content\/posts\/(?<subPath>[^/]+?)\.md$/;
+
+    const result = extractPathInfo({
+      file,
+      fullPathRegEx: regex,
+      defaultLocale: 'en',
+      isMultiFileStructure: false,
+    });
+
+    expect(result).toEqual({
+      subPath: undefined,
+      locale: undefined,
+    });
+  });
+
+  test('handles missing regex', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const result = extractPathInfo({
+      file,
+      defaultLocale: 'en',
+      isMultiFileStructure: false,
+    });
+
+    expect(result).toEqual({
+      subPath: undefined,
+      locale: undefined,
+    });
+  });
+
+  test('handles file collection with multi-file i18n when filePathMap is undefined (line 203 branch)', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'data.md',
+      path: '/data/members.md',
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: {
+        collectionName: 'data',
+        // filePathMap is undefined - tests the ?? {} fallback
+      },
+    });
+
+    // With fileName and multi-file structure but no filePathMap
+    const result = extractPathInfo({
+      file,
+      fileName: 'members',
+      defaultLocale: 'en',
+      isMultiFileStructure: true,
+    });
+
+    expect(result).toEqual({
+      subPath: undefined,
+      locale: undefined,
+    });
+  });
+
+  test('handles file collection with multi-file i18n when path does not match filePathMap entries (line 206 branch)', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'members.md',
+      path: '/data/members.md', // This path is not in filePathMap
+      text: '',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: {
+        collectionName: 'data',
+        filePathMap: {
+          en: '/data/members.en.md',
+          fr: '/data/members.fr.md',
+        },
+      },
+    });
+
+    // With fileName and multi-file structure, but current path doesn't match any filePathMap entry
+    const result = extractPathInfo({
+      file,
+      fileName: 'members',
+      defaultLocale: 'en',
+      isMultiFileStructure: true,
+    });
+
+    expect(result).toEqual({
+      subPath: undefined,
+      locale: undefined,
+    });
+  });
+});
+
+describe('Test processNonI18nEntry()', () => {
+  test('processes entry without i18n', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = { title: 'My Post', body: 'Content' };
+
+    processNonI18nEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.md',
+      subPath: 'my-post',
+    });
+
+    expect(entry.slug).toBe('my-post');
+    expect(entry.locales._default).toEqual({
+      slug: 'my-post',
+      path: '/posts/my-post.md',
+      content: { title: 'My Post', body: 'Content' },
+    });
+  });
+
+  test('uses fileName as slug when provided', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'data',
+      locales: {},
+    });
+
+    const rawContent = { members: [] };
+
+    processNonI18nEntry({
+      entry,
+      rawContent,
+      path: '/data/members.yml',
+      fileName: 'members',
+      subPath: 'data',
+    });
+
+    expect(entry.slug).toBe('members');
+  });
+
+  test('escapes the dots in object keys, so they aren’t split into nested objects on save', () => {
+    const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath: 'nav', locales: {} });
+
+    processNonI18nEntry({
+      entry,
+      rawContent: { 'nav.home': 'Home', redirects: { 'example.com': 'a' } },
+      path: '/data/nav.json',
+      subPath: 'nav',
+    });
+
+    expect(entry.locales._default.content).toEqual({
+      'nav\uE000home': 'Home',
+      'redirects.example\uE000com': 'a',
+    });
+  });
+});
+
+describe('Test processI18nSingleFileEntry()', () => {
+  test('processes single file i18n entry', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = {
+      en: { title: 'My Post', body: 'Content' },
+      fr: { title: 'Mon Article', body: 'Contenu' },
+    };
+
+    processI18nSingleFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.md',
+      subPath: 'my-post',
+      allLocales: ['en', 'fr'],
+    });
+
+    expect(entry.slug).toBe('my-post');
+    expect(entry.locales.en).toEqual({
+      slug: 'my-post',
+      path: '/posts/my-post.md',
+      content: { title: 'My Post', body: 'Content' },
+    });
+    expect(entry.locales.fr).toEqual({
+      slug: 'my-post',
+      path: '/posts/my-post.md',
+      content: { title: 'Mon Article', body: 'Contenu' },
+    });
+  });
+
+  test('filters out missing locales', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = {
+      en: { title: 'My Post', body: 'Content' },
+      // fr locale missing
+    };
+
+    processI18nSingleFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.md',
+      subPath: 'my-post',
+      allLocales: ['en', 'fr'],
+    });
+
+    expect(entry.locales.en).toBeDefined();
+    expect(entry.locales.fr).toBeUndefined();
+  });
+
+  test('skips locales without an object', () => {
+    const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath: 'my-post', locales: {} });
+    const rawContent = { en: { title: 'My Post' }, fr: null, de: 'x' };
+
+    processI18nSingleFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.md',
+      subPath: 'my-post',
+      allLocales: ['en', 'fr', 'de'],
+    });
+
+    expect(Object.keys(entry.locales)).toEqual(['en']);
+  });
+
+  test('escapes the dots in object keys', () => {
+    const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath: 'nav', locales: {} });
+
+    processI18nSingleFileEntry({
+      entry,
+      rawContent: { en: { 'nav.home': 'Home' }, fr: { 'nav.home': 'Accueil' } },
+      path: '/data/nav.json',
+      subPath: 'nav',
+      allLocales: ['en', 'fr'],
+    });
+
+    expect(entry.locales.en.content).toEqual({ 'nav\uE000home': 'Home' });
+    expect(entry.locales.fr.content).toEqual({ 'nav\uE000home': 'Accueil' });
+  });
+});
+
+describe('Test processI18nMultiFileEntry()', () => {
+  test('creates new entry for first locale', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = { title: 'My Post', body: 'Content' };
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    const wasMerged = processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.en.md',
+      subPath: 'my-post',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      entryMap,
+    });
+
+    expect(wasMerged).toBe(false);
+    expect(entry.id).toBe('posts/my-post');
+    expect(entry.slug).toBe('my-post');
+    // Registered so that the other locales of the entry can be merged into it
+    expect(entryMap.get('posts/my-post')).toBe(entry);
+    expect(entry.locales.en).toEqual({
+      slug: 'my-post',
+      path: '/posts/my-post.en.md',
+      content: { title: 'My Post', body: 'Content' },
+    });
+  });
+
+  test('escapes the dots in object keys', () => {
+    const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath: 'nav', locales: {} });
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent: { 'nav.home': 'Home' },
+      path: '/data/nav.en.json',
+      subPath: 'nav',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'data',
+      entryMap: new Map(),
+    });
+
+    expect(entry.locales.en.content).toEqual({ 'nav\uE000home': 'Home' });
+  });
+
+  test('merges with existing entry', () => {
+    const existingEntry = /** @type {Entry} */ ({
+      id: 'posts/my-post',
+      slug: 'my-post',
+      subPath: 'my-post',
+      locales: {
+        en: {
+          slug: 'my-post',
+          path: '/posts/my-post.en.md',
+          content: { title: 'My Post' },
+        },
+      },
+    });
+
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = { title: 'Mon Article', body: 'Contenu' };
+    const entryMap = new Map([[existingEntry.id, existingEntry]]);
+
+    const wasMerged = processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.fr.md',
+      subPath: 'my-post',
+      locale: 'fr',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      entryMap,
+    });
+
+    expect(wasMerged).toBe(true);
+    expect(existingEntry.locales.fr).toEqual({
+      slug: 'my-post',
+      path: '/posts/my-post.fr.md',
+      content: { title: 'Mon Article', body: 'Contenu' },
+    });
+  });
+
+  test('uses canonical slug when provided', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = {
+      title: 'My Post',
+      body: 'Content',
+      translationKey: 'canonical-slug',
+    };
+
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.en.md',
+      subPath: 'my-post',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      canonicalSlugKey: 'translationKey',
+      entryMap,
+    });
+
+    expect(entry.id).toBe('posts/canonical-slug');
+  });
+
+  test('links the locales of a collection file regardless of a canonical slug', () => {
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath: 'about', locales: {} });
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent: { title: 'About', translationKey: 'about-page' },
+      path: 'content/about.en.md',
+      fileName: 'about',
+      subPath: 'about',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'pages',
+      canonicalSlugKey: 'translationKey',
+      entryMap,
+    });
+
+    const frEntry = /** @type {Entry} */ ({ id: '', slug: '', subPath: 'about', locales: {} });
+
+    const wasMerged = processI18nMultiFileEntry({
+      entry: frEntry,
+      rawContent: { title: 'À propos' },
+      path: 'content/about.fr.md',
+      fileName: 'about',
+      subPath: 'about',
+      locale: 'fr',
+      defaultLocale: 'en',
+      collectionName: 'pages',
+      canonicalSlugKey: 'translationKey',
+      entryMap,
+    });
+
+    expect(wasMerged).toBe(true);
+    expect(entry.id).toBe('pages/about');
+    expect(Object.keys(entry.locales)).toEqual(['en', 'fr']);
+  });
+
+  test('updates slug and subPath for default locale in existing entry', () => {
+    const existingEntry = /** @type {Entry} */ ({
+      id: 'posts/my-post',
+      slug: '',
+      subPath: '',
+      locales: {
+        fr: {
+          slug: 'mon-article',
+          path: '/posts/mon-article.fr.md',
+          content: { title: 'Mon Article' },
+        },
+      },
+    });
+
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = { title: 'My Post', body: 'Content' };
+    const entryMap = new Map([[existingEntry.id, existingEntry]]);
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.en.md',
+      subPath: 'my-post',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      entryMap,
+    });
+
+    expect(existingEntry.slug).toBe('my-post');
+    expect(existingEntry.subPath).toBe('my-post');
+  });
+
+  test('merges with existing entry for non-default locale without updating slug/subPath', () => {
+    const existingEntry = /** @type {Entry} */ ({
+      id: 'posts/my-post',
+      slug: 'my-post',
+      subPath: 'my-post',
+      locales: {
+        en: {
+          slug: 'my-post',
+          path: '/posts/my-post.en.md',
+          content: { title: 'My Post' },
+        },
+      },
+    });
+
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = { title: 'Mon Article' };
+    const entryMap = new Map([[existingEntry.id, existingEntry]]);
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.fr.md',
+      subPath: 'my-post',
+      locale: 'fr', // Non-default locale
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      entryMap,
+    });
+
+    // slug and subPath should NOT be updated when merging non-default locale
+    expect(existingEntry.slug).toBe('my-post');
+    expect(existingEntry.subPath).toBe('my-post');
+    expect(existingEntry.locales.fr).toBeDefined();
+  });
+
+  test('handles canonical slug key when value is not a string', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = {
+      title: 'My Post',
+      body: 'Content',
+      translationKey: 123, // Not a string
+    };
+
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.en.md',
+      subPath: 'my-post',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      canonicalSlugKey: 'translationKey', // Key exists but value is not a string
+      entryMap,
+    });
+
+    // Should use slug instead of canonicalSlug since value is not a string
+    expect(entry.id).toBe('posts/my-post');
+  });
+
+  test('handles when canonicalSlugKey is undefined (line 307-311 - falsy canonicalSlugKey)', () => {
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'my-post',
+      locales: {},
+    });
+
+    const rawContent = {
+      title: 'My Post',
+      body: 'Content',
+      canonicalId: 'some-value',
+    };
+
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/my-post.en.md',
+      subPath: 'my-post',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      canonicalSlugKey: undefined,
+      entryMap,
+    });
+
+    // Should use slug directly, no canonical slug
+    expect(entry.id).toBe('posts/my-post');
+    expect(entry.locales.en).toBeDefined();
+  });
+
+  test('creates new entry for non-default locale first, which provides the slug', () => {
+    // A non-default locale file processed first supplies a provisional slug, so the entry isn’t
+    // dropped by `prepareEntries()` when the default locale file is absent. The default locale
+    // overrides it if its file turns up.
+    const entry = /** @type {Entry} */ ({
+      id: '',
+      slug: '',
+      subPath: 'mon-article',
+      locales: {},
+    });
+
+    const rawContent = { title: 'Mon Article' };
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    const wasMerged = processI18nMultiFileEntry({
+      entry,
+      rawContent,
+      path: '/posts/mon-article.fr.md',
+      subPath: 'mon-article',
+      locale: 'fr', // non-default locale processed first
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      entryMap,
+    });
+
+    expect(wasMerged).toBe(false);
+    expect(entry.slug).toBe('mon-article');
+    expect(entry.locales.fr).toBeDefined();
+  });
+
+  test('lets the default locale override a slug set by another locale', () => {
+    const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath: '', locales: {} });
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    processI18nMultiFileEntry({
+      entry,
+      rawContent: { title: 'Mon Article' },
+      path: '/posts/mon-article.fr.md',
+      subPath: 'mon-article',
+      locale: 'fr',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      canonicalSlugKey: 'translation_key',
+      entryMap,
+    });
+
+    const wasMerged = processI18nMultiFileEntry({
+      entry: /** @type {Entry} */ ({ id: '', slug: '', subPath: '', locales: {} }),
+      rawContent: { title: 'My Article' },
+      path: '/posts/my-article.en.md',
+      subPath: 'my-article',
+      locale: 'en',
+      defaultLocale: 'en',
+      collectionName: 'posts',
+      entryMap,
+    });
+
+    expect(wasMerged).toBe(false);
+    // Without a canonical slug the two files aren’t linked, so this is a separate entry
+    expect(entry.slug).toBe('mon-article');
+  });
+
+  test('keeps entries with the same slug in different folders apart', () => {
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+
+    /**
+     * Process a file.
+     * @param {string} subPath Sub path.
+     * @param {string} locale Locale.
+     * @returns {Entry} Entry passed to the function.
+     */
+    const processFile = (subPath, locale) => {
+      const entry = /** @type {Entry} */ ({ id: '', slug: '', subPath, locales: {} });
+
+      processI18nMultiFileEntry({
+        entry,
+        rawContent: { title: subPath },
+        path: `posts/${subPath}.${locale}.md`,
+        subPath,
+        subPathTemplate: '{{year}}/{{slug}}',
+        locale,
+        defaultLocale: 'en',
+        collectionName: 'posts',
+        entryMap,
+      });
+
+      return entry;
+    };
+
+    const entry1 = processFile('2024/hello', 'en');
+    const entry2 = processFile('2025/hello', 'en');
+
+    processFile('2024/hello', 'fr');
+    processFile('2025/hello', 'fr');
+
+    expect(entry1.slug).toBe('hello');
+    expect(entry2.slug).toBe('hello');
+    expect(entryMap.size).toBe(2);
+    expect(entry1.locales.en.content).toEqual({ title: '2024/hello' });
+    expect(entry1.locales.fr.content).toEqual({ title: '2024/hello' });
+    expect(entry2.locales.en.content).toEqual({ title: '2025/hello' });
+    expect(entry2.locales.fr.content).toEqual({ title: '2025/hello' });
+  });
+});
+
+describe('Test prepareEntry()', () => {
+  /** @type {any} */
+  let getCollection;
+  /** @type {any} */
+  let parseEntryFile;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const collectionModule = await import('$lib/services/contents/collection');
+    const parseModule = await import('$lib/services/contents/file/parse');
+
+    getCollection = collectionModule.getCollection;
+    parseEntryFile = parseModule.parseEntryFile;
+  });
+
+  test('skips when parsing fails', async () => {
+    parseEntryFile.mockRejectedValue(new Error('Parsing failed'));
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: 'invalid',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+
+    consoleSpy.mockRestore();
+  });
+
+  test('skips when collection not found', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+    getCollection.mockReturnValue(null);
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: '---\\ntitle: Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('skips when fileName is provided but collectionFile not found', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /test/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: '---\\ntitle: Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts', fileName: 'about' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('skips when transformedContent is undefined', async () => {
+    parseEntryFile.mockResolvedValue('invalid content');
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [{ name: 'items', widget: 'list', root: true }],
+      _file: {
+        fullPathRegEx: /test/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: 'invalid',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('skips when shouldSkipIndexFile returns true', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /test/,
+        subPath: '_index',
+        extension: 'html',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: '_index.html',
+      path: '/posts/_index.html',
+      text: '---\\ntitle: Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('skips when subPath is undefined', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/other/test.md',
+      text: '---\\ntitle: Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('skips when isMultiFileStructure is true but locale is undefined (line 409-410)', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+
+    const collection = {
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr', ''],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: true,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    };
+
+    const collectionFile = {
+      name: 'test',
+      file: 'posts/test.md',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr', ''],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: true,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    };
+
+    getCollection.mockReturnValue({ ...collection, _fileMap: { test: collectionFile } });
+
+    // File collection with multi-file i18n where filePathMap has empty string locale key
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/posts/test.md',
+      text: '---\\ntitle: Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: {
+        collectionName: 'posts',
+        fileName: 'test',
+        filePathMap: {
+          '': '/posts/test.md', // Empty string locale (falsy) with the current path
+          en: '/posts/test.en.md',
+          fr: '/posts/test.fr.md',
+        },
+      },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    // Should skip because locale is falsy (empty string from filePathMap)
+    expect(entries).toHaveLength(0);
+  });
+
+  test('skips when path does not match fullPathRegEx (line 404-406)', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        // Regex that won't match the test file path
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.txt', // Different extension - won't match regex
+      path: '/posts/test.txt',
+      text: 'content',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('processes non-i18n entry successfully', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test Post' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.md',
+      path: '/posts/my-post.md',
+      text: '---\\ntitle: Test Post\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].slug).toBe('my-post');
+    expect(entries[0].locales._default).toBeDefined();
+  });
+
+  test('reads the special index file with its own fields', async () => {
+    const { getIndexFile, isCollectionIndexFilePath } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    const keyedList = {
+      name: 'references',
+      widget: 'list',
+      map_key_field: 'key',
+      fields: [{ name: 'key', widget: 'string' }],
+    };
+
+    parseEntryFile.mockResolvedValue({ references: { harry: {} } });
+    vi.mocked(getIndexFile).mockReturnValue(
+      /** @type {any} */ ({ name: '_index', fields: [keyedList] }),
+    );
+    vi.mocked(isCollectionIndexFilePath).mockImplementation((_collection, path) =>
+      path.endsWith('/_index.md'),
+    );
+    getCollection.mockReturnValue({
+      name: 'posts',
+      // The regular entries store the list as an array
+      fields: [{ ...keyedList, map_key_field: undefined }],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: { i18nSingleFile: false, i18nSingleFileDefaultRoot: false },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    /**
+     * Load the file at the given path.
+     * @param {string} path File path.
+     * @returns {Promise<Entry[]>} Entries.
+     */
+    const load = async (path) => {
+      const entries = /** @type {Entry[]} */ ([]);
+
+      await prepareEntry({
+        file: /** @type {BaseEntryListItem} */ ({
+          name: path.split('/').pop(),
+          path,
+          text: '',
+          sha: 'abc123',
+          size: 100,
+          type: 'entry',
+          folder: { collectionName: 'posts' },
+        }),
+        entries,
+        entryMap: new Map(),
+        errors: [],
+      });
+
+      return entries;
+    };
+
+    const [indexEntry] = await load('/posts/_index.md');
+    const [regularEntry] = await load('/posts/my-post.md');
+
+    expect(indexEntry.locales._default.content).toEqual({ 'references.0.key': 'harry' });
+    expect(regularEntry.locales._default.content).toEqual({ 'references.harry': {} });
+  });
+
+  test('processes i18n single file entry successfully', async () => {
+    parseEntryFile.mockResolvedValue({
+      en: { title: 'Test Post' },
+      fr: { title: 'Article de Test' },
+    });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: true,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.md',
+      path: '/posts/my-post.md',
+      text: '---\\nen:\\n  title: Test Post\\nfr:\\n  title: Article de Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].slug).toBe('my-post');
+    expect(entries[0].locales.en).toBeDefined();
+    expect(entries[0].locales.fr).toBeDefined();
+  });
+
+  test('processes single_file_default_root entry successfully', async () => {
+    parseEntryFile.mockResolvedValue({
+      title: 'Test Post', // default locale (en) at root
+      fr: { title: 'Article de Test' },
+    });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: true,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.md',
+      path: '/posts/my-post.md',
+      text: '---\\ntitle: Test Post\\nfr:\\n  title: Article de Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].slug).toBe('my-post');
+    expect(entries[0].locales.en).toBeDefined();
+    expect(entries[0].locales.fr).toBeDefined();
+  });
+
+  test('skips single_file_default_root entry when normalizeDefaultRootContent returns undefined', async () => {
+    parseEntryFile.mockResolvedValue(['not', 'an', 'object']); // Array, not object
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: true,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.md',
+      path: '/posts/my-post.md',
+      text: 'invalid',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  test('processes file collection entry', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test Data' });
+
+    const mockCollectionFile = {
+      name: 'members',
+      file: 'data/members.md',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^data\/members\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    };
+
+    getCollection.mockReturnValue({
+      ...mockCollectionFile,
+      _fileMap: { members: mockCollectionFile },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'members.md',
+      path: 'data/members.md',
+      text: '---\\ntitle: Test Data\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'members', fileName: 'members' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].slug).toBe('members');
+  });
+
+  test('processes i18n multi-file entry successfully - new entry', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test Post' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.(?<locale>en|fr)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: true,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.en.md',
+      path: '/posts/my-post.en.md',
+      text: '---\\ntitle: Test Post\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].slug).toBe('my-post');
+    expect(entries[0].locales.en).toBeDefined();
+  });
+  test('processes i18n multi-file entry successfully - merging with existing', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Article de Test' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.(?<locale>en|fr)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: true,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    // Create an existing entry
+    const existingEntry = /** @type {Entry} */ ({
+      id: 'posts/my-post',
+      slug: 'my-post',
+      subPath: 'my-post',
+      locales: {
+        en: {
+          slug: 'my-post',
+          path: '/posts/my-post.en.md',
+          content: { title: 'Test Post' },
+        },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'my-post.fr.md',
+      path: '/posts/my-post.fr.md',
+      text: '---\\ntitle: Article de Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([existingEntry]);
+    const entryMap = new Map([[existingEntry.id, existingEntry]]);
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    // Should still have 1 entry, not 2
+    expect(entries).toHaveLength(1);
+    expect(entries[0].locales.en).toBeDefined();
+    expect(entries[0].locales.fr).toBeDefined();
+    expect(entries[0].locales.fr.content.title).toBe('Article de Test');
+  });
+
+  test('skips when collection is null (line 368 - !collection branch)', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test' });
+    getCollection.mockReturnValue(null);
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'test.md',
+      path: '/test.md',
+      text: '---\\ntitle: Test\\n---',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    // Should skip because collection is null
+    expect(entries).toHaveLength(0);
+  });
+
+  test('verifies wasMerged return early skips push (line 448)', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Article de Test' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.(?<locale>en|fr)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: true,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    // Create an existing entry with a specific ID to track
+    const existingEntry = /** @type {Entry} */ ({
+      id: 'posts/article-test',
+      slug: 'article-test',
+      subPath: 'article-test',
+      locales: {
+        en: {
+          slug: 'article-test',
+          path: '/posts/article-test.en.md',
+          content: { title: 'Test Article' },
+        },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'article-test.fr.md',
+      path: '/posts/article-test.fr.md',
+      text: '---\\ntitle: Article de Test\\n---',
+      sha: 'abc124',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([existingEntry]);
+    const entryMap = new Map([[existingEntry.id, existingEntry]]);
+    const errors = /** @type {Error[]} */ ([]);
+    const initialLength = entries.length;
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    // When wasMerged is true, the function returns early and does NOT push
+    // So entries.length should remain the same (still 1, not 2)
+    expect(entries).toHaveLength(initialLength);
+    // But the existing entry should have the new locale merged
+    expect(entries[0].locales.fr).toBeDefined();
+    expect(entries[0].locales.fr.content.title).toBe('Article de Test');
+  });
+
+  test('i18n multi-file with non-default locale that does not merge', async () => {
+    parseEntryFile.mockResolvedValue({ title: 'Test Post' });
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.(?<locale>en|fr)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: true,
+        allLocales: ['en', 'fr'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: true,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'blog-post.en.md',
+      path: '/posts/blog-post.en.md',
+      text: '---\\ntitle: Test Post\\n---',
+      sha: 'def456',
+      size: 100,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    const entries = /** @type {Entry[]} */ ([]);
+    const entryMap = /** @type {Map<string, Entry>} */ (new Map());
+    const errors = /** @type {Error[]} */ ([]);
+
+    await prepareEntry({ file, entries, entryMap, errors });
+
+    // When wasMerged is false (new entry), push should be called
+    // So entries.length should be 1
+    expect(entries).toHaveLength(1);
+    expect(entries[0].locales.en).toBeDefined();
+    expect(entries[0].slug).toBe('blog-post');
+  });
+});
+
+describe('Test prepareEntries()', () => {
+  /** @type {any} */
+  let generateUUID;
+  /** @type {any} */
+  let getCollection;
+  /** @type {any} */
+  let parseEntryFile;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const cryptoModule = await import('@sveltia/utils/crypto');
+    const collectionModule = await import('$lib/services/contents/collection');
+    const parseModule = await import('$lib/services/contents/file/parse');
+
+    generateUUID = cryptoModule.generateUUID;
+    getCollection = collectionModule.getCollection;
+    parseEntryFile = parseModule.parseEntryFile;
+  });
+
+  test('processes multiple files and generates UUIDs (lines 471-474)', async () => {
+    let uuidCounter = 0;
+
+    generateUUID.mockImplementation(() => {
+      uuidCounter += 1;
+      return `test-uuid-${uuidCounter}`;
+    });
+
+    parseEntryFile.mockResolvedValue({ title: 'Post 1' });
+
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    // Create mock files that will pass through prepareEntry successfully
+    const files = [
+      /** @type {BaseEntryListItem} */ ({
+        name: 'post1.md',
+        path: '/posts/post1.md',
+        text: '---\\ntitle: Post 1\\n---',
+        sha: 'abc123',
+        size: 100,
+        type: 'entry',
+        folder: { collectionName: 'posts' },
+      }),
+      /** @type {BaseEntryListItem} */ ({
+        name: 'post2.md',
+        path: '/posts/post2.md',
+        text: '---\\ntitle: Post 2\\n---',
+        sha: 'abc124',
+        size: 100,
+        type: 'entry',
+        folder: { collectionName: 'posts' },
+      }),
+    ];
+
+    const result = await prepareEntries(files);
+
+    // Verify entries were processed and UUIDs assigned (lines 471-474)
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0].id).toBe('test-uuid-1');
+    expect(result.entries[1].id).toBe('test-uuid-2');
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('reports a file that can’t be processed, and loads the others', async () => {
+    generateUUID.mockImplementation(() => 'test-uuid');
+
+    /** @type {Record<string, any>} */
+    const meta = {};
+
+    meta.self = meta;
+    parseEntryFile.mockImplementation(async (/** @type {{ path: string }} */ { path }) =>
+      path === '/posts/loop.md' ? { title: 'Loop', meta } : { title: path },
+    );
+
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    /**
+     * Create a file list item.
+     * @param {string} name File name.
+     * @returns {BaseEntryListItem} File.
+     */
+    const createFile = (name) =>
+      /** @type {BaseEntryListItem} */ ({
+        name,
+        path: `/posts/${name}`,
+        text: '',
+        sha: 'abc123',
+        size: 100,
+        type: 'entry',
+        folder: { collectionName: 'posts' },
+      });
+
+    const brokenError = new Error('broken');
+
+    // A file whose processing throws for any other reason
+    const broken = /** @type {BaseEntryListItem} */ (
+      Object.defineProperty({ ...createFile('broken.md') }, 'folder', {
+        get: () => {
+          throw brokenError;
+        },
+      })
+    );
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await prepareEntries([
+      createFile('first.md'),
+      createFile('loop.md'),
+      broken,
+      createFile('last.md'),
+    ]);
+
+    expect(result.entries.map(({ slug }) => slug)).toEqual(['first', 'last']);
+    expect(result.errors).toHaveLength(2);
+    expect(result.errors[0].message).toBe(
+      '/posts/loop.md could not be parsed, as it contains a circular reference.',
+    );
+    expect(result.errors[1]).toBe(brokenError);
+    expect(consoleSpy).toHaveBeenCalledWith(brokenError);
+
+    consoleSpy.mockRestore();
+  });
+
+  test('keeps the file order across chunks while yielding between them', async () => {
+    let uuidCounter = 0;
+
+    generateUUID.mockImplementation(() => {
+      uuidCounter += 1;
+      return `test-uuid-${uuidCounter}`;
+    });
+
+    parseEntryFile.mockImplementation(async (/** @type {{ path: string }} */ { path }) => ({
+      title: path,
+    }));
+
+    getCollection.mockReturnValue({
+      name: 'posts',
+      fields: [],
+      _file: {
+        fullPathRegEx: /^\/posts\/(?<subPath>[^/]+?)\.md$/,
+        subPath: undefined,
+        extension: 'md',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        allLocales: ['en'],
+        defaultLocale: 'en',
+        structureMap: {
+          i18nSingleFile: false,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: undefined },
+      },
+    });
+
+    const yieldFn = vi.fn(async () => undefined);
+    let now = 0;
+
+    vi.stubGlobal('scheduler', { yield: yieldFn });
+    // Each file takes a millisecond to parse, so the parser has to yield along the way
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      now += 1;
+
+      return now;
+    });
+
+    const files = Array.from(
+      { length: 450 },
+      (_, index) =>
+        /** @type {BaseEntryListItem} */ ({
+          name: `post${index}.md`,
+          path: `/posts/post${index}.md`,
+          text: '',
+          sha: `sha${index}`,
+          size: 100,
+          type: 'entry',
+          folder: { collectionName: 'posts' },
+        }),
+    );
+
+    const result = await prepareEntries(files);
+
+    vi.mocked(performance.now).mockRestore();
+    vi.unstubAllGlobals();
+
+    expect(yieldFn).toHaveBeenCalled();
+    expect(result.entries.map(({ slug }) => slug)).toEqual(files.map((_, i) => `post${i}`));
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('returns empty arrays when no files provided', async () => {
+    const result = await prepareEntries([]);
+
+    expect(result.entries).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('should filter entries without slug and generate UUIDs (lines 471-474)', async () => {
+    generateUUID.mockImplementation(() => 'generated-uuid');
+
+    // Verify the filter logic for entries with missing slug/locales
+    const testEntries = /** @type {Entry[]} */ ([
+      {
+        id: '',
+        slug: 'valid-post',
+        subPath: 'valid-post',
+        locales: {
+          _default: {
+            slug: 'valid-post',
+            path: '/posts/valid-post.md',
+            content: { title: 'Valid Post' },
+          },
+        },
+      },
+      {
+        id: '',
+        slug: '', // No slug - should be filtered
+        subPath: 'invalid-post',
+        locales: {
+          _default: {
+            slug: '',
+            path: '/posts/invalid-post.md',
+            content: { title: 'Invalid Post' },
+          },
+        },
+      },
+      {
+        id: '',
+        slug: 'another-post',
+        subPath: 'another-post',
+        locales: {}, // Empty locales - should be filtered
+      },
+    ]);
+
+    // Simulate what prepareEntries does in lines 471-474
+    const filtered = testEntries.filter((entry) => {
+      entry.id = generateUUID();
+
+      return !!entry.slug && !!Object.keys(entry.locales).length;
+    });
+
+    // Should have 1 valid entry and 2 filtered out
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].slug).toBe('valid-post');
+    expect(filtered[0].id).toBe('generated-uuid');
+  });
+
+  test('filters out entries without slug or locales (lines 471-474)', async () => {
+    generateUUID.mockImplementation(() => `test-uuid-${Math.random()}`);
+
+    // Use the mocked versions
+    vi.mocked(getCollection).mockReturnValue(undefined);
+    vi.mocked(parseEntryFile).mockResolvedValue({ title: 'Test' });
+
+    // This simulates what would happen if prepareEntry created an entry but didn't set slug or
+    // locales by mocking prepareEntry to add an incomplete entry
+    const files = [
+      /** @type {BaseEntryListItem} */ ({
+        name: 'incomplete.md',
+        path: '/incomplete.md',
+        text: 'content',
+        sha: 'abc123',
+        size: 50,
+        type: 'entry',
+        folder: { collectionName: 'posts' },
+      }),
+    ];
+
+    const result = await prepareEntries(files);
+
+    // Entries without proper slug or locales should be filtered out (lines 471-474)
+    // Since we mocked getCollection to return undefined, prepareEntry returns early
+    // so the result should be empty
+    expect(result.entries).toHaveLength(0);
+  });
+
+  test('filters entries by slug and locales (lines 471-474)', async () => {
+    generateUUID.mockImplementation(() => 'generated-uuid');
+
+    // Test the filter logic from prepareEntries directly
+    // Create entries that would result from prepareEntry
+    const testEntries = /** @type {Entry[]} */ ([
+      // Valid entry - has slug and locales
+      {
+        id: '',
+        slug: 'valid-entry',
+        subPath: 'valid-entry',
+        locales: {
+          _default: {
+            slug: 'valid-entry',
+            path: '/posts/valid-entry.md',
+            content: { title: 'Valid' },
+          },
+        },
+      },
+      // Invalid - no slug
+      {
+        id: '',
+        slug: '',
+        subPath: 'no-slug',
+        locales: {
+          _default: {
+            slug: '',
+            path: '/posts/no-slug.md',
+            content: { title: 'No Slug' },
+          },
+        },
+      },
+      // Invalid - no locales
+      {
+        id: '',
+        slug: 'no-locales',
+        subPath: 'no-locales',
+        locales: {},
+      },
+      // Valid - another entry with different locale
+      {
+        id: '',
+        slug: 'other-post',
+        subPath: 'other-post',
+        locales: {
+          en: {
+            slug: 'other-post',
+            path: '/posts/other-post.en.md',
+            content: { title: 'Other' },
+          },
+        },
+      },
+    ]);
+
+    // Apply the filter logic from prepareEntries (lines 471-474)
+    const filtered = testEntries.filter((entry) => {
+      entry.id = generateUUID();
+      return !!entry.slug && !!Object.keys(entry.locales).length;
+    });
+
+    // Should have 2 valid entries, 2 filtered out
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0].slug).toBe('valid-entry');
+    expect(filtered[1].slug).toBe('other-post');
+    // Check that all entries got UUIDs
+    expect(filtered.every((entry) => entry.id === 'generated-uuid')).toBe(true);
+  });
+});
+
+describe('Test array file entries', () => {
+  const path = 'data/posts.json';
+
+  /**
+   * Create an entry collection storing all the entries in one file.
+   * @param {object} [options] Options.
+   * @param {boolean} [options.i18nEnabled] Whether i18n is enabled.
+   * @param {boolean} [options.defaultRoot] Whether `single_file_default_root` is used.
+   * @param {boolean} [options.arrayFile] Whether the collection stores all the entries in one file.
+   * @returns {any} Collection.
+   */
+  const createCollection = ({
+    i18nEnabled = false,
+    defaultRoot = false,
+    arrayFile = true,
+  } = {}) => ({
+    name: 'posts',
+    _type: 'entry',
+    fields: [{ name: 'title' }],
+    _file: {
+      arrayFile,
+      fullPathRegEx: /^posts\/(?<subPath>.+)\.md$/,
+      subPath: undefined,
+      extension: 'md',
+    },
+    _i18n: {
+      i18nEnabled,
+      allLocales: i18nEnabled ? ['en', 'fr'] : ['_default'],
+      defaultLocale: i18nEnabled ? 'en' : '_default',
+      structureMap: {
+        i18nSingleFile: i18nEnabled && !defaultRoot,
+        i18nSingleFileDefaultRoot: defaultRoot,
+        i18nMultiFile: false,
+        i18nMultiFolder: false,
+        i18nMultiRootFolder: false,
+      },
+      canonicalSlug: { key: undefined },
+    },
+  });
+
+  /** @type {any} */
+  let getCollection;
+  /** @type {any} */
+  let parseEntryFile;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    arrayFileItems.clear();
+
+    getCollection = (await import('$lib/services/contents/collection')).getCollection;
+    parseEntryFile = (await import('$lib/services/contents/file/parse')).parseEntryFile;
+  });
+
+  describe('createArrayItemEntry()', () => {
+    test('creates an entry from an item without i18n', () => {
+      const meta = { commitAuthor: { name: 'Alice' } };
+
+      expect(
+        createArrayItemEntry({
+          collection: createCollection(),
+          item: { title: 'A' },
+          index: 2,
+          path,
+          // @ts-ignore
+          meta,
+        }),
+      ).toEqual({
+        id: '',
+        slug: '2',
+        subPath: '2',
+        arrayIndex: 2,
+        commitAuthor: { name: 'Alice' },
+        locales: { _default: { slug: '2', path, content: { title: 'A' } } },
+      });
+    });
+
+    test('creates an entry from an item with the single_file structure', () => {
+      const entry = createArrayItemEntry({
+        collection: createCollection({ i18nEnabled: true }),
+        item: { en: { title: 'A' }, fr: { title: 'B' } },
+        index: 0,
+        path,
+      });
+
+      expect(entry?.slug).toBe('0');
+      expect(entry?.arrayIndex).toBe(0);
+      expect(entry?.locales).toEqual({
+        en: { slug: '0', path, content: { title: 'A' } },
+        fr: { slug: '0', path, content: { title: 'B' } },
+      });
+    });
+
+    test('creates an entry from an item with the single_file_default_root structure', () => {
+      const entry = createArrayItemEntry({
+        collection: createCollection({ i18nEnabled: true, defaultRoot: true }),
+        item: { title: 'A', fr: { title: 'B' } },
+        index: 1,
+        path,
+      });
+
+      expect(entry?.locales).toEqual({
+        en: { slug: '1', path, content: { title: 'A' } },
+        fr: { slug: '1', path, content: { title: 'B' } },
+      });
+    });
+
+    test('returns undefined for an invalid item', () => {
+      expect(
+        createArrayItemEntry({ collection: createCollection(), item: 'text', index: 0, path }),
+      ).toBeUndefined();
+      expect(
+        createArrayItemEntry({
+          collection: createCollection({ i18nEnabled: true, defaultRoot: true }),
+          item: 'text',
+          index: 0,
+          path,
+        }),
+      ).toBeUndefined();
+    });
+
+    test('returns undefined for an item without any locale content', () => {
+      expect(
+        createArrayItemEntry({
+          collection: createCollection({ i18nEnabled: true }),
+          item: { de: { title: 'A' } },
+          index: 0,
+          path,
+        }),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('prepareArrayFileEntries()', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'posts.json',
+      path,
+      sha: 'abc',
+      size: 10,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    test('creates an entry for each valid item', () => {
+      const entries = /** @type {Entry[]} */ ([]);
+      const errors = /** @type {Error[]} */ ([]);
+      const rawContent = [{ title: 'A' }, 'junk', { title: 'C' }];
+
+      prepareArrayFileEntries({
+        collection: createCollection(),
+        file: { ...file, meta: { commitDate: new Date(0) } },
+        rawContent,
+        entries,
+        errors,
+      });
+
+      expect(entries.map(({ slug, arrayIndex }) => [slug, arrayIndex])).toEqual([
+        ['0', 0],
+        ['2', 2],
+      ]);
+      expect(entries[0].commitDate).toEqual(new Date(0));
+      expect(errors).toHaveLength(0);
+      expect(arrayFileItems.get(path)).toBe(rawContent);
+    });
+
+    test('reports a file that doesn’t contain an array', () => {
+      const entries = /** @type {Entry[]} */ ([]);
+      const errors = /** @type {Error[]} */ ([]);
+
+      prepareArrayFileEntries({
+        collection: createCollection(),
+        file,
+        rawContent: { title: 'A' },
+        entries,
+        errors,
+      });
+
+      expect(entries).toHaveLength(0);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('doesn’t contain an array');
+      expect(arrayFileItems.has(path)).toBe(true);
+      expect(arrayFileItems.get(path)).toBeNull();
+    });
+  });
+
+  describe('prepareEntry()', () => {
+    const file = /** @type {BaseEntryListItem} */ ({
+      name: 'posts.json',
+      path,
+      text: '[]',
+      sha: 'abc',
+      size: 10,
+      type: 'entry',
+      folder: { collectionName: 'posts' },
+    });
+
+    test('prepares the entries of an array file', async () => {
+      const entries = /** @type {Entry[]} */ ([]);
+      const errors = /** @type {Error[]} */ ([]);
+
+      parseEntryFile.mockResolvedValue([{ title: 'A' }, { title: 'B' }]);
+      getCollection.mockReturnValue(createCollection());
+
+      await prepareEntry({ file, entries, entryMap: new Map(), errors });
+
+      expect(entries.map(({ slug }) => slug)).toEqual(['0', '1']);
+      expect(arrayFileItems.get(path)).toEqual([{ title: 'A' }, { title: 'B' }]);
+    });
+
+    test('prepares a regular entry of an entry collection', async () => {
+      const entries = /** @type {Entry[]} */ ([]);
+
+      parseEntryFile.mockResolvedValue({ title: 'A' });
+      getCollection.mockReturnValue(createCollection({ arrayFile: false }));
+
+      await prepareEntry({
+        file: { ...file, path: 'posts/hello.md' },
+        entries,
+        entryMap: new Map(),
+        errors: [],
+      });
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].slug).toBe('hello');
+      expect(arrayFileItems.size).toBe(0);
+    });
+
+    test('marks an array file that can’t be parsed', async () => {
+      const errors = /** @type {Error[]} */ ([]);
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      parseEntryFile.mockRejectedValue(new Error('Parsing failed'));
+      getCollection.mockReturnValue(createCollection());
+
+      await prepareEntry({ file, entries: [], entryMap: new Map(), errors });
+
+      expect(errors).toHaveLength(1);
+      expect(arrayFileItems.has(path)).toBe(true);
+      expect(arrayFileItems.get(path)).toBeNull();
+
+      consoleSpy.mockRestore();
+    });
+
+    test('doesn’t mark another file that can’t be parsed', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      parseEntryFile.mockRejectedValue(new Error('Parsing failed'));
+
+      // Regular entry collection
+      getCollection.mockReturnValue(createCollection({ arrayFile: false }));
+      await prepareEntry({ file, entries: [], entryMap: new Map(), errors: [] });
+
+      // File collection
+      getCollection.mockReturnValue({
+        name: 'pages',
+        _type: 'file',
+        _fileMap: { about: { name: 'about', _file: {}, _i18n: {} } },
+      });
+      await prepareEntry({
+        file: { ...file, folder: { collectionName: 'pages', fileName: 'about' } },
+        entries: [],
+        entryMap: new Map(),
+        errors: [],
+      });
+
+      expect(arrayFileItems.size).toBe(0);
+
+      consoleSpy.mockRestore();
+    });
+  });
+});

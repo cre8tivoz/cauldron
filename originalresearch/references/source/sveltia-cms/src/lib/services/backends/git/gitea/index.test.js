@@ -1,0 +1,373 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { cmsConfig } from '$lib/services/config';
+
+// Mock dependencies with vi.hoisted to ensure proper hoisting
+const stripSlashesMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@sveltia/utils/string', () => ({
+  stripSlashes: stripSlashesMock,
+}));
+
+vi.mock('$lib/services/backends/git/gitea/auth', () => ({
+  getTokenPageURL: vi.fn(),
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+}));
+
+vi.mock('$lib/services/backends/git/gitea/commits', () => ({
+  commitChanges: vi.fn(),
+  fetchFileCommits: vi.fn(),
+  fetchLastCommit: vi.fn(),
+}));
+
+vi.mock('$lib/services/backends/git/gitea/constants', async (importOriginal) => ({
+  ...(await importOriginal()),
+  BACKEND_LABEL: 'Gitea',
+}));
+
+vi.mock('$lib/services/backends/git/gitea/deployment', () => ({
+  fetchBranchHeadSHA: vi.fn(),
+  fetchDeployments: vi.fn(),
+}));
+
+vi.mock('$lib/services/backends/git/gitea/files', () => ({
+  fetchBlob: vi.fn(),
+  fetchDirSHA: vi.fn(),
+  fetchFiles: vi.fn(),
+}));
+
+vi.mock('$lib/services/backends/git/gitea/repository', () => ({
+  repository: {},
+  getBaseURLs: vi.fn(() => ({ treeBaseURL: 'tree-url', blobBaseURL: 'blob-url' })),
+}));
+
+vi.mock('$lib/services/backends/git/gitea/workflow', () => ({
+  default: { fetchPullRequests: vi.fn() },
+}));
+
+vi.mock('$lib/services/backends/git/shared/api', () => ({
+  apiConfig: {},
+}));
+
+vi.mock('$lib/services/config', () => ({
+  cmsConfig: { current: undefined },
+}));
+
+const mockPrefs = { devModeEnabled: false };
+
+vi.mock('$lib/services/user/prefs.svelte', () => ({
+  prefs: mockPrefs,
+}));
+
+// Import after mocks
+const { init, forgejo } = await import('.');
+const { getTokenPageURL } = await import('./auth.js');
+const { apiConfig } = await import('$lib/services/backends/git/shared/api');
+
+describe('Gitea Index Service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Setup default mocks
+    stripSlashesMock.mockImplementation((/** @type {string} */ str) =>
+      str.replace(/^\/+|\/+$/g, ''),
+    );
+
+    // Mock getTokenPageURL dynamically based on the input
+    vi.mocked(getTokenPageURL).mockImplementation((repoURL) => {
+      const { origin } = new URL(repoURL);
+
+      return `${origin}/user/settings/applications`;
+    });
+
+    // Default mock setup for stores
+    cmsConfig.current = /** @type {any} */ ({
+      backend: {
+        name: 'gitea',
+        repo: 'owner/repo-name',
+        branch: 'main',
+        base_url: 'https://gitea.com',
+        auth_endpoint: 'login/oauth/authorize',
+        app_id: 'test-client-id',
+        api_root: 'https://gitea.com/api/v1',
+      },
+    });
+    mockPrefs.devModeEnabled = false;
+  });
+
+  describe('init', () => {
+    test('should initialize Gitea backend with default configuration', () => {
+      const result = init();
+
+      expect(result).toBeDefined();
+      expect(result?.service).toBe('gitea');
+      expect(result?.owner).toBe('owner');
+      expect(result?.repo).toBe('repo-name');
+      expect(stripSlashesMock).toHaveBeenCalledWith('https://gitea.com');
+      expect(stripSlashesMock).toHaveBeenCalledWith('login/oauth/authorize');
+    });
+
+    test('should set repository object with complete configuration including tokenPageURL', () => {
+      const result = init();
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          service: 'gitea',
+          label: 'Gitea',
+          owner: 'owner',
+          repo: 'repo-name',
+          branch: 'main',
+          repoURL: 'https://gitea.com/owner/repo-name',
+          tokenPageURL: 'https://gitea.com/user/settings/applications',
+          databaseName: 'gitea:owner/repo-name',
+          isSelfHosted: false,
+          treeBaseURL: 'tree-url',
+          blobBaseURL: 'blob-url',
+        }),
+      );
+    });
+
+    test('should ask for the repository and user scopes by default', () => {
+      init();
+
+      expect(apiConfig.authScope).toBe('read:repository,write:repository,read:user');
+    });
+
+    test('should also ask for the issue scope with Editorial Workflow', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        publish_mode: 'editorial_workflow',
+        backend: { name: 'gitea', repo: 'owner/repo-name', branch: 'main' },
+      });
+
+      init();
+
+      expect(apiConfig.authScope).toBe(
+        'read:repository,write:repository,read:issue,write:issue,read:user',
+      );
+    });
+
+    test('should ask for the issue scope when only a collection enables the feature', () => {
+      // A collection can turn Editorial Workflow on by itself, and the labels it writes need the
+      // scope just the same
+      cmsConfig.current = /** @type {any} */ ({
+        backend: { name: 'gitea', repo: 'owner/repo-name', branch: 'main' },
+        collections: [{ name: 'posts', folder: 'posts', publish_mode: 'editorial_workflow' }],
+      });
+
+      init();
+
+      expect(apiConfig.authScope).toBe(
+        'read:repository,write:repository,read:issue,write:issue,read:user',
+      );
+    });
+
+    test('should return undefined when backend is not Gitea', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'github', // Different backend
+        },
+      });
+
+      const result = init();
+
+      expect(result).toBeUndefined();
+    });
+
+    test('should return undefined when no backend is configured', () => {
+      cmsConfig.current = /** @type {any} */ ({}); // No backend configured
+
+      const result = init();
+
+      expect(result).toBeUndefined();
+    });
+
+    test('should return undefined when cmsConfig is null', () => {
+      cmsConfig.current = /** @type {any} */ (null);
+
+      const result = init();
+
+      expect(result).toBeUndefined();
+    });
+
+    test('should handle custom configuration values', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'gitea',
+          repo: 'custom-owner/custom-repo',
+          branch: 'develop',
+          base_url: 'https://custom-gitea.com',
+          auth_endpoint: 'custom/oauth/authorize',
+          app_id: 'custom-client-id',
+          api_root: 'https://custom-api.gitea.com',
+        },
+      });
+
+      const result = init();
+
+      expect(result).toBeDefined();
+      expect(result?.owner).toBe('custom-owner');
+      expect(result?.repo).toBe('custom-repo');
+      expect(stripSlashesMock).toHaveBeenCalledWith('https://custom-gitea.com');
+      expect(stripSlashesMock).toHaveBeenCalledWith('custom/oauth/authorize');
+    });
+
+    test('should set tokenPageURL correctly for custom Gitea instances', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'gitea',
+          repo: 'custom-owner/custom-repo',
+          branch: 'develop',
+          base_url: 'https://custom-gitea.com',
+          auth_endpoint: 'custom/oauth/authorize',
+          app_id: 'custom-client-id',
+          api_root: 'https://custom-api.gitea.com',
+        },
+      });
+
+      const result = init();
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          service: 'gitea',
+          label: 'Gitea',
+          owner: 'custom-owner',
+          repo: 'custom-repo',
+          branch: 'develop',
+          repoURL: 'https://custom-api.gitea.com/custom-owner/custom-repo',
+          tokenPageURL: 'https://custom-api.gitea.com/user/settings/applications',
+          databaseName: 'gitea:custom-owner/custom-repo',
+          isSelfHosted: true,
+          treeBaseURL: 'tree-url',
+          blobBaseURL: 'blob-url',
+        }),
+      );
+    });
+
+    test('should use default values for missing optional configuration', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'gitea',
+          repo: 'test-org/test-repository',
+          branch: 'main',
+          // Missing base_url, auth_endpoint, app_id, api_root - should use defaults
+        },
+      });
+
+      const result = init();
+
+      expect(result).toBeDefined();
+      expect(stripSlashesMock).toHaveBeenCalledWith('https://gitea.com');
+      expect(stripSlashesMock).toHaveBeenCalledWith('login/oauth/authorize');
+    });
+
+    test('should detect self-hosted instances correctly', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'gitea',
+          repo: 'self-hosted/project',
+          api_root: 'https://my-gitea.company.com',
+        },
+      });
+
+      const result = init();
+
+      expect(result).toBeDefined();
+      expect(result?.isSelfHosted).toBe(true);
+    });
+
+    test('should initialize the Forgejo backend, deriving the auth URL from the API root', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'forgejo',
+          repo: 'owner/repo-name',
+          app_id: 'test-client-id',
+          api_root: 'https://codeberg.org/api/v1',
+        },
+      });
+
+      const result = init();
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          service: 'forgejo',
+          label: 'Forgejo',
+          owner: 'owner',
+          repo: 'repo-name',
+          branch: undefined,
+          repoURL: 'https://codeberg.org/owner/repo-name',
+          databaseName: 'forgejo:owner/repo-name',
+          isSelfHosted: true,
+        }),
+      );
+      expect(stripSlashesMock).toHaveBeenCalledWith('https://codeberg.org');
+      expect(apiConfig.clientId).toBe('test-client-id');
+    });
+
+    test('should prefer the configured auth URL with the Forgejo backend', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'forgejo',
+          repo: 'owner/repo-name',
+          api_root: 'https://example.com/forgejo/api/v1',
+          base_url: 'https://auth.example.com',
+        },
+      });
+
+      init();
+
+      expect(stripSlashesMock).toHaveBeenCalledWith('https://auth.example.com');
+    });
+
+    test('should handle dev mode logging', () => {
+      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      mockPrefs.devModeEnabled = true;
+
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: 'gitea',
+          repo: 'test/repo',
+        },
+      });
+
+      const result = init();
+
+      expect(result).toBeDefined();
+      expect(consoleInfoSpy).toHaveBeenCalledWith('repositoryInfo', expect.any(Object));
+
+      consoleInfoSpy.mockRestore();
+    });
+  });
+
+  describe('default export', () => {
+    test('should export BackendService with correct properties', async () => {
+      const { default: backend } = await import('.');
+
+      expect(backend).toBeDefined();
+      expect(backend.isGit).toBe(true);
+      expect(backend.name).toBe('gitea');
+      expect(backend.label).toBe('Gitea');
+      expect(backend.repository).toBeDefined();
+      expect(backend.init).toBe(init);
+      expect(typeof backend.signIn).toBe('function');
+      expect(typeof backend.signOut).toBe('function');
+      expect(typeof backend.fetchFiles).toBe('function');
+      expect(typeof backend.fetchLastCommit).toBe('function');
+      expect(typeof backend.fetchBlob).toBe('function');
+      expect(typeof backend.commitChanges).toBe('function');
+      expect(typeof backend.fetchBranchHeadSHA).toBe('function');
+      expect(typeof backend.fetchDeployments).toBe('function');
+    });
+  });
+
+  describe('forgejo export', () => {
+    test('should export the same service under the Forgejo backend name', async () => {
+      const { default: backend } = await import('.');
+
+      expect(forgejo).toEqual({ ...backend, name: 'forgejo', label: 'Forgejo' });
+      expect(forgejo.init).toBe(init);
+      expect(forgejo.repository).toBe(backend.repository);
+    });
+  });
+});

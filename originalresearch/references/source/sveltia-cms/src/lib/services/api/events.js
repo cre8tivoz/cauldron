@@ -1,0 +1,166 @@
+import { isObject } from '@sveltia/utils/object';
+
+import { loadImmutable } from '$lib/services/api/immutable';
+import { createEntryMap } from '$lib/services/api/preview-data';
+import { eventHookRegistry } from '$lib/services/api/registries';
+import { getAssociatedAssets } from '$lib/services/contents/entry/assets';
+import { getEntryDisplayLocale, getEntryLocaleFile } from '$lib/services/contents/entry/paths';
+import { user } from '$lib/services/user/account.svelte';
+import { flattenKeys } from '$lib/services/utils/object';
+
+/**
+ * @import {
+ * Entry,
+ * InternalCollection,
+ * InternalCollectionFile,
+ * LocalizedEntry,
+ * User,
+ * } from '$lib/types/private';
+ * @import { AppEventType } from '$lib/types/public';
+ */
+
+/**
+ * Supported event hooks.
+ * @type {AppEventType[]}
+ */
+export const SUPPORTED_EVENT_TYPES = [
+  'preSave',
+  'postSave',
+  'prePublish',
+  'postPublish',
+  'preUnpublish',
+  'postUnpublish',
+];
+
+/**
+ * Event types whose handler can return updated entry data, which is then written to the file.
+ *
+ * `prePublish` is deliberately absent: by the time an Editorial Workflow entry is published, its
+ * content has already been committed to the pull request branch, and publishing only merges that
+ * branch. Applying an update here would change the in-memory entry without changing the file,
+ * leaving the two out of sync. Supporting it means re-serializing the entry and committing it to
+ * the branch before the merge.
+ * @type {AppEventType[]}
+ */
+export const UPDATABLE_EVENT_TYPES = ['preSave'];
+
+/**
+ * Call the registered event hooks.
+ * @param {object} args Arguments.
+ * @param {AppEventType} args.type Type of event.
+ * @param {Entry} args.entry Entry the event is about. This object may be mutated by the hook when
+ * the event type is in {@link UPDATABLE_EVENT_TYPES}.
+ * @param {InternalCollection} args.collection Collection the entry belongs to.
+ * @param {InternalCollectionFile} [args.collectionFile] Collection file. File/singleton collection
+ * only.
+ * @param {boolean} [args.isNew] Whether the entry is being created rather than updated.
+ * @throws {Error} When a `pre*` hook throws, which stops the operation. An error thrown by a
+ * `post*` hook is only logged, as the operation has already been carried out by then.
+ */
+export const callEventHooks = async ({
+  type,
+  entry,
+  collection,
+  collectionFile,
+  isNew = false,
+}) => {
+  const { login: _login, name: _name } = /** @type {User} */ (user.account);
+  // Not destructuring defaults, which only replace `undefined`: a GitHub user without a display
+  // name has a `null` name
+  const login = _login ?? '';
+  const name = _name ?? '';
+  const collectionName = collection.name;
+  const fileName = collectionFile?.name;
+
+  const {
+    _i18n: { defaultLocale },
+  } = collectionFile ?? collection;
+
+  const hooks = [...eventHookRegistry].filter((hook) => hook.name === type);
+
+  if (!hooks.length) {
+    return;
+  }
+
+  /** @type {import('immutable')['isMap']} */
+  let isMap;
+
+  // The hooks receive the entry as an Immutable Map. Saving must not depend on the library being
+  // reachable, so if it can’t be loaded, the hooks are skipped rather than the operation failing —
+  // possibly after the commit has already been made, in the case of a `post*` event
+  try {
+    ({ isMap } = await loadImmutable());
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`Skipping the ${type} event hooks: Immutable.js could not be loaded`, error);
+
+    return;
+  }
+
+  const { slug, locales } = entry;
+  // A multi-file i18n entry can be missing its default locale file, in which case another locale
+  // stands in for it: the hooks get its data as the main data, which is written back to it, so it’s
+  // not one of the other locales
+  const mainLocale = /** @type {string} */ (getEntryDisplayLocale(locales, defaultLocale));
+  const otherLocales = Object.keys(locales).filter((locale) => locale !== mainLocale);
+  const associatedAssets = getAssociatedAssets({ entry, collectionName, fileName });
+
+  // We need to use a for loop here to call handlers sequentially
+  // eslint-disable-next-line no-restricted-syntax
+  for (const hook of hooks) {
+    // Read the content on every iteration, so a hook sees the changes made by the previous ones. An
+    // entry without any locale file gets empty data rather than the destructuring throwing
+    const { content, path } = /** @type {LocalizedEntry} */ (
+      getEntryLocaleFile(entry, { locale: mainLocale }) ?? {}
+    );
+
+    let updatedMap;
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      updatedMap = await hook.handler({
+        author: { login, name },
+        // Create an Immutable.js Map representing the entry data with deep conversion
+        entry: createEntryMap({
+          content,
+          otherLocales,
+          locales,
+          slug,
+          path,
+          isNew,
+          collectionName,
+          associatedAssets,
+        }),
+      });
+    } catch (error) {
+      // A `pre*` hook can stop the operation by throwing, but a `post*` hook runs once the change
+      // has been made, so its failure can’t undo it. Report the error and carry on with the next
+      // hook, rather than making a successful save or publish look like it failed. No `post*` hook
+      // can update the entry, so there’s nothing more to do with this one
+      if (!type.startsWith('post')) {
+        throw error;
+      }
+
+      // eslint-disable-next-line no-console
+      console.error(`The ${type} event hook failed`, error);
+    }
+
+    // If the hook returned an updated entry, merge its data back into the savingEntry
+    if (UPDATABLE_EVENT_TYPES.includes(type) && isMap(updatedMap)) {
+      const map = updatedMap.toJS();
+
+      if (isObject(map.data) && isObject(map.i18n)) {
+        locales[mainLocale].content = flattenKeys(map.data);
+
+        otherLocales.forEach((locale) => {
+          if (isObject(map.i18n[locale]?.data)) {
+            locales[locale].content = flattenKeys(map.i18n[locale].data);
+          }
+        });
+      } else {
+        // `map` is always a plain object here (guaranteed by `isMap(updatedMap)` above)
+        locales[mainLocale].content = flattenKeys(map);
+      }
+    }
+  }
+};

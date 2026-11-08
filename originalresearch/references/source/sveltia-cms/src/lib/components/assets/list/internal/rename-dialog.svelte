@@ -1,0 +1,127 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import { Alert, Toast } from '@sveltia/ui';
+  import { getPathInfo } from '@sveltia/utils/file';
+
+  import RenameDialog from '$lib/components/assets/list/rename-dialog.svelte';
+  import { goto, parseLocation } from '$lib/services/app/navigation';
+  import { getAssetsByDirName } from '$lib/services/assets';
+  import { moveAssets } from '$lib/services/assets/data/move';
+  import { getAssetUsedEntries } from '$lib/services/assets/details';
+  import { getAssetFolderHistoryState } from '$lib/services/assets/navigation';
+  import { renamingAsset } from '$lib/services/assets/state';
+  import { getFolderNamesInDir, getNonAssetFileNamesInDir } from '$lib/services/assets/subfolders';
+  import { runCommit } from '$lib/services/backends/commit-prompt';
+  import { getReadonlyEntryLabel, isEntryReadonly } from '$lib/services/contents/entry/readonly';
+  import { getDefaultMediaLibraryOptions } from '$lib/services/integrations/media-libraries/default';
+  import { createPath } from '$lib/services/utils/file';
+  import { watchAsync } from '$lib/services/utils/state.svelte';
+  import { encodePathSegments } from '$lib/services/utils/url';
+
+  /**
+   * @import { Entry } from '$lib/types/private';
+   */
+
+  let open = $state(false);
+  let renamingFailed = $state(false);
+  /** @type {Entry[]} */
+  let usedEntries = $state([]);
+
+  const asset = $derived(renamingAsset.current);
+  // A read-only entry using the asset can’t be updated along with the rename, so the rename is
+  // refused up front rather than when it’s about to be committed
+  const readonlyEntries = $derived(usedEntries.filter((entry) => isEntryReadonly(entry)));
+  const blockedMessage = $derived(
+    readonlyEntries.length
+      ? _('cannot_move_referenced_asset', {
+          values: {
+            entries: readonlyEntries.map((entry) => getReadonlyEntryLabel(entry)).join(', '),
+          },
+        })
+      : undefined,
+  );
+  const { dirname = '', basename = '' } = $derived(getPathInfo(asset?.path ?? ''));
+  /**
+   * Names of the other files next to the asset, and those of the subfolders there, which a file
+   * can’t take either.
+   */
+  const { otherNames, fileNames, folderNames } = $derived(
+    asset
+      ? {
+          otherNames: getAssetsByDirName(dirname)
+            .map((a) => a.name)
+            .filter((n) => n !== asset.name),
+          // An entry file next to the asset would be overwritten
+          fileNames: getNonAssetFileNamesInDir(dirname),
+          folderNames: getFolderNamesInDir(dirname),
+        }
+      : { otherNames: [], fileNames: [], folderNames: [] },
+  );
+
+  /**
+   * Rename the asset by moving it to a new path. Also, update the URL hash silently to reflect the
+   * new asset name if the rename dialog was opened in the asset details view.
+   * @param {string} newName New file name.
+   */
+  const renameAsset = async (newName) => {
+    /* v8 ignore next 3 -- the dialog is only shown for an asset */
+    if (!asset) {
+      return;
+    }
+
+    const oldPath = asset.path;
+    // An asset in a root media folder has no directory
+    const newPath = createPath([dirname, newName]);
+
+    const { ok, cancelled } = await runCommit(() =>
+      moveAssets('rename', [{ asset, path: newPath }]),
+    );
+
+    if (!ok) {
+      // A cancellation at the commit message prompt isn’t a failure
+      if (!cancelled) {
+        renamingFailed = true;
+      }
+
+      return;
+    }
+
+    if (parseLocation().path === `/assets/${oldPath}`) {
+      await goto(encodePathSegments(`/assets/${newPath}`), {
+        replaceState: true,
+        notifyChange: false,
+        // Keep the folder the asset was opened from, e.g. All Assets
+        state: getAssetFolderHistoryState(),
+      });
+    }
+  };
+
+  // Another asset can be renamed before the entries using this one are found, which `watchAsync`
+  // takes care of
+  watchAsync(
+    () => (asset ? getAssetUsedEntries(asset) : undefined),
+    (entries) => {
+      usedEntries = entries;
+      open = true;
+    },
+  );
+</script>
+
+<RenameDialog
+  bind:open
+  name={basename}
+  {otherNames}
+  {fileNames}
+  {folderNames}
+  usedEntryCount={usedEntries.length}
+  {blockedMessage}
+  slugificationEnabled={getDefaultMediaLibraryOptions().config.slugify_filename}
+  onRename={renameAsset}
+  onClose={() => {
+    renamingAsset.current = undefined;
+  }}
+/>
+
+<Toast bind:show={renamingFailed}>
+  <Alert status="error">{_('renaming_asset_failed')}</Alert>
+</Toast>

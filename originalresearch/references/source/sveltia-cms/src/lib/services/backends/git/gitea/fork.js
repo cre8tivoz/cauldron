@@ -1,0 +1,404 @@
+import { BACKEND_NAMES } from '$lib/services/backends/git/gitea/constants';
+import { instance } from '$lib/services/backends/git/gitea/instance';
+import {
+  fetchDefaultBranchName,
+  getRepositoryInfo,
+  repository,
+} from '$lib/services/backends/git/gitea/repository';
+import { fetchAPI } from '$lib/services/backends/git/shared/api';
+import { fetchAPIOrUndefined } from '$lib/services/backends/git/shared/api-optional';
+import {
+  createLocalizedError,
+  createNoAccessError,
+} from '$lib/services/backends/git/shared/errors';
+import {
+  isOpenAuthoringConfiguredFor,
+  requestForkWithFallbackName,
+  resolveWorkflowRepository,
+  runOpenAuthoringSetUp,
+  setUpForkFor,
+  warnForkNotFastForwarded,
+  warnForkSyncError,
+} from '$lib/services/backends/git/shared/fork';
+import { getRepositoryPath, isSameRepository } from '$lib/services/backends/git/shared/repository';
+import { user } from '$lib/services/user/account.svelte';
+import { encodePathSegments } from '$lib/services/utils/url';
+
+/**
+ * @import { RepositoryPath, User } from '$lib/types/private';
+ * @import { GitBackendName } from '$lib/types/public';
+ */
+
+/**
+ * Maximum number of the user’s forks to look through for one of the configured repository, when it
+ * isn’t at the name it was given by default. A contributor rarely has more than a handful.
+ */
+const MAX_FORKS = 50;
+
+/**
+ * Check whether Open Authoring is turned on for this backend, configured as either `gitea` or
+ * `forgejo`, in the site configuration: see {@link isOpenAuthoringConfiguredFor}.
+ * @returns {boolean} `true` if the `open_authoring` backend option is enabled.
+ */
+export const isOpenAuthoringConfigured = () =>
+  isOpenAuthoringConfiguredFor(/** @type {GitBackendName[]} */ (BACKEND_NAMES));
+
+/**
+ * Get the repository that receives the CMS’s commits: the signed-in user’s fork when the current
+ * session is an Open Authoring one, and the configured repository otherwise. Content is always read
+ * from the configured repository, so this is only for writes and for the branches behind them.
+ * @returns {RepositoryPath} Repository owner and name.
+ */
+export const getWorkflowRepository = () => resolveWorkflowRepository(repository);
+
+/**
+ * Parse a repository returned by the REST API into the owner and name pair the CMS works with.
+ * @param {Record<string, any>} result Repository.
+ * @returns {RepositoryPath} Repository owner and name.
+ */
+const toRepositoryPath = ({ full_name: fullName }) => {
+  const [owner, repo] = fullName.split('/');
+
+  return { owner, repo };
+};
+
+/**
+ * Fetch what the sign-in needs to know about the configured repository: whether the signed-in user
+ * can commit to it. The repository reports the authenticated user’s own permissions. A private
+ * repository answers a request from someone without access with a 404 rather than a 403, so its
+ * existence isn’t leaked; either way, being unable to read it is a dead end rather than a reason to
+ * fall back to a fork.
+ * @returns {Promise<{ canWrite: boolean }>} Repository access.
+ * @throws {Error} When the user has no access to the repository, or the answer couldn’t be
+ * determined — which is not the same thing.
+ * @see https://docs.gitea.com/api/next/#tag/repository/operation/repoGet
+ */
+export const fetchRepositoryAccess = async () => {
+  const { owner, repo } = repository;
+  const repoPath = `${owner}/${repo}`;
+  /** @type {Record<string, any>} */
+  let result;
+
+  try {
+    result = await getRepositoryInfo();
+  } catch (/** @type {any} */ ex) {
+    // The shared message is what the sign-in flow looks for to drop the cached credentials, the
+    // same as the regular access check does, so the user gets the sign-in form rather than the
+    // same error on every reload
+    if ([403, 404].includes(ex.cause?.status)) {
+      throw createNoAccessError(repoPath);
+    }
+
+    // A rate limit or an outage leaves the question unanswered. Reading that as “no write access”
+    // would send a maintainer down the fork path over something passing, and offer to create a
+    // copy of a repository they can already write to, so make the failure visible instead
+    throw createLocalizedError(
+      'Failed to check the repository permission.',
+      'open_authoring.permission_check_failed',
+      { repo: repoPath },
+    );
+  }
+
+  return { canWrite: !!result.permissions?.push };
+};
+
+/**
+ * Look for the fork at the name the instance gives it by default, which is the parent’s. This is
+ * where it is unless the contributor renamed it. A repository that happens to share the name but
+ * isn’t a fork of the configured one is ignored.
+ * @returns {Promise<RepositoryPath | undefined>} The fork, or `undefined` if it isn’t there.
+ * @see https://docs.gitea.com/api/next/#tag/repository/operation/repoGet
+ */
+export const fetchForkByName = async () => {
+  const { repo } = repository;
+  const userName = /** @type {string} */ (user.account?.login);
+
+  // Only a missing repository means there’s no fork at the name. Reading a rate limit or an outage
+  // the same way would have the contributor asked to create another one, so that is passed on
+  const result = /** @type {Record<string, any> | undefined} */ (
+    await fetchAPIOrUndefined(getRepositoryPath({ owner: userName, repo }))
+  );
+
+  if (!result) {
+    return undefined;
+  }
+
+  if (!result.fork || !isSameRepository(result.parent?.full_name, repository)) {
+    return undefined;
+  }
+
+  // The instance redirects a request for a repository that was renamed or transferred, so the one
+  // it answered with can sit on an account other than the one asked for. Everything the CMS writes
+  // goes to this repository, so take it only once it’s confirmed to be the signed-in user’s own
+  if (result.owner?.login?.toLowerCase() !== userName.toLowerCase()) {
+    return undefined;
+  }
+
+  return toRepositoryPath(result);
+};
+
+/**
+ * Look through the forks the signed-in user owns for one of the configured repository, wherever
+ * it’s named. This only runs when {@link fetchForkByName} came up empty. A failed search is passed
+ * on rather than taken for no fork, which would have the contributor asked to create another one.
+ * @returns {Promise<RepositoryPath | undefined>} The fork, or `undefined` if there is none.
+ * @see https://docs.gitea.com/api/next/#tag/repository/operation/repoSearch
+ */
+export const fetchForkBySearch = async () => {
+  // Nothing here runs before the user has signed in
+  const { id, login } = /** @type {User} */ (user.account);
+
+  const { data = [] } = /** @type {{ data?: Record<string, any>[] }} */ (
+    await fetchAPI(`/repos/search?uid=${id}&exclusive=true&mode=fork&limit=${MAX_FORKS}`)
+  );
+
+  const result = data.find(
+    (item) =>
+      // Check the owner rather than trusting the filter to have applied: committing to someone
+      // else’s fork would fail in a way that’s hard to make sense of
+      item.owner?.login === login && isSameRepository(item.parent?.full_name, repository),
+  );
+
+  return result ? toRepositoryPath(result) : undefined;
+};
+
+/**
+ * Look for an existing fork of the configured repository on the signed-in user’s account.
+ * @returns {Promise<RepositoryPath | undefined>} The fork, or `undefined` if there is none.
+ */
+export const fetchFork = async () => (await fetchForkByName()) ?? fetchForkBySearch();
+
+/**
+ * Fetch whether the instance allows repositories to be forked. Forgejo can turn forking off
+ * altogether and says so in its repository settings, while Gitea has no such setting. A failure
+ * leaves the fork request to say whether it’s allowed.
+ * @returns {Promise<boolean>} `false` if forking is turned off.
+ * @see https://codeberg.org/api/swagger#/settings/getGeneralRepositorySettings
+ */
+export const fetchForkingAllowed = async () => {
+  if (!instance.isForgejo) {
+    return true;
+  }
+
+  try {
+    const { forks_disabled: disabled } = /** @type {{ forks_disabled?: boolean }} */ (
+      await fetchAPI('/settings/repository')
+    );
+
+    return !disabled;
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * Check whether the signed-in user already has a repository of the given name, which is what stops
+ * a fork from being created at the default name.
+ * @param {string} name Repository name.
+ * @returns {Promise<boolean>} `true` if the name is taken.
+ */
+const isRepositoryNameTaken = async (name) => {
+  const userName = /** @type {string} */ (user.account?.login);
+
+  const response = /** @type {Response} */ (
+    await fetchAPI(getRepositoryPath({ owner: userName, repo: name }), { responseType: 'raw' })
+  );
+
+  return response.ok;
+};
+
+/**
+ * Fork the configured repository onto the signed-in user’s account. Unlike GitHub, the instance
+ * copies the repository before answering, so the fork can be used as soon as the request returns.
+ * @returns {Promise<RepositoryPath>} The new fork.
+ * @throws {Error} When the fork could not be created.
+ * @see https://docs.gitea.com/api/next/#tag/repository/operation/createFork
+ */
+export const createFork = async () => {
+  const { owner, repo } = repository;
+  const endpoint = `${getRepositoryPath(repository)}/forks`;
+
+  const result = await requestForkWithFallbackName({
+    repoPath: `${owner}/${repo}`,
+    /**
+     * Request a fork at the default name.
+     * @returns {Promise<any>} New fork.
+     */
+    requestFork: () => fetchAPI(endpoint, { method: 'POST', body: {} }),
+    /**
+     * Request a fork named after the configured repository’s owner and name.
+     * @returns {Promise<any>} New fork.
+     */
+    requestRenamedFork: () =>
+      fetchAPI(endpoint, { method: 'POST', body: { name: `${owner}-${repo}` } }),
+    // The instance doesn’t pick another name when the contributor already has an unrelated
+    // repository of the same name, the way GitHub does, so give it one. Any other failure is real:
+    // a fork of the repository already exists, or forking is turned off on the instance
+    conflictStatuses: [409],
+    /**
+     * Check whether the contributor has a repository at the default name.
+     * @returns {Promise<boolean>} `true` if the name is taken.
+     */
+    isNameTaken: () => isRepositoryNameTaken(repo),
+  });
+
+  return toRepositoryPath(result);
+};
+
+/**
+ * Find out whether Forgejo can bring the fork’s copy of the given branch up to date. Forgejo only
+ * fast-forwards, and refuses a sync both when the fork has commits of its own on the branch and
+ * when there’s nothing to sync, so it’s asked first rather than sent a request it would refuse on
+ * every sign-in with an up-to-date fork.
+ * @param {RepositoryPath} fork Fork to check.
+ * @param {string} branch Branch name.
+ * @returns {Promise<'current' | 'behind' | 'diverged'>} Where the fork’s copy stands.
+ * @see https://codeberg.org/api/swagger#/repository/repoSyncForkBranchInfo
+ */
+const fetchForgejoSyncState = async ({ owner, repo }, branch) => {
+  const {
+    allowed,
+    fork_commit: forkCommit,
+    base_commit: baseCommit,
+  } = /** @type {{ allowed?: boolean, fork_commit?: string, base_commit?: string }} */ (
+    await fetchAPI(`${getRepositoryPath({ owner, repo })}/sync_fork/${encodePathSegments(branch)}`)
+  );
+
+  if (forkCommit && forkCommit === baseCommit) {
+    return 'current';
+  }
+
+  return allowed ? 'behind' : 'diverged';
+};
+
+/**
+ * Bring the fork’s copy of the configured branch up to date with the configured repository, so a
+ * new workflow branch starts from what’s currently on the site and the resulting pull request only
+ * contains the entry being edited. The two services ask for this differently: Gitea names the
+ * branch in the body, while Forgejo names it in the path and is asked beforehand whether it can do
+ * it at all. A failure is logged rather than raised: a fork that has drifted still works, it just
+ * makes for a noisier pull request.
+ * @param {RepositoryPath} fork Fork to update.
+ * @see https://docs.gitea.com/api/next/#tag/repository/operation/repoMergeUpstream
+ * @see https://codeberg.org/api/swagger#/repository/repoSyncForkBranch
+ */
+export const syncFork = async (fork) => {
+  // The branch is resolved before the fork is set up
+  const { branch } = /** @type {{ branch: string }} */ (repository);
+  /** @type {Response | undefined} */
+  let response;
+
+  try {
+    if (instance.isForgejo) {
+      const state = await fetchForgejoSyncState(fork, branch);
+
+      if (state === 'current') {
+        return;
+      }
+
+      // The fork has commits of its own on the branch, which is a state the CMS can’t resolve on
+      // the contributor’s behalf
+      if (state === 'diverged') {
+        warnForkNotFastForwarded(fork);
+
+        return;
+      }
+    }
+
+    response = /** @type {Response} */ (
+      await fetchAPI(
+        instance.isForgejo
+          ? `${getRepositoryPath(fork)}/sync_fork/${encodePathSegments(branch)}`
+          : `${getRepositoryPath(fork)}/merge-upstream`,
+        {
+          method: 'POST',
+          ...(instance.isForgejo ? {} : { body: { branch } }),
+          responseType: 'raw',
+        },
+      )
+    );
+  } catch (/** @type {any} */ ex) {
+    warnForkSyncError(fork, ex);
+
+    return;
+  }
+
+  // Gitea refuses the request when the fork’s commits conflict with the upstream ones, which it
+  // can’t merge
+  if (!response.ok) {
+    warnForkNotFastForwarded(fork);
+  }
+};
+
+/**
+ * Make sure the fork has its own copy of the configured branch, which is what a workflow branch is
+ * created from. A fork that predates the branch — the configured repository renamed its default
+ * branch since, say — has no such copy, and the instance can’t be asked to add one, so the
+ * contributor has to bring the fork up to date themselves before they can save anything.
+ * @param {RepositoryPath} fork Fork to check.
+ * @throws {Error} When the fork doesn’t have the branch.
+ * @see https://docs.gitea.com/api/next/#tag/repository/operation/repoGetBranch
+ */
+export const checkForkBranch = async ({ owner, repo }) => {
+  // The branch is resolved before this runs
+  const { branch } = /** @type {{ branch: string }} */ (repository);
+
+  const response = /** @type {Response} */ (
+    await fetchAPI(`${getRepositoryPath({ owner, repo })}/branches/${encodePathSegments(branch)}`, {
+      responseType: 'raw',
+    })
+  );
+
+  if (!response.ok) {
+    throw createLocalizedError(
+      'The fork does not have the configured branch',
+      'open_authoring.fork_branch_missing',
+      { fork: `${owner}/${repo}`, branch, repo: `${repository.owner}/${repository.repo}` },
+    );
+  }
+};
+
+/**
+ * Work out how the signed-in user is going to write to the repository, and set up a fork for them
+ * if they can’t write to the configured one. This replaces the plain access check performed when
+ * Open Authoring is turned off, because a contributor without write access is expected here rather
+ * than turned away.
+ * @throws {Error} When the fork could not be set up.
+ * @see https://sveltiacms.app/en/docs/workflows/open
+ */
+const setUpOpenAuthoring = async () => {
+  const { owner, repo } = repository;
+
+  await setUpForkFor({
+    repoPath: `${owner}/${repo}`,
+    fetchAccess: fetchRepositoryAccess,
+    /**
+     * Resolve the branch name, which syncing the fork needs. It’s otherwise resolved later in the
+     * data load.
+     */
+    prepare: async () => {
+      if (!repository.branch) {
+        await fetchDefaultBranchName();
+      }
+    },
+    fetchFork,
+    /**
+     * Bring the existing fork up to date, and make sure it has the configured branch.
+     * @param {RepositoryPath} fork Fork.
+     */
+    prepareFork: async (fork) => {
+      await syncFork(fork);
+      await checkForkBranch(fork);
+    },
+    fetchForkingAllowed,
+    createFork,
+  });
+};
+
+/**
+ * Set up Open Authoring for the signed-in user: see {@link setUpOpenAuthoring}.
+ * @throws {Error} When the fork could not be set up.
+ */
+export const initOpenAuthoring = async () => {
+  await runOpenAuthoringSetUp(setUpOpenAuthoring);
+};

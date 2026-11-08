@@ -1,0 +1,826 @@
+// @ts-nocheck
+/* eslint-disable jsdoc/require-jsdoc */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  addMultiValueItems as _addMultiValueItems,
+  moveMultiValueItem as _moveMultiValueItem,
+  removeMultiValueItem as _removeMultiValueItem,
+  updateListField as _updateListField,
+  updateListFieldForLocales as _updateListFieldForLocales,
+  getItemList,
+  moveListExpanderStates,
+  updateObject,
+} from './list';
+
+const { suspendAutoDuplication } = vi.hoisted(() => ({
+  suspendAutoDuplication: vi.fn((fn) => fn()),
+}));
+
+vi.mock('$lib/services/contents/draft', () => ({ suspendAutoDuplication }));
+
+describe('draft/update/list', () => {
+  let mockEntryDraft;
+  const updateListField = (args) => _updateListField({ draft: mockEntryDraft, ...args });
+
+  const updateListFieldForLocales = (args) =>
+    _updateListFieldForLocales({ draft: mockEntryDraft, ...args });
+
+  const moveMultiValueItem = (args) => _moveMultiValueItem({ draft: mockEntryDraft, ...args });
+  const removeMultiValueItem = (args) => _removeMultiValueItem({ draft: mockEntryDraft, ...args });
+  const addMultiValueItems = (args) => _addMultiValueItems({ draft: mockEntryDraft, ...args });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    mockEntryDraft = {
+      collection: {
+        _i18n: { defaultLocale: 'en' },
+      },
+      collectionFile: undefined,
+      currentValues: {
+        en: {
+          'tags.0': 'tag1',
+          'tags.1': 'tag2',
+          'tags.2': 'tag3',
+        },
+      },
+      expanderStates: {
+        _: {
+          'tags.0': true,
+          'tags.1': false,
+          'tags.2': true,
+        },
+      },
+    };
+  });
+
+  describe('updateListField', () => {
+    it('should add item to list', () => {
+      updateListField({
+        locale: 'en',
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          valueList.push('tag4');
+        },
+      });
+
+      expect(mockEntryDraft.currentValues.en['tags.3']).toBe('tag4');
+      expect(suspendAutoDuplication).toHaveBeenCalled();
+    });
+
+    // https://github.com/sveltia/sveltia-cms/issues/939
+    it('should accumulate items across consecutive updates to the same value map', () => {
+      mockEntryDraft.currentValues.en = {};
+      mockEntryDraft.expanderStates._ = {};
+
+      ['tag1', 'tag2', 'tag3'].forEach((value) => {
+        updateListField({
+          locale: 'en',
+          keyPath: 'tags',
+          manipulate: ({ valueList }) => {
+            valueList.push(value);
+          },
+        });
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        'tags.0': 'tag1',
+        'tags.1': 'tag2',
+        'tags.2': 'tag3',
+      });
+    });
+
+    it('should keep the escaped keys of the items', () => {
+      mockEntryDraft.currentValues.en = {
+        list: [],
+        'list.0.kv.a\uE000b': '1',
+        'list.1.kv.c\uE000d': '2',
+      };
+      mockEntryDraft.expanderStates._ = {};
+
+      updateListField({
+        locale: 'en',
+        keyPath: 'list',
+        manipulate: ({ valueList }) => {
+          valueList.reverse();
+        },
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        'list.0.kv.c\uE000d': '2',
+        'list.1.kv.a\uE000b': '1',
+      });
+    });
+
+    it('should remove item from list', () => {
+      updateListField({
+        locale: 'en',
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          valueList.splice(1, 1);
+        },
+      });
+    });
+
+    it('should reorder items in list', () => {
+      updateListField({
+        locale: 'en',
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          const [first] = valueList.splice(0, 1);
+
+          valueList.push(first);
+        },
+      });
+    });
+
+    it('should handle expander states for default locale', () => {
+      updateListField({
+        locale: 'en',
+        keyPath: 'tags',
+        manipulate: ({ valueList, expanderStateList }) => {
+          valueList.push('tag4');
+          expanderStateList.push(false);
+        },
+      });
+    });
+
+    it('should keep the expander states nested in the items when one is removed', () => {
+      mockEntryDraft.currentValues.en = {
+        'authors.0.name': 'A',
+        'authors.0.details.bio': 'a',
+        'authors.1.name': 'B',
+        'authors.1.details.bio': 'b',
+        'authors.2.name': 'C',
+        'authors.2.details.bio': 'c',
+      };
+      mockEntryDraft.expanderStates._ = {
+        'authors#': true,
+        'authors.0': true,
+        'authors.1': false,
+        'authors.1.details#': false,
+        'authors.2': true,
+        'authors.2.details#': false,
+        'authors.2.books.0': false,
+      };
+
+      updateListField({
+        locale: 'en',
+        keyPath: 'authors',
+        manipulate: ({ valueList, expanderStateList }) => {
+          valueList.splice(0, 1);
+          expanderStateList.splice(0, 1);
+        },
+      });
+
+      expect(mockEntryDraft.expanderStates._).toEqual({
+        'authors#': true,
+        'authors.0': false,
+        'authors.0.details#': false,
+        'authors.1': true,
+        'authors.1.details#': false,
+        'authors.1.books.0': false,
+      });
+    });
+
+    it('should not manipulate expander states for non-default locale', () => {
+      mockEntryDraft.currentValues.ja = {
+        'tags.0': 'タグ1',
+        'tags.1': 'タグ2',
+      };
+
+      updateListField({
+        locale: 'ja',
+        keyPath: 'tags',
+        manipulate: ({ valueList, expanderStateList }) => {
+          valueList.push('タグ3');
+          expect(expanderStateList).toEqual([]);
+        },
+      });
+    });
+
+    it('should support custom valueStoreKey', () => {
+      mockEntryDraft.originalValues = {
+        en: {
+          'tags.0': 'original1',
+          'tags.1': 'original2',
+        },
+      };
+
+      updateListField({
+        locale: 'en',
+        valueStoreKey: 'originalValues',
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          valueList.push('original3');
+        },
+      });
+    });
+
+    it('should handle empty list', () => {
+      mockEntryDraft.currentValues.en = {};
+
+      updateListField({
+        locale: 'en',
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          expect(valueList).toEqual([]);
+          valueList.push('tag1');
+        },
+      });
+    });
+
+    it('should write with the automatic i18n duplication suspended', () => {
+      updateListField({
+        locale: 'en',
+        keyPath: 'tags',
+        manipulate: () => {},
+      });
+
+      expect(suspendAutoDuplication).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('updateListFieldForLocales', () => {
+    beforeEach(() => {
+      mockEntryDraft.currentValues.ja = { 'tags.0': 'タグ1' };
+    });
+
+    it('should only update the given locale for a field without the duplicate strategy', () => {
+      updateListFieldForLocales({
+        locale: 'ja',
+        i18n: true,
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          valueList.push('タグ2');
+        },
+      });
+
+      expect(mockEntryDraft.currentValues.ja).toEqual({ 'tags.0': 'タグ1', 'tags.1': 'タグ2' });
+      expect(mockEntryDraft.currentValues.en['tags.3']).toBeUndefined();
+      // The expander states are only manipulated with the default locale
+      expect(mockEntryDraft.expanderStates._).toEqual({
+        'tags.0': true,
+        'tags.1': false,
+        'tags.2': true,
+      });
+    });
+
+    it('should update every locale for a field with the duplicate strategy', () => {
+      updateListFieldForLocales({
+        locale: 'en',
+        i18n: 'duplicate',
+        keyPath: 'tags',
+        manipulate: ({ valueList, expanderStateList }) => {
+          valueList.splice(0, 1);
+          expanderStateList.splice(0, 1);
+        },
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({ 'tags.0': 'tag2', 'tags.1': 'tag3' });
+      expect(mockEntryDraft.currentValues.ja).toEqual({ tags: [] });
+      expect(mockEntryDraft.expanderStates._).toEqual({ 'tags.0': false, 'tags.1': true });
+    });
+
+    // https://github.com/sveltia/sveltia-cms/issues/1065
+    it('should update every locale for paired items edited in the default locale', () => {
+      const manipulate = vi.fn(({ valueList, expanderStateList }) => {
+        valueList.splice(0, 1);
+        expanderStateList.splice(0, 1);
+      });
+
+      updateListFieldForLocales({
+        locale: 'en',
+        i18n: true,
+        pairedItems: true,
+        keyPath: 'tags',
+        manipulate,
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({ 'tags.0': 'tag2', 'tags.1': 'tag3' });
+      expect(mockEntryDraft.currentValues.ja).toEqual({ tags: [] });
+      // The manipulation is told which locale the values are for
+      expect(manipulate.mock.calls.map(([{ locale }]) => locale)).toEqual(['en', 'ja']);
+    });
+
+    it('should only update the given locale for paired items edited in another locale', () => {
+      updateListFieldForLocales({
+        locale: 'ja',
+        i18n: true,
+        pairedItems: true,
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          valueList.push('タグ2');
+        },
+      });
+
+      expect(mockEntryDraft.currentValues.ja).toEqual({ 'tags.0': 'タグ1', 'tags.1': 'タグ2' });
+      expect(mockEntryDraft.currentValues.en['tags.3']).toBeUndefined();
+    });
+
+    it('should use the given value store', () => {
+      mockEntryDraft.extraValues = { en: { 'tags.0': 'extra' } };
+
+      updateListFieldForLocales({
+        locale: 'en',
+        i18n: false,
+        valueStoreKey: 'extraValues',
+        keyPath: 'tags',
+        manipulate: ({ valueList }) => {
+          valueList.push('extra2');
+        },
+      });
+
+      expect(mockEntryDraft.extraValues.en).toEqual({ 'tags.0': 'extra', 'tags.1': 'extra2' });
+      expect(mockEntryDraft.currentValues.en['tags.3']).toBeUndefined();
+    });
+
+    it('should localize a locale-prefixed Relation field value for every locale', () => {
+      const fieldConfig = /** @type {any} */ ({
+        name: 'related',
+        widget: 'relation',
+        i18n: 'duplicate',
+        value_field: '{{locale}}/{{slug}}',
+      });
+
+      mockEntryDraft.currentValues.en = { 'related.0': 'en/foo', 'related.1': 'en/bar' };
+      mockEntryDraft.currentValues.ja = { 'related.0': 'ja/foo', 'related.1': 'ja/bar' };
+
+      updateListFieldForLocales({
+        locale: 'en',
+        i18n: 'duplicate',
+        fieldConfig,
+        keyPath: 'related',
+        manipulate: ({ valueList }) => {
+          valueList.splice(valueList.indexOf('en/foo'), 1);
+          valueList.push('en/baz');
+        },
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        'related.0': 'en/bar',
+        'related.1': 'en/baz',
+      });
+      expect(mockEntryDraft.currentValues.ja).toEqual({
+        'related.0': 'ja/bar',
+        'related.1': 'ja/baz',
+      });
+    });
+  });
+
+  describe('updateObject (internal)', () => {
+    it('should add new properties', () => {
+      const obj = { a: 1, b: 2 };
+      const newProps = { a: 1, b: 2, c: 3 };
+
+      updateObject(obj, newProps);
+
+      expect(obj).toEqual({ a: 1, b: 2, c: 3 });
+    });
+
+    it('should update existing properties', () => {
+      const obj = { a: 1, b: 2 };
+      const newProps = { a: 10, b: 20 };
+
+      updateObject(obj, newProps);
+
+      expect(obj).toEqual({ a: 10, b: 20 });
+    });
+
+    it('should delete properties not in newProps', () => {
+      const obj = { a: 1, b: 2, c: 3 };
+      const newProps = { a: 1 };
+
+      updateObject(obj, newProps);
+
+      expect(obj).toEqual({ a: 1 });
+      expect(obj).not.toHaveProperty('b');
+      expect(obj).not.toHaveProperty('c');
+    });
+
+    it('should handle empty newProps', () => {
+      const obj = { a: 1, b: 2 };
+      const newProps = {};
+
+      updateObject(obj, newProps);
+
+      expect(obj).toEqual({});
+    });
+
+    it('should not update when values are the same', () => {
+      const obj = { a: 1, b: 2 };
+      const newProps = { a: 1, b: 2 };
+      const originalObj = { ...obj };
+
+      updateObject(obj, newProps);
+
+      expect(obj).toEqual(originalObj);
+    });
+  });
+
+  describe('getItemList (internal)', () => {
+    it('should extract list items from flattened object', () => {
+      const obj = {
+        'tags.0': 'tag1',
+        'tags.1': 'tag2',
+        'tags.2': 'tag3',
+        other: 'value',
+      };
+
+      const [valueList, remainder] = getItemList(obj, 'tags');
+
+      expect(valueList).toEqual(['tag1', 'tag2', 'tag3']);
+      expect(remainder).toEqual({ other: 'value' });
+    });
+
+    it('should return empty array for non-existent key path', () => {
+      const obj = {
+        'tags.0': 'tag1',
+        other: 'value',
+      };
+
+      const [valueList, remainder] = getItemList(obj, 'nonexistent');
+
+      expect(valueList).toEqual([]);
+      expect(remainder).toEqual({
+        'tags.0': 'tag1',
+        other: 'value',
+      });
+    });
+
+    it('should handle nested list items', () => {
+      const obj = {
+        'items.0.name': 'Item 1',
+        'items.0.value': 10,
+        'items.1.name': 'Item 2',
+        'items.1.value': 20,
+        other: 'value',
+      };
+
+      const [valueList, remainder] = getItemList(obj, 'items');
+
+      expect(valueList).toEqual([
+        { name: 'Item 1', value: 10 },
+        { name: 'Item 2', value: 20 },
+      ]);
+      expect(remainder).toEqual({ other: 'value' });
+    });
+
+    it('should preserve sort order', () => {
+      const obj = {
+        'tags.2': 'tag3',
+        'tags.0': 'tag1',
+        'tags.1': 'tag2',
+      };
+
+      const [valueList] = getItemList(obj, 'tags');
+
+      expect(valueList).toEqual(['tag1', 'tag2', 'tag3']);
+    });
+
+    it('should not match keyPaths with # suffix', () => {
+      const obj = {
+        'tags.0': 'tag1',
+        'tags.1': 'tag2',
+        'tags#metadata': 'should not match',
+      };
+
+      const [valueList, remainder] = getItemList(obj, 'tags');
+
+      expect(valueList).toEqual(['tag1', 'tag2']);
+      expect(remainder).toEqual({ 'tags#metadata': 'should not match' });
+    });
+
+    it('should keep a sibling whose name starts with the list name and a non-word character', () => {
+      const obj = {
+        'tags.0': 'tag1',
+        tags: [],
+        'tags-extra': 'kept',
+        'tags-extra.0': 'kept too',
+        'tags:x': 'kept as well',
+      };
+
+      const [valueList, remainder] = getItemList(obj, 'tags');
+
+      expect(valueList).toEqual(['tag1']);
+      expect(remainder).toEqual({
+        'tags-extra': 'kept',
+        'tags-extra.0': 'kept too',
+        'tags:x': 'kept as well',
+      });
+    });
+
+    it('should return the same result when called twice with the same key path', () => {
+      const obj = { 'items.0': 'a', 'items.1': 'b', other: 'x' };
+      const [list1] = getItemList(obj, 'items');
+      const [list2] = getItemList(obj, 'items');
+
+      expect(list1).toEqual(['a', 'b']);
+      expect(list2).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('moveMultiValueItem', () => {
+    beforeEach(() => {
+      mockEntryDraft.currentValues.en = {
+        title: 'Hello',
+        'blocks.0.photos.0': 'a.png',
+        'blocks.0.photos.1': 'b.png',
+        'blocks.0.photos.2': 'c.png',
+        'blocks.0.photos.3': 'd.png',
+      };
+    });
+
+    /**
+     * Get the item values in list order.
+     * @param {string} [valueStoreKey] Value store key.
+     * @param {string} [keyPath] Dot-notated field name.
+     * @returns {any[]} Values.
+     */
+    const items = (valueStoreKey = 'currentValues', keyPath = 'blocks.0.photos') =>
+      Object.entries(mockEntryDraft[valueStoreKey].en)
+        .filter(([key]) => key.startsWith(`${keyPath}.`))
+        .map(([, value]) => value);
+
+    it('should move an item down', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 0, to: 2 });
+
+      expect(items()).toEqual(['b.png', 'c.png', 'a.png', 'd.png']);
+    });
+
+    it('should move an item up', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 3, to: 1 });
+
+      expect(items()).toEqual(['a.png', 'd.png', 'b.png', 'c.png']);
+    });
+
+    it('should move an item to either end', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 2, to: 0 });
+      expect(items()).toEqual(['c.png', 'a.png', 'b.png', 'd.png']);
+
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 0, to: 3 });
+      expect(items()).toEqual(['a.png', 'b.png', 'd.png', 'c.png']);
+    });
+
+    it('should leave the other values alone', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 0, to: 1 });
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Hello');
+      expect(Object.keys(mockEntryDraft.currentValues.en)).toHaveLength(5);
+    });
+
+    it('should do nothing when the source and destination are the same', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 1, to: 1 });
+
+      expect(items()).toEqual(['a.png', 'b.png', 'c.png', 'd.png']);
+    });
+
+    it('should do nothing when either index is out of range', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 4, to: 0 });
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 0, to: 4 });
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: -1, to: 0 });
+
+      expect(items()).toEqual(['a.png', 'b.png', 'c.png', 'd.png']);
+    });
+
+    it('should do nothing for an unknown field', () => {
+      moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.videos', from: 0, to: 1 });
+
+      expect(items()).toEqual(['a.png', 'b.png', 'c.png', 'd.png']);
+    });
+
+    it('should support a custom value store key', () => {
+      mockEntryDraft.extraValues = {
+        en: { 'photos.0': 'a.png', 'photos.1': 'b.png' },
+      };
+
+      moveMultiValueItem({
+        locale: 'en',
+        valueStoreKey: 'extraValues',
+        keyPath: 'photos',
+        from: 0,
+        to: 1,
+      });
+
+      expect(items('extraValues', 'photos')).toEqual(['b.png', 'a.png']);
+      // The other value store must be left alone
+      expect(items()).toEqual(['a.png', 'b.png', 'c.png', 'd.png']);
+    });
+
+    it('should not return the updated list', () => {
+      expect(
+        moveMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', from: 0, to: 1 }),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('removeMultiValueItem', () => {
+    beforeEach(() => {
+      mockEntryDraft.currentValues.en = {
+        title: 'Hello',
+        'blocks.0.photos.0': 'a.png',
+        'blocks.0.photos.1': 'b.png',
+        'blocks.0.photos.2': 'c.png',
+        'blocks.0.photos.3': 'd.png',
+      };
+    });
+
+    it('should remove the first item and shift the rest', () => {
+      removeMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', index: 0 });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        title: 'Hello',
+        'blocks.0.photos.0': 'b.png',
+        'blocks.0.photos.1': 'c.png',
+        'blocks.0.photos.2': 'd.png',
+      });
+    });
+
+    it('should remove an item in the middle', () => {
+      removeMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', index: 1 });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        title: 'Hello',
+        'blocks.0.photos.0': 'a.png',
+        'blocks.0.photos.1': 'c.png',
+        'blocks.0.photos.2': 'd.png',
+      });
+    });
+
+    it('should remove the last item', () => {
+      removeMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', index: 3 });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        title: 'Hello',
+        'blocks.0.photos.0': 'a.png',
+        'blocks.0.photos.1': 'b.png',
+        'blocks.0.photos.2': 'c.png',
+      });
+    });
+
+    it('should remove the only item', () => {
+      mockEntryDraft.currentValues.en = { title: 'Hello', 'blocks.0.photos.0': 'a.png' };
+
+      removeMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', index: 0 });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({ title: 'Hello' });
+    });
+
+    it('should support a custom value store key', () => {
+      mockEntryDraft.extraValues = {
+        en: { 'photos.0': 'a.png', 'photos.1': 'b.png' },
+      };
+
+      removeMultiValueItem({
+        locale: 'en',
+        valueStoreKey: 'extraValues',
+        keyPath: 'photos',
+        index: 0,
+      });
+
+      expect(mockEntryDraft.extraValues.en).toEqual({ 'photos.0': 'b.png' });
+      // The other value store must be left alone
+      expect(mockEntryDraft.currentValues.en['blocks.0.photos.0']).toBe('a.png');
+    });
+
+    it('should not return the updated list', () => {
+      // The draft is the single source of truth for the field editor. Returning the list invites
+      // the caller to assign it to the one-way `currentValue` prop, which would override the prop
+      // locally and stop it from following the draft.
+      expect(
+        removeMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', index: 0 }),
+      ).toBeUndefined();
+    });
+
+    it('should keep removing one item at a time on successive calls', () => {
+      const remove = () =>
+        removeMultiValueItem({ locale: 'en', keyPath: 'blocks.0.photos', index: 0 });
+
+      /**
+       * Get the remaining item values.
+       * @returns {any[]} Values.
+       */
+      const items = () =>
+        Object.entries(mockEntryDraft.currentValues.en)
+          .filter(([key]) => key.startsWith('blocks.0.photos.'))
+          .map(([, value]) => value);
+
+      remove();
+      expect(items()).toEqual(['b.png', 'c.png', 'd.png']);
+      remove();
+      expect(items()).toEqual(['c.png', 'd.png']);
+      remove();
+      expect(items()).toEqual(['d.png']);
+      remove();
+      expect(items()).toEqual([]);
+
+      expect(mockEntryDraft.currentValues.en).toEqual({ title: 'Hello' });
+    });
+  });
+
+  describe('addMultiValueItems', () => {
+    it('should append the values after the existing items', () => {
+      addMultiValueItems({ locale: 'en', keyPath: 'tags', newValues: ['tag4', 'tag5'] });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        'tags.0': 'tag1',
+        'tags.1': 'tag2',
+        'tags.2': 'tag3',
+        'tags.3': 'tag4',
+        'tags.4': 'tag5',
+      });
+    });
+
+    it('should only add as many values as fit within the maximum', () => {
+      addMultiValueItems({
+        locale: 'en',
+        keyPath: 'tags',
+        newValues: ['tag4', 'tag5', 'tag6'],
+        max: 4,
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        'tags.0': 'tag1',
+        'tags.1': 'tag2',
+        'tags.2': 'tag3',
+        'tags.3': 'tag4',
+      });
+
+      // Nothing is added once the list is full, or already over the maximum
+      addMultiValueItems({ locale: 'en', keyPath: 'tags', newValues: ['tag7'], max: 4 });
+      addMultiValueItems({ locale: 'en', keyPath: 'tags', newValues: ['tag8'], max: 2 });
+      expect(Object.keys(mockEntryDraft.currentValues.en)).toHaveLength(4);
+    });
+
+    it('should start a new list at the first index', () => {
+      addMultiValueItems({ locale: 'en', keyPath: 'photos', newValues: ['a.png'] });
+
+      expect(mockEntryDraft.currentValues.en['photos.0']).toBe('a.png');
+    });
+
+    it('should replace an item with the first value', () => {
+      addMultiValueItems({
+        locale: 'en',
+        keyPath: 'tags',
+        newValues: ['new', 'ignored'],
+        replaceIndex: 1,
+      });
+
+      expect(mockEntryDraft.currentValues.en).toEqual({
+        'tags.0': 'tag1',
+        'tags.1': 'new',
+        'tags.2': 'tag3',
+      });
+    });
+
+    it('should leave the item alone when there is nothing to replace it with', () => {
+      addMultiValueItems({ locale: 'en', keyPath: 'tags', newValues: [], replaceIndex: 1 });
+
+      expect(mockEntryDraft.currentValues.en['tags.1']).toBe('tag2');
+    });
+  });
+
+  describe('moveListExpanderStates', () => {
+    const states = {
+      'authors#': false,
+      'authors-extra#': false,
+      'authors.name#': false,
+      'authors.0': false,
+      'authors.0#': false,
+      'authors.0.details#': false,
+      'authors.1': true,
+      'authors.1.books.0': false,
+      'authors.10': false,
+    };
+
+    it('should move the states of each item along with the item', () => {
+      expect(moveListExpanderStates(states, 'authors', [1, true, 0])).toEqual({
+        'authors#': false,
+        'authors-extra#': false,
+        'authors.name#': false,
+        'authors.0': true,
+        'authors.0.books.0': false,
+        'authors.1': true,
+        'authors.2': false,
+        'authors.2#': false,
+        'authors.2.details#': false,
+      });
+    });
+
+    it('should drop the states of a removed item', () => {
+      expect(moveListExpanderStates(states, 'authors', [false])).toEqual({
+        'authors#': false,
+        'authors-extra#': false,
+        'authors.name#': false,
+        'authors.0': false,
+      });
+    });
+
+    it('should leave the item without states as it is', () => {
+      expect(moveListExpanderStates({ 'tags#': true }, 'tags', [0, 1])).toEqual({
+        'tags#': true,
+      });
+    });
+  });
+});

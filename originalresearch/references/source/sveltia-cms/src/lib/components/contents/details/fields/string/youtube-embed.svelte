@@ -1,0 +1,71 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import { VisibilityObserver } from '@sveltia/ui';
+  import { onMount } from 'svelte';
+
+  import { getYouTubeEmbedURL } from '$lib/services/utils/media/video/youtube';
+  import { encodeURLSafely } from '$lib/services/utils/url';
+
+  /**
+   * @typedef {object} Props
+   * @property {string} url Video URL.
+   */
+
+  /** @type {Props} */
+  let {
+    /* eslint-disable prefer-const */
+    url,
+    /* eslint-enable prefer-const */
+  } = $props();
+
+  let embeddable = $state(true);
+
+  const embedURL = $derived(getYouTubeEmbedURL(url));
+
+  /**
+   * Listener for Content Security Policy violations. Hide the iframe if CSP is violated.
+   * @param {SecurityPolicyViolationEvent} event Event.
+   */
+  const onViolation = ({ blockedURI, violatedDirective }) => {
+    if (blockedURI === new URL(embedURL).origin && violatedDirective === 'frame-src') {
+      embeddable = false;
+      window.removeEventListener('securitypolicyviolation', onViolation);
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('securitypolicyviolation', onViolation);
+
+    return () => {
+      window.removeEventListener('securitypolicyviolation', onViolation);
+    };
+  });
+</script>
+
+<div role="none">
+  {#if embeddable}
+    <VisibilityObserver>
+      <iframe
+        src={encodeURLSafely(embedURL)}
+        title={_('youtube_video_player')}
+        frameborder="0"
+        allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
+        referrerpolicy="strict-origin-when-cross-origin"
+        allowfullscreen
+        sandbox="allow-same-origin allow-scripts allow-popups"
+      ></iframe>
+    </VisibilityObserver>
+  {:else}
+    <a href={encodeURLSafely(url)}>{url}</a>
+  {/if}
+</div>
+
+<style>
+  iframe {
+    display: block;
+    margin: 0 auto;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+</style>

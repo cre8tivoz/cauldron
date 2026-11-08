@@ -1,0 +1,336 @@
+
+> stacki@1.0.12 build
+> npm run build:runtime && vite build
+
+
+> stacki@1.0.12 build:runtime
+> npm run build:clean && npm run build:base && npm run build:electron
+
+
+> stacki@1.0.12 build:clean
+> node scripts/build/cleanBuild.mts
+
+
+> stacki@1.0.12 build:base
+> npm run build:scripts && npm run build:contracts
+
+
+> stacki@1.0.12 build:scripts
+> tsc -p scripts/tsconfig.build.json
+
+
+> stacki@1.0.12 build:contracts
+> tsc -p shared/tsconfig.json
+
+
+> stacki@1.0.12 build:electron
+> tsc -p electron/tsconfig.json && npm run build:renderer
+
+
+> stacki@1.0.12 build:renderer
+> npm run build:morph && npm run build:preload && npm run build:assets
+
+
+> stacki@1.0.12 build:morph
+> npm run typecheck:morph && npm run bundle:morph
+
+
+> stacki@1.0.12 typecheck:morph
+> tsc -p electron/tsconfig.morph.json --noEmit
+
+
+> stacki@1.0.12 bundle:morph
+> node dist/scripts/build/bundleClients.js morph
+
+
+> stacki@1.0.12 build:preload
+> npm run typecheck:preload && npm run bundle:preload
+
+
+> stacki@1.0.12 typecheck:preload
+> tsc -p electron/tsconfig.preload.json --noEmit
+
+
+> stacki@1.0.12 bundle:preload
+> node dist/scripts/build/bundleClients.js preload
+
+
+> stacki@1.0.12 build:assets
+> node dist/scripts/build/stageRuntime.js
+
+vite v6.4.4 building for production...
+transforming...
+✓ 1341 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/renderer/index.html                                   0.39 kB │ gzip:   0.26 kB
+dist/renderer/assets/WindowResizeHandles-BTg6QDHS.css      0.72 kB │ gzip:   0.22 kB
+dist/renderer/assets/VariablesView-XZyP3FoA.css            0.80 kB │ gzip:   0.39 kB
+dist/renderer/assets/StylePanel-ri2OnZRq.css               4.76 kB │ gzip:   1.53 kB
+dist/renderer/assets/TerminalPane-6GBZ9nXN.css             5.24 kB │ gzip:   1.92 kB
+dist/renderer/assets/SelectorsPanel-DOXHFD_G.css           5.53 kB │ gzip:   1.48 kB
+dist/renderer/assets/ClipPath-Cj-VgpUA.css                19.34 kB │ gzip:   3.32 kB
+dist/renderer/assets/utilities-N3sjuEOI.css               28.99 kB │ gzip:   4.78 kB
+dist/renderer/assets/index-tZms2lTL.css                  326.25 kB │ gzip:  51.89 kB
+dist/renderer/assets/Dot-BomP52Zu.js                       0.38 kB │ gzip:   0.29 kB
+dist/renderer/assets/Remove-C1I7VR6g.js                    0.38 kB │ gzip:   0.30 kB
+dist/renderer/assets/Add-BtPxSyR3.js                       0.38 kB │ gzip:   0.30 kB
+dist/renderer/assets/Circle-B6EaZy82.js                    0.38 kB │ gzip:   0.30 kB
+dist/renderer/assets/Close-ClP_cxJw.js                     0.39 kB │ gzip:   0.31 kB
+dist/renderer/assets/Crop-C7suyVZF.js                      0.39 kB │ gzip:   0.31 kB
+dist/renderer/assets/Menu-rZA7IlIa.js                      0.39 kB │ gzip:   0.30 kB
+dist/renderer/assets/Square-Ac65-iKv.js                    0.39 kB │ gzip:   0.30 kB
+dist/renderer/assets/ChevronUp-CyLg_jl-.js                 0.40 kB │ gzip:   0.31 kB
+dist/renderer/assets/Filter-BeKPnPQG.js                    0.40 kB │ gzip:   0.31 kB
+dist/renderer/assets/ChevronDown-DqjCMe16.js               0.40 kB │ gzip:   0.31 kB
+dist/renderer/assets/ChevronLeft-CRcVnq7Z.js               0.40 kB │ gzip:   0.31 kB
+dist/renderer/assets/ChevronRight-BTWU1EKG.js              0.40 kB │ gzip:   0.31 kB
+dist/renderer/assets/List-C5RdUffu.js                      0.40 kB │ gzip:   0.31 kB
+dist/renderer/assets/Bolt-i52wAxsu.js                      0.40 kB │ gzip:   0.32 kB
+dist/renderer/assets/Code-LLzyFhrA.js                      0.40 kB │ gzip:   0.32 kB
+dist/renderer/assets/Activity-CQqnnTqp.js                  0.41 kB │ gzip:   0.32 kB
+dist/renderer/assets/Checkmark-DhE-fvlz.js                 0.41 kB │ gzip:   0.31 kB
+dist/renderer/assets/Text-5ZEB5Kca.js                      0.41 kB │ gzip:   0.32 kB
+dist/renderer/assets/Edit-CnlRyyus.js                      0.41 kB │ gzip:   0.32 kB
+dist/renderer/assets/Stack-w4W5vd31.js                     0.41 kB │ gzip:   0.32 kB
+dist/renderer/assets/Select-Cp7vCo91.js                    0.41 kB │ gzip:   0.32 kB
+dist/renderer/assets/Stop-CYZ7G75Q.js                      0.41 kB │ gzip:   0.30 kB
+dist/renderer/assets/Blockquote-BypmE9e0.js                0.42 kB │ gzip:   0.32 kB
+dist/renderer/assets/Play-CZv3zWJh.js                      0.42 kB │ gzip:   0.31 kB
+dist/renderer/assets/Copy-Cx75JXbp.js                      0.42 kB │ gzip:   0.33 kB
+dist/renderer/assets/ToggleArrowRight-Cf5oT1pW.js          0.42 kB │ gzip:   0.32 kB
+dist/renderer/assets/TriangleOutline-D_1fLthO.js           0.42 kB │ gzip:   0.32 kB
+dist/renderer/assets/Folder-Bxbo4N8r.js                    0.42 kB │ gzip:   0.32 kB
+dist/renderer/assets/BlockElement-BSVWjSbo.js              0.43 kB │ gzip:   0.34 kB
+dist/renderer/assets/ChartUpward-B9Lp2csw.js               0.43 kB │ gzip:   0.34 kB
+dist/renderer/assets/BarChart-DCz8UATw.js                  0.43 kB │ gzip:   0.33 kB
+dist/renderer/assets/ImageRemove-B5WxVAy8.js               0.43 kB │ gzip:   0.33 kB
+dist/renderer/assets/Sort-CqZSo5-h.js                      0.43 kB │ gzip:   0.33 kB
+dist/renderer/assets/InlineElement-DlEI0pp1.js             0.43 kB │ gzip:   0.33 kB
+dist/renderer/assets/Inline-Dkl0Gw4B.js                    0.43 kB │ gzip:   0.32 kB
+dist/renderer/assets/Home-CZQViwZ0.js                      0.43 kB │ gzip:   0.33 kB
+dist/renderer/assets/DoubleChevronUp-8TdsG3b4.js           0.43 kB │ gzip:   0.33 kB
+dist/renderer/assets/PanelLeft-v9VdwVFV.js                 0.44 kB │ gzip:   0.32 kB
+dist/renderer/assets/DoubleChevronLeft-qv7jd-ub.js         0.44 kB │ gzip:   0.33 kB
+dist/renderer/assets/Terminal-CD0FNgwt.js                  0.44 kB │ gzip:   0.34 kB
+dist/renderer/assets/Truncate-CqlM--Wi.js                  0.44 kB │ gzip:   0.33 kB
+dist/renderer/assets/DoubleChevronRight-DSiJ1xZd.js        0.44 kB │ gzip:   0.33 kB
+dist/renderer/assets/PanelRight-C0W_jtMb.js                0.44 kB │ gzip:   0.32 kB
+dist/renderer/assets/Compose-BT1S5cKj.js                   0.44 kB │ gzip:   0.35 kB
+dist/renderer/assets/ReadOnly-C5mNON0O.js                  0.44 kB │ gzip:   0.35 kB
+dist/renderer/assets/CodeBlock-BoElPItE.js                 0.44 kB │ gzip:   0.35 kB
+dist/renderer/assets/Dashboard-BQTufGSx.js                 0.44 kB │ gzip:   0.33 kB
+dist/renderer/assets/Unlock-CaRnDYcK.js                    0.46 kB │ gzip:   0.34 kB
+dist/renderer/assets/Lock-DftezFVx.js                      0.46 kB │ gzip:   0.34 kB
+dist/renderer/assets/Groq-BOU6yLgf.js                      0.46 kB │ gzip:   0.32 kB
+dist/renderer/assets/Package-Dmh3N9IK.js                   0.47 kB │ gzip:   0.35 kB
+dist/renderer/assets/InsertBelow-57Ak58IM.js               0.47 kB │ gzip:   0.35 kB
+dist/renderer/assets/MasterDetail-Dn6R-P0y.js              0.47 kB │ gzip:   0.35 kB
+dist/renderer/assets/Presentation-CqAliSYf.js              0.47 kB │ gzip:   0.35 kB
+dist/renderer/assets/SplitVertical-CM3sXXQP.js             0.48 kB │ gzip:   0.35 kB
+dist/renderer/assets/ThLarge-wHEfVYiL.js                   0.48 kB │ gzip:   0.33 kB
+dist/renderer/assets/Drop-D2VmKTvT.js                      0.48 kB │ gzip:   0.35 kB
+dist/renderer/assets/Olist-B8EBXM-u.js                     0.48 kB │ gzip:   0.36 kB
+dist/renderer/assets/Projects-CbLxjnRG.js                  0.48 kB │ gzip:   0.35 kB
+dist/renderer/assets/Bookmark-DLHtfOpO.js                  0.48 kB │ gzip:   0.36 kB
+dist/renderer/assets/Timeline-DoBMwkni.js                  0.48 kB │ gzip:   0.34 kB
+dist/renderer/assets/DoubleChevronDown-BOVVnfp_.js         0.48 kB │ gzip:   0.35 kB
+dist/renderer/assets/Spinner-C9p1NAif.js                   0.48 kB │ gzip:   0.34 kB
+dist/renderer/assets/ArrowUp-DO9KXtMy.js                   0.49 kB │ gzip:   0.33 kB
+dist/renderer/assets/Component-fFFQvCL7.js                 0.49 kB │ gzip:   0.34 kB
+dist/renderer/assets/Enter-DC5_4JZH.js                     0.49 kB │ gzip:   0.33 kB
+dist/renderer/assets/ThList-Dlj3psQs.js                    0.49 kB │ gzip:   0.34 kB
+dist/renderer/assets/ArrowLeft-BMxAljLC.js                 0.49 kB │ gzip:   0.34 kB
+dist/renderer/assets/Unknown-DUxRawwO.js                   0.49 kB │ gzip:   0.37 kB
+dist/renderer/assets/ArrowDown-DRtdUm56.js                 0.49 kB │ gzip:   0.33 kB
+dist/renderer/assets/StackCompact-6rmB-PNK.js              0.49 kB │ gzip:   0.35 kB
+dist/renderer/assets/ArrowRight-C6GE1h9r.js                0.49 kB │ gzip:   0.34 kB
+dist/renderer/assets/ArrowTopRight-C1vwojxp.js             0.50 kB │ gzip:   0.34 kB
+dist/renderer/assets/EnterRight-xZNycsl9.js                0.50 kB │ gzip:   0.34 kB
+dist/renderer/assets/SplitHorizontal-Ba5cKumQ.js           0.50 kB │ gzip:   0.35 kB
+dist/renderer/assets/Clipboard-qdK53ovP.js                 0.50 kB │ gzip:   0.37 kB
+dist/renderer/assets/Unpublish-DL_ZBPXC.js                 0.50 kB │ gzip:   0.34 kB
+dist/renderer/assets/Asterisk-BZTj4kh1.js                  0.51 kB │ gzip:   0.37 kB
+dist/renderer/assets/Overage-DuBSVk08.js                   0.51 kB │ gzip:   0.35 kB
+dist/renderer/assets/Schema-BXhjat7f.js                    0.51 kB │ gzip:   0.36 kB
+dist/renderer/assets/Tiers-Dd3PHq9_.js                     0.51 kB │ gzip:   0.35 kB
+dist/renderer/assets/Launch-DP0O2G_g.js                    0.51 kB │ gzip:   0.35 kB
+dist/renderer/assets/Document-CDGotJCH.js                  0.51 kB │ gzip:   0.34 kB
+dist/renderer/assets/BookmarkFilled-hV0Rc7Xf.js            0.51 kB │ gzip:   0.37 kB
+dist/renderer/assets/Expand-CkFQ_mW3.js                    0.51 kB │ gzip:   0.35 kB
+dist/renderer/assets/InsertAbove-CkuH9fEP.js               0.51 kB │ gzip:   0.36 kB
+dist/renderer/assets/Leave-ldWIvxQE.js                     0.51 kB │ gzip:   0.35 kB
+dist/renderer/assets/Download-bq4kuquo.js                  0.51 kB │ gzip:   0.34 kB
+dist/renderer/assets/Share-C3C5Yabn.js                     0.51 kB │ gzip:   0.35 kB
+dist/renderer/assets/Upload-DGNYBFDb.js                    0.52 kB │ gzip:   0.35 kB
+dist/renderer/assets/TrendUpward-DuJZSrZB.js               0.52 kB │ gzip:   0.35 kB
+dist/renderer/assets/Publish-CoxyYSNI.js                   0.52 kB │ gzip:   0.35 kB
+dist/renderer/assets/Star-Y5rzxMLe.js                      0.52 kB │ gzip:   0.38 kB
+dist/renderer/assets/Transfer-DlK29poe.js                  0.52 kB │ gzip:   0.35 kB
+dist/renderer/assets/Collapse-BzrTltkG.js                  0.53 kB │ gzip:   0.35 kB
+dist/renderer/assets/Cube-BzDkU2HL.js                      0.53 kB │ gzip:   0.35 kB
+dist/renderer/assets/Versions-Cf9bGkp-.js                  0.53 kB │ gzip:   0.35 kB
+dist/renderer/assets/Target-D3SmCCcF.js                    0.53 kB │ gzip:   0.37 kB
+dist/renderer/assets/DocumentText-BbiQlhL_.js              0.54 kB │ gzip:   0.36 kB
+dist/renderer/assets/StarFilled-CHI-TfQk.js                0.54 kB │ gzip:   0.39 kB
+dist/renderer/assets/Video-COAR2aXH.js                     0.54 kB │ gzip:   0.35 kB
+dist/renderer/assets/Clock-DJdMFDVY.js                     0.54 kB │ gzip:   0.36 kB
+dist/renderer/assets/ErrorFilled-CUOZc2s4.js               0.54 kB │ gzip:   0.38 kB
+dist/renderer/assets/InfoFilled-B6d8okXi.js                0.54 kB │ gzip:   0.38 kB
+dist/renderer/assets/Search-2TqmNZ2s.js                    0.54 kB │ gzip:   0.36 kB
+dist/renderer/assets/RemoveCircle-Y8orP_Vv.js              0.54 kB │ gzip:   0.36 kB
+dist/renderer/assets/Documents-Cpjs2U-L.js                 0.54 kB │ gzip:   0.36 kB
+dist/renderer/assets/AddComment-DhFRQsoq.js                0.54 kB │ gzip:   0.39 kB
+dist/renderer/assets/AddCircle-CPUxSpvy.js                 0.54 kB │ gzip:   0.37 kB
+dist/renderer/assets/Archive-vBciUtgw.js                   0.54 kB │ gzip:   0.37 kB
+dist/renderer/assets/DocumentRemove-55sY1t0m.js            0.54 kB │ gzip:   0.36 kB
+dist/renderer/assets/Bell-dMMFwMdH.js                      0.55 kB │ gzip:   0.38 kB
+dist/renderer/assets/InfoOutline-6UHvHQah.js               0.55 kB │ gzip:   0.37 kB
+dist/renderer/assets/Unarchive-B0_18PRX.js                 0.55 kB │ gzip:   0.37 kB
+dist/renderer/assets/Redo-r8SSPo7U.js                      0.55 kB │ gzip:   0.36 kB
+dist/renderer/assets/Undo-CEpXm0xX.js                      0.55 kB │ gzip:   0.36 kB
+dist/renderer/assets/Comment-CUyowWsU.js                   0.55 kB │ gzip:   0.38 kB
+dist/renderer/assets/ErrorOutline-GRbGFZu8.js              0.55 kB │ gzip:   0.37 kB
+dist/renderer/assets/Pin-8bkMLJ5X.js                       0.55 kB │ gzip:   0.38 kB
+dist/renderer/assets/Retry-Cw6fJUyj.js                     0.55 kB │ gzip:   0.36 kB
+dist/renderer/assets/Retrieve-CCeSn-zC.js                  0.56 kB │ gzip:   0.37 kB
+dist/renderer/assets/Revert-BKorKjk4.js                    0.56 kB │ gzip:   0.36 kB
+dist/renderer/assets/Diamond-BTkGfs8e.js                   0.56 kB │ gzip:   0.37 kB
+dist/renderer/assets/Envelope-joCUm03r.js                  0.56 kB │ gzip:   0.36 kB
+dist/renderer/assets/User-jFNc6QNK.js                      0.56 kB │ gzip:   0.39 kB
+dist/renderer/assets/Task-OPoQTYSU.js                      0.56 kB │ gzip:   0.37 kB
+dist/renderer/assets/CheckmarkCircle-BJQOfVr_.js           0.57 kB │ gzip:   0.38 kB
+dist/renderer/assets/Plug-CBksqG09.js                      0.58 kB │ gzip:   0.40 kB
+dist/renderer/assets/Italic-sVtG9pB_.js                    0.58 kB │ gzip:   0.39 kB
+dist/renderer/assets/PinFilled-YHr5kS_C.js                 0.59 kB │ gzip:   0.39 kB
+dist/renderer/assets/Sparkle-USkwGbXJ.js                   0.59 kB │ gzip:   0.36 kB
+dist/renderer/assets/BinaryDocument-BhOTolP9.js            0.59 kB │ gzip:   0.39 kB
+dist/renderer/assets/Database-CvEyL-Sq.js                  0.59 kB │ gzip:   0.40 kB
+dist/renderer/assets/Json-Dcmb1hEz.js                      0.59 kB │ gzip:   0.39 kB
+dist/renderer/assets/WarningOutline-CODyLCb1.js            0.59 kB │ gzip:   0.42 kB
+dist/renderer/assets/Calendar-By-Gwqtj.js                  0.60 kB │ gzip:   0.38 kB
+dist/renderer/assets/Refresh-B17JF2f_.js                   0.60 kB │ gzip:   0.38 kB
+dist/renderer/assets/AddDocument-DkdMywoD.js               0.60 kB │ gzip:   0.38 kB
+dist/renderer/assets/Pause-BPq6NkNq.js                     0.60 kB │ gzip:   0.34 kB
+dist/renderer/assets/Equal-DDsLKrQz.js                     0.60 kB │ gzip:   0.34 kB
+dist/renderer/assets/CloseCircle-DM0kwMYf.js               0.60 kB │ gzip:   0.38 kB
+dist/renderer/assets/FaceHappy-gbYqZjiF.js                 0.61 kB │ gzip:   0.39 kB
+dist/renderer/assets/FaceSad-BgffnICS.js                   0.61 kB │ gzip:   0.39 kB
+dist/renderer/assets/AccessDenied-Dba8it7D.js              0.61 kB │ gzip:   0.39 kB
+dist/renderer/assets/Tag-CTokvfxE.js                       0.61 kB │ gzip:   0.39 kB
+dist/renderer/assets/PinRemoved-DTxpKv9X.js                0.62 kB │ gzip:   0.43 kB
+dist/renderer/assets/Unlink-C2WqA_gU.js                    0.62 kB │ gzip:   0.42 kB
+dist/renderer/assets/DocumentZip-CTJbTXTv.js               0.62 kB │ gzip:   0.40 kB
+dist/renderer/assets/Trash-1oX72MY8.js                     0.62 kB │ gzip:   0.44 kB
+dist/renderer/assets/HelpCircle-CEAvhOyN.js                0.62 kB │ gzip:   0.41 kB
+dist/renderer/assets/Desktop-BRpogq23.js                   0.62 kB │ gzip:   0.40 kB
+dist/renderer/assets/EarthAmericas-CLh639iC.js             0.62 kB │ gzip:   0.41 kB
+dist/renderer/assets/Heart-CpDSOYFT.js                     0.62 kB │ gzip:   0.42 kB
+dist/renderer/assets/MarkerRemoved-CsXAams6.js             0.62 kB │ gzip:   0.43 kB
+dist/renderer/assets/Token-Dks3uMu0.js                     0.62 kB │ gzip:   0.40 kB
+dist/renderer/assets/Basket-BVMh-HQu.js                    0.62 kB │ gzip:   0.42 kB
+dist/renderer/assets/FaceIndifferent-mGW0_vUV.js           0.63 kB │ gzip:   0.39 kB
+dist/renderer/assets/WarningFilled-D0KgSTnC.js             0.63 kB │ gzip:   0.44 kB
+dist/renderer/assets/EyeClosed-DgGK-BnJ.js                 0.63 kB │ gzip:   0.42 kB
+dist/renderer/assets/Microphone-DgGI7z21.js                0.63 kB │ gzip:   0.40 kB
+dist/renderer/assets/DocumentVideo-DQ4nJ9c9.js             0.63 kB │ gzip:   0.37 kB
+dist/renderer/assets/Generate-Be0Z4-_2.js                  0.63 kB │ gzip:   0.40 kB
+dist/renderer/assets/Bill-CsESzwEh.js                      0.64 kB │ gzip:   0.41 kB
+dist/renderer/assets/Moon-CZ6qH56m.js                      0.64 kB │ gzip:   0.44 kB
+dist/renderer/assets/Sun-KqC0yiCH.js                       0.64 kB │ gzip:   0.41 kB
+dist/renderer/assets/Empty-8Vo1UTpp.js                     0.65 kB │ gzip:   0.43 kB
+dist/renderer/assets/Restore-5mD39Q2D.js                   0.65 kB │ gzip:   0.41 kB
+dist/renderer/assets/HeartFilled--xCyO_Ug.js               0.65 kB │ gzip:   0.43 kB
+dist/renderer/assets/Link-Cv4myReG.js                      0.67 kB │ gzip:   0.43 kB
+dist/renderer/assets/ThumbsUp-B_tkd6JJ.js                  0.68 kB │ gzip:   0.41 kB
+dist/renderer/assets/Underline-CR3dN6El.js                 0.68 kB │ gzip:   0.44 kB
+dist/renderer/assets/CreditCard-CcWvkW-m.js                0.68 kB │ gzip:   0.42 kB
+dist/renderer/assets/Marker-BMRhn-Kb.js                    0.69 kB │ gzip:   0.41 kB
+dist/renderer/assets/DocumentSheet-Aaqbyggn.js             0.69 kB │ gzip:   0.41 kB
+dist/renderer/assets/ThumbsDown-D9xIqGAF.js                0.69 kB │ gzip:   0.41 kB
+dist/renderer/assets/Highlight-DNsb2DuN.js                 0.69 kB │ gzip:   0.43 kB
+dist/renderer/assets/Sync-BviZZA7X.js                      0.70 kB │ gzip:   0.44 kB
+dist/renderer/assets/Progress50-CrQdsLoN.js                0.70 kB │ gzip:   0.40 kB
+dist/renderer/assets/ErrorScreen-C4ytHPCl.js               0.70 kB │ gzip:   0.43 kB
+dist/renderer/assets/Case-CbGchCOX.js                      0.70 kB │ gzip:   0.45 kB
+dist/renderer/assets/LinkRemoved-BH6cZKQ6.js               0.71 kB │ gzip:   0.46 kB
+dist/renderer/assets/Reset-Ck1T1Mdq.js                     0.71 kB │ gzip:   0.43 kB
+dist/renderer/assets/Inbox-CU3BVbtI.js                     0.71 kB │ gzip:   0.47 kB
+dist/renderer/assets/DocumentWord-Dbsx4_Kq.js              0.73 kB │ gzip:   0.45 kB
+dist/renderer/assets/Users-B12ItS_n.js                     0.73 kB │ gzip:   0.47 kB
+dist/renderer/assets/Progress75--y_oiLrU.js                0.73 kB │ gzip:   0.42 kB
+dist/renderer/assets/EyeOpen-CzaoOPhc.js                   0.73 kB │ gzip:   0.44 kB
+dist/renderer/assets/Joystick-DThrssFr.js                  0.74 kB │ gzip:   0.45 kB
+dist/renderer/assets/BulbOutline-D5Xjv9_b.js               0.74 kB │ gzip:   0.48 kB
+dist/renderer/assets/Tags-FBX-FJlq.js                      0.74 kB │ gzip:   0.46 kB
+dist/renderer/assets/EarthGlobe-BAoBhEPM.js                0.75 kB │ gzip:   0.41 kB
+dist/renderer/assets/Trolley-pQ9Onj4-.js                   0.75 kB │ gzip:   0.46 kB
+dist/renderer/assets/BulbFilled-Bkqc2KHQ.js                0.75 kB │ gzip:   0.47 kB
+dist/renderer/assets/Image-DVfW7brO.js                     0.75 kB │ gzip:   0.49 kB
+dist/renderer/assets/Book-_pauexu8.js                      0.76 kB │ gzip:   0.41 kB
+dist/renderer/assets/Hash-h9po0wTU.js                      0.76 kB │ gzip:   0.48 kB
+dist/renderer/assets/ClipboardImage-BANu8gaN.js            0.76 kB │ gzip:   0.51 kB
+dist/renderer/assets/ComposeSparkles-BVIgaAn3.js           0.76 kB │ gzip:   0.47 kB
+dist/renderer/assets/TabletDevice-AMUFtjtL.js              0.76 kB │ gzip:   0.45 kB
+dist/renderer/assets/Images-Dnhi4RsS.js                    0.78 kB │ gzip:   0.50 kB
+dist/renderer/assets/MobileDevice-DWAWO1Yl.js              0.78 kB │ gzip:   0.45 kB
+dist/renderer/assets/IceCream-BBzrT-NV.js                  0.79 kB │ gzip:   0.46 kB
+dist/renderer/assets/Rocket-Bm2fMG9N.js                    0.79 kB │ gzip:   0.48 kB
+dist/renderer/assets/EllipsisVertical-C_MFQLk5.js          0.81 kB │ gzip:   0.43 kB
+dist/renderer/assets/EllipsisHorizontal-BRwpsV4e.js        0.81 kB │ gzip:   0.43 kB
+dist/renderer/assets/Bold-DJu4VIas.js                      0.82 kB │ gzip:   0.52 kB
+dist/renderer/assets/AddUser-BldbeRou.js                   0.84 kB │ gzip:   0.48 kB
+dist/renderer/assets/Bottle-enCjrHMN.js                    0.86 kB │ gzip:   0.49 kB
+dist/renderer/assets/Lemon-hPTIDitI.js                     0.86 kB │ gzip:   0.48 kB
+dist/renderer/assets/ColorWheel-C46Cmtt-.js                0.89 kB │ gzip:   0.51 kB
+dist/renderer/assets/Controls--0uexaVT.js                  0.91 kB │ gzip:   0.48 kB
+dist/renderer/assets/Api-DFToUII-.js                       0.92 kB │ gzip:   0.55 kB
+dist/renderer/assets/Sparkles-D3L_KpEt.js                  0.95 kB │ gzip:   0.50 kB
+dist/renderer/assets/OkHand-H70lodgX.js                    0.96 kB │ gzip:   0.59 kB
+dist/renderer/assets/BlockContent-BLnaxFPN.js              1.00 kB │ gzip:   0.51 kB
+dist/renderer/assets/Twitter-D7JtPnVo.js                   1.04 kB │ gzip:   0.60 kB
+dist/renderer/assets/Robot-CjJcQXMq.js                     1.06 kB │ gzip:   0.57 kB
+dist/renderer/assets/Strikethrough-BepzXp8X.js             1.07 kB │ gzip:   0.60 kB
+dist/renderer/assets/Feedback-K2WkPsz8.js                  1.08 kB │ gzip:   0.45 kB
+dist/renderer/assets/LogoTs-C0vaj_Nz.js                    1.18 kB │ gzip:   0.68 kB
+dist/renderer/assets/Ulist-CLE6cRWL.js                     1.23 kB │ gzip:   0.50 kB
+dist/renderer/assets/Linkedin-BpauCNlc.js                  1.27 kB │ gzip:   0.74 kB
+dist/renderer/assets/String-DIEAeLUK.js                    1.27 kB │ gzip:   0.71 kB
+dist/renderer/assets/DragHandle-DVGi49Qg.js                1.28 kB │ gzip:   0.55 kB
+dist/renderer/assets/LogoJs-TUUPYeZu.js                    1.36 kB │ gzip:   0.76 kB
+dist/renderer/assets/MicrophoneSlash-By_DJvsi.js           1.39 kB │ gzip:   0.74 kB
+dist/renderer/assets/Confetti-C-2IO4Ku.js                  1.42 kB │ gzip:   0.71 kB
+dist/renderer/assets/DoubleQuote-DeED437W.js               1.45 kB │ gzip:   0.76 kB
+dist/renderer/assets/Translate-t-e7dbBd.js                 1.49 kB │ gzip:   0.87 kB
+dist/renderer/assets/Github-B07XdU0w.js                    1.52 kB │ gzip:   0.80 kB
+dist/renderer/assets/Number-CPQaSVGB.js                    1.70 kB │ gzip:   0.88 kB
+dist/renderer/assets/DocumentPdf-Qh5FlfXf.js               1.97 kB │ gzip:   1.01 kB
+dist/renderer/assets/CodePanel-GQU4pHcu.js                 2.27 kB │ gzip:   0.66 kB
+dist/renderer/assets/Cog-Ce5iQhUg.js                       2.30 kB │ gzip:   0.96 kB
+dist/renderer/assets/Wrench-DDp-sbPG.js                    2.68 kB │ gzip:   1.21 kB
+dist/renderer/assets/CodeWindow-Cl5nsO3T.js                2.72 kB │ gzip:   0.69 kB
+dist/renderer/assets/variablesBridge-CmTgrsRG.js           3.09 kB │ gzip:   1.30 kB
+dist/renderer/assets/WindowResizeHandles-DSpXRf-S.js       4.73 kB │ gzip:   1.99 kB
+dist/renderer/assets/VariablesPanel-t_6iDU3j.js            7.01 kB │ gzip:   1.51 kB
+dist/renderer/assets/Bug-BrEq-L3U.js                       8.23 kB │ gzip:   2.96 kB
+dist/renderer/assets/CmsPanel-YtVwbreG.js                 15.76 kB │ gzip:   3.63 kB
+dist/renderer/assets/utilities-WI6mldeU.js                22.38 kB │ gzip:   4.94 kB
+dist/renderer/assets/SelectorsPanel-DyiTXdOp.js           28.00 kB │ gzip:   6.63 kB
+dist/renderer/assets/tokyo-night-hegEt444.js              35.67 kB │ gzip:   6.24 kB
+dist/renderer/assets/CmsView-DrhG8C5m.js                  59.38 kB │ gzip:  11.16 kB
+dist/renderer/assets/index-DBd1bXLz.js                    60.73 kB │ gzip:  21.22 kB
+dist/renderer/assets/ContentView-CpS4B7Yg.js              61.60 kB │ gzip:  11.92 kB
+dist/renderer/assets/VariablesView-O1y-1MDk.js            63.27 kB │ gzip:  15.31 kB
+dist/renderer/assets/index-rofTMs1b.js                   116.30 kB │ gzip:  36.95 kB
+dist/renderer/assets/PropsPanel-CN5nal4o.js              176.09 kB │ gzip:  32.54 kB
+dist/renderer/assets/ClipPath-CSIE-Hym.js                196.28 kB │ gzip:  51.19 kB
+dist/renderer/assets/TerminalPane-BTYEWFRz.js            342.27 kB │ gzip:  87.49 kB
+dist/renderer/assets/astro-wi7ViMSg.js                   613.35 kB │ gzip:  68.73 kB
+dist/renderer/assets/StylePanel-ChUMrx_L.js              924.75 kB │ gzip: 186.93 kB
+dist/renderer/assets/index-Dw6YOgMX.js                 3,229.87 kB │ gzip: 872.33 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.94s

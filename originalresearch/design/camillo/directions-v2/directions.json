@@ -1,0 +1,763 @@
+{
+  "directions": [
+    {
+      "id": "d01",
+      "name": "Long Lunch",
+      "segment": "cafe / restaurant",
+      "references": [
+        {
+          "site": "montecafe.com.au",
+          "lesson": "Cream and terracotta menu-board warmth; adapt the uppercase section labels.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "busybeehoney.com",
+          "lesson": "Folksy food storytelling and warm ink on a waxy canvas.",
+          "source": "Design Bites (MIT)"
+        }
+      ],
+      "axes": {
+        "type_system": "serif",
+        "layout_rhythm": "editorial columns",
+        "shape_language": "soft",
+        "colour_temperature_value": "light warm",
+        "density": "balanced",
+        "motion_personality": "subtle"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f8f1df",
+          "surface": "#eee1c7",
+          "text": "#32231b",
+          "muted_text": "#59473b",
+          "accent": "#783b29",
+          "accent_on": "#fff8ee",
+          "border": "#b9a68f"
+        },
+        "fonts": {
+          "display": "Young Serif",
+          "body": "Figtree",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0,
+          4,
+          12,
+          24,
+          999
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Slow hospitality, not a coffee-tech landing page. Set the menu as ruled editorial rows, with the day\u2019s offer given a generous opening. Use terracotta as an action colour, not a decorative wash. Imagery should suggest the table and local produce, never generic lifestyle stock."
+    },
+    {
+      "id": "d02",
+      "name": "Solid Ground",
+      "segment": "trades / builders",
+      "references": [
+        {
+          "site": "quechua-lookbook.com",
+          "lesson": "Practical outdoor materials and earth-led catalogue restraint.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "ray.care",
+          "lesson": "Small precise corners and a plain, legible service voice.",
+          "source": "Design Bites (MIT)"
+        }
+      ],
+      "axes": {
+        "type_system": "display",
+        "layout_rhythm": "modular grid",
+        "shape_language": "sharp",
+        "colour_temperature_value": "light warm",
+        "density": "dense",
+        "motion_personality": "still"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#eee9df",
+          "surface": "#faf7ef",
+          "text": "#1e2b2b",
+          "muted_text": "#455454",
+          "accent": "#3c4c35",
+          "accent_on": "#ffffff",
+          "border": "#b7ad9b"
+        },
+        "fonts": {
+          "display": "Archivo Black",
+          "body": "Archivo",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Treat every job like a specification sheet: clear scope, location and next step. Use strong condensed-feeling display type, a rigid numbered grid and practical rules. Show evidence of workmanship instead of lifestyle promises. Avoid faux luxury, gradients and decorative blobs."
+    },
+    {
+      "id": "d03",
+      "name": "Good Measure",
+      "segment": "health / clinic / physio",
+      "references": [
+        {
+          "site": "kihealth.com",
+          "lesson": "Deep green and approachable, non-sterile health language.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "ray.care",
+          "lesson": "Quiet, legible structure and welcoming restraint.",
+          "source": "Design Bites (MIT)"
+        }
+      ],
+      "axes": {
+        "type_system": "geometric",
+        "layout_rhythm": "centred classic",
+        "shape_language": "pill",
+        "colour_temperature_value": "light cool",
+        "density": "airy",
+        "motion_personality": "subtle"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#edf5f2",
+          "surface": "#ffffff",
+          "text": "#173b35",
+          "muted_text": "#395750",
+          "accent": "#155b4c",
+          "accent_on": "#ffffff",
+          "border": "#a9c2ba"
+        },
+        "fonts": {
+          "display": "Manrope",
+          "body": "Manrope",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0,
+          4,
+          12,
+          24,
+          999
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Make booking, eligibility and clinic details immediately findable. Centre the opening statement and keep a calm, approachable single-family voice. Soft pill actions are for navigation, not every surface. Never suggest medical outcomes or invent practitioner credentials."
+    },
+    {
+      "id": "d04",
+      "name": "Soft Ritual",
+      "segment": "wellness / beauty / skincare",
+      "references": [
+        {
+          "site": "eclobeauty.com",
+          "lesson": "Cream paper, editorial serif tension and sharp edges.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "aesop.com",
+          "lesson": "Muted apothecary label hierarchy and restrained product storytelling; Gradient Deck reference.",
+          "source": "Gradient Deck (reference only)"
+        }
+      ],
+      "axes": {
+        "type_system": "serif",
+        "layout_rhythm": "asymmetric",
+        "shape_language": "sharp",
+        "colour_temperature_value": "light warm",
+        "density": "airy",
+        "motion_personality": "still"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f7eee8",
+          "surface": "#fffaf5",
+          "text": "#362b28",
+          "muted_text": "#5d4c46",
+          "accent": "#713f3b",
+          "accent_on": "#ffffff",
+          "border": "#c9b4aa"
+        },
+        "fonts": {
+          "display": "Instrument Serif",
+          "body": "Jost",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Use an off-centre editorial composition with a tall product-like colour study. The display serif is intimate rather than ornate; body copy stays plain. Let paper, margins and sharp edges carry the premium feeling. Do not add clinical claims or a shelf of identical cards."
+    },
+    {
+      "id": "d05",
+      "name": "Big Idea",
+      "segment": "creative studio / agency",
+      "references": [
+        {
+          "site": "thelinestudio.com",
+          "lesson": "Oversized letters as graphic architecture and a punchy accent.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "toyfight.co",
+          "lesson": "Editorial studio framing with playful colour inside work blocks.",
+          "source": "Design Bites (MIT)"
+        }
+      ],
+      "axes": {
+        "type_system": "display",
+        "layout_rhythm": "asymmetric",
+        "shape_language": "organic",
+        "colour_temperature_value": "saturated",
+        "density": "dense",
+        "motion_personality": "lively"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f4d34e",
+          "surface": "#fae88f",
+          "text": "#29251d",
+          "muted_text": "#514727",
+          "accent": "#5a291c",
+          "accent_on": "#ffffff",
+          "border": "#987a37"
+        },
+        "fonts": {
+          "display": "Bricolage Grotesque",
+          "body": "Space Grotesk",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0,
+          4,
+          12,
+          24,
+          999
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Lead with a typographic idea large enough to act as an image. Offset the project blocks, let a single organic shape interrupt the grid, and keep the work captions blunt. Motion can be lively but must respect reduced-motion preferences. Avoid the default agency stack of identical rounded case-study cards."
+    },
+    {
+      "id": "d06",
+      "name": "Quiet Frame",
+      "segment": "photographer / artist portfolio",
+      "references": [
+        {
+          "site": "milkinside.com",
+          "lesson": "Thin grotesque hierarchy and image-first whitespace.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "studiofreight.com",
+          "lesson": "Contact-sheet logic and bone-paper restraint; Gradient Deck reference.",
+          "source": "Gradient Deck (reference only)"
+        }
+      ],
+      "axes": {
+        "type_system": "grotesk",
+        "layout_rhythm": "full-bleed image-led",
+        "shape_language": "sharp",
+        "colour_temperature_value": "monochrome+accent",
+        "density": "airy",
+        "motion_personality": "still"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f3f3ef",
+          "surface": "#ffffff",
+          "text": "#242622",
+          "muted_text": "#50534b",
+          "accent": "#4d5136",
+          "accent_on": "#ffffff",
+          "border": "#b6bab0"
+        },
+        "fonts": {
+          "display": "Geist",
+          "body": "Geist",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Let a single full-bleed work surface establish the opening, with sparse captions on the page rather than on the art. Keep the type small and neutral compared with the visual field. Use asymmetry only to support the sequence of works. Replace the abstract placeholders with actual commissioned images, not decorative stock."
+    },
+    {
+      "id": "d07",
+      "name": "Open House",
+      "segment": "gallery / arts / theatre / festival",
+      "references": [
+        {
+          "site": "postery.com",
+          "lesson": "Gallery-white ground and editorial serif against geometric body type.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "mubi.com",
+          "lesson": "Poster wall and broadsheet hierarchy; MUBI Notebook on Gradient Deck.",
+          "source": "Gradient Deck (reference only)"
+        }
+      ],
+      "axes": {
+        "type_system": "serif",
+        "layout_rhythm": "modular grid",
+        "shape_language": "sharp",
+        "colour_temperature_value": "light cool",
+        "density": "dense",
+        "motion_personality": "subtle"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f0f1e8",
+          "surface": "#ffffff",
+          "text": "#242824",
+          "muted_text": "#4c554b",
+          "accent": "#743827",
+          "accent_on": "#ffffff",
+          "border": "#aab2a5"
+        },
+        "fonts": {
+          "display": "EB Garamond",
+          "body": "Archivo",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Set the programme as a compact cultural broadsheet: dates, titles and venue details before decoration. Use the serif as a headline voice, with strong rules and a modular poster wall. Keep the canvas cool and the accent limited to the action. The artwork must remain separate from the information hierarchy."
+    },
+    {
+      "id": "d08",
+      "name": "The Edit",
+      "segment": "boutique retail / fashion",
+      "references": [
+        {
+          "site": "fearofgod.com",
+          "lesson": "Restrained lookbook, tracked labels and product-first sequence.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "comingsoonnewyork.com",
+          "lesson": "Curated gallery-like retail and minimal chrome.",
+          "source": "Design Bites (MIT)"
+        }
+      ],
+      "axes": {
+        "type_system": "serif",
+        "layout_rhythm": "full-bleed image-led",
+        "shape_language": "sharp",
+        "colour_temperature_value": "monochrome+accent",
+        "density": "balanced",
+        "motion_personality": "subtle"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f5f0e9",
+          "surface": "#fffcf7",
+          "text": "#292422",
+          "muted_text": "#594e48",
+          "accent": "#71392c",
+          "accent_on": "#ffffff",
+          "border": "#c5b9ae"
+        },
+        "fonts": {
+          "display": "Bodoni Moda",
+          "body": "Jost",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Arrange the shop as a fashion lookbook rather than a dashboard. Use dramatic high-contrast serif headlines beside restrained tracked product labels. Make the feature a wide tonal field and place products in a simple, flat rail. Prices and ordering information should remain readable and honest."
+    },
+    {
+      "id": "d09",
+      "name": "Little Neighbours",
+      "segment": "kids / family / community",
+      "references": [
+        {
+          "site": "busybeehoney.com",
+          "lesson": "Playful folk warmth, big colour moments and approachable storytelling.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "rascalsbaby.com",
+          "lesson": "Confident deep-green family palette without relying on pastel clich\u00e9s.",
+          "source": "Design Bites (MIT)"
+        }
+      ],
+      "axes": {
+        "type_system": "geometric",
+        "layout_rhythm": "modular grid",
+        "shape_language": "organic",
+        "colour_temperature_value": "saturated",
+        "density": "balanced",
+        "motion_personality": "lively"
+      },
+      "tokens": {
+        "theme": "light",
+        "colours": {
+          "bg": "#f9e9b6",
+          "surface": "#fff8df",
+          "text": "#283b32",
+          "muted_text": "#46574b",
+          "accent": "#225846",
+          "accent_on": "#ffffff",
+          "border": "#b9ad7c"
+        },
+        "fonts": {
+          "display": "Nunito",
+          "body": "Nunito",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0,
+          4,
+          12,
+          24,
+          999
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        }
+      },
+      "design_note": "Welcome carers and children as capable people, not as a cartoon audience. Use generous rounded shapes, a warm community noticeboard and short practical labels. Animate small details only when motion is allowed. Put dates, access and contact information before decoration."
+    },
+    {
+      "id": "d10",
+      "name": "After Hours",
+      "segment": "music / nightlife / venue",
+      "references": [
+        {
+          "site": "tiempo.fitness",
+          "lesson": "Near-dark stage with an electric yellow-green signal.",
+          "source": "Design Bites (MIT)"
+        },
+        {
+          "site": "poolsuite.net",
+          "lesson": "A playful event-calendar attitude; Gradient Deck reference.",
+          "source": "Gradient Deck (reference only)"
+        }
+      ],
+      "axes": {
+        "type_system": "display",
+        "layout_rhythm": "editorial columns",
+        "shape_language": "pill",
+        "colour_temperature_value": "dark",
+        "density": "dense",
+        "motion_personality": "lively"
+      },
+      "tokens": {
+        "theme": "dark",
+        "colours": {
+          "bg": "#1e2220",
+          "surface": "#303831",
+          "text": "#f8f3df",
+          "muted_text": "#d5d8bf",
+          "accent": "#dbed79",
+          "accent_on": "#20251b",
+          "border": "#778173"
+        },
+        "fonts": {
+          "display": "Syne",
+          "body": "Space Grotesk",
+          "licence": "SIL OFL (Google Fonts; families allowed by brief)"
+        },
+        "type_scale_px": [
+          12,
+          14,
+          16,
+          24,
+          40,
+          72
+        ],
+        "spacing_scale_px": [
+          0,
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96
+        ],
+        "radius_px": [
+          0,
+          4,
+          12,
+          24,
+          999
+        ],
+        "shadow": "none",
+        "motion_ms": {
+          "fast": 100,
+          "normal": 200,
+          "slow": 400,
+          "reduced": 0
+        },
+        "light_theme": {
+          "bg": "#f4f3e9",
+          "surface": "#ffffff",
+          "text": "#252a23",
+          "muted_text": "#485047",
+          "accent": "#455321",
+          "accent_on": "#ffffff",
+          "border": "#a7af9b"
+        }
+      },
+      "design_note": "Treat the venue like a live bill, not a generic nightclub hero. Put dates and act names in dense ruled rows against a dark stage, with acid-lime used for the one main action. Movement can be punchy but must stop for reduced motion. Include access, trading hours and ticket details without inventing a live event."
+    }
+  ]
+}

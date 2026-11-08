@@ -1,0 +1,1 @@
+import{g as r,dK as o}from"./index-Dw6YOgMX.js";const s=r.forwardRef(function(t,e){return o.jsx("svg",{"data-sanity-icon":"remove",width:"1em",height:"1em",viewBox:"0 0 25 25",fill:"none",xmlns:"http://www.w3.org/2000/svg",...t,ref:e,children:o.jsx("path",{d:"M5 12.5H20",stroke:"currentColor",strokeWidth:1.2,strokeLinejoin:"round"})})});export{s as RemoveIcon,s as default};

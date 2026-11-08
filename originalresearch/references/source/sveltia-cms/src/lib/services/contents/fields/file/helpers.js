@@ -1,0 +1,432 @@
+import { isURL } from '@sveltia/utils/string';
+import equal from 'fast-deep-equal';
+
+import { fillInternalPathTemplate } from '$lib/services/assets';
+import { formatFileName } from '$lib/services/assets/file-name';
+import { allAssetFolders, getAssetFolder, globalAssetFolder } from '$lib/services/assets/folders';
+import { getPendingFileName } from '$lib/services/assets/name';
+import { allAssets } from '$lib/services/assets/state';
+import { TEMPLATE_TAG_REPLACE_REGEX } from '$lib/services/common/template/constants';
+import { hasTemplateTags } from '$lib/services/common/template/tags';
+import { createPublicURL, getAssetFolderPaths } from '$lib/services/contents/draft/save/assets';
+import { getSlugs } from '$lib/services/contents/draft/slugs';
+import { getEntryFolderPath } from '$lib/services/contents/entry/paths';
+import { isAcceptedFile } from '$lib/services/integrations/media-libraries/default';
+import { getOrCreate } from '$lib/services/utils/cache';
+import { createPath, getDirName } from '$lib/services/utils/file';
+import { decodeURISafely } from '$lib/services/utils/url';
+
+/**
+ * @import {
+ * Asset,
+ * AssetFolderInfo,
+ * AssetLibraryFolderMap,
+ * Entry,
+ * EntryDraft,
+ * InternalLocaleCode,
+ * TypedFieldKeyPath,
+ * } from '$lib/types/private';
+ */
+
+/**
+ * Regular expression to match empty path segments, which are left when a template tag in a public
+ * path cannot be resolved, typically because a field used in the entry slug is still empty.
+ * @type {RegExp}
+ */
+const EMPTY_PATH_SEGMENT_REGEX = /(?<=.)\/(?=\/|$)/g;
+
+/**
+ * Get the default library folder map for a File/Image field.
+ * @param {object} args Arguments.
+ * @param {string} args.collectionName Collection name.
+ * @param {string} [args.fileName] File name.
+ * @param {string} [args.componentName] Custom editor component name for a field-level asset folder.
+ * @param {TypedFieldKeyPath} [args.typedKeyPath] Key path to the field.
+ * @param {boolean} [args.isIndexFile] Whether the asset folder is for the special index file used
+ * specifically in Hugo. It works only for field-level media folders in an entry collection.
+ * @returns {AssetLibraryFolderMap} Default asset library folder map.
+ */
+export const getAssetLibraryFolderMap = ({
+  collectionName,
+  fileName,
+  componentName,
+  typedKeyPath,
+  isIndexFile,
+}) => {
+  const fieldAssetFolder = getAssetFolder({
+    collectionName,
+    fileName,
+    componentName,
+    typedKeyPath,
+    isIndexFile,
+  });
+
+  const fileAssetFolder = fileName ? getAssetFolder({ collectionName, fileName }) : undefined;
+  const collectionAssetFolder = getAssetFolder({ collectionName });
+  const entryAssetFolder = fileAssetFolder ?? collectionAssetFolder;
+  const globalFolder = globalAssetFolder.current;
+
+  /** @type {AssetLibraryFolderMap} */
+  const map = {
+    field: {
+      folder: fieldAssetFolder,
+      enabled: fieldAssetFolder !== undefined,
+    },
+    entry: {
+      folder: entryAssetFolder,
+      enabled:
+        !!entryAssetFolder && (entryAssetFolder.entryRelative || entryAssetFolder.hasTemplateTags),
+    },
+    file: {
+      folder: fileAssetFolder,
+      enabled:
+        !!fileAssetFolder && !fileAssetFolder.entryRelative && !fileAssetFolder.hasTemplateTags,
+    },
+    collection: {
+      folder: collectionAssetFolder,
+      enabled:
+        !!collectionAssetFolder &&
+        !collectionAssetFolder.entryRelative &&
+        !collectionAssetFolder.hasTemplateTags,
+    },
+    global: {
+      folder: globalFolder,
+      enabled: globalFolder !== undefined,
+    },
+  };
+
+  // Add asset collection folders
+  allAssetFolders.current.forEach((folder) => {
+    if (folder.isAssetCollection && folder.collectionName) {
+      map[folder.collectionName] = { folder, enabled: true };
+    }
+  });
+
+  return map;
+};
+
+/**
+ * Get the default asset library folder for a File/Image field.
+ * @param {AssetLibraryFolderMap} folderMap Asset library folder map.
+ * @returns {AssetFolderInfo} Default asset library folder.
+ */
+export const getDefaultAssetFolder = (folderMap) =>
+  // There is always at least one enabled folder in the map, so this will never be undefined
+  /** @type {AssetFolderInfo} */ (Object.values(folderMap).find(({ enabled }) => enabled)?.folder);
+
+/**
+ * Get the folder the field editor puts a newly picked file in, i.e. The default asset library
+ * folder of a File/Image field, so a copy of a file ends up in the same place.
+ * @param {Parameters<typeof getAssetLibraryFolderMap>[0]} args Arguments. See
+ * {@link getAssetLibraryFolderMap}.
+ * @returns {AssetFolderInfo} Folder.
+ */
+export const getFieldAssetFolder = (args) => getDefaultAssetFolder(getAssetLibraryFolderMap(args));
+
+/**
+ * Get the target folder path for a File/Image field.
+ * @param {object} args Arguments.
+ * @param {Entry | undefined} args.entry Original entry.
+ * @param {AssetFolderInfo | undefined} args.folder Selected folder.
+ * @param {InternalLocaleCode} [args.locale] Locale being edited. With the `multiple_folders` or
+ * `multiple_root_folders` i18n structure, each locale’s entry file has a folder of its own, which
+ * an entry-relative asset is stored beside. Default: the default locale.
+ * @returns {string | undefined} Target folder path.
+ */
+export const getTargetFolderPath = ({ entry, folder, locale }) => {
+  const { collectionName, entryRelative, internalPath, internalSubPath } = folder ?? {};
+
+  if (!entryRelative) {
+    if (internalPath === undefined) {
+      return undefined;
+    }
+
+    return (
+      fillInternalPathTemplate({ internalPath, collectionName, entry, locale }) ??
+      // Replace the tags with a placeholder because the complete path is not determined until the
+      // entry is saved
+      internalPath.replaceAll(TEMPLATE_TAG_REPLACE_REGEX, '-')
+    );
+  }
+
+  // A non-empty `internalSubPath` means the field has its own `media_folder` subfolder (e.g.
+  // `media_folder: "images1"`). Append it so that only assets in that specific subfolder are shown,
+  // not assets from sibling field folders (e.g. `images2`).
+  const subPath = internalSubPath || undefined;
+
+  if (entry) {
+    return createPath([getEntryFolderPath(entry, locale), subPath]);
+  }
+
+  // Append a placeholder because the complete path is not determined until the entry is saved
+  return subPath ? `${internalPath}/${subPath}/-` : `${internalPath}/-`;
+};
+
+/**
+ * Get the name a file that has not been saved to the repository yet will be saved with, before
+ * it’s made unique in the target folder. It’s filled with the current draft content if the
+ * `filename_template` media library option applies to the file.
+ * @param {object} args Arguments.
+ * @param {EntryDraft} args.draft Entry draft holding the file.
+ * @param {string} args.blobURL Blob URL of the file, which is the current field value.
+ * @returns {string | undefined} File name, or `undefined` if the draft doesn’t hold the file.
+ */
+export const getUnsavedFileName = ({ draft, blobURL }) => {
+  const item = draft.files[blobURL];
+
+  if (!item) {
+    return undefined;
+  }
+
+  return getPendingFileName({
+    draft,
+    item,
+    defaultLocaleSlug: item.nameTemplate ? getSlugs({ draft }).defaultLocaleSlug : '',
+  });
+};
+
+/**
+ * Get the public path to be displayed for a file that has not been saved to the repository yet. An
+ * unsaved file is a pending upload cached in the draft and referenced with a temporary blob URL, so
+ * the path has to be resolved the same way as it will be when the entry is saved, including any
+ * template tags like `{{slug}}` and entry-relative paths.
+ * @param {object} args Arguments.
+ * @param {EntryDraft} args.draft Entry draft holding the file.
+ * @param {string} args.blobURL Blob URL of the file, which is the current field value.
+ * @param {string} args.fileName File name to be appended to the resolved folder path.
+ * @returns {string} Path to be displayed. It’s the file name alone if the target folder is unknown
+ * or the public path is empty.
+ */
+export const getUnsavedFileDisplayPath = ({ draft, blobURL, fileName }) => {
+  const { folder, subfolderPath } = draft.files[blobURL] ?? {};
+  const { entryRelative, publicPath = '' } = folder ?? {};
+  // The file sits in the subfolder it was picked for, if any
+  const subPath = createPath([subfolderPath, fileName]);
+
+  // Nothing has to be resolved if the path is absolute and has no template tags
+  if (!folder || (!entryRelative && !hasTemplateTags(publicPath))) {
+    return createPublicURL(publicPath, subPath);
+  }
+
+  const { defaultLocaleSlug } = getSlugs({ draft });
+  const { resolvedPublicPath } = getAssetFolderPaths({ draft, defaultLocaleSlug, folder });
+
+  return createPublicURL(resolvedPublicPath.replace(EMPTY_PATH_SEGMENT_REGEX, ''), subPath);
+};
+
+/**
+ * Get the path to display for a File/Image field value. For an unsaved file, this is the public
+ * path where the file will be stored, with any template tags like `{{slug}}` and entry-relative
+ * paths resolved with the current draft content. It will be the same as the final path in most
+ * cases, but it could be different if a file with the same name already exists in the assets
+ * folder, and the new file is renamed to avoid conflicts, or if the entry slug changes before
+ * saving.
+ * @param {object} args Arguments.
+ * @param {EntryDraft} args.draft Entry draft.
+ * @param {string} args.value Field value: a path, a complete URL or the blob URL of an unsaved
+ * file.
+ * @param {string} [args.unsavedFileName] Name the unsaved file will be saved with, if the value is
+ * the blob URL of an unsaved file.
+ * @returns {string} The path to display. If the folder could not be determined, it will only be
+ * the file name. It’s empty for an empty value or a blob URL not referring to an unsaved file.
+ */
+export const getFileDisplayPath = ({ draft, value, unsavedFileName }) => {
+  // A value read from a file may be a number or another non-string value
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
+
+  if (unsavedFileName) {
+    return getUnsavedFileDisplayPath({
+      draft,
+      blobURL: value,
+      fileName: decodeURISafely(unsavedFileName.normalize()),
+    });
+  }
+
+  if (value.startsWith('blob:')) {
+    return '';
+  }
+
+  const decodedValue = decodeURISafely(value);
+
+  // Truncate query string for display. This is mainly for Unsplash URLs which have a long query
+  // string for image parameters.
+  if (isURL(decodedValue)) {
+    const url = new URL(decodedValue);
+
+    if (url.search) {
+      url.search = '';
+
+      return `${url}…`;
+    }
+  }
+
+  return decodedValue;
+};
+
+/**
+ * Check if a given path is in the target folder or its subfolders.
+ * @param {object} args Arguments.
+ * @param {string} args.path Path to check.
+ * @param {string | undefined} args.folderPath Target folder path.
+ * @returns {boolean} `true` if the path is in the target folder.
+ */
+const isInTargetFolder = ({ path, folderPath }) =>
+  folderPath !== undefined &&
+  // An empty path is the repository root, which holds every other path
+  (folderPath === '' ||
+    path === folderPath ||
+    // Handle the case where the target folder is a template with an unresolved placeholder
+    `${path}/-` === folderPath ||
+    path.startsWith(`${folderPath}/`));
+
+/**
+ * Check if an asset is in the selected folder.
+ * @param {object} args Arguments.
+ * @param {Asset} args.asset Asset to check.
+ * @param {AssetFolderInfo | undefined} args.folder Selected folder.
+ * @param {string | undefined} args.folderPath Target folder path.
+ * @returns {boolean} `true` if the asset is in the selected folder.
+ */
+export const isAssetInSelectedFolder = ({ asset, folder, folderPath }) => {
+  if (folder === undefined) {
+    return false;
+  }
+
+  if (!folder.entryRelative) {
+    return (
+      asset.folder?.internalPath === folder.internalPath &&
+      !asset.folder?.entryRelative &&
+      isInTargetFolder({ path: asset.path, folderPath })
+    );
+  }
+
+  // The target folder path of an entry-relative folder is resolved against the entry, so the path
+  // alone tells whether the asset is stored next to it. The folder the asset is filed under can’t
+  // be compared: a folder in a custom editor component has no collection, hence no base folder,
+  // and an asset may be filed under an enclosing global folder instead
+  return isInTargetFolder({ path: getDirName(asset.path), folderPath });
+};
+
+/**
+ * Give unsaved assets the file names these will actually get once the entry is saved, so no two
+ * assets in the list end up with the same path. An unsaved asset is created with a provisional path
+ * made of the target folder path and the raw file name, which can collide with an existing asset or
+ * with another pending file of the same name. The renaming logic mirrors `replaceBlobURL()`, which
+ * determines the final names at save time.
+ * @param {object} args Arguments.
+ * @param {Asset[]} args.savedAssets Saved assets in the selected folder.
+ * @param {Asset[]} args.unsavedAssets Unsaved assets in the selected folder.
+ * @param {boolean} args.slugificationEnabled Whether the file names are slugified on upload.
+ * @returns {{ savedAssets: Asset[], unsavedAssets: Asset[] }} Assets with unique paths. A saved
+ * asset that a pending file is going to overwrite is excluded, because the pending file already
+ * represents it in the list.
+ */
+export const resolveUnsavedAssetPaths = ({ savedAssets, unsavedAssets, slugificationEnabled }) => {
+  if (!unsavedAssets.length) {
+    return { savedAssets, unsavedAssets };
+  }
+
+  /** @type {Map<string, string[]>} Map of a directory name to the file names in that directory. */
+  const namesByDir = new Map();
+  /** @type {Set<string>} Paths of the saved assets to be overwritten. */
+  const replacedPaths = new Set();
+
+  savedAssets.forEach(({ path, name }) => {
+    getOrCreate(namesByDir, getDirName(path), () => []).push(name.normalize());
+  });
+
+  const resolvedUnsavedAssets = unsavedAssets.map((asset) => {
+    const { name, path, replace } = asset;
+    const dirName = getDirName(path);
+    const namesInDir = namesByDir.get(dirName) ?? [];
+
+    // A replacing file keeps its original name because it overwrites the existing asset
+    const newName = formatFileName(name, {
+      slugificationEnabled,
+      assetNamesInSameFolder: replace ? [] : namesInDir,
+    });
+
+    const newPath = dirName ? `${dirName}/${newName}` : newName;
+
+    if (replace) {
+      replacedPaths.add(newPath);
+    } else {
+      namesInDir.push(newName.normalize());
+      namesByDir.set(dirName, namesInDir);
+    }
+
+    return newPath === path ? asset : { ...asset, name: newName, path: newPath };
+  });
+
+  return {
+    savedAssets: replacedPaths.size
+      ? savedAssets.filter(({ path }) => !replacedPaths.has(path))
+      : savedAssets,
+    unsavedAssets: resolvedUnsavedAssets,
+  };
+};
+
+/**
+ * Get the list of assets to show in the asset library, filtered by the selected folder, kind and
+ * accepted file types.
+ * @param {object} args Arguments.
+ * @param {'image' | undefined} args.kind Asset kind.
+ * @param {string} [args.accept] File types the field accepts, as given by `getAcceptedFileTypes()`.
+ * An existing file is never transformed, so one of another type can’t be used.
+ * @param {AssetFolderInfo | undefined} args.folder Selected folder.
+ * @param {string | undefined} args.folderPath Target folder path.
+ * @param {Asset[]} args.unsavedAssets Unsaved assets.
+ * @param {File[]} [args.uncheckedFiles] Files just dropped or picked in the asset selection dialog.
+ * Their assets are listed whatever their kind and type: a file is only checked once it’s processed,
+ * as a transformation can change its format.
+ * @param {boolean} [args.slugificationEnabled] Whether the file names are slugified on upload.
+ * @returns {Asset[]} List of assets to show in the asset library.
+ */
+export const listAssets = ({
+  kind,
+  accept,
+  folder,
+  folderPath,
+  unsavedAssets,
+  uncheckedFiles = [],
+  slugificationEnabled = false,
+}) => {
+  /**
+   * Check if the given asset belongs to the selected folder.
+   * @param {Asset} asset Asset to check.
+   * @returns {boolean} `true` if the asset is in the selected folder.
+   */
+  const isInSelectedFolder = (asset) => isAssetInSelectedFolder({ asset, folder, folderPath });
+
+  const resolved = resolveUnsavedAssetPaths({
+    savedAssets: allAssets.current.filter(isInSelectedFolder),
+    unsavedAssets: unsavedAssets.filter(isInSelectedFolder),
+    slugificationEnabled,
+  });
+
+  return (
+    [...resolved.unsavedAssets, ...resolved.savedAssets]
+      .filter(
+        (asset) =>
+          (!!asset.file && uncheckedFiles.includes(asset.file)) ||
+          // An asset’s `type` property isn’t a MIME type, so the file name alone gives one
+          ((!kind || kind === asset.kind) && isAcceptedFile({ name: asset.name }, accept)),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name))
+      // Unsaved assets should go first
+      .sort((a, b) => Number(!!b.unsaved) - Number(!!a.unsaved))
+  );
+};
+
+/**
+ * Check if an asset with the same content and folder already exists in the unsaved assets.
+ * @param {object} args Arguments.
+ * @param {string} args.sha Git object ID (SHA-1 hash) of the file.
+ * @param {AssetFolderInfo | undefined} args.folder Asset folder.
+ * @param {Asset[]} args.unsavedAssets Unsaved assets.
+ * @returns {boolean} `true` if the asset already exists.
+ */
+export const hasSameAsset = ({ sha, folder, unsavedAssets }) =>
+  unsavedAssets.some((asset) => !!asset.file && asset.sha === sha && equal(asset.folder, folder));

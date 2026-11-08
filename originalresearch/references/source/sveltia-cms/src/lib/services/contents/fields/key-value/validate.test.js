@@ -1,0 +1,241 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { validateKeyValueField } from './validate';
+
+/**
+ * @import { EntryValidityState } from '$lib/types/private';
+ */
+
+const mockGetField = vi.hoisted(() => vi.fn());
+
+vi.mock('$lib/services/contents/entry/fields', () => ({ getField: mockGetField }));
+
+vi.mock('$lib/services/contents/fields/rich-text', () => ({
+  stripComponentNamePrefix: vi.fn((/** @type {string} */ keyPath) =>
+    keyPath.replace(/^__component__\./, ''),
+  ),
+}));
+
+/**
+ * Creates a fresh validity state with all flags set to false.
+ * @returns {EntryValidityState} Default-false validity object.
+ */
+const freshValidity = () => ({
+  valueMissing: false,
+  tooShort: false,
+  tooLong: false,
+  rangeUnderflow: false,
+  rangeOverflow: false,
+  patternMismatch: false,
+  typeMismatch: false,
+});
+
+/** @type {import('$lib/types/private').GetFieldArgs} */
+const baseGetFieldArgs = {
+  collectionName: 'posts',
+  fileName: undefined,
+  componentName: undefined,
+  valueMap: {},
+  keyPath: 'meta',
+  isIndexFile: false,
+};
+
+describe('validateKeyValueField()', () => {
+  beforeEach(() => {
+    mockGetField.mockReset();
+  });
+
+  test('skips when keyPath is already validated', () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    const validity = freshValidity();
+
+    const result = validateKeyValueField({
+      keyPath: 'meta.someKey',
+      getFieldArgs: baseGetFieldArgs,
+      validity,
+      validities: { _default: { meta: validity } },
+      locale: '_default',
+      required: true,
+      min: 0,
+      max: Infinity,
+    });
+
+    expect(result.skip).toBe(true);
+    expect(validity.valueMissing).toBe(false);
+  });
+
+  test('skips when parent field is not a keyvalue widget', () => {
+    mockGetField.mockReturnValue({ widget: 'string' });
+
+    const validity = freshValidity();
+
+    const result = validateKeyValueField({
+      keyPath: 'title.sub',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'title' },
+      validity,
+      validities: { _default: {} },
+      locale: '_default',
+      required: true,
+      min: 0,
+      max: Infinity,
+    });
+
+    expect(result.skip).toBe(true);
+  });
+
+  test('resolves to parent keyPath when parent widget is keyvalue', async () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    const valueMap = { 'meta.key1': 'val1', 'meta.key2': 'val2' };
+    const validity = freshValidity();
+
+    const result = validateKeyValueField({
+      keyPath: 'meta.key1',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'meta', valueMap },
+      validity,
+      validities: { _default: {} },
+      locale: '_default',
+      required: false,
+      min: 0,
+      max: Infinity,
+    });
+
+    expect(result.skip).toBe(false);
+    expect(result.keyPath).toBe('meta');
+  });
+
+  test('resolves to its own keyPath for a KeyValue field nested in an Object field', () => {
+    mockGetField.mockImplementation(({ keyPath }) =>
+      keyPath === 'obj' ? { widget: 'object' } : { widget: 'keyvalue' },
+    );
+
+    // All the pairs have been removed, so the field holds `null`
+    const valueMap = { 'obj.meta': null };
+    const validity = freshValidity();
+    const validities = { _default: {} };
+
+    const result = validateKeyValueField({
+      keyPath: 'obj.meta',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'obj.meta', valueMap },
+      validity,
+      validities,
+      locale: '_default',
+      required: true,
+      min: 0,
+      max: Infinity,
+    });
+
+    expect(result).toEqual({ skip: false, keyPath: 'obj.meta', empty: true });
+    expect(validity.valueMissing).toBe(true);
+  });
+
+  test('sets valueMissing when required and no pairs exist', async () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    const valueMap = {};
+    const validity = freshValidity();
+
+    validateKeyValueField({
+      keyPath: 'meta.key1',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'meta', valueMap },
+      validity,
+      validities: { _default: {} },
+      locale: '_default',
+      required: true,
+      min: 0,
+      max: Infinity,
+    });
+
+    expect(validity.valueMissing).toBe(true);
+  });
+
+  test('doesn’t count a blank pair, but counts a pair with an empty key and a value', () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    /**
+     * Validate the given value map as a required field.
+     * @param {Record<string, string>} valueMap Value map.
+     * @returns {EntryValidityState} Validity.
+     */
+    const validate = (valueMap) => {
+      const validity = freshValidity();
+
+      validateKeyValueField({
+        keyPath: 'meta.',
+        getFieldArgs: { ...baseGetFieldArgs, keyPath: 'meta', valueMap },
+        validity,
+        validities: { _default: {} },
+        locale: '_default',
+        required: true,
+        min: 0,
+        max: Infinity,
+      });
+
+      return validity;
+    };
+
+    // The blank pair of a required field’s default value, which isn’t saved
+    expect(validate({ 'meta.': '' }).valueMissing).toBe(true);
+    expect(validate({ 'meta.': 'value' }).valueMissing).toBe(false);
+  });
+
+  test('treats a missing value map as having no pairs', async () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    const validity = freshValidity();
+
+    validateKeyValueField({
+      keyPath: 'meta.key1',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'meta', valueMap: undefined },
+      validity,
+      validities: { _default: {} },
+      locale: '_default',
+      required: true,
+      min: 0,
+      max: Infinity,
+    });
+
+    expect(validity.valueMissing).toBe(true);
+  });
+
+  test('sets rangeUnderflow when pair count is below min', async () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    const valueMap = { 'meta.k1': 'v1' };
+    const validity = freshValidity();
+
+    validateKeyValueField({
+      keyPath: 'meta.k1',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'meta', valueMap },
+      validity,
+      validities: { _default: {} },
+      locale: '_default',
+      required: false,
+      min: 3,
+      max: Infinity,
+    });
+
+    expect(validity.rangeUnderflow).toBe(true);
+  });
+
+  test('sets rangeOverflow when pair count exceeds max', async () => {
+    mockGetField.mockReturnValue({ widget: 'keyvalue' });
+
+    const valueMap = { 'meta.k1': 'v1', 'meta.k2': 'v2', 'meta.k3': 'v3' };
+    const validity = freshValidity();
+
+    validateKeyValueField({
+      keyPath: 'meta.k1',
+      getFieldArgs: { ...baseGetFieldArgs, keyPath: 'meta', valueMap },
+      validity,
+      validities: { _default: {} },
+      locale: '_default',
+      required: false,
+      min: 0,
+      max: 2,
+    });
+
+    expect(validity.rangeOverflow).toBe(true);
+  });
+});

@@ -1,0 +1,968 @@
+/* eslint-disable jsdoc/require-jsdoc */
+// @ts-nocheck
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { OTHER_GROUP_NAME } from '$lib/services/common/view';
+import { selectedCollection } from '$lib/services/contents/collection';
+
+import { getReorderGroupingConditions, groupEntries, parseGroupConfig, viewGroups } from './group';
+
+// Mock all dependencies
+vi.mock('$lib/services/contents/collection', () => ({
+  selectedCollection: { current: undefined },
+}));
+
+vi.mock('@sveltia/i18n', () => ({
+  _: (key) => (key === 'other' ? 'Other' : key),
+}));
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/values', () => ({
+  getPropertyValue: vi.fn(),
+}));
+
+vi.mock('$lib/services/utils/regex', () => ({
+  getRegex: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/collection/entries/reorder/config', () => ({
+  getReorderGroupName: vi.fn(),
+}));
+
+const { getPropertyValue } = await import('$lib/services/contents/entry/values');
+
+const { getReorderGroupName } =
+  await import('$lib/services/contents/collection/entries/reorder/config');
+
+describe('getReorderGroupingConditions', () => {
+  const collection = {
+    name: 'articles',
+    _type: 'entry',
+    folder: 'content/articles',
+    view_groups: {
+      groups: [
+        { name: 'categories', label: 'Categories', field: 'category' },
+        { name: 'years', label: 'Years', field: 'date', pattern: '^\\d{4}' },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('should return undefined without a collection', () => {
+    expect(getReorderGroupingConditions(undefined)).toBeUndefined();
+  });
+
+  test('should return undefined for a file/singleton collection', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('categories');
+
+    expect(getReorderGroupingConditions({ name: 'pages', _type: 'file' })).toBeUndefined();
+    // The collection is rejected before its `reorder` option is even read
+    expect(getReorderGroupName).not.toHaveBeenCalled();
+  });
+
+  test('should return undefined when no reorder group is configured', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue(undefined);
+
+    expect(getReorderGroupingConditions(collection)).toBeUndefined();
+  });
+
+  test('should return undefined when the named group is not defined in view_groups', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('authors');
+
+    expect(getReorderGroupingConditions(collection)).toBeUndefined();
+  });
+
+  test('should return undefined when the collection has no view_groups', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('categories');
+
+    expect(
+      getReorderGroupingConditions({ name: 'articles', folder: 'content/articles' }),
+    ).toBeUndefined();
+  });
+
+  test('should resolve the named group from the object format', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('categories');
+
+    expect(getReorderGroupingConditions(collection)).toEqual({
+      field: 'category',
+      pattern: undefined,
+    });
+  });
+
+  test('should include the group pattern when defined', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('years');
+
+    expect(getReorderGroupingConditions(collection)).toEqual({
+      field: 'date',
+      pattern: '^\\d{4}',
+    });
+  });
+
+  test('should resolve the named group from the array format', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('categories');
+
+    expect(
+      getReorderGroupingConditions({
+        name: 'articles',
+        folder: 'content/articles',
+        _type: 'entry',
+        view_groups: [{ name: 'categories', label: 'Categories', field: 'category' }],
+      }),
+    ).toEqual({ field: 'category' });
+  });
+
+  test('should include the comparison operators when defined', () => {
+    vi.mocked(getReorderGroupName).mockReturnValue('upcoming');
+
+    expect(
+      getReorderGroupingConditions({
+        name: 'events',
+        folder: 'content/events',
+        _type: 'entry',
+        view_groups: [{ name: 'upcoming', label: 'Upcoming', field: 'date', gte: '{{today}}' }],
+      }),
+    ).toEqual({ field: 'date', gte: '{{today}}' });
+  });
+});
+
+describe('groupEntries', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('should return ungrouped entries when no conditions', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: {} } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _type: 'entry',
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection);
+
+    expect(result).toEqual([{ name: '*', entries }]);
+  });
+
+  test('should return ungrouped entries when conditions is null', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: {} } },
+      },
+      {
+        id: 'entry2',
+        sha: 'sha2',
+        slug: 'slug2',
+        subPath: '',
+        locales: { en: { path: 'path2', slug: 'slug2', content: {} } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _type: 'entry',
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, null);
+
+    expect(result).toEqual([{ name: '*', entries }]);
+  });
+
+  test('should return ungrouped entries when conditions is undefined', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: {} } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _type: 'entry',
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, undefined);
+
+    expect(result).toEqual([{ name: '*', entries }]);
+  });
+
+  test('should return ungrouped entries when conditions has empty field', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: {} } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _type: 'entry',
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, { field: '', pattern: undefined });
+
+    expect(result).toEqual([{ name: '*', entries }]);
+  });
+
+  test('should group entries by field', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: { category: 'tech' } } },
+      },
+      {
+        id: 'entry2',
+        sha: 'sha2',
+        slug: 'slug2',
+        subPath: '',
+        locales: { en: { path: 'path2', slug: 'slug2', content: { category: 'news' } } },
+      },
+      {
+        id: 'entry3',
+        sha: 'sha3',
+        slug: 'slug3',
+        subPath: '',
+        locales: { en: { path: 'path3', slug: 'slug3', content: { category: 'tech' } } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+      view_groups: [{ field: 'category', label: 'Category', pattern: '' }],
+    };
+
+    const conditions = { field: 'category' };
+
+    // @ts-ignore - Mock parameter types
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'category') {
+        return entry.locales.en.content.category;
+      }
+
+      return undefined;
+    });
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, conditions);
+
+    expect(result).toHaveLength(2);
+    expect(result.find((g) => g.name === 'tech')?.entries).toHaveLength(2);
+    expect(result.find((g) => g.name === 'news')?.entries).toHaveLength(1);
+  });
+
+  test('should handle undefined values', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: { category: 'tech' } } },
+      },
+      {
+        id: 'entry2',
+        sha: 'sha2',
+        slug: 'slug2',
+        subPath: '',
+        locales: { en: { path: 'path2', slug: 'slug2', content: {} } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+      view_groups: [{ field: 'category', label: 'Category', pattern: '' }],
+    };
+
+    const conditions = { field: 'category' };
+
+    // @ts-ignore - Mock parameter types
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'category') {
+        return entry.locales.en.content.category;
+      }
+
+      return undefined;
+    });
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, conditions);
+
+    expect(result).toHaveLength(2);
+    expect(result.find((g) => g.name === 'tech')?.entries).toHaveLength(1);
+    expect(result.find((g) => g.name === OTHER_GROUP_NAME)?.entries).toHaveLength(1);
+  });
+
+  test('should handle regex patterns', async () => {
+    const { getRegex } = await import('$lib/services/utils/regex');
+
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: { date: '2023-01-15' } } },
+      },
+      {
+        id: 'entry2',
+        sha: 'sha2',
+        slug: 'slug2',
+        subPath: '',
+        locales: { en: { path: 'path2', slug: 'slug2', content: { date: '2023-02-20' } } },
+      },
+      {
+        id: 'entry3',
+        sha: 'sha3',
+        slug: 'slug3',
+        subPath: '',
+        locales: { en: { path: 'path3', slug: 'slug3', content: { date: '2024-01-10' } } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    const conditions = { field: 'date', pattern: /^\d{4}/ };
+
+    // @ts-ignore - Mock parameter types
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'date') {
+        return entry.locales.en.content.date;
+      }
+
+      return undefined;
+    });
+
+    // @ts-ignore - Mock parameter types
+    vi.mocked(getRegex).mockReturnValue(/^\d{4}/);
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, conditions);
+
+    expect(result).toHaveLength(2);
+    expect(result.find((g) => g.name === '2023')?.entries).toHaveLength(2);
+    expect(result.find((g) => g.name === '2024')?.entries).toHaveLength(1);
+  });
+
+  test('should handle empty entries array', () => {
+    // @ts-ignore - Mock data for testing
+    const entries = [];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection);
+
+    expect(result).toEqual([]);
+  });
+
+  test('should reverse groups when sorting is descending on the same field', async () => {
+    const { getRegex } = await import('$lib/services/utils/regex');
+
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: { date: '2023-01-01' } } },
+      },
+      {
+        id: 'entry2',
+        sha: 'sha2',
+        slug: 'slug2',
+        subPath: '',
+        locales: { en: { path: 'path2', slug: 'slug2', content: { date: '2024-01-01' } } },
+      },
+      {
+        id: 'entry3',
+        sha: 'sha3',
+        slug: 'slug3',
+        subPath: '',
+        locales: { en: { path: 'path3', slug: 'slug3', content: { date: '2022-01-01' } } },
+      },
+    ];
+
+    // @ts-ignore - Mock data for testing
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore - Mock parameter types
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'date') {
+        return entry.locales.en.content.date;
+      }
+
+      return undefined;
+    });
+
+    // @ts-ignore - Mock parameter types
+    vi.mocked(getRegex).mockReturnValue(/^(\d{4})/);
+
+    // @ts-ignore - Mock data for testing
+    const conditions = { field: 'date', pattern: '(\\d{4})' };
+
+    // The view is sorted in descending order on the date field
+    // @ts-ignore - Mock data for testing
+    const result = groupEntries(entries, collection, conditions, undefined, {
+      key: 'date',
+      order: 'descending',
+    });
+
+    // Groups should be reversed (descending order)
+    expect(result[0].name).toBe('2024');
+    expect(result[1].name).toBe('2023');
+    expect(result[2].name).toBe('2022');
+  });
+
+  test('should fall back to Other group when entry value does not match regex', async () => {
+    const { getRegex } = await import('$lib/services/utils/regex');
+
+    // @ts-ignore - Mock data for testing
+    const entries = [
+      {
+        id: 'entry1',
+        sha: 'sha1',
+        slug: 'slug1',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'slug1', content: { tag: '2023-tech' } } },
+      },
+      {
+        id: 'entry2',
+        sha: 'sha2',
+        slug: 'slug2',
+        subPath: '',
+        locales: { en: { path: 'path2', slug: 'slug2', content: { tag: 'no-year' } } },
+      },
+    ];
+
+    // @ts-ignore
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: {
+        i18nEnabled: false,
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        locales: ['en'],
+        canonicalSlug: {},
+      },
+      name: 'posts',
+      label: 'Posts',
+      folder: 'content/posts',
+    };
+
+    // @ts-ignore
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'tag') {
+        return entry.locales.en.content.tag;
+      }
+
+      return undefined;
+    });
+
+    // Regex matches only strings starting with a 4-digit year
+    vi.mocked(getRegex).mockReturnValue(/^\d{4}/);
+
+    // @ts-ignore
+    const conditions = { field: 'tag', pattern: '^\\d{4}' };
+
+    // @ts-ignore
+    const result = groupEntries(entries, collection, conditions, undefined, {
+      key: 'tag',
+      order: 'ascending',
+    });
+
+    // '2023-tech' matches → group '2023'; 'no-year' does not match → falls back to 'Other'
+    const groupNames = result.map((g) => g.name);
+
+    expect(groupNames).toContain('2023');
+    expect(groupNames).toContain(OTHER_GROUP_NAME);
+  });
+
+  describe('with a comparison', async () => {
+    const { getField } = await import('$lib/services/contents/entry/fields');
+    const { getRegex } = await import('$lib/services/utils/regex');
+
+    /**
+     * Create an entry.
+     * @param {string} id Entry ID.
+     * @param {Record<string, any>} content Content.
+     * @returns {any} Entry.
+     */
+    const createEntry = (id, content) => ({
+      id,
+      sha: id,
+      slug: id,
+      subPath: '',
+      locales: { en: { path: id, slug: id, content } },
+    });
+
+    const entries = [
+      createEntry('past', { date: '2026-09-15', priority: 1 }),
+      createEntry('today', { date: '2026-09-16', priority: 5 }),
+      createEntry('future', { date: '2026-09-17', priority: 10 }),
+      createEntry('undated', { priority: 3 }),
+    ];
+
+    const collection = {
+      _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+      _i18n: { defaultLocale: 'en' },
+      name: 'events',
+      label: 'Events',
+      folder: 'content/events',
+      fields: [
+        { name: 'date', widget: 'datetime', time_format: false },
+        { name: 'priority', widget: 'number' },
+      ],
+      view_groups: [
+        { label: 'Upcoming', field: 'date', gte: '{{today}}' },
+        { label: 'Past', field: 'date', lt: '{{today}}' },
+        { label: 'Important', field: 'priority', gte: 5 },
+      ],
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 16, 14, 5, 9));
+
+      vi.mocked(getPropertyValue).mockImplementation(
+        ({ entry, key }) => entry.locales.en.content[key],
+      );
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) =>
+        collection.fields.find(({ name }) => name === keyPath),
+      );
+
+      vi.mocked(getRegex).mockReturnValue(undefined);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    test('should group the matching entries under the label, then the rest under Other', () => {
+      expect(groupEntries(entries, collection, { field: 'date', gte: '{{today}}' })).toEqual([
+        { name: 'Upcoming', entries: [entries[1], entries[2]] },
+        { name: OTHER_GROUP_NAME, entries: [entries[0], entries[3]] },
+      ]);
+
+      expect(groupEntries(entries, collection, { field: 'date', lt: '{{today}}' })).toEqual([
+        { name: 'Past', entries: [entries[0]] },
+        { name: OTHER_GROUP_NAME, entries: [entries[1], entries[2], entries[3]] },
+      ]);
+
+      expect(groupEntries(entries, collection, { field: 'priority', gte: 5 })).toEqual([
+        { name: 'Important', entries: [entries[1], entries[2]] },
+        { name: OTHER_GROUP_NAME, entries: [entries[0], entries[3]] },
+      ]);
+    });
+
+    test('should parse the field configuration of the group field', () => {
+      groupEntries(entries, collection, { field: 'date', gte: '{{today}}' });
+
+      expect(getField).toHaveBeenCalledWith({ collectionName: 'events', keyPath: 'date' });
+    });
+
+    test('should keep the order regardless of the sort order', () => {
+      expect(
+        groupEntries(entries, collection, { field: 'date', gte: '{{today}}' }, undefined, {
+          key: 'date',
+          order: 'descending',
+        }).map((g) => g.name),
+      ).toEqual(['Upcoming', OTHER_GROUP_NAME]);
+    });
+
+    test('should leave out an empty group', () => {
+      expect(groupEntries([entries[0]], collection, { field: 'date', gte: '{{today}}' })).toEqual([
+        { name: OTHER_GROUP_NAME, entries: [entries[0]] },
+      ]);
+
+      expect(groupEntries([entries[2]], collection, { field: 'date', gte: '{{today}}' })).toEqual([
+        { name: 'Upcoming', entries: [entries[2]] },
+      ]);
+    });
+
+    test('should fall back to the field name when the group is not configured', () => {
+      expect(groupEntries(entries, collection, { field: 'date', gt: '{{today}}' })).toEqual([
+        { name: 'date', entries: [entries[2]] },
+        { name: OTHER_GROUP_NAME, entries: [entries[0], entries[1], entries[3]] },
+      ]);
+
+      expect(
+        groupEntries(
+          entries,
+          { ...collection, view_groups: undefined },
+          { field: 'date', gt: '{{today}}' },
+        ),
+      ).toEqual([
+        { name: 'date', entries: [entries[2]] },
+        { name: OTHER_GROUP_NAME, entries: [entries[0], entries[1], entries[3]] },
+      ]);
+
+      expect(
+        groupEntries(
+          entries,
+          { ...collection, view_groups: [{ field: 'date', gt: '{{today}}' }] },
+          { field: 'date', gt: '{{today}}' },
+        ),
+      ).toEqual([
+        { name: 'date', entries: [entries[2]] },
+        { name: OTHER_GROUP_NAME, entries: [entries[0], entries[1], entries[3]] },
+      ]);
+    });
+
+    test('should look up the label from the object format', () => {
+      const _collection = {
+        ...collection,
+        view_groups: {
+          groups: [{ name: 'upcoming', label: 'Coming up', field: 'date', gte: '{{today}}' }],
+        },
+      };
+
+      expect(
+        groupEntries(entries, _collection, { field: 'date', gte: '{{today}}' }).map((g) => g.name),
+      ).toEqual(['Coming up', OTHER_GROUP_NAME]);
+    });
+  });
+});
+
+describe('Test parseGroupConfig()', () => {
+  test('returns empty options for undefined input', () => {
+    const result = parseGroupConfig(undefined);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for null input', () => {
+    const result = parseGroupConfig(/** @type {any} */ (null));
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for empty array', () => {
+    const result = parseGroupConfig([]);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('parses array format (Netlify/Decap CMS compatible)', () => {
+    const groups = [
+      { field: 'category', label: 'Category' },
+      { field: 'author', label: 'Author' },
+    ];
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({ options: groups });
+  });
+
+  test('parses object format without default (Static CMS compatible)', () => {
+    const groups = {
+      groups: [
+        { field: 'category', label: 'Category' },
+        { field: 'author', label: 'Author' },
+      ],
+    };
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({
+      options: groups.groups,
+      default: undefined,
+    });
+  });
+
+  test('parses object format with default (Static CMS compatible)', () => {
+    const groups = {
+      groups: [
+        { name: 'by-category', field: 'category', label: 'Category' },
+        { name: 'by-author', field: 'author', label: 'Author' },
+      ],
+      default: 'by-category',
+    };
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({
+      options: groups.groups,
+      default: { field: 'category', pattern: undefined },
+    });
+  });
+
+  test('handles object format with invalid default name', () => {
+    const groups = {
+      groups: [
+        { name: 'by-category', field: 'category', label: 'Category' },
+        { name: 'by-author', field: 'author', label: 'Author' },
+      ],
+      default: 'nonexistent',
+    };
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({
+      options: groups.groups,
+      default: undefined,
+    });
+  });
+
+  test('returns empty options for object with empty groups array', () => {
+    const groups = {
+      groups: [],
+      default: 'by-category',
+    };
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for object with undefined groups', () => {
+    const groups = /** @type {any} */ ({
+      default: 'by-category',
+    });
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for object with non-array groups', () => {
+    const groups = /** @type {any} */ ({
+      groups: 'not an array',
+      default: 'by-category',
+    });
+
+    const result = parseGroupConfig(groups);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for non-object, non-array input', () => {
+    const result = parseGroupConfig(/** @type {any} */ ('invalid'));
+
+    expect(result).toEqual({ options: [] });
+  });
+});
+
+describe('viewGroups', () => {
+  beforeEach(() => {
+    selectedCollection.current = undefined;
+  });
+
+  test('is empty when no collection is selected', () => {
+    expect(viewGroups.current).toEqual([]);
+  });
+
+  test('is empty for a file collection', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'settings',
+      _type: 'file',
+      files: [],
+    });
+
+    expect(viewGroups.current).toEqual([]);
+  });
+
+  test('lists the groups of the selected entry collection', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'posts',
+      _type: 'entry',
+      folder: 'content/posts',
+      view_groups: [
+        { field: 'author', pattern: 'john', name: 'john' },
+        { field: 'status', pattern: 'draft', name: 'draft' },
+      ],
+    });
+
+    expect(viewGroups.current).toEqual([
+      { field: 'author', pattern: 'john', name: 'john' },
+      { field: 'status', pattern: 'draft', name: 'draft' },
+    ]);
+  });
+
+  test('is empty for an entry collection without view_groups', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'posts',
+      _type: 'entry',
+      folder: 'content/posts',
+    });
+
+    expect(viewGroups.current).toEqual([]);
+  });
+
+  test('supports the view_groups object format', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'posts',
+      _type: 'entry',
+      folder: 'content/posts',
+      view_groups: {
+        default: 'author',
+        groups: [{ field: 'author', name: 'author' }],
+      },
+    });
+
+    expect(viewGroups.current).toEqual([{ field: 'author', name: 'author' }]);
+  });
+});

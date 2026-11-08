@@ -1,0 +1,13 @@
+{
+  "name": "sitereal-desktop",
+  "productName": "sitereal",
+  "version": "1.0.2",
+  "private": true,
+  "description": "sitereal — visual builder for Astro. Desktop shell.",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "main": "dist/main.cjs",
+  "author": {
+    "name": "Julian Rosebrock"
+  },
+  "homepage": "https://sitereal.app"
+}

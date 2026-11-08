@@ -1,0 +1,221 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createCollectors } from '$lib/test/config-parser';
+
+/**
+ * @import { ConfigParserContext } from '$lib/types/private';
+ */
+
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ locale: 'en-US' }),
+);
+
+const mockAddMessage = vi.fn();
+const mockCheckUnsupportedOptions = vi.fn();
+
+vi.mock('$lib/services/config/parser/utils/validator', () => ({
+  addMessage: mockAddMessage,
+  checkUnsupportedOptions: mockCheckUnsupportedOptions,
+}));
+
+/**
+ * Create a fresh context object for testing.
+ * @returns {ConfigParserContext} Context instance.
+ */
+function createContext() {
+  return {
+    cmsConfig: { backend: { name: 'github', repo: 'test/repo' } },
+    collection: { name: 'test', files: [], label: 'Test' },
+    typedKeyPath: 'config.collections.0.fields.0',
+  };
+}
+
+describe('File Field Parser', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('parseFileFieldConfig', () => {
+    it('should check the template tags in the field’s folder options', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+      const config = { name: 'image', widget: 'image', media_folder: '/static/{{fields.title}}' };
+
+      parseFileFieldConfig({ config, context, collectors });
+
+      expect(mockAddMessage).toHaveBeenCalledWith({
+        strKey: 'unsupported_folder_template_tag',
+        values: { option: 'media_folder', tag: '{{fields.title}}' },
+        context,
+        collectors,
+      });
+    });
+
+    it('should parse file field', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      const args = {
+        config: {
+          name: 'document',
+          widget: 'file',
+          required: true,
+        },
+        context,
+        collectors,
+      };
+
+      parseFileFieldConfig(args);
+
+      expect(mockAddMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: expect.stringMatching(/error/),
+        }),
+      );
+    });
+
+    it('should add mediaFields when media_folder is set', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      const args = {
+        config: {
+          name: 'document',
+          widget: 'file',
+          media_folder: 'uploads',
+        },
+        context,
+        collectors,
+      };
+
+      parseFileFieldConfig(args);
+
+      // Should track this as a media field with media_folder
+      expect(collectors.mediaFields.size).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should call checkUnsupportedOptions', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      const args = {
+        config: {
+          name: 'document',
+          widget: 'file',
+        },
+        context,
+        collectors,
+      };
+
+      parseFileFieldConfig(args);
+
+      expect(mockCheckUnsupportedOptions).toHaveBeenCalled();
+    });
+
+    it('should handle file field with accept pattern', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      const args = {
+        config: {
+          name: 'pdf',
+          widget: 'file',
+          accept: '.pdf',
+        },
+        context,
+        collectors,
+      };
+
+      parseFileFieldConfig(args);
+
+      // Should handle without errors
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should handle file field with multiple accept extensions', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      const args = {
+        config: {
+          name: 'docs',
+          widget: 'file',
+          accept: ['.pdf', '.doc', '.docx'],
+        },
+        context,
+        collectors,
+      };
+
+      parseFileFieldConfig(args);
+
+      // Should handle without errors
+      expect(collectors.errors.size).toBe(0);
+    });
+  });
+
+  describe('default option', () => {
+    it('should check the default against an explicit multiple option', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      parseFileFieldConfig({
+        config: { name: 'document', widget: 'file', multiple: false, default: '/a.pdf' },
+        context,
+        collectors,
+      });
+
+      parseFileFieldConfig({
+        config: { name: 'document', widget: 'file', multiple: true, default: ['/a.pdf'] },
+        context,
+        collectors,
+      });
+
+      expect(mockAddMessage).not.toHaveBeenCalled();
+
+      parseFileFieldConfig({
+        config: { name: 'document', widget: 'file', multiple: false, default: ['/a.pdf'] },
+        context,
+        collectors,
+      });
+
+      parseFileFieldConfig({
+        config: { name: 'document', widget: 'file', multiple: true, default: '/a.pdf' },
+        context,
+        collectors,
+      });
+
+      expect(mockAddMessage.mock.calls.map(([args]) => args)).toEqual([
+        { strKey: 'invalid_default_single', context, collectors },
+        { strKey: 'invalid_default_multiple', context, collectors },
+      ]);
+    });
+
+    it('should leave the default alone without an explicit multiple option', async () => {
+      const { parseFileFieldConfig } = await import('./file.js');
+      const context = createContext();
+      const collectors = createCollectors();
+
+      // The media library options can make the field multiple, which is only known at runtime
+      parseFileFieldConfig({
+        config: { name: 'document', widget: 'file', default: ['/a.pdf'] },
+        context,
+        collectors,
+      });
+
+      parseFileFieldConfig({
+        config: { name: 'document', widget: 'file', default: '/a.pdf' },
+        context,
+        collectors,
+      });
+
+      expect(mockAddMessage).not.toHaveBeenCalled();
+    });
+  });
+});

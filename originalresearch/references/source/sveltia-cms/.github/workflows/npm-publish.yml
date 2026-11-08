@@ -1,0 +1,49 @@
+# https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
+
+name: Publish Package to npmjs
+
+on:
+  release:
+    types:
+      - published
+
+permissions: {}
+
+jobs:
+  build-and-publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing
+    steps:
+      - name: Checkout the branch
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@v3.1.2
+        with:
+          version: latest
+          runtime: node@26
+          cache: true
+      - name: Build & publish the app
+        run: pnpm publish --no-git-checks --access public --provenance
+  # A separate job without `id-token`, so the third-party action can’t obtain npm credentials
+  notify-discord:
+    name: Notify Discord of Release
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Notify Discord of Release
+        uses: sarisia/actions-status-discord@v1.16.0
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: ${{ github.event.release.name || github.event.release.tag_name }}
+          description: ${{ github.event.release.body }}
+          url: ${{ github.event.release.html_url }}
+          color: 2105893
+          noprefix: true
+          nocontext: true
+        continue-on-error: true

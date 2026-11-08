@@ -1,0 +1,928 @@
+[
+ {
+  "angle": "editor_workspace",
+  "query": "website builder editor with canvas, layers panel and properties panel",
+  "screens": [
+   {
+    "id": "c8c5f1fe-f673-455c-9254-bff1715b5acd",
+    "app": "Subframe",
+    "image_url": "https://mobbin.com/api/mcp/short/q6RYWFuo",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_5eab85de77b3.jpg",
+    "mobbin_url": "https://mobbin.com/screens/c8c5f1fe-f673-455c-9254-bff1715b5acd"
+   },
+   {
+    "id": "b9342420-e6c8-4183-8194-c56791fc13f8",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/DQ2ApJ5n",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d3919a3932bb.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b9342420-e6c8-4183-8194-c56791fc13f8"
+   },
+   {
+    "id": "b62f7a88-50de-4ef0-bd2f-a238d83dd36a",
+    "app": "Figma",
+    "image_url": "https://mobbin.com/api/mcp/short/5md7PgV8",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_731eddad7ea5.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b62f7a88-50de-4ef0-bd2f-a238d83dd36a"
+   },
+   {
+    "id": "6c7126d9-4bfa-46b3-bbb9-d14a22208f32",
+    "app": "Webflow",
+    "image_url": "https://mobbin.com/api/mcp/short/sbjeGKfK",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_20602c5581ef.jpg",
+    "mobbin_url": "https://mobbin.com/screens/6c7126d9-4bfa-46b3-bbb9-d14a22208f32"
+   },
+   {
+    "id": "8a140e48-2c78-4aaf-b445-676372778c9c",
+    "app": "Zoho CRM",
+    "image_url": "https://mobbin.com/api/mcp/short/Sjx4sLFK",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_dac0c8b69635.jpg",
+    "mobbin_url": "https://mobbin.com/screens/8a140e48-2c78-4aaf-b445-676372778c9c"
+   },
+   {
+    "id": "dcaf21e2-a50e-47a3-af36-2e956d752bca",
+    "app": "Savee",
+    "image_url": "https://mobbin.com/api/mcp/short/LtbzDxTN",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_732653d6393e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/dcaf21e2-a50e-47a3-af36-2e956d752bca"
+   },
+   {
+    "id": "1e331425-5719-4b48-8cdb-72a0f226c96c",
+    "app": "Wix",
+    "image_url": "https://mobbin.com/api/mcp/short/hiGb1gyq",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_02879c03d6f4.jpg",
+    "mobbin_url": "https://mobbin.com/screens/1e331425-5719-4b48-8cdb-72a0f226c96c"
+   },
+   {
+    "id": "5485ae30-ed88-48a5-be51-718ae263fb0a",
+    "app": "MagicPath",
+    "image_url": "https://mobbin.com/api/mcp/short/yBQ7KX1D",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_5800723f999a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/5485ae30-ed88-48a5-be51-718ae263fb0a"
+   }
+  ]
+ },
+ {
+  "angle": "agent_chat_preview",
+  "query": "AI app builder with chat panel beside live website preview",
+  "screens": [
+   {
+    "id": "789acbc0-f591-4b2f-b40c-18dd456a3c11",
+    "app": "StackAI",
+    "image_url": "https://mobbin.com/api/mcp/short/0eQIiWqn",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_8d2cc632811e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/789acbc0-f591-4b2f-b40c-18dd456a3c11"
+   },
+   {
+    "id": "b6847b07-4933-471b-9153-0f1838ada822",
+    "app": "Lovable",
+    "image_url": "https://mobbin.com/api/mcp/short/cSshmTpk",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_100e6b21943b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b6847b07-4933-471b-9153-0f1838ada822"
+   },
+   {
+    "id": "a4285d31-5f9d-4609-b1e5-43fcaca36361",
+    "app": "Replit",
+    "image_url": "https://mobbin.com/api/mcp/short/UhfCZv5y",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_2f6fb9374956.jpg",
+    "mobbin_url": "https://mobbin.com/screens/a4285d31-5f9d-4609-b1e5-43fcaca36361"
+   },
+   {
+    "id": "17d5580f-8268-4fec-a024-64e87a056e65",
+    "app": "Emergent",
+    "image_url": "https://mobbin.com/api/mcp/short/7b8JgzDa",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_26a80f03fcc5.jpg",
+    "mobbin_url": "https://mobbin.com/screens/17d5580f-8268-4fec-a024-64e87a056e65"
+   },
+   {
+    "id": "2454903c-112d-4d55-8084-983a0a542c75",
+    "app": "Wix",
+    "image_url": "https://mobbin.com/api/mcp/short/hlDTrQZ9",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_3f96c82de9f8.jpg",
+    "mobbin_url": "https://mobbin.com/screens/2454903c-112d-4d55-8084-983a0a542c75"
+   },
+   {
+    "id": "72322a4e-8d14-458e-ad7c-a561da881849",
+    "app": "Base44",
+    "image_url": "https://mobbin.com/api/mcp/short/uLJybWCb",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_120c03a64734.jpg",
+    "mobbin_url": "https://mobbin.com/screens/72322a4e-8d14-458e-ad7c-a561da881849"
+   },
+   {
+    "id": "4f93ca16-840a-4e4a-9ce3-b334d8231eb8",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/9ETP56V9",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_5378c934f140.jpg",
+    "mobbin_url": "https://mobbin.com/screens/4f93ca16-840a-4e4a-9ce3-b334d8231eb8"
+   },
+   {
+    "id": "4b99de40-7c78-4042-95e1-fc72086dee52",
+    "app": "Google Gemini",
+    "image_url": "https://mobbin.com/api/mcp/short/VjDkQA3o",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_9797a81bd42b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/4b99de40-7c78-4042-95e1-fc72086dee52"
+   }
+  ]
+ },
+ {
+  "angle": "change_review",
+  "query": "AI coding agent showing proposed file changes diff with accept and reject",
+  "screens": [
+   {
+    "id": "3db54285-08df-44c3-a226-cf3e168b5e85",
+    "app": "Codecademy",
+    "image_url": "https://mobbin.com/api/mcp/short/CajSDKmZ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_be502963b341.jpg",
+    "mobbin_url": "https://mobbin.com/screens/3db54285-08df-44c3-a226-cf3e168b5e85"
+   },
+   {
+    "id": "c50251b3-860c-4f81-be1d-2795eae0182b",
+    "app": "Cofounder",
+    "image_url": "https://mobbin.com/api/mcp/short/fqpBHUcl",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_b637f562b02f.jpg",
+    "mobbin_url": "https://mobbin.com/screens/c50251b3-860c-4f81-be1d-2795eae0182b"
+   },
+   {
+    "id": "e92dd0ec-6660-4610-930a-38900c351734",
+    "app": "Replit",
+    "image_url": "https://mobbin.com/api/mcp/short/bCnnfaiS",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a29583271aa2.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e92dd0ec-6660-4610-930a-38900c351734"
+   },
+   {
+    "id": "9cb22cfd-3f04-4161-94b9-729266bc97b0",
+    "app": "Neon",
+    "image_url": "https://mobbin.com/api/mcp/short/EFXBBNp4",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_1f31a03c042f.jpg",
+    "mobbin_url": "https://mobbin.com/screens/9cb22cfd-3f04-4161-94b9-729266bc97b0"
+   },
+   {
+    "id": "ed82aafc-c4dc-442d-87fc-359f7347f940",
+    "app": "Semrush",
+    "image_url": "https://mobbin.com/api/mcp/short/cJrFhqqm",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_b2ae72f0d09e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ed82aafc-c4dc-442d-87fc-359f7347f940"
+   },
+   {
+    "id": "e48cb198-fd26-4a92-b17a-a988aa5cbef8",
+    "app": "Devin",
+    "image_url": "https://mobbin.com/api/mcp/short/fcFDll1y",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_3f4922297e43.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e48cb198-fd26-4a92-b17a-a988aa5cbef8"
+   }
+  ]
+ },
+ {
+  "angle": "device_preview",
+  "query": "website builder responsive preview with desktop, tablet and mobile breakpoint switcher",
+  "screens": [
+   {
+    "id": "f6a4f3a1-4979-4f6c-b545-b60f749d6461",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/SAgMPQpP",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d92f3d74fc59.jpg",
+    "mobbin_url": "https://mobbin.com/screens/f6a4f3a1-4979-4f6c-b545-b60f749d6461"
+   },
+   {
+    "id": "42c43a9a-b19b-479d-abf8-17b951c6d1a8",
+    "app": "Webflow",
+    "image_url": "https://mobbin.com/api/mcp/short/ifypp1Ni",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_046f9e1b41dd.jpg",
+    "mobbin_url": "https://mobbin.com/screens/42c43a9a-b19b-479d-abf8-17b951c6d1a8"
+   },
+   {
+    "id": "6f26ce58-d438-4e67-a4db-84d493b94789",
+    "app": "Figma",
+    "image_url": "https://mobbin.com/api/mcp/short/eV3ffeHT",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_706f1a21e5af.jpg",
+    "mobbin_url": "https://mobbin.com/screens/6f26ce58-d438-4e67-a4db-84d493b94789"
+   },
+   {
+    "id": "f45415a4-69ea-41ee-8cae-428ae8d29a84",
+    "app": "Replit",
+    "image_url": "https://mobbin.com/api/mcp/short/qBansaUA",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_27364c220c1d.jpg",
+    "mobbin_url": "https://mobbin.com/screens/f45415a4-69ea-41ee-8cae-428ae8d29a84"
+   },
+   {
+    "id": "2f4fb217-bef2-44d0-96d0-48494458ee0e",
+    "app": "Wix",
+    "image_url": "https://mobbin.com/api/mcp/short/aw8BC5n9",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_5bc09ef4e86a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/2f4fb217-bef2-44d0-96d0-48494458ee0e"
+   },
+   {
+    "id": "c775f746-d62f-478b-9bed-5218f42c8cbe",
+    "app": "Klaviyo",
+    "image_url": "https://mobbin.com/api/mcp/short/B9XK667u",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_698cff9cee45.jpg",
+    "mobbin_url": "https://mobbin.com/screens/c775f746-d62f-478b-9bed-5218f42c8cbe"
+   }
+  ]
+ },
+ {
+  "angle": "selection_toolbar",
+  "query": "website editor with selected element and floating contextual toolbar on canvas",
+  "screens": [
+   {
+    "id": "e287470a-7c98-4ec3-bab5-7becfc91de73",
+    "app": "Stitch",
+    "image_url": "https://mobbin.com/api/mcp/short/E6k2swAB",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_e862936174b6.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e287470a-7c98-4ec3-bab5-7becfc91de73"
+   },
+   {
+    "id": "cb9a4bf2-d1be-4e82-8da6-bc455da9ef9d",
+    "app": "Wix",
+    "image_url": "https://mobbin.com/api/mcp/short/1OkGm8l5",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_941b0334270c.jpg",
+    "mobbin_url": "https://mobbin.com/screens/cb9a4bf2-d1be-4e82-8da6-bc455da9ef9d"
+   },
+   {
+    "id": "a3de0192-b9d6-4791-9be4-2878adb2f680",
+    "app": "Base44",
+    "image_url": "https://mobbin.com/api/mcp/short/CkIThisA",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_2fd6c19d04e4.jpg",
+    "mobbin_url": "https://mobbin.com/screens/a3de0192-b9d6-4791-9be4-2878adb2f680"
+   },
+   {
+    "id": "a8cdb079-b310-4b4c-b4a6-8aeddd374aad",
+    "app": "Squarespace",
+    "image_url": "https://mobbin.com/api/mcp/short/Dtdobvpe",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a8bf703617ce.jpg",
+    "mobbin_url": "https://mobbin.com/screens/a8cdb079-b310-4b4c-b4a6-8aeddd374aad"
+   },
+   {
+    "id": "5da60a2b-9552-41ae-a173-ba10bac7cda0",
+    "app": "Luma",
+    "image_url": "https://mobbin.com/api/mcp/short/QUGf1FbQ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_8599ae79a9ab.jpg",
+    "mobbin_url": "https://mobbin.com/screens/5da60a2b-9552-41ae-a173-ba10bac7cda0"
+   },
+   {
+    "id": "4e29de68-c73c-44cb-9136-1d326b32ee90",
+    "app": "Craft",
+    "image_url": "https://mobbin.com/api/mcp/short/6HhT8nAv",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_ac1fb023463f.jpg",
+    "mobbin_url": "https://mobbin.com/screens/4e29de68-c73c-44cb-9136-1d326b32ee90"
+   }
+  ]
+ },
+ {
+  "angle": "site_styles",
+  "query": "website builder site styles panel for fonts and colours",
+  "screens": [
+   {
+    "id": "1c33edec-04b9-46c3-aa6c-fc601bbfbd79",
+    "app": "Savee",
+    "image_url": "https://mobbin.com/api/mcp/short/Idth7NEj",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_f85df7e964f7.jpg",
+    "mobbin_url": "https://mobbin.com/screens/1c33edec-04b9-46c3-aa6c-fc601bbfbd79"
+   },
+   {
+    "id": "2f14f29b-43ff-4db3-bc94-213866e861dd",
+    "app": "Contra",
+    "image_url": "https://mobbin.com/api/mcp/short/GI7SFV5d",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_9931ace74da8.jpg",
+    "mobbin_url": "https://mobbin.com/screens/2f14f29b-43ff-4db3-bc94-213866e861dd"
+   },
+   {
+    "id": "d5cb7477-bb1c-4fb0-b818-9221545de6cc",
+    "app": "Gamma",
+    "image_url": "https://mobbin.com/api/mcp/short/y8YgE7vQ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_01be1a3f19eb.jpg",
+    "mobbin_url": "https://mobbin.com/screens/d5cb7477-bb1c-4fb0-b818-9221545de6cc"
+   },
+   {
+    "id": "e1c3e76e-1625-4355-be2e-478c72275fea",
+    "app": "Polywork",
+    "image_url": "https://mobbin.com/api/mcp/short/vbOumClk",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d27cadc3b80b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e1c3e76e-1625-4355-be2e-478c72275fea"
+   },
+   {
+    "id": "e22fe3ce-d610-4604-ba4f-ab0b989f8fec",
+    "app": "beehiiv",
+    "image_url": "https://mobbin.com/api/mcp/short/Ry7NpsJ0",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_1dc9a127f001.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e22fe3ce-d610-4604-ba4f-ab0b989f8fec"
+   },
+   {
+    "id": "02270f56-5c4a-4efb-823e-37c298a1b58e",
+    "app": "Webflow",
+    "image_url": "https://mobbin.com/api/mcp/short/cCrKhGlj",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_33f92b3f90c7.jpg",
+    "mobbin_url": "https://mobbin.com/screens/02270f56-5c4a-4efb-823e-37c298a1b58e"
+   }
+  ]
+ },
+ {
+  "angle": "section_library",
+  "query": "website builder add section panel with prebuilt section templates",
+  "screens": [
+   {
+    "id": "29203181-afea-4156-8940-0174b0834069",
+    "app": "GoDaddy",
+    "image_url": "https://mobbin.com/api/mcp/short/tF0Y22GH",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_1198e2c3774d.jpg",
+    "mobbin_url": "https://mobbin.com/screens/29203181-afea-4156-8940-0174b0834069"
+   },
+   {
+    "id": "d03568f8-2df6-48b8-9896-874d11c8a7ce",
+    "app": "Wix",
+    "image_url": "https://mobbin.com/api/mcp/short/rR8txNGL",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_8d0d5e253af7.jpg",
+    "mobbin_url": "https://mobbin.com/screens/d03568f8-2df6-48b8-9896-874d11c8a7ce"
+   },
+   {
+    "id": "043d9866-d11c-4729-a54e-c86c1b84e3d4",
+    "app": "Squarespace",
+    "image_url": "https://mobbin.com/api/mcp/short/U2hDRUwV",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_15d0db6c7fbc.jpg",
+    "mobbin_url": "https://mobbin.com/screens/043d9866-d11c-4729-a54e-c86c1b84e3d4"
+   },
+   {
+    "id": "c9518646-c846-44b0-8667-c44c6fd9ac5d",
+    "app": "Biosites",
+    "image_url": "https://mobbin.com/api/mcp/short/0M1qA7gy",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_023a34003e2c.jpg",
+    "mobbin_url": "https://mobbin.com/screens/c9518646-c846-44b0-8667-c44c6fd9ac5d"
+   },
+   {
+    "id": "a316a13a-86d7-40ec-9d81-a2d467bcc444",
+    "app": "Podia",
+    "image_url": "https://mobbin.com/api/mcp/short/MUOnGkee",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_b5151f9832f1.jpg",
+    "mobbin_url": "https://mobbin.com/screens/a316a13a-86d7-40ec-9d81-a2d467bcc444"
+   },
+   {
+    "id": "e8c9d329-97d8-4b04-aa1c-843d6912c117",
+    "app": "Teachable",
+    "image_url": "https://mobbin.com/api/mcp/short/tEJAya9r",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_fb9aa9ff4aba.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e8c9d329-97d8-4b04-aa1c-843d6912c117"
+   }
+  ]
+ },
+ {
+  "angle": "content_forms",
+  "query": "CMS collection item editor form for a blog post",
+  "screens": [
+   {
+    "id": "e5540745-d1f5-4e2d-a407-411595342ae1",
+    "app": "Kajabi",
+    "image_url": "https://mobbin.com/api/mcp/short/82SzXidE",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_89be95bc93e8.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e5540745-d1f5-4e2d-a407-411595342ae1"
+   },
+   {
+    "id": "52781f20-57a5-4d5a-9160-9a32b1f0ce70",
+    "app": "beehiiv",
+    "image_url": "https://mobbin.com/api/mcp/short/ZOjLyZ6P",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_418bc748b4d9.jpg",
+    "mobbin_url": "https://mobbin.com/screens/52781f20-57a5-4d5a-9160-9a32b1f0ce70"
+   },
+   {
+    "id": "f0c4bd12-a5aa-4a90-a3a2-235d585357a3",
+    "app": "GoDaddy",
+    "image_url": "https://mobbin.com/api/mcp/short/6t16hv1J",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_24f84645cf5c.jpg",
+    "mobbin_url": "https://mobbin.com/screens/f0c4bd12-a5aa-4a90-a3a2-235d585357a3"
+   },
+   {
+    "id": "70a366db-4a9a-4821-83ce-5b3145bd9589",
+    "app": "Uvodo",
+    "image_url": "https://mobbin.com/api/mcp/short/98gaBFLQ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_480da4ece9dd.jpg",
+    "mobbin_url": "https://mobbin.com/screens/70a366db-4a9a-4821-83ce-5b3145bd9589"
+   },
+   {
+    "id": "b0d4c84b-d693-4ec1-8181-66ca3ead1c8c",
+    "app": "Podia",
+    "image_url": "https://mobbin.com/api/mcp/short/h8sFVTbl",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_7c24acf41154.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b0d4c84b-d693-4ec1-8181-66ca3ead1c8c"
+   },
+   {
+    "id": "cf4c6d09-c61d-44ad-a010-c01ff9f01676",
+    "app": "Front",
+    "image_url": "https://mobbin.com/api/mcp/short/sy9uZ8KW",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d9076194e19f.jpg",
+    "mobbin_url": "https://mobbin.com/screens/cf4c6d09-c61d-44ad-a010-c01ff9f01676"
+   }
+  ]
+ },
+ {
+  "angle": "publish",
+  "query": "website builder publish dialog showing changes before going live",
+  "screens": [
+   {
+    "id": "ffab5d4d-65c1-420f-befc-05fd2e9bb2de",
+    "app": "Lovable",
+    "image_url": "https://mobbin.com/api/mcp/short/yz91gGxe",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_14b131544397.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ffab5d4d-65c1-420f-befc-05fd2e9bb2de"
+   },
+   {
+    "id": "e9b110da-714c-4861-82c9-45a510abbb7d",
+    "app": "Ferndesk",
+    "image_url": "https://mobbin.com/api/mcp/short/82IRiotD",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_968b42b22954.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e9b110da-714c-4861-82c9-45a510abbb7d"
+   },
+   {
+    "id": "56371ade-be8a-45d7-89a2-b1a3a7ca7db0",
+    "app": "Vercel",
+    "image_url": "https://mobbin.com/api/mcp/short/Lzrc964l",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_48195d0272fb.jpg",
+    "mobbin_url": "https://mobbin.com/screens/56371ade-be8a-45d7-89a2-b1a3a7ca7db0"
+   },
+   {
+    "id": "5f8324b9-1e1f-4118-b0fb-f575d9b70848",
+    "app": "Vapi",
+    "image_url": "https://mobbin.com/api/mcp/short/MOzjIW0F",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_320d2248980e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/5f8324b9-1e1f-4118-b0fb-f575d9b70848"
+   },
+   {
+    "id": "ff16450b-9de9-4c60-8738-770be8df0a5c",
+    "app": "ElevenLabs",
+    "image_url": "https://mobbin.com/api/mcp/short/GWN8p3dp",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_0c8ecc85ba8a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ff16450b-9de9-4c60-8738-770be8df0a5c"
+   },
+   {
+    "id": "01d05d14-db28-4bfb-80d0-3dc6d2ed68e3",
+    "app": "Maze",
+    "image_url": "https://mobbin.com/api/mcp/short/FM3MOxrH",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_4ceefb426070.jpg",
+    "mobbin_url": "https://mobbin.com/screens/01d05d14-db28-4bfb-80d0-3dc6d2ed68e3"
+   }
+  ]
+ },
+ {
+  "angle": "project_home",
+  "query": "design tool home screen with recent projects grid",
+  "screens": [
+   {
+    "id": "41148519-a75e-4cd7-b8b2-726771086607",
+    "app": "Figma",
+    "image_url": "https://mobbin.com/api/mcp/short/5FM7RGy6",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d8ecacecf723.jpg",
+    "mobbin_url": "https://mobbin.com/screens/41148519-a75e-4cd7-b8b2-726771086607"
+   },
+   {
+    "id": "77bb103c-dca2-4181-b1b3-a60d7cd0f96b",
+    "app": "MagicPath",
+    "image_url": "https://mobbin.com/api/mcp/short/1FM3ROWk",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_af1af138341e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/77bb103c-dca2-4181-b1b3-a60d7cd0f96b"
+   },
+   {
+    "id": "d60d997d-1815-490c-9033-7cfa02fabe23",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/JKXIjvLd",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_f467a3fd6178.jpg",
+    "mobbin_url": "https://mobbin.com/screens/d60d997d-1815-490c-9033-7cfa02fabe23"
+   },
+   {
+    "id": "ea11b53d-998a-4a3d-b750-f5f289253833",
+    "app": "Descript",
+    "image_url": "https://mobbin.com/api/mcp/short/Uqii3fC7",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_b2cef5dcf53a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ea11b53d-998a-4a3d-b750-f5f289253833"
+   },
+   {
+    "id": "29b3592c-bd47-499b-966c-75f6b50d8352",
+    "app": "Jitter",
+    "image_url": "https://mobbin.com/api/mcp/short/r6vq4T7a",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_9091750828f6.jpg",
+    "mobbin_url": "https://mobbin.com/screens/29b3592c-bd47-499b-966c-75f6b50d8352"
+   },
+   {
+    "id": "8d2dd836-86bf-4b3a-ab5d-7a78b12af667",
+    "app": "Relume",
+    "image_url": "https://mobbin.com/api/mcp/short/trFvFub7",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d4a4cacf460a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/8d2dd836-86bf-4b3a-ab5d-7a78b12af667"
+   }
+  ]
+ },
+ {
+  "angle": "command_palette",
+  "query": "command palette search menu",
+  "screens": [
+   {
+    "id": "593d7acd-2e16-4365-bcd6-02ce52f48f3b",
+    "app": "Vapi",
+    "image_url": "https://mobbin.com/api/mcp/short/pndpehi1",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_2f665178992e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/593d7acd-2e16-4365-bcd6-02ce52f48f3b"
+   },
+   {
+    "id": "c65971cf-c4ea-45e9-99a5-555930cb5d73",
+    "app": "Navattic",
+    "image_url": "https://mobbin.com/api/mcp/short/2MyTrLbm",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_276e4bfd17b8.jpg",
+    "mobbin_url": "https://mobbin.com/screens/c65971cf-c4ea-45e9-99a5-555930cb5d73"
+   },
+   {
+    "id": "ff52ac90-4d18-4765-98da-df1e362a5ee1",
+    "app": "Fey",
+    "image_url": "https://mobbin.com/api/mcp/short/aHnKlsTA",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d88ca7fc5111.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ff52ac90-4d18-4765-98da-df1e362a5ee1"
+   },
+   {
+    "id": "9bfad190-392c-4ad0-ba1b-6475cd1bd0d8",
+    "app": "Replit",
+    "image_url": "https://mobbin.com/api/mcp/short/1fo84Nx6",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_1eb3274a401b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/9bfad190-392c-4ad0-ba1b-6475cd1bd0d8"
+   },
+   {
+    "id": "9b4725f5-e038-4fc7-98ad-64a59f74b4d7",
+    "app": "Supabase",
+    "image_url": "https://mobbin.com/api/mcp/short/L5NdwT4P",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_2261855a0257.jpg",
+    "mobbin_url": "https://mobbin.com/screens/9b4725f5-e038-4fc7-98ad-64a59f74b4d7"
+   },
+   {
+    "id": "675ecfd2-b7fc-4e8d-9078-3eeeaddda7c7",
+    "app": "Base44",
+    "image_url": "https://mobbin.com/api/mcp/short/MPlw7bnF",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_99d56ebda63c.jpg",
+    "mobbin_url": "https://mobbin.com/screens/675ecfd2-b7fc-4e8d-9078-3eeeaddda7c7"
+   }
+  ]
+ },
+ {
+  "angle": "conflict_dialogs",
+  "query": "unsaved changes or edit conflict warning dialog",
+  "screens": [
+   {
+    "id": "36cbbac6-42aa-415a-9f8f-72b60cc19c40",
+    "app": "Lindy",
+    "image_url": "https://mobbin.com/api/mcp/short/QJLy5AmT",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_789f728be828.jpg",
+    "mobbin_url": "https://mobbin.com/screens/36cbbac6-42aa-415a-9f8f-72b60cc19c40"
+   },
+   {
+    "id": "9825b5a3-da36-4ae9-8a15-7c9d78f08f1b",
+    "app": "Squarespace",
+    "image_url": "https://mobbin.com/api/mcp/short/CKClmWKw",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_22bd0d3ca721.jpg",
+    "mobbin_url": "https://mobbin.com/screens/9825b5a3-da36-4ae9-8a15-7c9d78f08f1b"
+   },
+   {
+    "id": "25eb3dc6-8fb5-4b98-a213-7503d661e8ab",
+    "app": "Customer.io",
+    "image_url": "https://mobbin.com/api/mcp/short/pAIGqTmB",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_5969002c77bb.jpg",
+    "mobbin_url": "https://mobbin.com/screens/25eb3dc6-8fb5-4b98-a213-7503d661e8ab"
+   },
+   {
+    "id": "27ee1460-45f9-4307-a0f3-da5ce1b4a250",
+    "app": "OpenAI Platform",
+    "image_url": "https://mobbin.com/api/mcp/short/EZZCB42p",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a12c395af6f9.jpg",
+    "mobbin_url": "https://mobbin.com/screens/27ee1460-45f9-4307-a0f3-da5ce1b4a250"
+   },
+   {
+    "id": "ff8c986b-e12e-4bee-8b31-53740c045b5f",
+    "app": "Salesforce",
+    "image_url": "https://mobbin.com/api/mcp/short/RDHLiHcb",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_47ec46dc5f1f.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ff8c986b-e12e-4bee-8b31-53740c045b5f"
+   },
+   {
+    "id": "7f85ac6c-42a5-4440-8ea9-0b2bbcb902ea",
+    "app": "Replit",
+    "image_url": "https://mobbin.com/api/mcp/short/qeOuzJDs",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_73efb8fba914.jpg",
+    "mobbin_url": "https://mobbin.com/screens/7f85ac6c-42a5-4440-8ea9-0b2bbcb902ea"
+   }
+  ]
+ },
+ {
+  "angle": "quality_report",
+  "query": "website performance and accessibility audit report with scores and issues list",
+  "screens": [
+   {
+    "id": "91e4caa2-3908-478a-92e5-50ed9843795d",
+    "app": "Lovable",
+    "image_url": "https://mobbin.com/api/mcp/short/zSsCSI8V",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d6421f743e83.jpg",
+    "mobbin_url": "https://mobbin.com/screens/91e4caa2-3908-478a-92e5-50ed9843795d"
+   },
+   {
+    "id": "2b10b36e-e9ce-424a-b603-e85f59bfbd07",
+    "app": "Semrush",
+    "image_url": "https://mobbin.com/api/mcp/short/EnGgvGP9",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_4e689ca6a431.jpg",
+    "mobbin_url": "https://mobbin.com/screens/2b10b36e-e9ce-424a-b603-e85f59bfbd07"
+   },
+   {
+    "id": "87c9a97b-b15d-459a-b30a-dfc2383d42e8",
+    "app": "Visitors",
+    "image_url": "https://mobbin.com/api/mcp/short/ZYLIooSc",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_83f820991f95.jpg",
+    "mobbin_url": "https://mobbin.com/screens/87c9a97b-b15d-459a-b30a-dfc2383d42e8"
+   },
+   {
+    "id": "f745335b-5517-4cbf-a0e3-f21cb23645a2",
+    "app": "Profound",
+    "image_url": "https://mobbin.com/api/mcp/short/AXpdrEhZ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_8e4c94f9a0b6.jpg",
+    "mobbin_url": "https://mobbin.com/screens/f745335b-5517-4cbf-a0e3-f21cb23645a2"
+   },
+   {
+    "id": "8dc7d225-2bcc-463d-a833-c94787a4c1e6",
+    "app": "Sentry",
+    "image_url": "https://mobbin.com/api/mcp/short/5eKC79be",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_ad83401ebcdc.jpg",
+    "mobbin_url": "https://mobbin.com/screens/8dc7d225-2bcc-463d-a833-c94787a4c1e6"
+   },
+   {
+    "id": "e410bcaf-02f3-4c4c-ae00-0e99c82a2d67",
+    "app": "Wix",
+    "image_url": "https://mobbin.com/api/mcp/short/Cpi1Twbm",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_57f7e4393e70.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e410bcaf-02f3-4c4c-ae00-0e99c82a2d67"
+   }
+  ]
+ },
+ {
+  "angle": "agent_connect",
+  "query": "connect AI coding agent integration setup screen with MCP instructions",
+  "screens": [
+   {
+    "id": "7b23e95a-7215-4db8-8d84-58ac039ab68d",
+    "app": "Mintlify",
+    "image_url": "https://mobbin.com/api/mcp/short/M5N9FFES",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_da043d12c262.jpg",
+    "mobbin_url": "https://mobbin.com/screens/7b23e95a-7215-4db8-8d84-58ac039ab68d"
+   },
+   {
+    "id": "b568ca14-4814-436f-878d-85a4e4282108",
+    "app": "Greptile",
+    "image_url": "https://mobbin.com/api/mcp/short/o1etOkQf",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a47aa29ded99.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b568ca14-4814-436f-878d-85a4e4282108"
+   },
+   {
+    "id": "b2434437-426e-4845-9c4a-132ca940cf07",
+    "app": "Customer.io",
+    "image_url": "https://mobbin.com/api/mcp/short/ANOl4lM5",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_25746e25415b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b2434437-426e-4845-9c4a-132ca940cf07"
+   },
+   {
+    "id": "6c752779-eef2-4420-a780-18d568dce6db",
+    "app": "Magnific",
+    "image_url": "https://mobbin.com/api/mcp/short/AIC18ZOT",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_e52cee8e395c.jpg",
+    "mobbin_url": "https://mobbin.com/screens/6c752779-eef2-4420-a780-18d568dce6db"
+   },
+   {
+    "id": "d6205dc6-60f5-429f-824d-906c1f5751c5",
+    "app": "Vercel",
+    "image_url": "https://mobbin.com/api/mcp/short/GiGLuBdJ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_6691a3ee4c7a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/d6205dc6-60f5-429f-824d-906c1f5751c5"
+   },
+   {
+    "id": "311b0ba2-0de8-4297-84ed-2aab2e80ae98",
+    "app": "Stripe",
+    "image_url": "https://mobbin.com/api/mcp/short/70EpeAjO",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_e19249fcc242.jpg",
+    "mobbin_url": "https://mobbin.com/screens/311b0ba2-0de8-4297-84ed-2aab2e80ae98"
+   }
+  ]
+ },
+ {
+  "angle": "agent_progress",
+  "query": "AI agent working on a task showing step by step progress and tool activity",
+  "screens": [
+   {
+    "id": "9f4affd5-f387-4149-860e-95c83f9bbba5",
+    "app": "Lindy",
+    "image_url": "https://mobbin.com/api/mcp/short/XhvINgtH",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_5537098231ba.jpg",
+    "mobbin_url": "https://mobbin.com/screens/9f4affd5-f387-4149-860e-95c83f9bbba5"
+   },
+   {
+    "id": "3e1f7e34-d1c6-4a97-8bf5-1db52f4d068c",
+    "app": "n8n",
+    "image_url": "https://mobbin.com/api/mcp/short/Uxnnp0nh",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_7bf3ef570021.jpg",
+    "mobbin_url": "https://mobbin.com/screens/3e1f7e34-d1c6-4a97-8bf5-1db52f4d068c"
+   },
+   {
+    "id": "617adb90-a178-4dcf-a630-391cecb6a71b",
+    "app": "Copy.ai",
+    "image_url": "https://mobbin.com/api/mcp/short/OAla3Ha3",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_fee85afb04af.jpg",
+    "mobbin_url": "https://mobbin.com/screens/617adb90-a178-4dcf-a630-391cecb6a71b"
+   },
+   {
+    "id": "43db2aad-dd74-4563-a900-73b0b211c2a3",
+    "app": "HubSpot",
+    "image_url": "https://mobbin.com/api/mcp/short/LVl2pT9s",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_57a2c646774b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/43db2aad-dd74-4563-a900-73b0b211c2a3"
+   },
+   {
+    "id": "e71c94d2-c657-447b-9d40-4acbb69b9056",
+    "app": "Apollo",
+    "image_url": "https://mobbin.com/api/mcp/short/YEpX9iV4",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a36f7ded8582.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e71c94d2-c657-447b-9d40-4acbb69b9056"
+   },
+   {
+    "id": "4bac37a2-a798-42af-951f-ce08425ff5ad",
+    "app": "Gumloop",
+    "image_url": "https://mobbin.com/api/mcp/short/8iAlLIvV",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_27ab3caaf39b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/4bac37a2-a798-42af-951f-ce08425ff5ad"
+   }
+  ]
+ },
+ {
+  "angle": "compact_editor_weak",
+  "query": "design editor app on a small screen with bottom toolbar and properties sheet",
+  "screens": [
+   {
+    "id": "4d19830b-583c-43ab-8378-d6e09558db5a",
+    "app": "Play",
+    "image_url": "https://mobbin.com/api/mcp/short/La3mSw2m",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_8bfd49fc2b65.jpg",
+    "mobbin_url": "https://mobbin.com/screens/4d19830b-583c-43ab-8378-d6e09558db5a"
+   },
+   {
+    "id": "9525e22e-a29a-4913-bd2b-40440046506b",
+    "app": "Craft",
+    "image_url": "https://mobbin.com/api/mcp/short/2pXeMV11",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_40be85e20513.jpg",
+    "mobbin_url": "https://mobbin.com/screens/9525e22e-a29a-4913-bd2b-40440046506b"
+   },
+   {
+    "id": "3a795edb-c8ae-4277-9fe1-cd7fa67d8515",
+    "app": "Linktree",
+    "image_url": "https://mobbin.com/api/mcp/short/JI1cTuwS",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_048e2ad84429.jpg",
+    "mobbin_url": "https://mobbin.com/screens/3a795edb-c8ae-4277-9fe1-cd7fa67d8515"
+   },
+   {
+    "id": "cffc33b7-eb53-4e9c-9482-91bdd0922665",
+    "app": "ChatGPT",
+    "image_url": "https://mobbin.com/api/mcp/short/iZgLRTMK",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a759063f17ee.jpg",
+    "mobbin_url": "https://mobbin.com/screens/cffc33b7-eb53-4e9c-9482-91bdd0922665"
+   }
+  ]
+ },
+ {
+  "angle": "craft_linear",
+  "query": "Linear issue detail view",
+  "screens": [
+   {
+    "id": "cef36326-d8ec-4c6f-acd4-a9f1e1060d33",
+    "app": "Linear",
+    "image_url": "https://mobbin.com/api/mcp/short/A4yHPYjA",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d63c65e4c3b8.jpg",
+    "mobbin_url": "https://mobbin.com/screens/cef36326-d8ec-4c6f-acd4-a9f1e1060d33"
+   },
+   {
+    "id": "16e4d0c7-bf36-4daa-98f5-d3d31882cfec",
+    "app": "Linear",
+    "image_url": "https://mobbin.com/api/mcp/short/IQa6dcjs",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_9190f1e7a451.jpg",
+    "mobbin_url": "https://mobbin.com/screens/16e4d0c7-bf36-4daa-98f5-d3d31882cfec"
+   },
+   {
+    "id": "953e88d0-de6c-4eaf-9921-cd0c55bb8412",
+    "app": "Linear",
+    "image_url": "https://mobbin.com/api/mcp/short/gnd5jvAa",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_c381284a3a58.jpg",
+    "mobbin_url": "https://mobbin.com/screens/953e88d0-de6c-4eaf-9921-cd0c55bb8412"
+   },
+   {
+    "id": "beb9d6b3-ec34-46d7-9332-320fcb32a338",
+    "app": "Linear",
+    "image_url": "https://mobbin.com/api/mcp/short/WbRHx2bf",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_bbee42a247e5.jpg",
+    "mobbin_url": "https://mobbin.com/screens/beb9d6b3-ec34-46d7-9332-320fcb32a338"
+   },
+   {
+    "id": "00bd911e-49f4-4e9c-998b-5f6ac25c0dfb",
+    "app": "Linear",
+    "image_url": "https://mobbin.com/api/mcp/short/VlXqXUUY",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_d5c7922ddfd6.jpg",
+    "mobbin_url": "https://mobbin.com/screens/00bd911e-49f4-4e9c-998b-5f6ac25c0dfb"
+   },
+   {
+    "id": "136da279-adbd-4b9f-9f50-4034c458a851",
+    "app": "Linear",
+    "image_url": "https://mobbin.com/api/mcp/short/idmG4jwe",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_45f201692eaf.jpg",
+    "mobbin_url": "https://mobbin.com/screens/136da279-adbd-4b9f-9f50-4034c458a851"
+   }
+  ]
+ },
+ {
+  "angle": "compact_editor_canva_ios",
+  "query": "Canva design editor (iOS)",
+  "screens": [
+   {
+    "id": "a7d2e8f9-cf06-4b76-bd09-50d1a2315114",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/aKfinqG3",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_509596b2b893.jpg",
+    "mobbin_url": "https://mobbin.com/screens/a7d2e8f9-cf06-4b76-bd09-50d1a2315114"
+   },
+   {
+    "id": "e84f88d0-8ba7-4f37-a60e-2f97994ee6b4",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/kWMQNu94",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_c86ef95a48e9.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e84f88d0-8ba7-4f37-a60e-2f97994ee6b4"
+   },
+   {
+    "id": "570321fe-c277-46c2-a54d-7497bf3861cf",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/Lu0yKfvK",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_dc1eafbf3831.jpg",
+    "mobbin_url": "https://mobbin.com/screens/570321fe-c277-46c2-a54d-7497bf3861cf"
+   },
+   {
+    "id": "b6a1f743-ffeb-4064-8eb4-cb25d88f3058",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/QJwWUm0S",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_f92db5615d6e.jpg",
+    "mobbin_url": "https://mobbin.com/screens/b6a1f743-ffeb-4064-8eb4-cb25d88f3058"
+   },
+   {
+    "id": "6d5edce8-0408-4636-b74a-03c7f8f5f7d4",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/nZE3Sa5J",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_6c4ad6f6170a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/6d5edce8-0408-4636-b74a-03c7f8f5f7d4"
+   },
+   {
+    "id": "55a82524-ba78-49e4-8bdd-2fc4dfd376e2",
+    "app": "Canva",
+    "image_url": "https://mobbin.com/api/mcp/short/wAMkkDPJ",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_ff653fb39e6a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/55a82524-ba78-49e4-8bdd-2fc4dfd376e2"
+   }
+  ]
+ },
+ {
+  "angle": "framer_focus",
+  "query": "Framer editor with left panel collapsed and focused canvas",
+  "screens": [
+   {
+    "id": "234c2dd7-b09f-4ec5-aebd-7ca95472a769",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/nk8Hiwu9",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_fcfc71042113.jpg",
+    "mobbin_url": "https://mobbin.com/screens/234c2dd7-b09f-4ec5-aebd-7ca95472a769"
+   },
+   {
+    "id": "e9b2a738-c4cb-4bc2-a31f-b2e4086374a3",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/iGGyAkaX",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_87289e468310.jpg",
+    "mobbin_url": "https://mobbin.com/screens/e9b2a738-c4cb-4bc2-a31f-b2e4086374a3"
+   },
+   {
+    "id": "ee4b2620-4a2b-4e5a-b506-bb8a07337151",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/WaZ45Ngm",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_a2b232edfe2b.jpg",
+    "mobbin_url": "https://mobbin.com/screens/ee4b2620-4a2b-4e5a-b506-bb8a07337151"
+   },
+   {
+    "id": "6914441d-d1f6-458a-9db3-3f6cc7907fe2",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/iqviByhc",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_f5d9bd9b25c5.jpg",
+    "mobbin_url": "https://mobbin.com/screens/6914441d-d1f6-458a-9db3-3f6cc7907fe2"
+   },
+   {
+    "id": "01523d7d-bc80-4453-a823-65ee3f19b454",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/WUeA6Kdf",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_00cc91debf4a.jpg",
+    "mobbin_url": "https://mobbin.com/screens/01523d7d-bc80-4453-a823-65ee3f19b454"
+   },
+   {
+    "id": "d3849017-c706-4107-aef0-08b55493696e",
+    "app": "Framer",
+    "image_url": "https://mobbin.com/api/mcp/short/BHwUmCoV",
+    "preview": "/Users/habibi/.hermes/profiles/claudia/cache/images/img_e1e884264efe.jpg",
+    "mobbin_url": "https://mobbin.com/screens/d3849017-c706-4107-aef0-08b55493696e"
+   }
+  ]
+ }
+]

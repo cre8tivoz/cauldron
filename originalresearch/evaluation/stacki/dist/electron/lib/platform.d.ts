@@ -1,0 +1,12 @@
+type Platform = NodeJS.Platform;
+type Environment = Readonly<Record<string, string | undefined>>;
+export declare function comparablePath(value: string, platform?: Platform): string;
+export declare function sameFilesystemPath(first: string, second: string, platform?: Platform): boolean;
+export declare function isPathWithin(root: string, candidate: string, platform?: Platform): boolean;
+export declare function isPathDescendant(root: string, candidate: string, platform?: Platform): boolean;
+export declare function pathEnvironmentValue(environment: Environment, platform?: Platform): string;
+export declare function setPathEnvironment(environment: Record<string, string | undefined>, value: string, platform?: Platform): void;
+export declare function mergeToolPaths(current: string, candidates: readonly string[], platform?: Platform): string;
+export declare function commandNeedsShell(command: string, platform?: Platform): boolean;
+export declare function staticToolPathGuesses(home: string, environment: Environment, platform?: Platform): readonly string[];
+export {};

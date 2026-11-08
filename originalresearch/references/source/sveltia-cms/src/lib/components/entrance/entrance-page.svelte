@@ -1,0 +1,173 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import { Progressbar } from '@sveltia/ui';
+
+  import SignIn from '$lib/components/entrance/sign-in.svelte';
+  import { appLogoURL, appTitle, DEFAULT_APP_TITLE } from '$lib/services/app/branding';
+  import { missingBrowserFeatures } from '$lib/services/app/browser-support';
+  import { announcedPageStatus } from '$lib/services/app/navigation';
+  import { inAuthPopup } from '$lib/services/backends/git/shared/auth';
+  import { cmsConfig, cmsConfigErrors, cmsConfigLoaded } from '$lib/services/config';
+  import { dataLoaded, dataLoadedProgress } from '$lib/services/contents';
+  import { user } from '$lib/services/user/account.svelte';
+  import { auth } from '$lib/services/user/auth.svelte';
+  import { prefs, prefsError } from '$lib/services/user/prefs.svelte';
+  import { sanitizeInlineMarkdown } from '$lib/services/utils/string';
+
+  const unsupportedBrowser = $derived(!!missingBrowserFeatures.current.length);
+  const dataFetchError = $derived(
+    !!auth.signInError.message && auth.signInError.context === 'dataFetch',
+  );
+
+  $effect(() => {
+    if (cmsConfigLoaded.current) {
+      announcedPageStatus.current = _('welcome_message', { values: { name: appTitle.current } });
+    }
+  });
+</script>
+
+{#snippet parseMarkdown(/** @type {string} */ str)}
+  {@html sanitizeInlineMarkdown(str, { allowedTags: ['a', 'code'] })}
+{/snippet}
+
+<div role="none" class="container">
+  <div role="none" class="inner">
+    <!-- An unsupported browser doesn’t load the configuration, so it gets the default branding -->
+    {#if cmsConfigLoaded.current || unsupportedBrowser}
+      <img src={appLogoURL.current} alt="" class="logo" />
+      <h1>{appTitle.current}</h1>
+    {/if}
+    {#if unsupportedBrowser}
+      <div role="alert" class="message">{_('unsupported_browser_error')}</div>
+    {:else if cmsConfigErrors.current.length}
+      <div role="alert" class="message">
+        <div role="none">
+          {_('config.errors', { values: { count: cmsConfigErrors.current.length } })}
+        </div>
+        <ul class="error">
+          {#each cmsConfigErrors.current as error (error)}
+            <li>
+              {@render parseMarkdown(error)}
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {:else if prefsError.current}
+      <div role="alert" class="message">
+        {_(`prefs.error.${prefsError.current.type}`)}
+      </div>
+    {:else if !cmsConfig.current || !Object.keys(prefs).length}
+      <div role="alert" class="message">{_('loading_cms_config')}</div>
+    {:else if dataFetchError || (!inAuthPopup.current && (!user.account || auth.unauthenticated))}
+      <!--
+        One branch for both cases, so that the sign-in form isn’t mounted again — which would start
+        an automatic sign-in — when a manual sign-in clears the data loading error
+      -->
+      {#if dataFetchError}
+        <div role="alert">
+          <div role="none" class="message">{_('loading_site_data_error')}</div>
+          <div role="none" class="error">
+            {@render parseMarkdown(auth.signInError.message)}
+          </div>
+        </div>
+      {/if}
+      <SignIn />
+    {:else if inAuthPopup.current}
+      <div role="alert" class="message">{_('authorizing')}</div>
+    {:else if !dataLoaded.current}
+      <div role="alert" class="message">{_('loading_site_data')}</div>
+      {#if dataLoadedProgress.current !== undefined}
+        <Progressbar now={dataLoadedProgress.current} />
+      {/if}
+    {/if}
+  </div>
+</div>
+
+{#if cmsConfigLoaded.current && appTitle.current !== DEFAULT_APP_TITLE}
+  <div role="none" class="powered-by">
+    {_('powered_by', { values: { name: DEFAULT_APP_TITLE } })}
+  </div>
+{/if}
+
+<style>
+  .container {
+    position: absolute;
+    inset: 0;
+    z-index: 101;
+    flex: auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    padding: 32px;
+
+    .inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      min-width: 240px;
+      max-width: 800px;
+      min-height: 240px;
+    }
+
+    .logo {
+      width: auto;
+      height: 160px;
+
+      @media (width < 768px) {
+        height: 120px;
+      }
+    }
+
+    h1 {
+      font-size: 48px;
+    }
+
+    .logo ~ h1 {
+      font-size: var(--sui-font-size-xxx-large);
+    }
+
+    .error {
+      border-radius: var(--sui-control-medium-border-radius);
+      padding: 12px;
+      background-color: var(--sui-tertiary-background-color);
+      font-size: var(--sui-font-size-default);
+      text-align: center;
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+    }
+
+    :global {
+      /* `<SignIn>` also has `.message` */
+      .message {
+        margin: 0 0 16px;
+        font-size: var(--sui-font-size-large);
+        font-weight: var(--sui-font-weight-normal);
+        text-align: center;
+
+        ul {
+          margin: 12px 0 0;
+          padding: 0;
+          max-height: 160px;
+          overflow-y: auto;
+          list-style: none;
+        }
+
+        li {
+          margin: 12px;
+          padding: 0;
+        }
+      }
+    }
+  }
+
+  .powered-by {
+    position: absolute;
+    inset: auto 24px 24px;
+    color: var(--sui-tertiary-foreground-color);
+    font-size: var(--sui-font-size-small);
+    text-align: center;
+  }
+</style>

@@ -1,0 +1,104 @@
+/* The column guide over the preview (GuideOverlay.tsx). It fills the overlay
+   layer, which is the visible part of the page, so the columns stay put while
+   the page scrolls under them. Colour and opacity come from the guide's
+   settings, inline. */
+.guide-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.guide-column {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  /* The numbers keep a small gap above the bottom edge. */
+  padding-bottom: 0.6rem;
+}
+.guide-column-fill {
+  position: absolute;
+  inset: 0;
+}
+.guide-column-number {
+  position: relative;
+  font-family: var(--font);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Match the inactive device controls without adding a surrounding group rim. */
+.device-btns.guide-btns {
+  background: transparent;
+  border-radius: 6px;
+  padding: 0;
+}
+.device-btns.guide-btns button {
+  padding: 6px 10px;
+  border: 0;
+  background: var(--bg-input);
+}
+.device-btns.guide-btns button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-input);
+}
+/* The guide button is `.on` while the guide shows. The device group's
+   `.device-btns button.on` clears backgrounds at the same specificity as the
+   rule above, so which won depended on stylesheet order; this one always wins. */
+.device-btns.guide-btns button.on {
+  color: var(--text);
+  background: var(--bg-input);
+}
+.device-btns.guide-btns button[aria-pressed='true'],
+.device-btns.guide-btns button[aria-pressed='true']:hover:not(:disabled),
+.device-btns.guide-btns button[aria-expanded='true'],
+.device-btns.guide-btns button[aria-expanded='true']:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.18);
+}
+.device-btns.guide-btns button svg {
+  pointer-events: none;
+}
+
+/* The menu takes the panel's label column at its own width: the panel's
+   popovers narrow it for short labels, and "Max width" is not one. */
+.guide-menu {
+  --embed-editor_size-label-w: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* The switch keeps its own width inside the row's grid cell, so its knob
+   sits on its track. */
+.guide-menu .cms-toggle {
+  justify-self: start;
+}
+
+/* Over an icon, the browser looks for a tooltip on the icon and never reaches
+   its button's title. The menu's icons let the pointer through, so the
+   variable buttons show their tooltip wherever they are
+   hovered. */
+.guide-menu .embed-editor_icon-btn svg,
+.guide-menu .embed-editor_varconnect-dot svg {
+  pointer-events: none;
+}
+
+/* The note starts where the row labels' text does: they carry the label
+   pill's inner padding. No word is left alone on the last line. */
+.guide-menu .embed-editor_more-note {
+  padding-inline: var(--space-2);
+  text-wrap: pretty;
+}
+
+/* The guide's popover takes the side panels' colour, as part of the canvas
+   chrome, and its controls the panel's own surface steps (.u-surface-page):
+   the panel's grey at rest, one step lighter on hover. */
+.embed-editor_layer-popover-box:has(> .guide-menu) {
+  --surface-control: var(--color-bg-surface);
+  --surface-control-hover: var(--color-bg-surface-raised);
+  background: var(--bg-panel);
+}

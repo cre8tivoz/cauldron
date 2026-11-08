@@ -1,0 +1,798 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createCollectors } from '$lib/test/config-parser';
+
+// Mock @sveltia/i18n
+/** @type {Record<string, string>} */
+const mockI18nStrings = {
+  'config.error.file_format_mismatch': 'File format mismatch',
+  'config.error.missing_field_names': 'Missing field name at position {count}',
+  'config.error.invalid_field_names': 'Invalid field name: {name}',
+  'config.error.duplicate_field_names': 'Duplicate field name: {name}',
+  'config.error_locator.collection': 'Collection: {collection}',
+  'config.error_locator.file': 'File: {file}',
+  'config.error_locator.field': 'Field: {field}',
+  'config.error.duplicate_collection_file_names': 'Duplicate file name: {name}',
+  'config.error.collection_file_i18n_required': 'Collection file i18n required',
+};
+
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ strings: mockI18nStrings, locale: 'en-US' }),
+);
+
+const mockParseFields = vi.fn();
+
+vi.mock('$lib/services/config/parser/fields', () => ({
+  parseFields: mockParseFields,
+}));
+
+const mockIsFormatMismatch = vi.fn();
+const mockCheckBodyField = vi.fn();
+
+vi.mock('$lib/services/config/parser/collections/format', () => ({
+  checkBodyField: mockCheckBodyField,
+  isFormatMismatch: mockIsFormatMismatch,
+}));
+
+const mockAddMessage = vi.fn();
+const mockCheckName = vi.fn();
+
+vi.mock('$lib/services/config/parser/utils/validator', () => ({
+  addMessage: mockAddMessage,
+  checkName: mockCheckName,
+}));
+
+describe('Collection Files Parser', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockCheckName.mockReturnValue(true);
+  });
+
+  describe('parseCollectionFile', () => {
+    it('should error when the summary refers to a field the file doesn’t have', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'settings' },
+        collectionFile: {
+          name: 'general',
+          file: 'data/general.yml',
+          summary: '{{title}} {{theme}} {{locales}} {{colour}}',
+          fields: [{ name: 'theme', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledOnce();
+      expect(mockAddMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'option_field_not_found',
+          values: { option: 'summary', name: 'colour' },
+          context,
+        }),
+      );
+    });
+
+    it('should not check the summary of a file without fields', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'settings' },
+        collectionFile: { name: 'general', file: 'data/general.yml', summary: '{{theme}}' },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledOnce();
+      expect(mockAddMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ strKey: 'collection_file_no_fields' }),
+      );
+    });
+
+    it('should parse field configurations in a collection file', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.yaml',
+          format: 'yaml',
+          fields: [
+            { name: 'title', widget: 'string' },
+            { name: 'body', widget: 'text' },
+          ],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockParseFields).toHaveBeenCalledWith(
+        context.collectionFile.fields,
+        context,
+        collectors,
+      );
+    });
+
+    it('should check the body field with the file’s or the collection’s options', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+      const fields = [{ name: 'body', widget: 'object', fields: [] }];
+
+      /**
+       * Parse a collection file and get the `checkBodyField()` arguments.
+       * @param {any} collection Collection.
+       * @param {any} collectionFile Collection file.
+       * @returns {any} Arguments, without the context and collectors.
+       */
+      const parse = (collection, collectionFile) => {
+        mockCheckBodyField.mockClear();
+        parseCollectionFile(
+          {
+            cmsConfig: /** @type {any} */ ({}),
+            collection,
+            collectionFile: { fields, ...collectionFile },
+          },
+          collectors,
+        );
+
+        const [{ context: _context, collectors: _collectors, ...args }] =
+          mockCheckBodyField.mock.calls[0];
+
+        return args;
+      };
+
+      expect(
+        parse(
+          { name: 'pages', format: 'yaml-frontmatter', body_field: { key: 'body' } },
+          { name: 'about', file: 'content/about.html' },
+        ),
+      ).toEqual({
+        extension: 'html',
+        format: 'yaml-frontmatter',
+        bodyField: { key: 'body' },
+        fields,
+      });
+      expect(
+        parse(
+          { name: 'pages', body_field: { key: 'body' } },
+          { name: 'about', file: 'content/about.md', body_field: { inline: true } },
+        ),
+      ).toEqual({ extension: 'md', format: undefined, bodyField: { inline: true }, fields });
+    });
+
+    it('should check the template tags in the file’s folder options', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'pages' },
+        collectionFile: {
+          name: 'about',
+          file: 'content/about.md',
+          media_folder: '/static/{{locale}}',
+          fields: [{ name: 'title', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledWith({
+        strKey: 'unsupported_folder_template_tag',
+        values: { option: 'media_folder', tag: '{{locale}}' },
+        context,
+        collectors,
+      });
+    });
+
+    it('should use inherited format from collection if file format is not specified', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'json' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.json',
+          fields: [{ name: 'title', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      // isFormatMismatch should be called with extension 'json' and format 'json'
+      expect(mockIsFormatMismatch).toHaveBeenCalledWith('json', 'json', [
+        { name: 'title', widget: 'string' },
+      ]);
+    });
+
+    it('should detect format mismatch between file extension and format', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      mockIsFormatMismatch.mockReturnValue(true);
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.json',
+          format: 'yaml',
+          fields: [],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalled();
+
+      const callArgs = mockAddMessage.mock.calls[0][0];
+
+      expect(callArgs.strKey).toBe('file_format_mismatch');
+      expect(callArgs.values.extension).toBe('json');
+      expect(callArgs.values.format).toBe('yaml');
+    });
+
+    it('should add error when collection file has no fields', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.yaml',
+          format: 'yaml',
+          fields: [],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'collection_file_no_fields',
+        }),
+      );
+    });
+
+    it('should add error when collection file has undefined fields', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.yaml',
+          format: 'yaml',
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'collection_file_no_fields',
+        }),
+      );
+    });
+
+    it('should not add error when collection file has fields defined', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.yaml',
+          format: 'yaml',
+          fields: [{ name: 'title', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'collection_file_no_fields',
+        }),
+      );
+    });
+
+    it('should always parse fields regardless of format mismatch', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      mockIsFormatMismatch.mockReturnValue(true);
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.json',
+          format: 'yaml',
+          fields: [{ name: 'title', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockParseFields).toHaveBeenCalled();
+    });
+
+    it('should add error when {{locale}} placeholder is used without i18n', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/{{locale}}/index.yaml',
+          format: 'yaml',
+          fields: [{ name: 'title', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'collection_file_i18n_required',
+        }),
+      );
+    });
+
+    it('should warn when the file has the i18n option but the collection does not', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: { i18n: { locales: ['en', 'fr'] } },
+        collection: { name: 'settings', files: [] },
+        collectionFile: {
+          name: 'general',
+          file: 'content/settings/general.yaml',
+          fields: [{ name: 'title', widget: 'string' }],
+          i18n: true,
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'warning', strKey: 'i18n_not_configured' }),
+      );
+    });
+
+    it('should not add error when {{locale}} placeholder is used with i18n enabled', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/{{locale}}/index.yaml',
+          format: 'yaml',
+          fields: [{ name: 'title', widget: 'string' }],
+          i18n: { structure: 'single_file' },
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'collection_file_i18n_required',
+        }),
+      );
+    });
+
+    it('should not add error when {{locale}} placeholder is not used', async () => {
+      const { parseCollectionFile } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: { name: 'posts', format: 'yaml' },
+        collectionFile: {
+          name: 'post',
+          file: 'content/posts/index.yaml',
+          format: 'yaml',
+          fields: [{ name: 'title', widget: 'string' }],
+        },
+      };
+
+      parseCollectionFile(context, collectors);
+
+      expect(mockAddMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          strKey: 'collection_file_i18n_required',
+        }),
+      );
+    });
+
+    describe('locale placeholder with the default locale omitted from the file path', () => {
+      /**
+       * Parse a collection file with the given `file` path and i18n options.
+       * @param {object} args Arguments.
+       * @param {string} args.file File path.
+       * @param {Record<string, any>} [args.siteI18n] Site-level i18n options.
+       * @param {any} [args.collectionI18n] Collection-level `i18n` option.
+       * @param {any} [args.fileI18n] File-level `i18n` option.
+       * @param {string} [args.collectionName] Collection name.
+       * @returns {Promise<any>} Context passed to the parser.
+       */
+      const parse = async ({
+        file,
+        siteI18n = { locales: ['en', 'fr'], omit_default_locale_from_file_path: true },
+        collectionI18n = true,
+        fileI18n = true,
+        collectionName = 'settings',
+      }) => {
+        const { parseCollectionFile } = await import('.');
+
+        /** @type {any} */
+        const context = {
+          cmsConfig: { i18n: siteI18n },
+          collection: { name: collectionName, files: [], i18n: collectionI18n },
+          collectionFile: {
+            name: 'general',
+            file,
+            fields: [{ name: 'title', widget: 'string' }],
+            i18n: fileI18n,
+          },
+        };
+
+        parseCollectionFile(context, createCollectors());
+
+        return context;
+      };
+
+      it.each([
+        'i18n/{{locale}}.yaml',
+        'data/settings_{{locale}}.json',
+        'settings-{{locale}}.json',
+        '{{locale}}.md',
+        'data/.{{locale}}.json',
+        'content/about-{{locale}}/index.md',
+      ])('should add a warning for the unresolvable path %s', async (file) => {
+        const context = await parse({ file });
+
+        expect(mockAddMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'warning',
+            strKey: 'locale_not_omitted_from_file_path',
+            values: { file },
+            context,
+          }),
+        );
+      });
+
+      it.each([
+        'content/{{locale}}/about.md',
+        '{{locale}}/about.md',
+        'content/about.{{locale}}.md',
+        'data/{{locale}}.settings.json',
+        'content/about.{{locale}}',
+      ])('should not add a warning for the resolvable path %s', async (file) => {
+        await parse({ file });
+
+        expect(mockAddMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should not add a warning when the option is disabled', async () => {
+        await parse({ file: 'i18n/{{locale}}.yaml', siteI18n: { locales: ['en', 'fr'] } });
+
+        expect(mockAddMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should not add a warning when i18n is not enabled for the file', async () => {
+        await parse({ file: 'i18n/{{locale}}.yaml', fileI18n: false });
+
+        expect(mockAddMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should not add a warning without locales', async () => {
+        await parse({
+          file: 'i18n/{{locale}}.yaml',
+          siteI18n: { omit_default_locale_from_file_path: true },
+        });
+
+        expect(mockAddMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should add a warning when the option is enabled at the collection level', async () => {
+        await parse({
+          file: 'i18n/{{locale}}.yaml',
+          siteI18n: { locales: ['en', 'fr'] },
+          collectionI18n: { omit_default_locale_from_file_path: true },
+        });
+
+        expect(mockAddMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should add a warning when the option is enabled at the file level', async () => {
+        await parse({
+          file: 'i18n/{{locale}}.yaml',
+          siteI18n: { locales: ['en', 'fr'] },
+          fileI18n: { omit_default_locale_from_file_path: true },
+        });
+
+        expect(mockAddMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should not add a warning when the file level disables the option', async () => {
+        await parse({
+          file: 'i18n/{{locale}}.yaml',
+          fileI18n: { omit_default_locale_from_file_path: false },
+        });
+
+        expect(mockAddMessage).not.toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should add a warning when the deprecated alias enables the option', async () => {
+        await parse({
+          file: 'i18n/{{locale}}.yaml',
+          siteI18n: { locales: ['en', 'fr'], omit_default_locale_from_filename: true },
+        });
+
+        expect(mockAddMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+
+      it('should add a warning for a singleton file', async () => {
+        await parse({
+          file: 'i18n/{{locale}}.yaml',
+          collectionName: '_singletons',
+          collectionI18n: false,
+        });
+
+        expect(mockAddMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ strKey: 'locale_not_omitted_from_file_path' }),
+        );
+      });
+    });
+  });
+
+  describe('parseCollectionFiles', () => {
+    it('should parse multiple collection files', async () => {
+      const { parseCollectionFiles } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: {
+          name: 'posts',
+          format: 'yaml',
+          files: [
+            {
+              name: 'post1',
+              file: 'content/posts/index.yaml',
+              fields: [],
+            },
+            {
+              name: 'post2',
+              file: 'content/pages/about.yaml',
+              fields: [],
+            },
+          ],
+        },
+      };
+
+      parseCollectionFiles(context, collectors);
+
+      // checkName should be called for each non-divider file
+      expect(mockCheckName).toHaveBeenCalledTimes(2);
+    });
+
+    it('should skip divider entries', async () => {
+      const { parseCollectionFiles } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: {
+          name: 'posts',
+          format: 'yaml',
+          files: [
+            {
+              name: 'post1',
+              file: 'content/posts/index.yaml',
+              fields: [],
+            },
+            {
+              divider: true,
+            },
+            {
+              name: 'post2',
+              file: 'content/pages/about.yaml',
+              fields: [],
+            },
+          ],
+        },
+      };
+
+      parseCollectionFiles(context, collectors);
+
+      // checkName should only be called for non-divider files
+      expect(mockCheckName).toHaveBeenCalledTimes(2);
+
+      // Verify divider was skipped (not parsed)
+      expect(mockCheckName).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: undefined,
+        }),
+      );
+    });
+
+    it('should validate file names for duplicates', async () => {
+      const { parseCollectionFiles } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: {
+          name: 'posts',
+          format: 'yaml',
+          files: [
+            {
+              name: 'post',
+              file: 'content/posts/index.yaml',
+              fields: [],
+            },
+            {
+              name: 'post',
+              file: 'content/posts/duplicate.yaml',
+              fields: [],
+            },
+          ],
+        },
+      };
+
+      parseCollectionFiles(context, collectors);
+
+      expect(mockCheckName).toHaveBeenCalledTimes(2);
+
+      // The second call should return false due to duplicate
+      const secondCall = mockCheckName.mock.calls[1][0];
+
+      expect(secondCall.name).toBe('post');
+      expect(secondCall.index).toBe(1);
+    });
+
+    it('should skip parsing files when checkName returns false', async () => {
+      const { parseCollectionFiles } = await import('.');
+      const collectors = createCollectors();
+
+      mockCheckName.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: {
+          name: 'posts',
+          format: 'yaml',
+          files: [
+            {
+              name: 'post1',
+              file: 'content/posts/index.yaml',
+              fields: [{ name: 'title', widget: 'string' }],
+            },
+            {
+              name: 'post2',
+              file: 'content/posts/duplicate.yaml',
+              fields: [{ name: 'title', widget: 'string' }],
+            },
+          ],
+        },
+      };
+
+      parseCollectionFiles(context, collectors);
+
+      // First file should be parsed, second should not
+      // Check that fields were parsed only once
+      expect(mockParseFields).toHaveBeenCalledTimes(1);
+    });
+
+    it('should pass correct context to checkName including file info', async () => {
+      const { parseCollectionFiles } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: {
+          name: 'posts',
+          format: 'yaml',
+          files: [
+            {
+              name: 'my-file',
+              file: 'content/posts/index.yaml',
+              fields: [],
+            },
+          ],
+        },
+      };
+
+      parseCollectionFiles(context, collectors);
+
+      const callArgs = mockCheckName.mock.calls[0][0];
+
+      expect(callArgs.name).toBe('my-file');
+      expect(callArgs.index).toBe(0);
+      expect(callArgs.context.collection.name).toBe('posts');
+    });
+
+    it('should handle empty files array', async () => {
+      const { parseCollectionFiles } = await import('.');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        cmsConfig: {},
+        collection: {
+          name: 'posts',
+          format: 'yaml',
+          files: [],
+        },
+      };
+
+      parseCollectionFiles(context, collectors);
+
+      expect(mockCheckName).not.toHaveBeenCalled();
+    });
+  });
+});

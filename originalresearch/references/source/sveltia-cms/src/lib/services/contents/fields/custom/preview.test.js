@@ -1,0 +1,245 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { getImmutable } from '$lib/services/api/immutable';
+import { buildPreviewData } from '$lib/services/api/preview-data';
+import { customFieldTypeRegistry } from '$lib/services/api/registries';
+
+import { buildPreviewProps, getCustomFieldSummary } from './preview';
+
+vi.mock('$lib/services/api/preview-data', () => ({
+  convertEntryToMap: vi.fn(({ entry, locale, collectionName, content }) => ({
+    __mocked: true,
+    content: content ?? entry?.locales?.[locale]?.content ?? {},
+    path: entry?.locales?.[locale]?.path ?? '',
+    collectionName,
+    isNew: false,
+  })),
+  createEntryMap: vi.fn((args) => ({ ...args, __mocked: true })),
+  createGetAsset: vi.fn(() => vi.fn()),
+  getMetaData: vi.fn(() => ({ getIn: vi.fn(() => undefined) })),
+  // Drop the List item indices, naming the single subfield of the `tags` List field `tag`
+  getMetaDataPath: vi.fn(({ keyPath }) =>
+    keyPath === 'tags.0'
+      ? ['tags', 'tag']
+      : keyPath.split('.').filter((/** @type {string} */ segment) => !/^\d+$/.test(segment)),
+  ),
+  buildPreviewData: vi.fn(({ draft, locale }) => ({
+    entryMap: {
+      __mocked: true,
+      content: draft?.originalEntry?.locales?.[locale]?.content ?? {},
+      path: draft?.originalEntry?.locales?.[locale]?.path ?? '',
+      collectionName: draft?.collectionName ?? '',
+      isNew: false,
+    },
+    getFieldArgs: { collectionName: draft?.collectionName ?? '' },
+    fieldsMetaData: { getIn: vi.fn(() => undefined) },
+    getAsset: vi.fn(),
+  })),
+}));
+
+// The library is loaded from the CDN at runtime; hand the real module to the code under test
+vi.mock('$lib/services/api/immutable', async () => {
+  const immutable = /** @type {typeof import('immutable')} */ (await vi.importActual('immutable'));
+
+  return {
+    /**
+     * Get the preloaded Immutable module.
+     * @returns {typeof import('immutable')} Immutable module.
+     */
+    getImmutable: () => immutable,
+    loadImmutable: vi.fn(async () => immutable),
+    preloadImmutable: vi.fn(),
+    immutableLoaded: { current: true },
+  };
+});
+
+describe('contents/fields/custom/preview-helpers', () => {
+  it('returns undefined when the preview component or entry draft is missing', () => {
+    expect(
+      buildPreviewProps({
+        preview: undefined,
+        currentValue: 'value',
+        keyPath: 'title',
+        fieldConfig: { widget: 'custom', name: 'title' },
+        locale: 'en',
+        draft: /** @type {any} */ ({ originalEntry: {} }),
+      }),
+    ).toBeUndefined();
+
+    expect(
+      buildPreviewProps({
+        preview: vi.fn(),
+        currentValue: 'value',
+        keyPath: 'title',
+        fieldConfig: { widget: 'custom', name: 'title' },
+        locale: 'en',
+        draft: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('builds preview props from the draft entry context', () => {
+    const preview = vi.fn();
+
+    /** @type {any} */
+    const draft = {
+      originalEntry: {
+        slug: 'hello',
+        locales: {
+          en: { content: { title: 'Hello' }, path: 'content/hello.md' },
+          fr: { content: { title: 'Bonjour' }, path: 'content/bonjour.md' },
+        },
+      },
+      collectionName: 'posts',
+      fileName: 'index.md',
+      isIndexFile: false,
+      currentValues: { en: { title: 'Hello' } },
+      collectionFile: undefined,
+      collection: { _i18n: { defaultLocale: 'en', allLocales: ['en', 'fr'] } },
+    };
+
+    const props = buildPreviewProps({
+      preview,
+      currentValue: 'value',
+      keyPath: 'title',
+      fieldConfig: { widget: 'custom', name: 'title' },
+      locale: 'en',
+      draft,
+    });
+
+    expect(props).toBeDefined();
+    expect(props?.value).toBe('value');
+    expect(props?.field.get('widget')).toBe('custom');
+    expect(props?.entry).toMatchObject({ __mocked: true });
+    expect(props?.getAsset).toBeTypeOf('function');
+    expect(props?.fieldsMetaData).toBeDefined();
+  });
+
+  it('uses fallback values when locale metadata and field details are missing', () => {
+    const preview = vi.fn();
+
+    /** @type {any} */
+    const draft = {
+      originalEntry: {
+        slug: 'hello',
+        locales: {
+          _default: {},
+        },
+      },
+      collectionName: 'posts',
+      fileName: 'index.md',
+      isIndexFile: false,
+      currentValues: undefined,
+      collectionFile: undefined,
+      collection: undefined,
+    };
+
+    const props = buildPreviewProps({
+      preview,
+      currentValue: 'value',
+      keyPath: 'title',
+      fieldConfig: { widget: 'custom', name: 'title' },
+      locale: 'en',
+      draft,
+    });
+
+    expect(props?.field.get('widget')).toBe('custom');
+    expect(props?.entry).toMatchObject({
+      content: {},
+      path: '',
+      collectionName: 'posts',
+      isNew: false,
+    });
+    expect(props?.metadata).toBeDefined();
+  });
+
+  describe('looks up the metadata by the key path of the field', () => {
+    const fieldsMetaData = getImmutable().fromJS({
+      title: { authors: { alice: { name: 'Alice' } } },
+      details: { author: { authors: { bob: { name: 'Bob' } } } },
+      authors: { person: { authors: { carol: { name: 'Carol' } } } },
+      tags: { tag: { tags: { news: { label: 'News' } } } },
+    });
+
+    /** @type {any} */
+    const draft = { originalEntry: { locales: {} }, collectionName: 'posts' };
+
+    /**
+     * Build the preview props of a custom field with the given key path.
+     * @param {string} keyPath Key path of the field.
+     * @returns {any} Metadata of the field as a plain object.
+     */
+    const getMetadata = (keyPath) => {
+      vi.mocked(buildPreviewData).mockReturnValueOnce(
+        /** @type {any} */ ({ entryMap: {}, getFieldArgs: {}, fieldsMetaData, getAsset: vi.fn() }),
+      );
+
+      return buildPreviewProps({
+        preview: vi.fn(),
+        currentValue: 'value',
+        keyPath,
+        fieldConfig: { widget: 'custom', name: /** @type {string} */ (keyPath.split('.').pop()) },
+        // Use a new draft each time to bypass the preview data cache
+        draft: { ...draft },
+        locale: 'en',
+      })?.metadata.toJS();
+    };
+
+    it('at the top level', () => {
+      expect(getMetadata('title')).toEqual({ authors: { alice: { name: 'Alice' } } });
+    });
+
+    it('in an Object field', () => {
+      expect(getMetadata('details.author')).toEqual({ authors: { bob: { name: 'Bob' } } });
+    });
+
+    it('in a List item', () => {
+      expect(getMetadata('authors.1.person')).toEqual({ authors: { carol: { name: 'Carol' } } });
+    });
+
+    it('as the single subfield of a List field', () => {
+      expect(getMetadata('tags.0')).toEqual({ tags: { news: { label: 'News' } } });
+    });
+
+    it('with no metadata', () => {
+      expect(getMetadata('details.summary')).toEqual({});
+    });
+  });
+});
+
+describe('getCustomFieldSummary()', () => {
+  /**
+   * A custom field summary.
+   * @returns {null} Nothing.
+   */
+  const summary = () => null;
+  /**
+   * A custom field control.
+   * @returns {null} Nothing.
+   */
+  const control = () => null;
+
+  it('returns the summary component of a custom field type', () => {
+    // @ts-ignore
+    customFieldTypeRegistry.set('with-summary', { control, summary });
+
+    expect(getCustomFieldSummary({ name: 'photo', widget: 'with-summary' })).toBe(summary);
+
+    customFieldTypeRegistry.delete('with-summary');
+  });
+
+  it('returns undefined for a custom field type without a summary component', () => {
+    // @ts-ignore
+    customFieldTypeRegistry.set('without-summary', { control });
+
+    expect(getCustomFieldSummary({ name: 'photo', widget: 'without-summary' })).toBeUndefined();
+
+    customFieldTypeRegistry.delete('without-summary');
+  });
+
+  it('returns undefined for a built-in field type or a missing field', () => {
+    expect(getCustomFieldSummary({ name: 'title', widget: 'string' })).toBeUndefined();
+    expect(getCustomFieldSummary({ name: 'title' })).toBeUndefined();
+    expect(getCustomFieldSummary(undefined)).toBeUndefined();
+  });
+});

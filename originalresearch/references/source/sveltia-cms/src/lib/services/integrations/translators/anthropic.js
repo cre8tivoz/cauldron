@@ -1,0 +1,20 @@
+import * as ai from '$lib/services/integrations/ai/anthropic';
+
+import { createAiTranslationService } from './ai-translation.js';
+
+/**
+ * @import { TranslationService } from '$lib/types/private';
+ */
+
+/**
+ * Translation service using Anthropic Claude Haiku. Supports markdown content and preserves
+ * formatting.
+ * @type {TranslationService}
+ * @see https://docs.claude.com/en/docs/about-claude/models/overview
+ * @see https://docs.claude.com/en/api/messages
+ */
+export default createAiTranslationService({
+  ai,
+  model: 'claude-haiku-5-5',
+  extraOptions: { reasoning: 'none' },
+});

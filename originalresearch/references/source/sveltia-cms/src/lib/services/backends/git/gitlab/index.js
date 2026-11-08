@@ -1,0 +1,123 @@
+import { stripSlashes } from '@sveltia/utils/string';
+
+import { getTokenPageURL, signIn, signOut } from '$lib/services/backends/git/gitlab/auth';
+import {
+  commitChanges,
+  fetchFileCommits,
+  fetchLastCommit,
+} from '$lib/services/backends/git/gitlab/commits';
+import {
+  BACKEND_LABEL,
+  BACKEND_NAME,
+  DEFAULT_API_ROOT,
+  DEFAULT_AUTH_PATH,
+  DEFAULT_AUTH_ROOT,
+  DEFAULT_PKCE_AUTH_PATH,
+  DEFAULT_PKCE_AUTH_ROOT,
+} from '$lib/services/backends/git/gitlab/constants';
+import {
+  fetchBranchHeadSHA,
+  fetchDeployments,
+  triggerDeployment,
+} from '$lib/services/backends/git/gitlab/deployment';
+import { fetchBlob, fetchDirSHA, fetchFiles } from '$lib/services/backends/git/gitlab/files';
+import {
+  getBaseURLs,
+  parseProjectPath,
+  repository,
+} from '$lib/services/backends/git/gitlab/repository';
+import { checkStatus, STATUS_DASHBOARD_URL } from '$lib/services/backends/git/gitlab/status';
+import workflow from '$lib/services/backends/git/gitlab/workflow';
+import { graphqlVars } from '$lib/services/backends/git/shared/api';
+import { initGitBackend } from '$lib/services/backends/git/shared/init';
+import { cmsConfig } from '$lib/services/config';
+
+/**
+ * @import { BackendService, RepositoryInfo } from '$lib/types/private';
+ */
+
+/**
+ * Initialize the GitLab backend.
+ * @returns {RepositoryInfo | undefined} Repository info, or nothing when the configured backend is
+ * not GitLab.
+ */
+export const init = () => {
+  const { backend } = cmsConfig.current ?? {};
+
+  if (backend?.name !== BACKEND_NAME) {
+    return undefined;
+  }
+
+  const {
+    repo: projectPath,
+    branch,
+    auth_type: authType = '',
+    // Like Decap CMS, sign in through Netlify unless the client-side PKCE flow is used
+    base_url: authRoot = authType === 'pkce' ? DEFAULT_PKCE_AUTH_ROOT : DEFAULT_AUTH_ROOT,
+    auth_endpoint: authPath = authType === 'pkce' ? DEFAULT_PKCE_AUTH_PATH : DEFAULT_AUTH_PATH,
+    app_id: clientId = '',
+    // https://HOSTNAME/api/v1 or https://HOSTNAME/PATH/api/v1
+    api_root: restApiRoot = DEFAULT_API_ROOT,
+    // https://HOSTNAME/api/graphql or https://HOSTNAME/PATH/api/graphql
+    graphql_api_root: graphqlApiRoot = restApiRoot.replace(/\/api\/.+$/, '/api/graphql'),
+    include_credentials: includeCredentials = false,
+  } = backend;
+
+  const { owner, repo } = parseProjectPath(/** @type {string} */ (projectPath));
+  const repoPath = `${owner}/${repo}`;
+
+  initGitBackend(repository, {
+    service: BACKEND_NAME,
+    label: BACKEND_LABEL,
+    owner,
+    repo,
+    branch,
+    restApiRoot,
+    defaultApiRoot: DEFAULT_API_ROOT,
+    getTokenPageURL,
+    getBaseURLs,
+    authRoot,
+    authPath,
+    tokenPath: '/token',
+    api: {
+      clientId,
+      authScope: 'api',
+      authScheme: 'Bearer',
+      restBaseURL: stripSlashes(restApiRoot),
+      graphqlBaseURL: stripSlashes(graphqlApiRoot),
+      includeCredentials,
+    },
+  });
+
+  Object.assign(graphqlVars, {
+    fullPath: repoPath,
+    branch,
+  });
+
+  return repository;
+};
+
+/**
+ * @type {BackendService}
+ */
+export default {
+  isGit: true,
+  name: BACKEND_NAME,
+  label: BACKEND_LABEL,
+  repository,
+  statusDashboardURL: STATUS_DASHBOARD_URL,
+  checkStatus,
+  init,
+  signIn,
+  signOut,
+  fetchFiles,
+  fetchLastCommit,
+  fetchBlob,
+  fetchDirSHA,
+  commitChanges,
+  fetchFileCommits,
+  triggerDeployment,
+  fetchBranchHeadSHA,
+  fetchDeployments,
+  workflow,
+};

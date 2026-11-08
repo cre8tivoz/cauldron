@@ -1,0 +1,191 @@
+import { describe, expect, test } from 'vitest';
+
+import { getRegex } from './regex';
+
+describe('Test getRegex()', () => {
+  test('returns RegExp object as is when input is already a RegExp', () => {
+    const regex = /test/i;
+    const result = getRegex(regex);
+
+    expect(result).toBe(regex);
+    expect(result).toBeInstanceOf(RegExp);
+  });
+
+  test('drops the stateful flags from a RegExp input', () => {
+    const regex = /test/giy;
+    const result = getRegex(regex);
+
+    expect(result).not.toBe(regex);
+    expect(result?.source).toBe('test');
+    expect(result?.flags).toBe('i');
+  });
+
+  test('converts simple string pattern to RegExp', () => {
+    const result = getRegex('.{12,}');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('.{12,}');
+    expect(result?.flags).toBe('');
+  });
+
+  test('converts complete regex string with pattern and flags', () => {
+    const result = getRegex('/^.{0,280}$/s');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('^.{0,280}$');
+    expect(result?.flags).toBe('s');
+  });
+
+  test('converts regex string with multiple flags', () => {
+    const result = getRegex('/test/im');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('test');
+    expect(result?.flags).toBe('im');
+  });
+
+  test('drops the stateful flags from a regex string', () => {
+    const result = getRegex('/test/gimy');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('test');
+    expect(result?.flags).toBe('im');
+  });
+
+  test('treats a leading slash without a closing delimiter as part of the pattern', () => {
+    const result = getRegex('/pattern');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('\\/pattern');
+    expect(result?.flags).toBe('');
+    expect(result?.test('/pattern')).toBe(true);
+    expect(result?.test('pattern')).toBe(false);
+  });
+
+  test('keeps a trailing slash of a pattern without delimiters', () => {
+    expect(getRegex('^https?://')?.test('https://example.com')).toBe(true);
+    expect(getRegex('^https?://')?.test('https:/example.com')).toBe(false);
+    expect(getRegex('^/blog/')?.test('/blog/post')).toBe(true);
+    expect(getRegex('^/blog/')?.test('/blogroll')).toBe(false);
+  });
+
+  test('does not treat a trailing `/flags` of a pattern without delimiters as flags', () => {
+    const result = getRegex('^[a-z]+/i');
+
+    expect(result?.flags).toBe('');
+    expect(result?.test('abc/i')).toBe(true);
+    expect(result?.test('ABC')).toBe(false);
+  });
+
+  test('handles regex string without leading slash', () => {
+    const result = getRegex('simple-pattern');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('simple-pattern');
+    expect(result?.flags).toBe('');
+  });
+
+  test('handles empty string pattern', () => {
+    const result = getRegex('');
+
+    expect(result).toBeUndefined();
+  });
+
+  test('handles regex with no flags specified', () => {
+    const result = getRegex('/pattern/');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('pattern');
+    expect(result?.flags).toBe('');
+  });
+
+  test('uses a string with invalid flags as a pattern in its entirety', () => {
+    // `dummy` repeats the `m` flag
+    const result = getRegex('/posts/dummy');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('\\/posts\\/dummy');
+    expect(result?.flags).toBe('');
+    expect(result?.test('/posts/dummy/index.md')).toBe(true);
+    expect(result?.test('/posts/')).toBe(false);
+    // A duplicate stateful flag, which is dropped anyway, still makes the flags invalid
+    expect(getRegex('/a/gg')?.test('/a/gg')).toBe(true);
+    expect(getRegex('/a/gg')?.test('a')).toBe(false);
+    // The `u` and `v` flags can’t be combined
+    expect(getRegex('/a/uv')?.source).toBe('\\/a\\/uv');
+  });
+
+  test('rejects a string whose delimited pattern is invalid with valid flags', () => {
+    // An identity escape like `\-` is invalid with the `u` flag, which is a config error to report
+    // rather than a plain pattern to match literally
+    expect(getRegex('/a\\-b/u')).toBeUndefined();
+    expect(getRegex('/(/i')).toBeUndefined();
+  });
+
+  test('returns undefined for invalid regex pattern', () => {
+    const result = getRegex('/[/');
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined for non-string, non-RegExp input', () => {
+    expect(getRegex(123)).toBeUndefined();
+    expect(getRegex(null)).toBeUndefined();
+    expect(getRegex(undefined)).toBeUndefined();
+    expect(getRegex({})).toBeUndefined();
+    expect(getRegex([])).toBeUndefined();
+    expect(getRegex(true)).toBeUndefined();
+  });
+
+  test('handles complex regex patterns with special characters', () => {
+    const result = getRegex('/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/i');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    expect(result?.flags).toBe('i');
+  });
+
+  test('handles regex with all valid flags', () => {
+    const result = getRegex('/test/dgimsuy');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('test');
+    expect(result?.flags).toBe('dimsu');
+  });
+
+  test('handles the unicodeSets (`v`) flag', () => {
+    const result = getRegex('/^\\p{Lu}/v');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.source).toBe('^\\p{Lu}');
+    expect(result?.flags).toBe('v');
+    expect(result?.test('Émile')).toBe(true);
+    expect(result?.test('émile')).toBe(false);
+  });
+
+  // A global or sticky regex advances `lastIndex` on every `test()` call, so reusing it across a
+  // list of values would match only some of them
+  test('matches every value when the same regex is reused', () => {
+    const result = getRegex('/news/g');
+    const values = Array.from({ length: 10 }, (_item, index) => `news-${index}`);
+
+    expect(values.filter((value) => result?.test(value) ?? false)).toHaveLength(10);
+  });
+
+  test('validates that returned RegExp works correctly', () => {
+    const result = getRegex('/\\d{3}-\\d{3}-\\d{4}/');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.test('123-456-7890')).toBe(true);
+    expect(result?.test('abc-def-ghij')).toBe(false);
+  });
+
+  test('validates that RegExp with flags works correctly', () => {
+    const result = getRegex('/test/i');
+
+    expect(result).toBeInstanceOf(RegExp);
+    expect(result?.test('TEST')).toBe(true);
+    expect(result?.test('test')).toBe(true);
+    expect(result?.test('Test')).toBe(true);
+  });
+});

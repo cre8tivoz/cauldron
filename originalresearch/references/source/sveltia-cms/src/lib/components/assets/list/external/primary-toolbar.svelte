@@ -1,0 +1,87 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+
+  import DeleteAssetsButton from '$lib/components/assets/list/delete-assets-button.svelte';
+  import DownloadAssetsButton from '$lib/components/assets/list/download-assets-button.svelte';
+  import CopyAssetsButton from '$lib/components/assets/list/external/copy-assets-button.svelte';
+  import EditOptionsButton from '$lib/components/assets/list/external/edit-options-button.svelte';
+  import NewFolderButton from '$lib/components/assets/list/external/new-folder-button.svelte';
+  import UploadAssetsButton from '$lib/components/assets/list/external/upload-assets-button.svelte';
+  import PreviewAssetButton from '$lib/components/assets/list/preview-asset-button.svelte';
+  import PrimaryToolbar from '$lib/components/assets/list/primary-toolbar.svelte';
+  import {
+    browseExternalFolder,
+    canPreviewExternalAsset,
+    externalAssets,
+    focusedExternalAsset,
+    getExternalAssetPath,
+    selectedCloudService,
+    selectedExternalDirPath,
+    selectedOrFocusedExternalAssets,
+  } from '$lib/services/assets/external';
+  import { deleteExternalAssets, fetchExternalAssetBlob } from '$lib/services/assets/external/data';
+  import {
+    browsingExternalFolders,
+    listedExternalAssets,
+  } from '$lib/services/assets/external/view';
+  import { env } from '$lib/services/user/env.svelte';
+
+  /**
+   * @import { MediaLibraryService } from '$lib/types/private';
+   */
+
+  /** The component is only rendered while a service is selected. */
+  const service = $derived(/** @type {MediaLibraryService} */ (selectedCloudService.current));
+  const asset = $derived(focusedExternalAsset.current);
+  /**
+   * Names of the folders leading to the one being browsed, from the service root down. A search
+   * looks through the whole service, so the trail is left out while one is under way.
+   */
+  const subfolderNames = $derived(
+    browsingExternalFolders.current && selectedExternalDirPath.current
+      ? selectedExternalDirPath.current.split('/')
+      : [],
+  );
+  const assets = $derived(selectedOrFocusedExternalAssets.current);
+</script>
+
+<PrimaryToolbar
+  rootLabel={service.serviceLabel}
+  {subfolderNames}
+  onBrowse={(depth) => {
+    browseExternalFolder(subfolderNames.slice(0, depth).join('/'));
+  }}
+>
+  {#snippet actions()}
+    <PreviewAssetButton
+      path={asset ? getExternalAssetPath(service, asset) : undefined}
+      disabled={!asset || !canPreviewExternalAsset(asset)}
+    />
+    <CopyAssetsButton assets={asset ? [asset] : []} />
+    <DownloadAssetsButton {assets} getName={(a) => a.fileName} getBlob={fetchExternalAssetBlob} />
+    <!-- The controls for operations the service doesn’t support are hidden rather than disabled -->
+    {#if service.delete}
+      <DeleteAssetsButton
+        {assets}
+        deleteAssets={deleteExternalAssets}
+        buttonDescription={_('delete_selected_assets', { values: { count: assets.length } })}
+        dialogDescription={_(
+          // Every asset listed in the view, as in a repository folder
+          assets.length > 1 && assets.length === listedExternalAssets.current.length
+            ? 'confirm_deleting_all_assets'
+            : 'confirm_deleting_selected_assets',
+          { values: { count: assets.length } },
+        )}
+      />
+    {/if}
+    {#if service.rename || service.replace}
+      <EditOptionsButton {asset} />
+    {/if}
+  {/snippet}
+  {#snippet fab()}
+    <NewFolderButton />
+    {#if service.upload && (!env.isSmallScreen || externalAssets.current?.length)}
+      <UploadAssetsButton label={env.isSmallScreen ? undefined : _('upload')} />
+    {/if}
+  {/snippet}
+</PrimaryToolbar>

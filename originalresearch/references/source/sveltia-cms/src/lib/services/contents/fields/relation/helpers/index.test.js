@@ -1,0 +1,2266 @@
+import { flatten } from 'flat';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import {
+  getEntryOptions,
+  getOptions,
+  getRefEntries,
+  getReferencedOptionLabel,
+  optionCacheMap,
+} from '$lib/services/contents/fields/relation/helpers';
+
+/**
+ * @import {
+ * Entry,
+ * InternalEntryCollection,
+ * InternalFileCollection,
+ * LocalizedEntry,
+ * PendingEntry,
+ * } from '$lib/types/private';
+ * @import { RelationField } from '$lib/types/public';
+ */
+
+// Mock dependencies
+vi.mock('$lib/services/config');
+vi.mock('$lib/services/contents/collection', () => ({
+  getCollection: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/collection/predicates', async (importOriginal) => ({
+  .../** @type {object} */ (await importOriginal()),
+  isEntryCollection: vi.fn(() => true),
+}));
+vi.mock('$lib/services/contents/collection/entries', () => ({
+  getEntriesByCollection: vi.fn(),
+}));
+vi.mock('$lib/services/contents/collection/files', () => ({
+  getCollectionFileEntry: vi.fn(),
+}));
+vi.mock('$lib/services/contents/collection/entries/index-file', () => ({
+  isCollectionIndexFile: vi.fn(),
+}));
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/values', () => ({
+  getFieldDisplayValue: vi.fn(),
+  getPropertyValue: vi.fn(),
+}));
+vi.mock('$lib/services/contents/entry/summary', () => ({
+  getEntrySummaryFromContent: vi.fn(),
+}));
+
+/** @type {Pick<RelationField, 'widget' | 'name'>} */
+const baseFieldConfig = {
+  widget: 'relation',
+  name: 'author',
+};
+
+/** @type {Pick<RelationField, 'widget' | 'name'>} */
+const baseMultipleFieldConfig = {
+  widget: 'relation',
+  name: 'authors',
+};
+
+describe('Test getOptions()', async () => {
+  const { getCollection } = await import('$lib/services/contents/collection');
+  const { getEntriesByCollection } = await import('$lib/services/contents/collection/entries');
+
+  const { isCollectionIndexFile } =
+    await import('$lib/services/contents/collection/entries/index-file');
+
+  const { getField } = await import('$lib/services/contents/entry/fields');
+
+  const { getFieldDisplayValue, getPropertyValue } =
+    await import('$lib/services/contents/entry/values');
+
+  const { getEntrySummaryFromContent } = await import('$lib/services/contents/entry/summary');
+  const locale = '_default';
+  /** @type {LocalizedEntry} */
+  const localizedEntryProps = { slug: '', path: '', content: {} };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    optionCacheMap.clear();
+  });
+
+  /** @type {Entry[]} */
+  const comprehensiveMemberEntries = [
+    {
+      id: 'member-1',
+      slug: 'melvin-lucas',
+      subPath: 'melvin-lucas',
+      locales: {
+        _default: {
+          slug: 'melvin-lucas',
+          path: 'melvin-lucas.md',
+          content: flatten({
+            slug: 'member-melvin-lucas',
+            name: {
+              first: 'Melvin',
+              last: 'Lucas',
+            },
+            twitterHandle: 'MelvinLucas',
+            followerCount: 123,
+            email: 'melvin@example.com',
+            bio: 'Software engineer with 5 years of experience.',
+            active: true,
+            joinDate: '2020-01-15',
+            department: 'engineering',
+            cities: [
+              { id: 'city1', name: 'New York' },
+              { id: 'city2', name: 'Boston' },
+            ],
+            skills: ['JavaScript', 'React', 'Node.js'],
+            metadata: {
+              score: 95,
+              certified: true,
+            },
+          }),
+        },
+        en: {
+          ...localizedEntryProps,
+          content: flatten({
+            slug: 'member-melvin-lucas',
+            name: {
+              first: 'Melvin',
+              last: 'Lucas',
+            },
+            bio: 'Software engineer with 5 years of experience.',
+          }),
+        },
+        ja: {
+          ...localizedEntryProps,
+          content: flatten({
+            slug: 'member-melvin-lucas',
+            name: {
+              first: 'メルビン',
+              last: 'ルーカス',
+            },
+            bio: '5 年の経験を持つソフトウェアエンジニア。',
+          }),
+        },
+      },
+    },
+    {
+      id: 'member-2',
+      slug: 'elsie-mcbride',
+      subPath: 'elsie-mcbride',
+      locales: {
+        _default: {
+          ...localizedEntryProps,
+          content: flatten({
+            slug: 'member-elsie-mcbride',
+            name: {
+              first: 'Elsie',
+              last: 'Mcbride',
+            },
+            twitterHandle: 'ElsieMcbride',
+            followerCount: 234,
+            email: 'elsie@example.com',
+            bio: 'Product manager and UX specialist.',
+            active: false,
+            joinDate: '2019-06-10',
+            department: 'product',
+            cities: [{ id: 'city3', name: 'San Francisco' }],
+            skills: ['Product Management', 'UX Design'],
+            metadata: {
+              score: 87,
+              certified: false,
+            },
+          }),
+        },
+      },
+    },
+    {
+      id: 'member-3',
+      slug: 'maxine-field',
+      subPath: 'maxine-field',
+      locales: {
+        _default: {
+          ...localizedEntryProps,
+          content: flatten({
+            slug: 'member-maxine-field',
+            name: {
+              first: 'Maxine',
+              last: 'Field',
+            },
+            twitterHandle: 'MaxineField',
+            followerCount: 345,
+            email: 'maxine@example.com',
+            bio: 'Marketing director with a passion for growth.',
+            active: true,
+            joinDate: '2021-03-20',
+            department: 'marketing',
+            cities: [],
+            skills: ['Marketing', 'Strategy', 'Analytics'],
+            metadata: {
+              score: 92,
+              certified: true,
+            },
+          }),
+        },
+      },
+    },
+    {
+      id: 'member-4',
+      slug: 'incomplete-member',
+      subPath: 'incomplete-member',
+      locales: {
+        _default: {
+          ...localizedEntryProps,
+          content: flatten({
+            slug: 'incomplete-member',
+            name: {
+              first: 'Incomplete',
+            },
+            // Missing many fields to test fallback behavior
+          }),
+        },
+      },
+    },
+  ];
+
+  /** @type {Entry[]} */
+  const emptyEntries = [];
+  /** @type {Entry[]} */
+  const singleEntry = [comprehensiveMemberEntries[0]];
+
+  // Mock collection configuration
+  /** @type {InternalEntryCollection} */
+  const mockCollection = {
+    name: 'members',
+    folder: 'content/members',
+    fields: [],
+    identifier_field: 'title',
+    _type: 'entry',
+    _i18n: {
+      defaultLocale: '_default',
+      i18nEnabled: false,
+      allLocales: ['_default'],
+      initialLocales: ['_default'],
+      structure: 'single_file',
+      structureMap: {
+        i18nSingleFile: true,
+        i18nSingleFileDefaultRoot: false,
+        i18nMultiFile: false,
+        i18nMultiFolder: false,
+        i18nMultiRootFolder: false,
+      },
+      canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    },
+    _file: {
+      format: 'yaml-frontmatter',
+      extension: 'md',
+    },
+    _thumbnailFieldNames: [],
+  };
+
+  describe('getOptions function', () => {
+    beforeEach(() => {
+      // @ts-ignore - Using simplified mock collection for testing
+      vi.mocked(getCollection).mockReturnValue(mockCollection);
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getField).mockReturnValue(undefined);
+
+      // Smart mock that returns values based on the keyPath
+      vi.mocked(getFieldDisplayValue).mockImplementation(({ keyPath, valueMap }) => {
+        if (!valueMap || !keyPath) return 'display-value';
+
+        // Handle specific field paths
+        if (keyPath === 'email') return valueMap.email || 'display-value';
+        if (keyPath === 'name.first') return valueMap['name.first'] || 'display-value';
+        if (keyPath === 'twitterHandle') return valueMap.twitterHandle || 'display-value';
+        if (keyPath === 'department') return valueMap.department || 'display-value';
+        if (keyPath === 'slug') return valueMap.slug || 'display-value';
+
+        // Fallback
+        return valueMap[keyPath] || 'display-value';
+      });
+
+      vi.mocked(getEntrySummaryFromContent).mockImplementation((content) => {
+        // Mock the summary generation - for members, use name fields
+        if (content['name.first'] && content['name.last']) {
+          return `${content['name.first']} ${content['name.last']}`;
+        }
+
+        if (content['name.first']) {
+          return content['name.first'];
+        }
+
+        return 'summary';
+      });
+    });
+
+    describe('Basic functionality', () => {
+      test('should return empty array when collection is not found', () => {
+        vi.mocked(getCollection).mockReturnValue(undefined);
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+        expect(result).toEqual([]);
+      });
+
+      test('should return empty array for empty entries', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: emptyEntries });
+
+        expect(result).toEqual([]);
+      });
+
+      test('should handle basic relation field with default settings', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0]).toEqual({
+          label: 'display-value',
+          value: 'melvin-lucas',
+          searchValue: 'display-value',
+        });
+      });
+
+      test('should use custom value_field', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          value_field: 'email',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+
+        const firstResult = result[0];
+
+        expect(firstResult.value).toStrictEqual('melvin@example.com');
+      });
+
+      test('should handle display_fields configuration', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first', 'name.last'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].label).toEqual('Melvin Lucas');
+      });
+    });
+
+    describe('Template handling', () => {
+      test('should handle template strings in display_fields', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['{{name.first}} ({{twitterHandle}})'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].label).toBe('Melvin (MelvinLucas)');
+      });
+
+      test('should handle slug field reference', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          value_field: 'slug',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+
+        // Try a different approach - check if the function is working at all
+        const actual = result[0];
+
+        // Simple existence checks
+        expect(actual).toBeDefined();
+        expect(actual.label).toBeDefined();
+        expect(actual.value).toBeDefined();
+        expect(actual.searchValue).toBeDefined();
+
+        // Length checks as a proxy for content
+        expect(actual.label.length).toBeGreaterThan(0);
+        expect(actual.value.length).toBeGreaterThan(0);
+        expect(actual.searchValue.length).toBeGreaterThan(0);
+      });
+
+      test('should handle fields.slug prefix', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          value_field: 'fields.slug',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        // Gets the `slug` field content as display value
+        expect(result[0].label).toBe('member-melvin-lucas');
+      });
+
+      test('should handle locale template variable', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['{{locale}}/{{name.first}}'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].label).toBe('_default/Melvin');
+      });
+    });
+
+    describe('Wildcard and list field handling', () => {
+      test('should handle simple list fields with wildcards', () => {
+        vi.mocked(getField).mockReturnValue({
+          name: 'cities',
+          widget: 'list',
+          fields: [
+            { name: 'id', widget: 'string' },
+            { name: 'name', widget: 'string' },
+          ],
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['cities.*.name'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(2); // Should create separate entries for each city
+        expect(result[0].label).toBe('Boston'); // Second city comes first due to sorting
+        expect(result[1].label).toBe('New York');
+      });
+
+      test('should handle simple list fields (no field/fields/types)', () => {
+        vi.mocked(getField).mockReturnValue({
+          name: 'skills',
+          widget: 'list',
+          // No `field`, `fields`, or `types` — this is a plain string-list field
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['skills.*'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        // Each list item becomes a separate option
+        expect(result).toHaveLength(3);
+        expect(result.map((o) => o.label).sort()).toEqual(['JavaScript', 'Node.js', 'React']);
+      });
+
+      test('should handle single subfield list fields', () => {
+        vi.mocked(getField).mockReturnValue({
+          name: 'skills',
+          widget: 'list',
+          field: { name: 'skill', widget: 'string' },
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['skills.*'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        // Each list item becomes a separate option
+        expect(result).toHaveLength(3);
+        expect(result.map((o) => o.label).sort()).toEqual(['JavaScript', 'Node.js', 'React']);
+      });
+
+      test('should handle complex list fields with multiple subfields', () => {
+        vi.mocked(getField).mockReturnValue({
+          name: 'cities',
+          widget: 'list',
+          fields: [
+            { name: 'id', widget: 'string' },
+            { name: 'name', widget: 'string' },
+          ],
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['cities.*.name'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(2); // Should create separate entries for each city
+        expect(result[0].label).toBe('Boston'); // Second city comes first due to sorting
+        expect(result[1].label).toBe('New York');
+      });
+    });
+
+    describe('Filtering', () => {
+      test('should apply entry filters correctly', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [{ field: 'active', values: [true] }],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+        // Should only include active members (`melvin-lucas` and `maxine-field`)
+        expect(result).toHaveLength(2);
+      });
+
+      test('should handle multiple filters', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [
+            { field: 'active', values: [true] },
+            { field: 'department', values: ['engineering'] },
+          ],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+        // Should only include `melvin-lucas` (active and engineering)
+        expect(result).toHaveLength(1);
+        expect(result[0].value).toBe('melvin-lucas');
+      });
+
+      test('should return empty array when no entries match filters', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [{ field: 'department', values: ['nonexistent'] }],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+        expect(result).toEqual([]);
+      });
+
+      test('should exclude entries when exclude is true', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [{ field: 'active', values: [true], exclude: true }],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+        // Should include inactive members (all except `melvin-lucas` and `maxine-field`)
+        expect(result.every((r) => r.value !== 'melvin-lucas' && r.value !== 'maxine-field')).toBe(
+          true,
+        );
+      });
+
+      test('should resolve {{fields.x}} template values from currentLocaleValues', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [{ field: 'department', values: ['{{fields.myDept}}'], exclude: true }],
+        };
+
+        // Pretend the entry being edited is in the 'engineering' department
+        const currentLocaleValues = { myDept: 'engineering' };
+
+        const result = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+          currentLocaleValues,
+        });
+
+        // `melvin-lucas` is engineering — should be excluded
+        expect(result.every((r) => r.value !== 'melvin-lucas')).toBe(true);
+      });
+
+      test('should ignore unresolvable template values and not filter', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          // Template cannot resolve because currentLocaleValues is not provided
+          filters: [{ field: 'slug', values: ['{{fields.uuid}}'], exclude: true }],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+        // All entries are returned because the unresolvable template is dropped (empty values →
+        // no constraint)
+        expect(result).toHaveLength(comprehensiveMemberEntries.length);
+      });
+
+      test('should cache separately for different resolved template values', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [{ field: 'department', values: ['{{fields.myDept}}'], exclude: true }],
+        };
+
+        const result1 = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+          currentLocaleValues: { myDept: 'engineering' },
+        });
+
+        const result2 = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+          currentLocaleValues: { myDept: 'marketing' },
+        });
+
+        // Each resolved value should produce a distinct set of options
+        expect(result1).not.toBe(result2);
+        expect(result1.every((r) => r.value !== 'melvin-lucas')).toBe(true);
+        expect(result2.every((r) => r.value !== 'maxine-field')).toBe(true);
+      });
+
+      test('should cache separately when a resolved value moves to another filter', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [
+            { field: 'department', values: ['{{fields.include}}'] },
+            { field: 'department', values: ['{{fields.exclude}}'], exclude: true },
+          ],
+        };
+
+        // An empty list resolves to no value, so both calls resolve to `engineering` alone
+        const included = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+          currentLocaleValues: { include: 'engineering', exclude: [] },
+        });
+
+        const excluded = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+          currentLocaleValues: { include: [], exclude: 'engineering' },
+        });
+
+        expect(included.map((r) => r.value)).toEqual(['melvin-lucas']);
+        expect(excluded.some((r) => r.value === 'melvin-lucas')).toBe(false);
+        expect(excluded.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('Locale handling', () => {
+      test('should use specified locale when available', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({
+          locale: 'en',
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+        });
+
+        expect(result).toHaveLength(4);
+      });
+
+      test('should fallback to default locale when specified locale is not available', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({
+          locale: 'nonexistent',
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries,
+        });
+
+        expect(result).toHaveLength(4);
+      });
+
+      test('should handle missing content gracefully', () => {
+        const entriesWithMissingContent = [
+          {
+            ...comprehensiveMemberEntries[0],
+            locales: {
+              _default: {
+                ...localizedEntryProps,
+                content: {},
+              },
+            },
+          },
+        ];
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: entriesWithMissingContent });
+
+        expect(result).toBeDefined();
+        expect(Array.isArray(result)).toBe(true);
+        expect(result.length).toBe(0);
+      });
+    });
+
+    describe('Search fields', () => {
+      test('should use custom search_fields when provided', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          search_fields: ['email', 'bio'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        // Verify it has the right structure
+        expect(result[0]).toHaveProperty('label');
+        expect(result[0]).toHaveProperty('value');
+      });
+
+      test('should fallback to display_fields for search when search_fields not provided', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0]).toHaveProperty('label');
+        expect(result[0]).toHaveProperty('value');
+      });
+    });
+
+    describe('Sorting', () => {
+      test('should sort results by label', () => {
+        vi.mocked(getFieldDisplayValue)
+          .mockReturnValueOnce('Zoe')
+          .mockReturnValueOnce('Alice')
+          .mockReturnValueOnce('Bob');
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        const result = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: comprehensiveMemberEntries.slice(0, 3),
+        });
+
+        expect(result).toHaveLength(3);
+        expect(result[0].label).toBe('Alice');
+        expect(result[1].label).toBe('Bob');
+        expect(result[2].label).toBe('Zoe');
+      });
+
+      test('should follow the manual order of a collection with the reorder option', () => {
+        // @ts-ignore - Using simplified mock collection for testing
+        vi.mocked(getCollection).mockReturnValue({ ...mockCollection, reorder: { key: 'weight' } });
+
+        /**
+         * Build a member entry.
+         * @param {string} name First name.
+         * @param {number} [weight] Order value.
+         * @returns {Entry} Entry.
+         */
+        const makeMember = (name, weight) => ({
+          id: name,
+          slug: name.toLowerCase(),
+          subPath: name.toLowerCase(),
+          locales: {
+            _default: {
+              ...localizedEntryProps,
+              content: { 'name.first': name, ...(weight === undefined ? {} : { weight }) },
+            },
+          },
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        const result = getOptions({
+          locale,
+          fieldConfig,
+          // An entry without an order value, e.g. a pending one, comes last
+          refEntries: [makeMember('Alice'), makeMember('Zoe', 1), makeMember('Bob', 2)],
+        });
+
+        expect(result.map((o) => o.label)).toEqual(['Zoe', 'Bob', 'Alice']);
+      });
+
+      describe('With the `sort_by` option', () => {
+        /**
+         * Build a member entry.
+         * @param {string} name First name.
+         * @param {Record<string, any>} [content] Other content.
+         * @returns {Entry} Entry.
+         */
+        const makeMember = (name, content = {}) => ({
+          id: name,
+          slug: name.toLowerCase(),
+          subPath: name.toLowerCase(),
+          locales: {
+            _default: { ...localizedEntryProps, content: { 'name.first': name, ...content } },
+          },
+        });
+
+        const refEntries = [
+          makeMember('Alice', { followerCount: 2, weight: 1 }),
+          makeMember('Zoe', { followerCount: 10, weight: 3 }),
+          makeMember('Bob', { weight: 2 }),
+        ];
+
+        beforeEach(() => {
+          vi.mocked(getPropertyValue).mockImplementation(
+            ({ entry, locale: _locale, key }) => entry.locales[_locale]?.content[key],
+          );
+          vi.mocked(getField).mockImplementation(({ keyPath }) =>
+            keyPath === 'followerCount' ? { name: keyPath, widget: 'number' } : undefined,
+          );
+        });
+
+        test('should sort the options by the given field and direction', () => {
+          /** @type {RelationField} */
+          const fieldConfig = {
+            ...baseFieldConfig,
+            collection: 'members',
+            display_fields: ['name.first'],
+            sort_by: { field: 'followerCount', direction: 'descending' },
+          };
+
+          const result = getOptions({ locale, fieldConfig, refEntries });
+
+          // An entry without a value comes last
+          expect(result.map((o) => o.label)).toEqual(['Zoe', 'Alice', 'Bob']);
+        });
+
+        test('should take precedence over the manual order', () => {
+          vi.mocked(getCollection).mockReturnValue({
+            ...mockCollection,
+            // @ts-ignore - Using simplified mock collection for testing
+            reorder: { key: 'weight' },
+          });
+
+          /** @type {RelationField} */
+          const fieldConfig = {
+            ...baseFieldConfig,
+            collection: 'members',
+            display_fields: ['name.first'],
+            sort_by: { field: 'followerCount' },
+          };
+
+          const result = getOptions({ locale, fieldConfig, refEntries });
+
+          expect(result.map((o) => o.label)).toEqual(['Alice', 'Zoe', 'Bob']);
+        });
+
+        test('should be ignored without a field', () => {
+          /** @type {RelationField} */
+          const fieldConfig = {
+            ...baseFieldConfig,
+            collection: 'members',
+            display_fields: ['name.first'],
+            // @ts-expect-error - Testing an invalid configuration
+            sort_by: { direction: 'descending' },
+          };
+
+          const result = getOptions({ locale, fieldConfig, refEntries });
+
+          expect(result.map((o) => o.label)).toEqual(['Alice', 'Bob', 'Zoe']);
+          expect(getPropertyValue).not.toHaveBeenCalled();
+        });
+      });
+
+      test('should follow the order of an entry collection stored in one file', () => {
+        vi.mocked(getCollection).mockReturnValue({
+          ...mockCollection,
+          _file: { ...mockCollection._file, arrayFile: true },
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        const [melvin, elsie, maxine] = comprehensiveMemberEntries;
+
+        const result = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: [
+            { ...elsie, arrayIndex: 2 },
+            { ...melvin, arrayIndex: 0 },
+            { ...maxine, arrayIndex: 1 },
+          ],
+        });
+
+        expect(result.map((o) => o.label)).toEqual(
+          [melvin, maxine, elsie].map(({ locales }) => locales._default.content['name.first']),
+        );
+      });
+    });
+
+    describe('Edge cases and error handling', () => {
+      test('should cache options and return cached result on subsequent calls', () => {
+        // DO NOT clear the cache for this test - test that cache works
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        // First call - should compute options
+        const result1 = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+        // Second call with same parameters - should return cached result
+        const result2 = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        // Should return the exact same cached array
+        expect(result1).toBe(result2);
+        expect(result1).toHaveLength(1);
+      });
+
+      test('should handle entries with missing required fields', () => {
+        // Mock to return `undefined` for display value, which should trigger fallback
+        vi.mocked(getFieldDisplayValue).mockImplementation(() => '');
+        vi.mocked(getEntrySummaryFromContent).mockReturnValue('fallback-summary');
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: [comprehensiveMemberEntries[3]],
+        });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].label).toBe('fallback-summary');
+      });
+
+      test('should handle special characters in field values', () => {
+        const entryWithSpecialChars = {
+          ...comprehensiveMemberEntries[0],
+          slug: 'special-chars',
+          locales: {
+            _default: {
+              ...localizedEntryProps,
+              content: flatten({
+                slug: 'special-chars',
+                name: {
+                  first: 'João & María',
+                  last: "O'Brien-Smith",
+                },
+                bio: 'Designer with "quotes" and <tags>',
+              }),
+            },
+          },
+        };
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: [entryWithSpecialChars] });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].value).toBeDefined();
+        expect(result[0].value.length).toBeGreaterThan(0);
+        expect(result[0].value.includes('special')).toBe(true);
+      });
+
+      test('should handle very long field values', () => {
+        const longText = 'A'.repeat(1000);
+
+        vi.mocked(getFieldDisplayValue).mockReturnValue(longText);
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].label).toBe(longText);
+      });
+
+      test('should handle empty string values', () => {
+        vi.mocked(getFieldDisplayValue).mockReturnValue('');
+        vi.mocked(getEntrySummaryFromContent).mockReturnValue('fallback');
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].label).toBeDefined();
+        expect(result[0].label.length).toBeGreaterThan(0);
+        expect(result[0].label.includes('fallback')).toBe(true);
+      });
+    });
+
+    describe('Collection index file handling', () => {
+      test('should handle index file collections', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        // Override the mock to return `true` for this test
+        const isCollectionIndexFileSpy = vi.mocked(isCollectionIndexFile);
+
+        isCollectionIndexFileSpy.mockReturnValue(true);
+
+        const result = getOptions({ locale, fieldConfig, refEntries: singleEntry });
+
+        expect(result).toHaveLength(1);
+        // The spy should be called during the `getOptions` execution
+        expect(isCollectionIndexFileSpy).toHaveBeenCalled();
+      });
+    });
+
+    describe('File collection list field example (from Decap CMS docs)', () => {
+      /** @type {Entry[]} */
+      const citiesFileCollectionEntries = [
+        {
+          id: 'cities-file',
+          slug: 'cities',
+          subPath: 'cities',
+          locales: {
+            _default: {
+              ...localizedEntryProps,
+              content: flatten({
+                cities: [
+                  { id: 'nyc', name: 'New York City' },
+                  { id: 'bos', name: 'Boston' },
+                  { id: 'sf', name: 'San Francisco' },
+                  { id: 'la', name: 'Los Angeles' },
+                  { id: 'chi', name: 'Chicago' },
+                ],
+              }),
+            },
+          },
+        },
+      ];
+
+      /** @type {InternalFileCollection} */
+      const citiesFileCollection = {
+        name: 'relation_files',
+        files: [],
+        _type: 'file',
+        _fileMap: {},
+        _i18n: {
+          defaultLocale: '_default',
+          i18nEnabled: false,
+          allLocales: ['_default'],
+          initialLocales: ['_default'],
+          structure: 'single_file',
+          structureMap: {
+            i18nSingleFile: true,
+            i18nSingleFileDefaultRoot: false,
+            i18nMultiFile: false,
+            i18nMultiFolder: false,
+            i18nMultiRootFolder: false,
+          },
+          canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+          omitDefaultLocaleFromFilePath: false,
+          omitDefaultLocaleFromPreviewPath: false,
+        },
+      };
+
+      beforeEach(() => {
+        // Reset mocks to use the standard behavior
+        vi.mocked(getCollection).mockReturnValue(citiesFileCollection);
+        vi.mocked(getEntriesByCollection).mockReturnValue(citiesFileCollectionEntries);
+        vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+        vi.mocked(getEntrySummaryFromContent).mockReturnValue('cities-summary');
+
+        // Mock getField to return list field configuration for cities
+        vi.mocked(getField).mockImplementation(({ keyPath }) => {
+          if (keyPath === 'cities') {
+            return {
+              name: 'cities',
+              widget: 'list',
+              fields: [
+                { name: 'id', widget: 'string' },
+                { name: 'name', widget: 'string' },
+              ],
+            };
+          }
+
+          return undefined;
+        });
+      });
+
+      test('should correctly parse file collection list field example from Decap CMS docs', () => {
+        // Use the same field config as working tests but for file collection
+        vi.mocked(getField).mockReturnValue({
+          name: 'cities',
+          widget: 'list',
+          fields: [
+            { name: 'id', widget: 'string' },
+            { name: 'name', widget: 'string' },
+          ],
+        });
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'city',
+          collection: 'relation_files',
+          file: 'cities',
+          search_fields: ['cities.*.name'],
+          display_fields: ['cities.*.name'],
+          value_field: 'cities.*.id',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: citiesFileCollectionEntries });
+
+        // Should create separate options for each city in the list, in the order of the list
+        // items rather than sorted by label
+        expect(result.map((r) => r.label)).toEqual([
+          'New York City',
+          'Boston',
+          'San Francisco',
+          'Los Angeles',
+          'Chicago',
+        ]);
+        expect(result.map((r) => r.value)).toEqual(['nyc', 'bos', 'sf', 'la', 'chi']);
+      });
+
+      test('should ignore the `sort_by` option, keeping the order of the list items', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'city',
+          collection: 'relation_files',
+          file: 'cities',
+          display_fields: ['cities.*.name'],
+          value_field: 'cities.*.id',
+          sort_by: { field: 'cities.*.name' },
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: citiesFileCollectionEntries });
+
+        expect(result.map((r) => r.value)).toEqual(['nyc', 'bos', 'sf', 'la', 'chi']);
+      });
+
+      test('should handle missing file in file collection', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'city',
+          collection: 'relation_files',
+          file: 'nonexistent-file',
+          search_fields: ['cities.*.name'],
+          display_fields: ['cities.*.name'],
+          value_field: 'cities.*.id',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: citiesFileCollectionEntries });
+
+        // Should return empty array when file doesn't match
+        expect(result).toHaveLength(0);
+      });
+
+      test('should handle empty cities list in file collection', () => {
+        const emptyFileCollectionEntries = [
+          {
+            ...citiesFileCollectionEntries[0],
+            locales: {
+              _default: {
+                ...citiesFileCollectionEntries[0].locales._default,
+                content: flatten({ cities: [] }),
+              },
+            },
+          },
+        ];
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'city',
+          collection: 'relation_files',
+          file: 'cities',
+          search_fields: ['cities.*.name'],
+          display_fields: ['cities.*.name'],
+          value_field: 'cities.*.id',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: emptyFileCollectionEntries });
+
+        expect(result).toHaveLength(0);
+      });
+
+      test('should handle malformed cities data in file collection', () => {
+        const malformedFileCollectionEntries = [
+          {
+            ...citiesFileCollectionEntries[0],
+            locales: {
+              _default: {
+                ...citiesFileCollectionEntries[0].locales._default,
+                content: flatten({
+                  cities: [
+                    { id: 'nyc' }, // missing name
+                    { name: 'Boston' }, // missing id
+                    { id: 'sf', name: 'San Francisco' }, // complete
+                  ],
+                }),
+              },
+            },
+          },
+        ];
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'city',
+          collection: 'relation_files',
+          file: 'cities',
+          search_fields: ['cities.*.name'],
+          display_fields: ['cities.*.name'],
+          value_field: 'cities.*.id',
+        };
+
+        const result = getOptions({
+          locale,
+          fieldConfig,
+          refEntries: malformedFileCollectionEntries,
+        });
+
+        // Should still handle the data, but list items with missing required fields are filtered
+        // out: the item without a name isn’t matched, and the one without an ID can’t be referenced
+        // (its value used to fall back to the entry slug)
+        expect(result).toHaveLength(1);
+
+        // Find the complete entry
+        const completeEntry = result.find((r) => r.label === 'San Francisco');
+
+        expect(completeEntry).toBeDefined();
+        expect(completeEntry?.value).toBe('sf');
+      });
+
+      test('should handle broken getField implementation with file collections', () => {
+        // Mock getField to return undefined (simulating broken field config)
+        vi.mocked(getField).mockReturnValue(undefined);
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'city',
+          collection: 'relation_files',
+          file: 'cities',
+          search_fields: ['cities.*.name'],
+          display_fields: ['cities.*.name'],
+          value_field: 'cities.*.id',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: citiesFileCollectionEntries });
+
+        // Should still work but might not parse the list structure correctly
+        // This tests the fallback behavior when field config is missing
+        expect(result).toBeDefined();
+        expect(Array.isArray(result)).toBe(true);
+      });
+    });
+
+    describe('Deeply nested list fields (colors.customColors.*.colorName)', () => {
+      // Test case for the sample configuration with deeply nested list fields
+      /** @type {Entry[]} */
+      const themeFileCollectionEntries = [
+        {
+          id: 'theme-file',
+          slug: 'theme',
+          subPath: 'theme',
+          locales: {
+            _default: {
+              ...localizedEntryProps,
+              content: flatten({
+                colors: {
+                  customColors: [
+                    { colorName: 'Primary Blue', colorValue: '#0066cc' },
+                    { colorName: 'Secondary Green', colorValue: '#00cc66' },
+                    { colorName: 'Accent Red', colorValue: '#cc0000' },
+                  ],
+                },
+              }),
+            },
+          },
+        },
+      ];
+
+      /** @type {InternalFileCollection} */
+      const themeFileCollection = {
+        name: 'options',
+        files: [],
+        _type: 'file',
+        _fileMap: {},
+        _i18n: {
+          defaultLocale: '_default',
+          i18nEnabled: false,
+          allLocales: ['_default'],
+          initialLocales: ['_default'],
+          structure: 'single_file',
+          structureMap: {
+            i18nSingleFile: true,
+            i18nSingleFileDefaultRoot: false,
+            i18nMultiFile: false,
+            i18nMultiFolder: false,
+            i18nMultiRootFolder: false,
+          },
+          canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+          omitDefaultLocaleFromFilePath: false,
+          omitDefaultLocaleFromPreviewPath: false,
+        },
+      };
+
+      beforeEach(() => {
+        vi.mocked(getCollection).mockReturnValue(themeFileCollection);
+        vi.mocked(getEntriesByCollection).mockReturnValue(themeFileCollectionEntries);
+        vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+        vi.mocked(getEntrySummaryFromContent).mockReturnValue('theme-summary');
+
+        // Mock getField to return appropriate field config
+        vi.mocked(getField).mockImplementation(({ keyPath }) => {
+          if (keyPath === 'colors.customColors') {
+            return {
+              widget: 'list',
+              name: 'customColors',
+              fields: [
+                { widget: 'string', name: 'colorName' },
+                { widget: 'color', name: 'colorValue' },
+              ],
+            };
+          }
+
+          return undefined;
+        });
+
+        // Mock getFieldDisplayValue to return actual values
+        vi.mocked(getFieldDisplayValue).mockImplementation(({ keyPath, valueMap }) => {
+          if (valueMap && keyPath in valueMap) {
+            return String(valueMap[keyPath]);
+          }
+
+          return '';
+        });
+      });
+
+      test('should handle deeply nested list fields with multiple levels', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'backgroundColor',
+          collection: 'options',
+          file: 'theme',
+          search_fields: ['colors.customColors.*.colorName'],
+          display_fields: ['colors.customColors.*.colorName'],
+          value_field: 'colors.customColors.*.colorName',
+        };
+
+        const result = getOptions({ locale, fieldConfig, refEntries: themeFileCollectionEntries });
+
+        // The options follow the order of the list items in the file
+        expect(result).toEqual(
+          ['Primary Blue', 'Secondary Green', 'Accent Red'].map((name) => ({
+            label: name,
+            value: name,
+            searchValue: name,
+          })),
+        );
+      });
+    });
+  });
+
+  describe('getEntryOptions function', () => {
+    beforeEach(() => {
+      // @ts-ignore - Using simplified mock collection for testing
+      vi.mocked(getCollection).mockReturnValue(mockCollection);
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getField).mockReturnValue(undefined);
+      vi.mocked(getFieldDisplayValue).mockImplementation(
+        ({ keyPath, valueMap }) => valueMap?.[keyPath] ?? '',
+      );
+      vi.mocked(getEntrySummaryFromContent).mockReturnValue('summary');
+    });
+
+    test('returns the value identifying a single entry', () => {
+      /** @type {RelationField} */
+      const fieldConfig = { ...baseFieldConfig, collection: 'members', value_field: '{{slug}}' };
+
+      const result = getEntryOptions({
+        locale,
+        fieldConfig,
+        refEntry: comprehensiveMemberEntries[0],
+      });
+
+      expect(result.map(({ value }) => value)).toEqual([comprehensiveMemberEntries[0].slug]);
+    });
+
+    test('ignores the field filters', () => {
+      /** @type {RelationField} */
+      const fieldConfig = {
+        ...baseFieldConfig,
+        collection: 'members',
+        value_field: '{{slug}}',
+        filters: [{ field: 'slug', values: ['nobody'] }],
+      };
+
+      expect(
+        getEntryOptions({ locale, fieldConfig, refEntry: comprehensiveMemberEntries[0] }),
+      ).toHaveLength(1);
+      expect(getOptions({ locale, fieldConfig, refEntries: singleEntry })).toHaveLength(0);
+    });
+
+    test('returns an empty array when the collection is not found', () => {
+      vi.mocked(getCollection).mockReturnValue(undefined);
+
+      expect(
+        getEntryOptions({
+          locale,
+          fieldConfig: { ...baseFieldConfig, collection: 'members' },
+          refEntry: comprehensiveMemberEntries[0],
+        }),
+      ).toEqual([]);
+    });
+  });
+
+  describe('getReferencedOptionLabel function', () => {
+    beforeEach(() => {
+      vi.mocked(getCollection).mockReturnValue(mockCollection);
+      vi.mocked(getEntriesByCollection).mockReturnValue(comprehensiveMemberEntries);
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getField).mockReturnValue(undefined);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('display-value');
+      vi.mocked(getEntrySummaryFromContent).mockReturnValue('summary');
+    });
+
+    describe('Single value relations', () => {
+      test('should resolve label for single value relation', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const valueMap = {
+          author: 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBe('display-value');
+      });
+
+      test('should return original value when no matching option found', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const valueMap = {
+          author: 'nonexistent-slug',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBe('nonexistent-slug');
+      });
+
+      test('should resolve a value referring to a pending entry', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        vi.mocked(getFieldDisplayValue).mockImplementation(
+          ({ keyPath, valueMap }) => valueMap?.[keyPath] || 'display-value',
+        );
+
+        /** @type {PendingEntry[]} */
+        const pendingEntries = [
+          {
+            collectionName: 'members',
+            entry: {
+              id: 'new-member',
+              slug: 'jane-doe',
+              subPath: 'jane-doe',
+              locales: { _default: { ...localizedEntryProps, content: { 'name.first': 'Jane' } } },
+            },
+            changes: [],
+            savingAssets: [],
+            values: ['jane-doe'],
+          },
+          // Another collection’s entry is left alone
+          {
+            collectionName: 'tags',
+            entry: { id: 'new-tag', slug: 'jane-doe', subPath: 'jane-doe', locales: {} },
+            changes: [],
+            savingAssets: [],
+            values: ['jane-doe'],
+          },
+        ];
+
+        const args = { fieldConfig, valueMap: { author: 'jane-doe' }, keyPath: 'author', locale };
+
+        expect(getReferencedOptionLabel({ ...args, pendingEntries })).toBe('Jane');
+        // The pending entries are passed on, so a label made of another Relation field resolves
+        expect(getFieldDisplayValue).toHaveBeenCalledWith(
+          expect.objectContaining({ keyPath: 'name.first', pendingEntries }),
+        );
+        // Without them, the value stays as it is
+        expect(getReferencedOptionLabel(args)).toBe('jane-doe');
+      });
+
+      test('should resolve a value referring to an entry edited from a Relation field', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        vi.mocked(getFieldDisplayValue).mockImplementation(
+          ({ keyPath, valueMap }) => valueMap?.[keyPath] || 'display-value',
+        );
+
+        const [savedEntry] = comprehensiveMemberEntries;
+
+        /** @type {PendingEntry[]} */
+        const pendingEntries = [
+          {
+            collectionName: 'members',
+            entry: {
+              ...savedEntry,
+              locales: {
+                _default: {
+                  ...savedEntry.locales._default,
+                  content: { ...savedEntry.locales._default.content, 'name.first': 'Mel' },
+                },
+              },
+            },
+            changes: [],
+            savingAssets: [],
+            values: ['melvin-lucas'],
+            baseEntry: savedEntry,
+          },
+        ];
+
+        // The edited version takes the place of the saved one
+        expect(
+          getReferencedOptionLabel({
+            fieldConfig,
+            valueMap: { author: 'melvin-lucas' },
+            keyPath: 'author',
+            locale,
+            pendingEntries,
+          }),
+        ).toBe('Mel');
+      });
+
+      test('should reuse the options while the pending entries stay the same', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+        };
+
+        vi.mocked(getFieldDisplayValue).mockImplementation(
+          ({ keyPath, valueMap }) => valueMap?.[keyPath] || 'display-value',
+        );
+
+        /**
+         * Create a pending member entry.
+         * @param {string} slug Entry slug.
+         * @param {string} firstName First name.
+         * @returns {PendingEntry} Pending entry.
+         */
+        const createPendingMember = (slug, firstName) => ({
+          collectionName: 'members',
+          entry: {
+            id: slug,
+            slug,
+            subPath: slug,
+            locales: { _default: { ...localizedEntryProps, content: { 'name.first': firstName } } },
+          },
+          changes: [],
+          savingAssets: [],
+          values: [slug],
+        });
+
+        /** @type {PendingEntry[]} */
+        const pendingEntries = [createPendingMember('jane-doe', 'Jane')];
+        const args = { fieldConfig, keyPath: 'author', locale, pendingEntries };
+
+        expect(getReferencedOptionLabel({ ...args, valueMap: { author: 'jane-doe' } })).toBe(
+          'Jane',
+        );
+
+        const callCount = vi.mocked(getFieldDisplayValue).mock.calls.length;
+        const cacheSize = optionCacheMap.size;
+
+        // Another label, e.g. that of the next referenced entry in a nested Relation field, is
+        // resolved with the same options instead of building them again
+        expect(getReferencedOptionLabel({ ...args, valueMap: { author: 'jane-doe' } })).toBe(
+          'Jane',
+        );
+        expect(getReferencedOptionLabel({ ...args, valueMap: { author: 'nonexistent' } })).toBe(
+          'nonexistent',
+        );
+        expect(getFieldDisplayValue).toHaveBeenCalledTimes(callCount);
+        expect(optionCacheMap.size).toBe(cacheSize);
+
+        // So is a list put together anew with the same entries, as the entries in the pull request
+        // of the host entry are added to those of the draft on each call
+        expect(
+          getReferencedOptionLabel({
+            ...args,
+            valueMap: { author: 'jane-doe' },
+            pendingEntries: [...pendingEntries],
+          }),
+        ).toBe('Jane');
+        expect(getFieldDisplayValue).toHaveBeenCalledTimes(callCount);
+        expect(optionCacheMap.size).toBe(cacheSize);
+
+        // An entry added to the same array is picked up
+        pendingEntries.push(createPendingMember('john-doe', 'John'));
+
+        expect(getReferencedOptionLabel({ ...args, valueMap: { author: 'john-doe' } })).toBe(
+          'John',
+        );
+        expect(optionCacheMap.size).toBe(cacheSize + 1);
+
+        // An entry opened again and changed takes the place of its earlier version in the array
+        pendingEntries[0] = createPendingMember('jane-doe', 'Janet');
+
+        expect(getReferencedOptionLabel({ ...args, valueMap: { author: 'jane-doe' } })).toBe(
+          'Janet',
+        );
+
+        // Pending entries of another collection leave the saved entries as they are
+        expect(
+          getReferencedOptionLabel({
+            ...args,
+            valueMap: { author: 'jane-doe' },
+            pendingEntries: [
+              { ...createPendingMember('jane-doe', 'Jane'), collectionName: 'tags' },
+            ],
+          }),
+        ).toBe('jane-doe');
+
+        // Another draft’s pending entries are told apart from these
+        expect(
+          getReferencedOptionLabel({
+            ...args,
+            valueMap: { author: 'jim-doe' },
+            pendingEntries: [createPendingMember('jim-doe', 'Jim')],
+          }),
+        ).toBe('Jim');
+      });
+
+      test('should not recurse infinitely when the label refers to the field itself', () => {
+        // A self-referencing Relation field, e.g. `parent` in a `members` collection, whose
+        // display fields include the field itself to show a breadcrumb
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          name: 'parent',
+          collection: 'members',
+          display_fields: ['{{name.first}}', '{{parent}}'],
+        };
+
+        /** @type {Entry[]} */
+        const entries = [
+          {
+            id: 'a',
+            slug: 'a',
+            subPath: 'a',
+            locales: { _default: { ...localizedEntryProps, content: { 'name.first': 'Ann' } } },
+          },
+          {
+            id: 'b',
+            slug: 'b',
+            subPath: 'b',
+            locales: {
+              _default: { ...localizedEntryProps, content: { 'name.first': 'Bob', parent: 'a' } },
+            },
+          },
+        ];
+
+        vi.mocked(getEntriesByCollection).mockReturnValue(entries);
+        // Resolve the `parent` field the way `getFieldDisplayValue()` does for a Relation field
+        vi.mocked(getFieldDisplayValue).mockImplementation(({ keyPath, valueMap = {} }) =>
+          keyPath === 'parent'
+            ? getReferencedOptionLabel({ fieldConfig, valueMap, keyPath, locale })
+            : (valueMap[keyPath] ?? ''),
+        );
+
+        // The nested reference falls back to the stored value; an empty one is left out of the
+        // label, which used to fall back to the entry summary
+        expect(getOptions({ locale, fieldConfig, refEntries: entries })).toEqual([
+          { label: 'Ann', value: 'a', searchValue: 'Ann' },
+          { label: 'Bob a', value: 'b', searchValue: 'Bob a' },
+        ]);
+        expect(
+          getReferencedOptionLabel({
+            fieldConfig,
+            valueMap: { parent: 'b' },
+            keyPath: 'parent',
+            locale,
+          }),
+        ).toBe('Bob a');
+      });
+
+      test('should handle undefined values', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const valueMap = {};
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBeUndefined();
+      });
+
+      test('should preserve first matching option when indexing labels', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first'],
+          // Maxine and Melvin are both active, so their options share the value
+          value_field: 'active',
+        };
+
+        vi.mocked(getFieldDisplayValue).mockImplementation(
+          ({ keyPath, valueMap }) => valueMap?.[keyPath] || 'display-value',
+        );
+
+        const valueMap = {
+          author: 'true',
+        };
+
+        const args = {
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        };
+
+        expect(getReferencedOptionLabel(args)).toBe('Maxine');
+        expect(getReferencedOptionLabel(args)).toBe('Maxine');
+      });
+    });
+
+    describe('Multiple value relations', () => {
+      test('should resolve labels for multiple value relation', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseMultipleFieldConfig,
+          collection: 'members',
+          multiple: true,
+        };
+
+        const valueMap = {
+          'authors.0': 'melvin-lucas',
+          'authors.1': 'elsie-mcbride',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'authors',
+          locale,
+        });
+
+        expect(Array.isArray(result)).toBe(true);
+        expect(result).toHaveLength(2);
+        expect(result).toEqual(['display-value', 'display-value']);
+      });
+
+      test('should handle mixed existing and non-existing values in multiple relation', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseMultipleFieldConfig,
+          collection: 'members',
+          multiple: true,
+        };
+
+        const valueMap = {
+          'authors.0': 'melvin-lucas',
+          'authors.1': 'nonexistent-slug',
+          'authors.2': 'maxine-field',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'authors',
+          locale,
+        });
+
+        expect(Array.isArray(result)).toBe(true);
+        expect(result).toHaveLength(3);
+        expect(result[0]).toBe('display-value');
+        expect(result[1]).toBe('nonexistent-slug');
+        expect(result[2]).toBe('display-value');
+      });
+
+      test('should return empty array for multiple relation with no values', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseMultipleFieldConfig,
+          collection: 'members',
+          multiple: true,
+        };
+
+        const valueMap = {};
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'authors',
+          locale,
+        });
+
+        expect(Array.isArray(result)).toBe(true);
+        expect(result).toHaveLength(0);
+      });
+
+      test('should handle sparse arrays in multiple relations', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseMultipleFieldConfig,
+          collection: 'members',
+          multiple: true,
+        };
+
+        const valueMap = {
+          'authors.0': 'melvin-lucas',
+          'authors.5': 'maxine-field', // Gap in indices
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'authors',
+          locale,
+        });
+
+        expect(Array.isArray(result)).toBe(true);
+        expect(result).toHaveLength(2);
+        expect(result).toEqual(['display-value', 'display-value']);
+      });
+    });
+
+    describe('Error handling and edge cases', () => {
+      test('should handle empty collection gracefully', () => {
+        vi.mocked(getEntriesByCollection).mockReturnValue([]);
+
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const valueMap = {
+          author: 'any-value',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBe('any-value');
+      });
+
+      test('should handle null valueMap', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap: {},
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBeUndefined();
+      });
+
+      test('should handle complex keyPath patterns', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'nested.author',
+          collection: 'members',
+        };
+
+        const valueMap = {
+          'nested.author': 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'nested.author',
+          locale,
+        });
+
+        expect(result).toBe('display-value');
+      });
+
+      test('should handle special characters in keyPath', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          widget: 'relation',
+          name: 'field-with-dashes',
+          collection: 'members',
+        };
+
+        const valueMap = {
+          'field-with-dashes': 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'field-with-dashes',
+          locale,
+        });
+
+        expect(result).toBe('display-value');
+      });
+    });
+
+    describe('Different locales', () => {
+      test('should work with different locales', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const valueMap = {
+          author: 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale: 'en',
+        });
+
+        expect(result).toBe('display-value');
+      });
+
+      test('should handle nonexistent locale', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+        };
+
+        const valueMap = {
+          author: 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale: 'nonexistent',
+        });
+
+        expect(result).toBe('display-value');
+      });
+    });
+
+    describe('Integration with different field configurations', () => {
+      test('should work with custom value_field', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          value_field: 'email',
+        };
+
+        vi.mocked(getFieldDisplayValue).mockReturnValue('melvin@example.com');
+
+        const valueMap = {
+          author: 'melvin@example.com',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBeDefined();
+        expect(typeof result).toBe('string');
+        expect(result.length).toBeGreaterThan(0);
+      });
+
+      test('should work with custom display_fields', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          display_fields: ['name.first', 'name.last'],
+        };
+
+        const valueMap = {
+          author: 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBeDefined();
+        expect(typeof result).toBe('string');
+        expect(result.length).toBeGreaterThan(0);
+      });
+
+      test('should work with filters', () => {
+        /** @type {RelationField} */
+        const fieldConfig = {
+          ...baseFieldConfig,
+          collection: 'members',
+          filters: [{ field: 'active', values: [true] }],
+        };
+
+        const valueMap = {
+          author: 'melvin-lucas',
+        };
+
+        const result = getReferencedOptionLabel({
+          fieldConfig,
+          valueMap,
+          keyPath: 'author',
+          locale,
+        });
+
+        expect(result).toBe('display-value');
+      });
+    });
+  });
+
+  describe('Integration tests', () => {
+    beforeEach(() => {
+      vi.mocked(getCollection).mockReturnValue(mockCollection);
+      vi.mocked(getEntriesByCollection).mockReturnValue(comprehensiveMemberEntries);
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getField).mockReturnValue(undefined);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('display-value');
+      vi.mocked(getEntrySummaryFromContent).mockReturnValue('summary');
+    });
+
+    test('should work together - getOptions and getReferencedOptionLabel', () => {
+      /** @type {RelationField} */
+      const fieldConfig = {
+        ...baseFieldConfig,
+        collection: 'members',
+      };
+
+      // Get options
+      const options = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+      expect(options.length).toBeGreaterThan(0);
+
+      // Use the first option's value to test label resolution
+      const firstOptionValue = options[0].value;
+
+      const valueMap = {
+        author: firstOptionValue,
+      };
+
+      const resolvedLabel = getReferencedOptionLabel({
+        fieldConfig,
+        valueMap,
+        keyPath: 'author',
+        locale,
+      });
+
+      expect(resolvedLabel).toBe(options[0].label);
+    });
+
+    test('should handle end-to-end multiple value scenario', () => {
+      /** @type {RelationField} */
+      const fieldConfig = {
+        ...baseMultipleFieldConfig,
+        collection: 'members',
+        multiple: true,
+      };
+
+      // Get options
+      const options = getOptions({ locale, fieldConfig, refEntries: comprehensiveMemberEntries });
+
+      expect(options.length).toBeGreaterThan(1);
+
+      // Create a multiple value map
+      const valueMap = {
+        'authors.0': options[0].value,
+        'authors.1': options[1].value,
+      };
+
+      const resolvedLabels = getReferencedOptionLabel({
+        fieldConfig,
+        valueMap,
+        keyPath: 'authors',
+        locale,
+      });
+
+      expect(Array.isArray(resolvedLabels)).toBe(true);
+      expect(resolvedLabels).toHaveLength(2);
+      expect(resolvedLabels[0]).toBe(options[0].label);
+      expect(resolvedLabels[1]).toBe(options[1].label);
+    });
+  });
+});
+
+describe('Test getRefEntries()', async () => {
+  const { getEntriesByCollection } = await import('$lib/services/contents/collection/entries');
+  const { getCollectionFileEntry } = await import('$lib/services/contents/collection/files');
+  const entry = /** @type {Entry} */ ({ id: 'entry-1', locales: {} });
+
+  test('should return the entries of the referenced collection', () => {
+    vi.mocked(getEntriesByCollection).mockReturnValue([entry]);
+
+    expect(getRefEntries({ ...baseFieldConfig, collection: 'members' })).toEqual([entry]);
+    expect(getEntriesByCollection).toHaveBeenCalledWith('members');
+    expect(getCollectionFileEntry).not.toHaveBeenCalled();
+  });
+
+  test('should return the referenced file of a file collection', () => {
+    vi.mocked(getCollectionFileEntry).mockReturnValue(entry);
+
+    expect(getRefEntries({ ...baseFieldConfig, collection: 'data', file: 'members' })).toEqual([
+      entry,
+    ]);
+    expect(getCollectionFileEntry).toHaveBeenCalledWith('data', 'members');
+    expect(getEntriesByCollection).not.toHaveBeenCalled();
+  });
+
+  test('should return an empty array if the referenced file is not found', () => {
+    vi.mocked(getCollectionFileEntry).mockReturnValue(undefined);
+
+    expect(getRefEntries({ ...baseFieldConfig, collection: 'data', file: 'missing' })).toEqual([]);
+  });
+});

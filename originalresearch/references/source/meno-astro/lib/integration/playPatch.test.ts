@@ -1,0 +1,2263 @@
+/**
+ * Unit tests for the play-mode targeted patch system (lib/integration/playPatch.ts):
+ *
+ * - classifyModelEdit / classifyAstroEdit — the edit ladder's brain: style-only
+ *   and text-only edits are patchable, everything else is structural.
+ * - playPatchVitePlugin — ladder decisions over real sources: patch events
+ *   (with stale tokens) vs stock full reload, theme.css branch, baselines.
+ * - PATCH_JS — the restricted client patch evaluated as real JS against a
+ *   happy-dom document (same pattern as xrayResolver.test.ts): sheet swap,
+ *   token-granular class merge that survives JS-added tokens, property-granular
+ *   inline style that survives fade.js reveals, text sync.
+ */
+
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Window } from 'happy-dom';
+import { emit } from '../dialect';
+import { collectNodeClassTokens } from './utilityCss';
+import {
+  extractScriptBlocks,
+  classifyModelEdit,
+  classifyAstroEdit,
+  playPatchVitePlugin,
+  PLAY_PATCH_EVENT,
+  PLAY_STYLE_PREVIEW_EVENT,
+  PLAY_TEXT_PREVIEW_EVENT,
+  PLAY_VARS_PREVIEW_EVENT,
+  PLAY_CLASS_PREVIEW_EVENT,
+  PLAY_STRUCTURE_OP_EVENT,
+  PATCH_JS,
+  PLAY_PATCH_BRIDGE_SCRIPT,
+} from './playPatch';
+import { XRAY_RESOLVER_JS } from './xray';
+
+// ---------------------------------------------------------------------------
+// Model fixtures
+// ---------------------------------------------------------------------------
+
+const page = (root: Record<string, unknown>) => ({ meta: { title: 'T' }, root });
+
+const baseModel = () =>
+  page({
+    type: 'node',
+    tag: 'div',
+    style: { base: { gap: '224px' } },
+    children: [
+      { type: 'node', tag: 'p', style: { base: { fontSize: '16px' } }, children: 'Hello world' },
+      { type: 'node', tag: 'span', children: 'plain' },
+    ],
+  });
+
+describe('classifyModelEdit', () => {
+  test('style({...}) value change → style diff carrying the OLD style, not structural', () => {
+    const a = baseModel();
+    const b = baseModel();
+    ((b.root as any).style as any).base.gap = '223px';
+    const c = classifyModelEdit(a, b);
+    expect(c.structural).toBe(false);
+    expect(c.textChanged).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+    expect((c.styleDiffs[0]!.style as any).base.gap).toBe('224px'); // old side
+  });
+
+  test('plain text child change → text, not structural', () => {
+    const a = baseModel();
+    const b = baseModel();
+    ((b.root as any).children as any)[0].children = 'Hello edited';
+    const c = classifyModelEdit(a, b);
+    expect(c).toEqual({
+      structural: false,
+      styleDiffs: [],
+      textChanged: true,
+      attrsChanged: false,
+      htmlChanged: false,
+      cssChanged: false,
+      treeStructural: false,
+    });
+  });
+
+  test('localized text child ([{_i18n}] array) edit → text, not structural', () => {
+    // Localizing a plain text node turns `children: "Hello world"` into the array
+    // `[{ _i18n, en, pl }]`; editing a locale value (or the localize transition
+    // itself) must stay a text patch — the regression that forced a full reload.
+    const localized = (pl: string) =>
+      page({
+        type: 'node',
+        tag: 'div',
+        children: [{ type: 'node', tag: 'p', children: [{ _i18n: true, en: 'Hello world', pl }] }],
+      });
+    // i18n → i18n (edit the pl locale)
+    const c = classifyModelEdit(localized('Cześć'), localized('Cześć!'));
+    expect(c).toEqual({
+      structural: false,
+      styleDiffs: [],
+      textChanged: true,
+      attrsChanged: false,
+      htmlChanged: false,
+      cssChanged: false,
+      treeStructural: false,
+    });
+    // string → [{_i18n}] (first localization)
+    const plain = page({ type: 'node', tag: 'div', children: [{ type: 'node', tag: 'p', children: 'Hello world' }] });
+    expect(classifyModelEdit(plain, localized('Cześć')).textChanged).toBe(true);
+    expect(classifyModelEdit(plain, localized('Cześć')).structural).toBe(false);
+    // a markup-carrying locale value renders as ELEMENTS → still structural
+    const markup = page({
+      type: 'node',
+      tag: 'div',
+      children: [{ type: 'node', tag: 'p', children: [{ _i18n: true, en: 'Hello world', pl: 'Cz<b>e</b>ść' }] }],
+    });
+    expect(classifyModelEdit(localized('Cześć'), markup).structural).toBe(true);
+  });
+
+  test('style + text in one edit → both flags', () => {
+    const a = baseModel();
+    const b = baseModel();
+    ((b.root as any).style as any).base.gap = '223px';
+    ((b.root as any).children as any)[1].children = 'edited';
+    const c = classifyModelEdit(a, b);
+    expect(c.structural).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+    expect(c.textChanged).toBe(true);
+  });
+
+  // A component file parses to `{ component: { structure, css, … } }`; its own
+  // `<style>` block lives in `def.css`. A css-only edit is a sheet swap, not
+  // structure (the headline win for mirror imports where styling lives in CSS).
+  const cssComp = (css: string, opts: { tag?: string; text?: string } = {}) => ({
+    component: { structure: { type: 'node', tag: opts.tag ?? 'h1', children: opts.text ?? 'hi' }, css },
+  });
+
+  test("a component's own <style> block (def.css) edit → cssChanged, not structural", () => {
+    const c = classifyModelEdit(cssComp('.x{color:red}'), cssComp('.x{color:blue}'));
+    expect(c.structural).toBe(false);
+    expect(c.cssChanged).toBe(true);
+    expect(c.styleDiffs).toHaveLength(0);
+    expect(c.textChanged).toBe(false);
+  });
+
+  test('css change alongside a structural change → structural (reload wins)', () => {
+    const c = classifyModelEdit(cssComp('.x{color:red}', { tag: 'h1' }), cssComp('.x{color:blue}', { tag: 'h2' }));
+    expect(c.structural).toBe(true);
+  });
+
+  test('css + a node text edit → both cssChanged and textChanged', () => {
+    const c = classifyModelEdit(cssComp('.x{color:red}', { text: 'hi' }), cssComp('.x{color:blue}', { text: 'bye' }));
+    expect(c.structural).toBe(false);
+    expect(c.cssChanged).toBe(true);
+    expect(c.textChanged).toBe(true);
+  });
+
+  // Class-string styling: styles live in a literal `attributes.class` (mirror
+  // imports + the Tailwind-looking class engine) — a class edit must patch, not
+  // reload (the dominant styling op in those projects).
+  test('a node class-attribute edit → styleDiff carrying the OLD class, not structural', () => {
+    const node = (cls: string) => page({ type: 'node', tag: 'div', attributes: { class: cls }, children: 'hi' });
+    const c = classifyModelEdit(node('relative z-2 p-4'), node('relative z-2 p-6'));
+    expect(c.structural).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+    expect(c.styleDiffs[0]!.classAttr).toBe('relative z-2 p-4'); // old side → token retirement
+  });
+
+  test('a node inline-style attribute edit → styleDiff, not structural', () => {
+    const node = (style: string) => page({ type: 'node', tag: 'div', attributes: { style }, children: 'hi' });
+    const c = classifyModelEdit(node('color:red'), node('color:blue'));
+    expect(c.structural).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+  });
+
+  test('a non-class/style node attribute edit (href) → structural (reload, not a wrong patch)', () => {
+    const node = (href: string) =>
+      page({ type: 'node', tag: 'a', attributes: { href, class: 'link' }, children: 'go' });
+    expect(classifyModelEdit(node('/a'), node('/b')).structural).toBe(true);
+  });
+
+  test('child added → treeStructural (safe tree op), not a reload', () => {
+    const added = baseModel();
+    ((added.root as any).children as any).push({ type: 'node', tag: 'h2', children: 'new' });
+    const c = classifyModelEdit(baseModel(), added);
+    expect(c.treeStructural).toBe(true);
+    expect(c.structural).toBe(false);
+  });
+
+  test('tag change (retag) → structural (reload; not a v1 tree op)', () => {
+    const retagged = baseModel();
+    ((retagged.root as any).children as any)[0].tag = 'h1';
+    expect(classifyModelEdit(baseModel(), retagged).structural).toBe(true);
+  });
+
+  test('child removed → treeStructural, not a reload', () => {
+    const removed = baseModel();
+    ((removed.root as any).children as any).pop();
+    const c = classifyModelEdit(baseModel(), removed);
+    expect(c.treeStructural).toBe(true);
+    expect(c.structural).toBe(false);
+  });
+
+  test('sibling reorder (permutation) → treeStructural, not a reload', () => {
+    const reordered = baseModel();
+    const kids = (reordered.root as any).children as any[];
+    kids.reverse();
+    const c = classifyModelEdit(baseModel(), reordered);
+    expect(c.treeStructural).toBe(true);
+    expect(c.structural).toBe(false);
+  });
+
+  test('in-place edit among siblings (no add/remove/move) → style/text, not treeStructural', () => {
+    const edited = baseModel();
+    ((edited.root as any).children as any)[1].children = 'edited'; // text-only on the 2nd child
+    const c = classifyModelEdit(baseModel(), edited);
+    expect(c.treeStructural).toBe(false);
+    expect(c.structural).toBe(false);
+    expect(c.textChanged).toBe(true);
+  });
+
+  test('inserting an UNSAFE child (Embed) → structural reload, not treeStructural', () => {
+    const added = baseModel();
+    ((added.root as any).children as any).push({ type: 'embed', html: '<b>x</b>' });
+    const c = classifyModelEdit(baseModel(), added);
+    expect(c.structural).toBe(true);
+    expect(c.treeStructural).toBe(false);
+  });
+
+  test('mixed structural + content change (add a child AND edit a survivor) → structural reload', () => {
+    const mixed = baseModel();
+    ((mixed.root as any).children as any).push({ type: 'node', tag: 'h2', children: 'new' });
+    ((mixed.root as any).children as any)[0].children = 'changed'; // survivor also edited
+    expect(classifyModelEdit(baseModel(), mixed).structural).toBe(true);
+  });
+
+  // Real pages (e.g. avd-3) have section components with ARRAY/OBJECT props
+  // (items={[…]}). A structural op moves/clones the rendered subtree, so props are
+  // irrelevant — these must still classify as treeStructural, not reload.
+  const sections = (...kids: any[]) => page({ type: 'node', tag: 'div', children: kids });
+  const hero = { type: 'component', component: 'Hero', props: { title: 'x', theme: 'dark' } };
+  const timeline = { type: 'component', component: 'Timeline', props: { items: [{ title: 't1' }, { title: 't2' }] } };
+  const blog = { type: 'component', component: 'BlogGrid', props: { items: [{ title: 'b1', link: '#' }] } };
+
+  test('reorder of components WITH array/object props → treeStructural (props irrelevant to a move)', () => {
+    const c = classifyModelEdit(sections(hero, timeline, blog), sections(blog, hero, timeline));
+    expect(c.treeStructural).toBe(true);
+    expect(c.structural).toBe(false);
+  });
+
+  test('add a component WITH an array prop → treeStructural, not reload', () => {
+    const c = classifyModelEdit(sections(hero, timeline), sections(hero, timeline, blog));
+    expect(c.treeStructural).toBe(true);
+    expect(c.structural).toBe(false);
+  });
+
+  test('delete a component WITH an array prop → treeStructural, not reload', () => {
+    const c = classifyModelEdit(sections(hero, timeline, blog), sections(hero, timeline));
+    expect(c.treeStructural).toBe(true);
+    expect(c.structural).toBe(false);
+  });
+
+  test('markup-looking text change → structural (rich text is not a text-node patch)', () => {
+    const a = baseModel();
+    const b = baseModel();
+    ((b.root as any).children as any)[1].children = 'with <b>markup</b>';
+    expect(classifyModelEdit(a, b).structural).toBe(true);
+  });
+
+  test('a component scalar prop change → attrs patch, never a style diff', () => {
+    const propA = page({
+      type: 'component',
+      component: 'Card',
+      props: { label: 'old', style: 'fancy' },
+    });
+    const propB = page({
+      type: 'component',
+      component: 'Card',
+      props: { label: 'new', style: 'fancy' },
+    });
+    // props is data, not the node's style/label fields — a scalar change
+    // re-syncs as attrs/text in place and never produces a style diff.
+    const c = classifyModelEdit(propA, propB);
+    expect(c.structural).toBe(false);
+    expect(c.attrsChanged).toBe(true);
+    expect(c.styleDiffs).toHaveLength(0);
+    expect(c.textChanged).toBe(false);
+  });
+
+  test('non-scalar / opaque prop value changes → structural (reload, never a wrong patch)', () => {
+    const withProp = (props: Record<string, unknown>) => page({ type: 'component', component: 'Card', props });
+    const cases: Array<[Record<string, unknown>, Record<string, unknown>]> = [
+      [{ body: { type: 'rich-text', html: '<p>a</p>' } }, { body: { type: 'rich-text', html: '<p>b</p>' } }], // object
+      [{ items: ['a', 'b'] }, { items: ['a', 'b', 'c'] }], // array
+      [{ onClick: { _code: true, expr: 'a()' } }, { onClick: { _code: true, expr: 'b()' } }], // verbatim code
+      [{ href: 'plain' }, { href: '{{cms.url}}' }], // opaque binding string
+      [{ title: { _i18n: true, en: 'Hi' } }, { title: { _i18n: true, en: 'Yo {{x}}' } }], // i18n value carrying a binding
+    ];
+    for (const [a, b] of cases) {
+      const c = classifyModelEdit(withProp(a), withProp(b));
+      expect(c.structural).toBe(true);
+      expect(c.attrsChanged).toBe(false);
+      expect(c.htmlChanged).toBe(false);
+    }
+  });
+
+  test('rich-text (markup-string) prop change → html (innerHTML re-sync), not structural', () => {
+    const withProp = (props: Record<string, unknown>) => page({ type: 'component', component: 'Heading', props });
+    // a markup-bearing title (set:html → elements) — patch by replacing innerHTML
+    const a = withProp({ title: 'Build a <span class="hl">great</span> site' });
+    const b = withProp({ title: 'Build a <span class="hl">better</span> site' });
+    const c = classifyModelEdit(a, b);
+    expect(c.structural).toBe(false);
+    expect(c.htmlChanged).toBe(true);
+    expect(c.attrsChanged).toBe(false);
+    // an i18n value carrying markup → html too
+    const ai = withProp({ title: { _i18n: true, en: 'Hi <b>there</b>', pl: 'Hej' } });
+    const bi = withProp({ title: { _i18n: true, en: 'Hi <b>you</b>', pl: 'Hej' } });
+    expect(classifyModelEdit(ai, bi).htmlChanged).toBe(true);
+    expect(classifyModelEdit(ai, bi).structural).toBe(false);
+  });
+
+  test('a scalar prop AND a rich-text prop change in one save → both attrs and html', () => {
+    const withProps = (props: Record<string, unknown>) => page({ type: 'component', component: 'Hero', props });
+    const a = withProps({ theme: 'light', title: 'Plain <b>old</b> headline' });
+    const b = withProps({ theme: 'dark', title: 'Plain <b>new</b> headline' });
+    const c = classifyModelEdit(a, b);
+    expect(c.structural).toBe(false);
+    expect(c.attrsChanged).toBe(true);
+    expect(c.htmlChanged).toBe(true);
+  });
+
+  test('plain-string i18n prop change → attrs (resolves to one locale string = text/attr in place)', () => {
+    const withProp = (props: Record<string, unknown>) => page({ type: 'component', component: 'Text', props });
+    // a locale value edited; another locale untouched — still patchable
+    const a = withProp({ text: { _i18n: true, en: 'Hello', pl: 'Czesc' } });
+    const b = withProp({ text: { _i18n: true, en: 'Hello there', pl: 'Czesc' } });
+    const c = classifyModelEdit(a, b);
+    expect(c.structural).toBe(false);
+    expect(c.attrsChanged).toBe(true);
+    // adding/removing a locale is still just a resolved-string change for the active locale
+    const d = withProp({ text: { _i18n: true, en: 'Hello', pl: 'Czesc', de: 'Hallo' } });
+    expect(classifyModelEdit(a, d).structural).toBe(false);
+    expect(classifyModelEdit(a, d).attrsChanged).toBe(true);
+  });
+
+  test('component identity swap → structural even when props are scalar-equal', () => {
+    const a = page({ type: 'component', component: 'Card', props: { label: 'x' } });
+    const b = page({ type: 'component', component: 'Panel', props: { label: 'x' } });
+    expect(classifyModelEdit(a, b).structural).toBe(true);
+  });
+
+  test('a style edit and a component prop edit in one save → both style diff and attrs', () => {
+    const a = page({
+      type: 'node',
+      tag: 'div',
+      style: { base: { gap: '224px' } },
+      children: [{ type: 'component', component: 'Card', props: { label: 'old' } }],
+    });
+    const b = page({
+      type: 'node',
+      tag: 'div',
+      style: { base: { gap: '223px' } },
+      children: [{ type: 'component', component: 'Card', props: { label: 'new' } }],
+    });
+    const c = classifyModelEdit(a, b);
+    expect(c.structural).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+    expect(c.attrsChanged).toBe(true);
+  });
+});
+
+describe('classifyAstroEdit (source level, round-tripped through the dialect)', () => {
+  test('emitted style edit classifies as style-only with the old style values', () => {
+    const oldSrc = emit(baseModel() as any);
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    const newSrc = emit(next as any);
+    const c = classifyAstroEdit(oldSrc, newSrc);
+    expect(c.structural).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+  });
+
+  test('unparseable source (mid-typing) → structural', () => {
+    const oldSrc = emit(baseModel() as any);
+    expect(classifyAstroEdit(oldSrc, '<div class={style({').structural).toBe(true);
+  });
+
+  test('emitted component scalar-prop edit classifies as attrs, not structural', () => {
+    const model = () =>
+      page({
+        type: 'node',
+        tag: 'div',
+        children: [{ type: 'component', component: 'Card', props: { title: 'Hello', count: 2 } }],
+      });
+    const oldSrc = emit(model() as any);
+    const next = model();
+    ((next.root as any).children as any)[0].props.title = 'World';
+    const c = classifyAstroEdit(oldSrc, emit(next as any));
+    expect(c.structural).toBe(false);
+    expect(c.attrsChanged).toBe(true);
+  });
+
+  test('emitted component <style> (css) edit classifies as cssChanged, not structural', () => {
+    const comp = (css: string) =>
+      emit({ component: { structure: { type: 'node', tag: 'h1', children: 'hi' }, css } } as any);
+    const c = classifyAstroEdit(comp('.x{color:red}'), comp('.x{color:blue}'));
+    expect(c.structural).toBe(false);
+    expect(c.cssChanged).toBe(true);
+  });
+
+  test('emitted node class-attribute edit classifies as style (class-string styling), not structural', () => {
+    const comp = (cls: string) =>
+      emit({
+        component: { structure: { type: 'node', tag: 'div', attributes: { class: cls }, children: 'hi' } },
+      } as any);
+    const c = classifyAstroEdit(comp('relative p-4'), comp('relative p-6'));
+    expect(c.structural).toBe(false);
+    expect(c.styleDiffs).toHaveLength(1);
+    expect(c.styleDiffs[0]!.classAttr).toBe('relative p-4');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// playPatchVitePlugin — ladder decisions
+// ---------------------------------------------------------------------------
+
+const tmps: string[] = [];
+afterAll(() => {
+  for (const dir of tmps) rmSync(dir, { recursive: true, force: true });
+});
+
+type Ctx = { file: string; read: () => Promise<string>; server: { ws: { send: (p: unknown) => void } } };
+type HotOpts = Ctx & { type: 'create' | 'update' | 'delete' };
+type Plugin = {
+  enforce?: string;
+  configureServer: (server: { watcher: { on: (evt: string, cb: (f: string) => void) => void } }) => void;
+  handleHotUpdate: (ctx: Ctx) => Promise<unknown[] | undefined>;
+  hotUpdate: (this: { environment?: { name?: string } }, opts: HotOpts) => Promise<unknown[] | undefined>;
+};
+
+describe('playPatchVitePlugin', () => {
+  let root: string;
+  let plugin: Plugin;
+  let sent: any[];
+
+  const SRC_V1 = emit(baseModel() as any);
+
+  const ctxFor = (file: string, source: string) => ({
+    file,
+    read: async () => source,
+    server: { ws: { send: (p: unknown) => sent.push(p) } },
+  });
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'meno-patch-'));
+    tmps.push(root);
+    mkdirSync(join(root, 'src', 'pages'), { recursive: true });
+    writeFileSync(join(root, 'src', 'pages', 'index.astro'), SRC_V1, 'utf8');
+    sent = [];
+    plugin = playPatchVitePlugin(root) as unknown as Plugin;
+    plugin.configureServer({ watcher: { on: () => {} } });
+  });
+
+  test('style edit → patch event kind style with the retired tokens, HMR swallowed', async () => {
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), emit(next as any)));
+    expect(result).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].event).toBe(PLAY_PATCH_EVENT);
+    expect(sent[0].data.kinds).toEqual(['style']);
+    // The stale set is the OLD node's tokens (gap-224 retired, fontSize kept
+    // by the untouched sibling not being part of the diff).
+    const oldTokens = [...collectNodeClassTokens({ base: { gap: '224px' } }, undefined, undefined)];
+    expect(sent[0].data.staleTokens).toEqual(expect.arrayContaining(oldTokens));
+  });
+
+  test('text edit → patch event kind text, no stale tokens', async () => {
+    const next = baseModel();
+    ((next.root as any).children as any)[0].children = 'Hello edited';
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), emit(next as any)));
+    expect(result).toEqual([]);
+    expect(sent[0].data).toEqual({ kinds: ['text'], staleTokens: [] });
+  });
+
+  test('component <style> (css) edit → patch kind style carrying the component CSS as a payload sheet', async () => {
+    const cssComponent = (css: string) =>
+      emit({ component: { structure: { type: 'node', tag: 'h1', children: 'hi' }, css } } as any);
+    mkdirSync(join(root, 'src', 'components'), { recursive: true });
+    const file = join(root, 'src', 'components', 'Styled.astro');
+    await plugin.handleHotUpdate(ctxFor(file, cssComponent('.x{color:red}'))); // seed baseline (reload once)
+    sent = [];
+    const result = await plugin.handleHotUpdate(ctxFor(file, cssComponent('.x{color:blue}')));
+    expect(result).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].data.kinds).toEqual(['style']);
+    // The new CSS rides as an authoritative payload sheet keyed by the component
+    // path (a substring of its data-vite-dev-id) — Astro 6 dev renders the component
+    // sheet as an empty placeholder the bridge can't recover from the re-fetch.
+    const sheet = (sent[0].data.sheets || []).find((s: any) => s.match.endsWith('components/Styled.astro'));
+    expect(sheet).toBeDefined();
+    expect(sheet.css).toContain('blue');
+  });
+
+  test('node class-attribute edit → patch kind style retiring the OLD class tokens', async () => {
+    const box = (cls: string) =>
+      emit({
+        component: { structure: { type: 'node', tag: 'div', attributes: { class: cls }, children: 'hi' } },
+      } as any);
+    mkdirSync(join(root, 'src', 'components'), { recursive: true });
+    const file = join(root, 'src', 'components', 'Box.astro');
+    await plugin.handleHotUpdate(ctxFor(file, box('relative p-4'))); // seed baseline (reload once)
+    sent = [];
+    const result = await plugin.handleHotUpdate(ctxFor(file, box('relative p-6')));
+    expect(result).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].data.kinds).toEqual(['style']);
+    // The OLD class tokens are retired so mergeClasses drops what the edit removed
+    // (p-4); the fresh render re-adds 'relative' and the new 'p-6'.
+    expect(sent[0].data.staleTokens).toEqual(expect.arrayContaining(['relative', 'p-4']));
+  });
+
+  const cardPage = (title: string) =>
+    page({
+      type: 'node',
+      tag: 'div',
+      children: [{ type: 'component', component: 'Card', props: { title } }],
+    });
+
+  test('component scalar-prop edit → patch event kinds attrs+style carrying the project class vocabulary', async () => {
+    const file = join(root, 'src', 'pages', 'card.astro');
+    await plugin.handleHotUpdate(ctxFor(file, emit(cardPage('Hello') as any))); // seed baseline (reload once)
+    sent = [];
+    const result = await plugin.handleHotUpdate(ctxFor(file, emit(cardPage('World') as any)));
+    expect(result).toEqual([]);
+    expect(sent).toHaveLength(1);
+    // A prop edit rides kind 'style' so the client's mergeClasses can retire the
+    // component's variant classes; staleTokens is the whole project style()
+    // vocabulary (here from the seeded index.astro — gap-224 etc.).
+    expect(sent[0].data.kinds).toEqual(['attrs', 'style']);
+    const projectTokens = [...collectNodeClassTokens({ base: { gap: '224px' } }, undefined, undefined)];
+    expect(sent[0].data.staleTokens).toEqual(expect.arrayContaining(projectTokens));
+  });
+
+  test('component object/array-prop edit → undefined return (stock full reload)', async () => {
+    const listPage = (items: string[]) =>
+      page({
+        type: 'node',
+        tag: 'div',
+        children: [{ type: 'component', component: 'List', props: { items } }],
+      });
+    const file = join(root, 'src', 'pages', 'list.astro');
+    await plugin.handleHotUpdate(ctxFor(file, emit(listPage(['a', 'b']) as any)));
+    sent = [];
+    const result = await plugin.handleHotUpdate(ctxFor(file, emit(listPage(['a', 'b', 'c']) as any)));
+    expect(result).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  // Styled single-node component (frontmatter + body) the parser understands.
+  const styledComponent = (fontSize: string) =>
+    emit({
+      component: { structure: { type: 'node', tag: 'h1', style: { base: { fontSize } }, children: 'hi' } },
+    } as any);
+
+  test('prop-edit stale tokens are the on-disk class vocabulary; an unparseable component is skipped', async () => {
+    mkdirSync(join(root, 'src', 'components'), { recursive: true });
+    writeFileSync(join(root, 'src', 'components', 'Styled.astro'), styledComponent('40px'), 'utf8');
+    writeFileSync(join(root, 'src', 'components', 'Broken.astro'), '<div class={style(', 'utf8'); // parse throws
+    const file = join(root, 'src', 'pages', 'card.astro');
+    await plugin.handleHotUpdate(ctxFor(file, emit(cardPage('Hello') as any))); // seed baseline
+    sent = [];
+    const result = await plugin.handleHotUpdate(ctxFor(file, emit(cardPage('World') as any)));
+    expect(result).toEqual([]); // patched, NOT crashed by Broken.astro
+    const styledTokens = [...collectNodeClassTokens({ base: { fontSize: '40px' } }, undefined, undefined)];
+    expect(sent[0].data.staleTokens).toEqual(expect.arrayContaining(styledTokens)); // Styled's vocab present
+  });
+
+  test('class vocabulary is cached but rebuilds after a style edit changes it', async () => {
+    mkdirSync(join(root, 'src', 'components'), { recursive: true });
+    const compFile = join(root, 'src', 'components', 'Styled.astro');
+    writeFileSync(compFile, styledComponent('40px'), 'utf8');
+    const pageFile = join(root, 'src', 'pages', 'card.astro');
+    await plugin.handleHotUpdate(ctxFor(compFile, styledComponent('40px'))); // seed component baseline
+    await plugin.handleHotUpdate(ctxFor(pageFile, emit(cardPage('Hello') as any))); // seed page baseline
+    // First prop edit builds the vocab from disk → fontSize-40 present.
+    sent = [];
+    await plugin.handleHotUpdate(ctxFor(pageFile, emit(cardPage('World') as any)));
+    const tok40 = [...collectNodeClassTokens({ base: { fontSize: '40px' } }, undefined, undefined)];
+    expect(sent[0].data.staleTokens).toEqual(expect.arrayContaining(tok40));
+    // A STYLE edit to the component changes its vocabulary AND must invalidate the cache.
+    writeFileSync(compFile, styledComponent('23px'), 'utf8');
+    await plugin.handleHotUpdate(ctxFor(compFile, styledComponent('23px'))); // styleDiff → classVocab = null
+    // Next prop edit reflects the NEW vocab (fontSize-23, not the stale fontSize-40 cache).
+    sent = [];
+    await plugin.handleHotUpdate(ctxFor(pageFile, emit(cardPage('Again') as any)));
+    const tok23 = [...collectNodeClassTokens({ base: { fontSize: '23px' } }, undefined, undefined)];
+    expect(sent[0].data.staleTokens).toEqual(expect.arrayContaining(tok23));
+  });
+
+  test('non-tree structural edit (retag) → undefined return (stock full reload), no event', async () => {
+    const next = baseModel();
+    // A tag change (retag) is structural but NOT a v1 tree op → reload (a child ADD
+    // would now be a 'structure' patch, so it can't be the reload fixture).
+    ((next.root as any).children as any)[0].tag = 'h1';
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), emit(next as any)));
+    expect(result).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  test('script-block change → reload even when the rest is a style edit', async () => {
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    const withScript = emit(next as any).replace('</BaseLayout>', '<script>boot()</script></BaseLayout>');
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), withScript));
+    expect(result).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  test('theme.css change → kind style with no stale tokens (pure sheet swap)', async () => {
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'styles', 'theme.css'), ':root { --x: 1px }'));
+    expect(result).toEqual([]);
+    expect(sent[0].data).toEqual({ kinds: ['style'], staleTokens: [] });
+  });
+
+  test('no baseline → reload once, then patches against the new baseline', async () => {
+    const file = join(root, 'src', 'pages', 'late.astro'); // never seeded
+    const first = await plugin.handleHotUpdate(ctxFor(file, SRC_V1));
+    expect(first).toBeUndefined();
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    const second = await plugin.handleHotUpdate(ctxFor(file, emit(next as any)));
+    expect(second).toEqual([]);
+    expect(sent).toHaveLength(1);
+  });
+
+  test('same-content write (touch) → swallowed silently, no event', async () => {
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), SRC_V1));
+    expect(result).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  test('emit-only re-canonicalization (root cx instance-merge seam, model unchanged) → reload, not silent swallow', async () => {
+    // A component's structure root emits the `cx(…, className)` instance-merge seam — emit-only
+    // (the parser drops `className`, root-ness is re-derived every emit) but render-AFFECTING
+    // (whether the parent's instance class merges over the root). Two sources that parse to the
+    // same model can therefore render differently, so this must reload.
+    const def = {
+      component: {
+        interface: { x: { type: 'string', default: '' } },
+        structure: { type: 'node', tag: 'div', style: { base: { gap: '8px' } }, children: 'hi' },
+      },
+    };
+    const withSeam = emit(def as any);
+    // The same styling as a plain (non-root) style() call — parses to the identical model
+    // (node.style only), but renders WITHOUT the instance-class merge.
+    const withoutSeam = withSeam.replace(
+      'cx(style({ base: { gap: "8px" } }, __props), className)',
+      'style({ base: { gap: "8px" } }, __props)',
+    );
+    expect(withSeam).toContain('cx(style({ base: { gap: "8px" } }, __props), className)');
+    expect(withoutSeam).not.toContain('cx(');
+    const file = join(root, 'src', 'components', 'C.astro');
+    await plugin.handleHotUpdate(ctxFor(file, withoutSeam)); // seed baseline (no prev → undefined)
+    sent = [];
+    const result = await plugin.handleHotUpdate(ctxFor(file, withSeam)); // bytes differ, models equal
+    expect(result).toBeUndefined(); // stock full reload — NOT [] (which would keep the stale module)
+    expect(sent).toEqual([]);
+  });
+
+  test('files outside src/ are left to stock handling', async () => {
+    expect(await plugin.handleHotUpdate(ctxFor(join(root, 'other', 'x.astro'), SRC_V1))).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  // --- Vite 6+ `hotUpdate` hook (Astro 6): per-environment [] starves astro:hmr-reload ---
+  const optsFor = (file: string, source: string, type: 'update' | 'create' = 'update'): HotOpts => ({
+    ...ctxFor(file, source),
+    type,
+  });
+
+  test('hotUpdate (client env) → same patch + [] as handleHotUpdate', async () => {
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    const result = await plugin.hotUpdate.call(
+      { environment: { name: 'client' } },
+      optsFor(join(root, 'src', 'pages', 'index.astro'), emit(next as any)),
+    );
+    expect(result).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].event).toBe(PLAY_PATCH_EVENT);
+    expect(sent[0].data.kinds).toEqual(['style']);
+  });
+
+  test('hotUpdate → undefined (stock reload) for a non-tree structural edit', async () => {
+    const added = baseModel();
+    ((added.root as any).children as any)[0].tag = 'h1'; // retag → reload (not a v1 tree op)
+    const result = await plugin.hotUpdate.call(
+      { environment: { name: 'client' } },
+      optsFor(join(root, 'src', 'pages', 'index.astro'), emit(added as any)),
+    );
+    expect(result).toBeUndefined();
+  });
+
+  test('a patchable edit returns [] in the server envs too (starves astro:hmr-reload), without re-broadcasting', async () => {
+    const file = join(root, 'src', 'pages', 'index.astro');
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    const src = emit(next as any);
+    // A server env BEFORE the client classified this edit: nothing recorded yet → let
+    // the reload through (conservative — the client always runs first in real flow).
+    expect(await plugin.hotUpdate.call({ environment: { name: 'ssr' } }, optsFor(file, src))).toBeUndefined();
+    // Client env classifies (patchable) + broadcasts ONCE.
+    sent = [];
+    expect(await plugin.hotUpdate.call({ environment: { name: 'client' } }, optsFor(file, src))).toEqual([]);
+    expect(sent).toHaveLength(1);
+    // Now the ssr AND astro envs return [] (empty their module list → no SSR-only
+    // module for astro:hmr-reload → no imperative full-reload) and never re-send.
+    sent = [];
+    expect(await plugin.hotUpdate.call({ environment: { name: 'ssr' } }, optsFor(file, src))).toEqual([]);
+    expect(await plugin.hotUpdate.call({ environment: { name: 'astro' } }, optsFor(file, src))).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  test('a reload-classified edit returns undefined in the server envs (the full reload proceeds)', async () => {
+    const file = join(root, 'src', 'pages', 'index.astro');
+    const added = baseModel();
+    ((added.root as any).children as any)[0].tag = 'h1'; // retag → reload (not a v1 tree op)
+    const src = emit(added as any);
+    // Client classifies structural → undefined, records "not patchable".
+    expect(await plugin.hotUpdate.call({ environment: { name: 'client' } }, optsFor(file, src))).toBeUndefined();
+    // Server envs must NOT starve — astro:hmr-reload's full reload is the right outcome.
+    expect(await plugin.hotUpdate.call({ environment: { name: 'ssr' } }, optsFor(file, src))).toBeUndefined();
+    expect(await plugin.hotUpdate.call({ environment: { name: 'astro' } }, optsFor(file, src))).toBeUndefined();
+  });
+
+  test('enforce is post (sorts alongside astro:hmr-reload)', () => {
+    expect(plugin.enforce).toBe('post');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// playPatchVitePlugin — authoritative sheets payload (UtilityCssController)
+// In Astro 6 dev the SSR HTML serves the utility sheet + theme.css as EMPTY
+// <style> placeholders (Vite injects them client-side), so the bridge can't
+// recover them from its raw-HTML re-fetch — the server ships them in the payload.
+// ---------------------------------------------------------------------------
+
+describe('playPatchVitePlugin — authoritative sheets payload', () => {
+  let root: string;
+  let plugin: Plugin;
+  let sent: any[];
+  let rebuilt: number;
+  let invalidated: number;
+
+  const UTILITY_CSS = '.g-223px{gap:223px}\n.g-224px{gap:224px}';
+  // Minimal UtilityCssController stub: rebuild/current return a fixed sheet; invalidate counts.
+  const controller = {
+    rebuild: () => {
+      rebuilt++;
+      return UTILITY_CSS;
+    },
+    invalidate: () => {
+      invalidated++;
+    },
+  };
+
+  const ctxFor = (file: string, source: string) => ({
+    file,
+    read: async () => source,
+    server: { ws: { send: (p: unknown) => sent.push(p) } },
+  });
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'meno-patch-sheets-'));
+    tmps.push(root);
+    mkdirSync(join(root, 'src', 'pages'), { recursive: true });
+    writeFileSync(join(root, 'src', 'pages', 'index.astro'), emit(baseModel() as any), 'utf8');
+    sent = [];
+    rebuilt = 0;
+    invalidated = 0;
+    plugin = playPatchVitePlugin(root, controller) as unknown as Plugin;
+    plugin.configureServer({ watcher: { on: () => {} } });
+  });
+
+  test('style edit ships the freshly rebuilt utility sheet + invalidates in-band', async () => {
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '223px';
+    await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), emit(next as any)));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].data.kinds).toContain('style');
+    expect(sent[0].data.sheets).toEqual([{ match: 'meno-utilities', css: UTILITY_CSS }]);
+    expect(rebuilt).toBeGreaterThan(0);
+    expect(invalidated).toBeGreaterThan(0);
+  });
+
+  test('theme.css edit ships the regenerated file as the sheet', async () => {
+    const themeSrc = ':root { --brand: #f00 }';
+    await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'styles', 'theme.css'), themeSrc));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].data.kinds).toEqual(['style']);
+    expect(sent[0].data.sheets).toEqual([{ match: 'styles/theme.css', css: themeSrc }]);
+  });
+
+  test('a reload-classified .astro edit still rebuilds + invalidates (reload fallback stays fresh)', async () => {
+    const withScript = `${emit(baseModel() as any)}\n<script>console.log(1)</script>`;
+    const result = await plugin.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), withScript));
+    expect(result).toBeUndefined(); // reload
+    expect(sent).toEqual([]); // no patch event
+    expect(rebuilt).toBeGreaterThan(0);
+    expect(invalidated).toBeGreaterThan(0);
+  });
+
+  test('without a controller the payload carries no sheets (back-compat)', async () => {
+    const noCtl = playPatchVitePlugin(root) as unknown as Plugin;
+    noCtl.configureServer({ watcher: { on: () => {} } });
+    const next = baseModel();
+    ((next.root as any).style as any).base.gap = '221px';
+    await noCtl.handleHotUpdate(ctxFor(join(root, 'src', 'pages', 'index.astro'), emit(next as any)));
+    expect(sent[0].data.sheets).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH_JS — the restricted client patch against happy-dom
+// ---------------------------------------------------------------------------
+
+describe('PATCH_JS (client patch)', () => {
+  let win: Window;
+  let doc: Document;
+  let applyPatch: (
+    next: Document,
+    kinds: string[],
+    staleTokens: string[],
+    sheets?: Array<{ match: string; css: string }>,
+    op?: unknown,
+  ) => void;
+
+  const parse = (html: string): Document =>
+    new win.DOMParser().parseFromString(html, 'text/html') as unknown as Document;
+
+  const setup = (bodyHtml: string, headHtml = '') => {
+    win = new Window();
+    (win as unknown as { SyntaxError: typeof SyntaxError }).SyntaxError = SyntaxError;
+    doc = win.document as unknown as Document;
+    doc.head.innerHTML = headHtml;
+    doc.body.innerHTML = bodyHtml;
+    // Inject the X-Ray resolver ahead of PATCH_JS exactly as PLAY_PATCH_BRIDGE_SCRIPT
+    // does in production — pairKey resolves identity via identify(), which lives in
+    // the resolver. (Evaluating PATCH_JS alone would silently take pairKey's raw-attr
+    // fallback and never exercise the real chain-aware pairing.)
+    const fns = new Function('document', `${XRAY_RESOLVER_JS}\n${PATCH_JS}\nreturn { applyPatch: applyPatch };`)(
+      doc,
+    ) as {
+      applyPatch: typeof applyPatch;
+    };
+    applyPatch = fns.applyPatch;
+  };
+
+  test('sheet swap: keyed style tags update text; new sheets append; DOM untouched', () => {
+    setup(
+      '<div data-element-path="0" class="gap-224">x</div>',
+      '<style data-vite-dev-id="util.css">.gap-224{gap:224px}</style>',
+    );
+    const liveDiv = doc.querySelector('div')!;
+    applyPatch(
+      parse(
+        '<html><head><style data-vite-dev-id="util.css">.gap-223{gap:223px}</style>' +
+          '<style data-vite-dev-id="extra.css">.x{}</style></head>' +
+          '<body><div data-element-path="0" class="gap-223">x</div></body></html>',
+      ),
+      ['style'],
+      ['gap-224'],
+    );
+    expect(doc.querySelector('style[data-vite-dev-id="util.css"]')!.textContent).toBe('.gap-223{gap:223px}');
+    expect(doc.querySelector('style[data-vite-dev-id="extra.css"]')).not.toBeNull();
+    expect(doc.querySelector('div')).toBe(liveDiv); // node untouched
+    expect(liveDiv.getAttribute('class')).toBe('gap-223');
+  });
+
+  test('an EMPTY fetched sheet never wipes a populated live sheet (Astro 6 client-injected CSS)', () => {
+    // In Astro 6 dev the SSR HTML serves Vite-processed sheets EMPTY (Vite injects
+    // them client-side), so the re-fetched doc's utility <style> is empty. The old
+    // syncSheets copied that empty text over the live sheet → wiped all utility CSS.
+    setup(
+      '<div data-element-path="0" class="g-224px">x</div>',
+      '<style data-vite-dev-id="/@id/__x00__virtual:meno-utilities.css">.g-224px{gap:224px}</style>',
+    );
+    applyPatch(
+      parse(
+        '<html><head><style data-vite-dev-id="/@id/__x00__virtual:meno-utilities.css"></style></head>' +
+          '<body><div data-element-path="0" class="g-223px">x</div></body></html>',
+      ),
+      ['style'],
+      ['g-224px'],
+    );
+    // The live sheet is preserved (not wiped to empty).
+    expect(doc.querySelector('style[data-vite-dev-id*="meno-utilities"]')!.textContent).toBe('.g-224px{gap:224px}');
+  });
+
+  test('payload sheet overrides the empty fetched utility sheet (the snap-back fix)', () => {
+    setup(
+      '<div data-element-path="0" class="g-224px">x</div>',
+      '<style data-vite-dev-id="/@id/__x00__virtual:meno-utilities.css">.g-224px{gap:224px}</style>',
+    );
+    applyPatch(
+      parse(
+        '<html><head><style data-vite-dev-id="/@id/__x00__virtual:meno-utilities.css"></style></head>' +
+          '<body><div data-element-path="0" class="g-223px">x</div></body></html>',
+      ),
+      ['style'],
+      ['g-224px'],
+      [{ match: 'meno-utilities', css: '.g-223px{gap:223px}\n.g-224px{gap:224px}' }],
+    );
+    const sheet = doc.querySelector('style[data-vite-dev-id*="meno-utilities"]')!;
+    expect(sheet.textContent).toContain('.g-223px{gap:223px}'); // authoritative new rule arrived
+    // element switched to the new class, which the payload sheet defines → no snap-back
+    expect(doc.querySelector('div')!.getAttribute('class')).toBe('g-223px');
+  });
+
+  test('payload sheet is created when no matching live tag exists', () => {
+    setup('<div data-element-path="0" class="g-223px">x</div>', '');
+    applyPatch(
+      parse('<html><body><div data-element-path="0" class="g-223px">x</div></body></html>'),
+      ['style'],
+      [],
+      [{ match: 'meno-utilities', css: '.g-223px{gap:223px}' }],
+    );
+    const sheet = doc.querySelector('style[data-vite-dev-id*="meno-utilities"]');
+    expect(sheet).not.toBeNull();
+    expect(sheet!.textContent).toBe('.g-223px{gap:223px}');
+  });
+
+  test('class merge keeps JS-added tokens and retires only stale ones', () => {
+    setup('<section data-element-path="0,1" class="gap-224 p-10 embla--active">s</section>');
+    const el = doc.querySelector('section')!;
+    applyPatch(
+      parse('<html><body><section data-element-path="0,1" class="gap-223 p-10">s</section></body></html>'),
+      ['style'],
+      ['gap-224'],
+    );
+    const cls = el.getAttribute('class')!.split(' ');
+    expect(cls).toContain('gap-223'); // new utility arrived
+    expect(cls).toContain('p-10'); // untouched utility kept
+    expect(cls).toContain('embla--active'); // JS-added token survives
+    expect(cls).not.toContain('gap-224'); // retired
+  });
+
+  test('inline style is property-granular: fade.js reveal state survives', () => {
+    setup('<div data-element-path="0" fade="0.2">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    // fade.js revealed the element at runtime.
+    el.setAttribute('style', 'transition: opacity 0.6s ease 0.2s; opacity: 1; transform: none');
+    applyPatch(
+      parse('<html><body><div data-element-path="0" fade="0.2" style="--gap: 12px">x</div></body></html>'),
+      ['style'],
+      [],
+    );
+    const style = el.getAttribute('style')!;
+    expect(style).toContain('opacity: 1'); // JS reveal kept
+    expect(style).toContain('--gap: 12px'); // server-rendered property applied
+  });
+
+  test('text sync patches paired text nodes; skips when counts mismatch', () => {
+    setup('<p data-element-path="0,0">Hello world</p><p data-element-path="0,1">stays</p>');
+    const p0 = doc.querySelectorAll('p')[0]!;
+    // JS inserted an extra element child into p1 — its text counts mismatch.
+    const p1 = doc.querySelectorAll('p')[1]!;
+    p1.appendChild(doc.createElement('span'));
+    p1.appendChild(doc.createTextNode('js-added'));
+    applyPatch(
+      parse(
+        '<html><body><p data-element-path="0,0">Hello edited</p><p data-element-path="0,1">changed</p></body></html>',
+      ),
+      ['text'],
+      [],
+    );
+    expect(p0.textContent).toBe('Hello edited');
+    expect(p1.textContent).toContain('js-added'); // mismatch → safely skipped
+  });
+
+  test('instance-chain identity disambiguates same file-local paths; extras are skipped', () => {
+    setup(
+      '<div data-element-path="0" data-meno-instance="0,0" class="a">first</div>' +
+        '<div data-element-path="0" data-meno-instance="0,1" class="a">second</div>',
+    );
+    const [first, second] = [...doc.querySelectorAll('div')] as HTMLElement[];
+    applyPatch(
+      parse(
+        '<html><body>' +
+          '<div data-element-path="0" data-meno-instance="0,0" class="b">first</div>' +
+          '<div data-element-path="0" data-meno-instance="0,1" class="c">second</div>' +
+          '</body></html>',
+      ),
+      ['style'],
+      ['a'],
+    );
+    expect(first!.getAttribute('class')).toBe('b');
+    expect(second!.getAttribute('class')).toBe('c');
+  });
+
+  test('cross-instance isolation: a JS clone in one component never absorbs another component prop edit', () => {
+    // The collapsed-tile bug. Two section instances each render a deep child at the
+    // SAME file-local path "0,0" — deep component-internal elements carry no instance
+    // attr of their own, so a bare path|instance|slot key collides across them.
+    // Instance A's component JS-cloned its card, so that shared bare bucket holds
+    // [A-card, A-clone, B-pill] live vs [A-card, B-pill] fetched. Occurrence-order
+    // pairing on the bare key pairs B's fetched pill against A's live clone and, with
+    // a variant-prop edit's whole-project stale set, strips the clone down to B's
+    // classes. Chain-aware pairing (identify) puts A's "0,0" and B's "0,0" in separate
+    // buckets, so a drift inside A can never mispair B's elements — or vice versa.
+    setup(
+      // Instance A (data-meno-instance="0,0"): a card + its JS-cloned twin.
+      '<section data-element-path="0" data-meno-instance="0,0">' +
+        '<div data-element-path="0,0" class="card keep-a">A card</div>' +
+        '<div data-element-path="0,0" class="card keep-a">A card clone</div>' +
+        '</section>' +
+        // Instance B (data-meno-instance="0,1"): the edited CTA pill.
+        '<section data-element-path="0" data-meno-instance="0,1">' +
+        '<div data-element-path="0,0" class="grid pad keep-b">B pill</div>' +
+        '</section>',
+    );
+    const [aCard, aClone] = [...doc.querySelectorAll('section[data-meno-instance="0,0"] div')] as HTMLElement[];
+    const bPill = doc.querySelector('section[data-meno-instance="0,1"] div')! as HTMLElement;
+    // Fresh render after B's variant-prop edit: A unchanged (no clone — SSR), B re-rendered.
+    applyPatch(
+      parse(
+        '<html><body>' +
+          '<section data-element-path="0" data-meno-instance="0,0">' +
+          '<div data-element-path="0,0" class="card keep-a">A card</div>' +
+          '</section>' +
+          '<section data-element-path="0" data-meno-instance="0,1">' +
+          '<div data-element-path="0,0" class="grid pad keep-b">B pill</div>' +
+          '</section>' +
+          '</body></html>',
+      ),
+      ['attrs', 'style'],
+      ['card', 'keep-a', 'grid', 'pad', 'keep-b'], // the project class vocabulary
+    );
+    expect(aCard!.getAttribute('class')).toBe('card keep-a'); // paired within A — kept
+    expect(aClone!.getAttribute('class')).toBe('card keep-a'); // bare-key pairing → "grid pad keep-b"
+    expect(bPill.getAttribute('class')).toBe('grid pad keep-b'); // B's edit applied, isolated to B
+  });
+
+  test('no inserts, no removals: structure-divergent live extras are left alone', () => {
+    setup('<div data-element-path="0" class="x">x</div><aside id="js-overlay">runtime</aside>');
+    applyPatch(parse('<html><body><div data-element-path="0" class="y">x</div></body></html>'), ['style'], ['x']);
+    expect(doc.getElementById('js-overlay')).not.toBeNull(); // never removed
+    expect(doc.querySelector('div')!.getAttribute('class')).toBe('y');
+  });
+
+  test('attrs sync updates server-rendered attributes, text, inline style; skips control/identity attrs', () => {
+    // Same tag + same class on both sides → a pure text/attr prop edit → patch.
+    setup(
+      '<img data-element-path="0,0" data-meno-instance="0,0" class="c" src="old.jpg" alt="old" style="opacity: 1">',
+    );
+    const img = doc.querySelector('img')! as HTMLElement;
+    img.setAttribute('data-js', 'runtime'); // a live-only attribute JS added
+    applyPatch(
+      parse(
+        '<html><body>' +
+          '<img data-element-path="0,0" data-meno-instance="0,0" class="c" src="new.jpg" alt="new" loading="lazy" style="max-width: 50%">' +
+          '</body></html>',
+      ),
+      ['attrs'],
+      [],
+    );
+    expect(img.getAttribute('src')).toBe('new.jpg'); // updated
+    expect(img.getAttribute('alt')).toBe('new'); // updated
+    expect(img.getAttribute('loading')).toBe('lazy'); // added
+    expect(img.getAttribute('class')).toBe('c'); // unchanged class → patched, not reloaded
+    expect(img.getAttribute('style')).toContain('max-width: 50%'); // server inline style applied
+    expect(img.getAttribute('style')).toContain('opacity: 1'); // live-only inline prop kept
+    expect(img.getAttribute('data-meno-instance')).toBe('0,0'); // identity preserved
+    expect(img.getAttribute('data-js')).toBe('runtime'); // live-only attr never removed
+  });
+
+  test('variant prop patches the class in place via stale tokens (no reload)', () => {
+    // A variant prop (align) drives a utility class; the prop edit rides kind
+    // 'style' with the project vocabulary as stale tokens, so mergeClasses
+    // retires the old class (ta-left) and adds the fresh one — no reload.
+    setup('<h1 data-element-path="0,0" class="ta-left fs-67px">Title</h1>');
+    const h1 = doc.querySelector('h1')!;
+    applyPatch(
+      parse('<html><body><h1 data-element-path="0,0" class="ta-center fs-67px">Title</h1></body></html>'),
+      ['attrs', 'style'],
+      ['ta-left', 'ta-center', 'ta-right'], // the align mapping's full vocabulary
+    );
+    const cls = h1.getAttribute('class')!.split(' ');
+    expect(cls).toContain('ta-center'); // new variant class applied
+    expect(cls).toContain('fs-67px'); // untouched class kept
+    expect(cls).not.toContain('ta-left'); // old variant class retired
+  });
+
+  test('variant prop that changes the tag (size → h1↔h2) patches the class, accepts the stale tag', () => {
+    // size drives BOTH the heading tag and the font-size class. We patch the
+    // class (the visual) and accept the semantically-stale tag — not structural,
+    // so no reload; the tag self-heals on the next reload.
+    setup('<h1 data-element-path="0,0" class="fs-67px">Title</h1>');
+    const live = doc.querySelector('[data-element-path="0,0"]')! as HTMLElement;
+    applyPatch(
+      parse('<html><body><h2 data-element-path="0,0" class="fs-56px">Title</h2></body></html>'),
+      ['attrs', 'style'],
+      ['fs-67px', 'fs-56px'], // the size mapping's font-size vocabulary
+    );
+    expect(live.getAttribute('class')).toBe('fs-56px'); // class updated → visually h2
+    expect(live.tagName.toLowerCase()).toBe('h1'); // tag stays (accepted stale)
+  });
+
+  test('attrs kind also syncs text (a scalar prop rendered as a text child)', () => {
+    setup('<span data-element-path="0,0">old</span>');
+    applyPatch(parse('<html><body><span data-element-path="0,0">new</span></body></html>'), ['attrs'], []);
+    expect(doc.querySelector('span')!.textContent).toBe('new');
+  });
+
+  test('attrs sync does not stomp form value/checked (user/IDL state)', () => {
+    setup('<input data-element-path="0,0" value="default">');
+    const input = doc.querySelector('input')! as HTMLElement;
+    applyPatch(
+      parse('<html><body><input data-element-path="0,0" value="server" checked></body></html>'),
+      ['attrs'],
+      [],
+    );
+    expect(input.getAttribute('value')).toBe('default'); // value attr left to reload
+    expect(input.hasAttribute('checked')).toBe(false); // checked left to reload
+  });
+
+  test('structureDiverged: a prop that grows the server-rendered set throws → bridge reloads', () => {
+    // Live has one stamped list item; the fresh render has two (a scalar prop
+    // drove a list the model diff could not see) → fetchedCount > liveCount.
+    setup('<li data-element-path="0,0">a</li>');
+    expect(() =>
+      applyPatch(
+        parse('<html><body><li data-element-path="0,0">a</li><li data-element-path="0,0">b</li></body></html>'),
+        ['attrs'],
+        [],
+      ),
+    ).toThrow();
+  });
+
+  test('structureDiverged: a prop that flips a conditional (new identity) throws → reload', () => {
+    setup('<div data-element-path="0,0">stays</div>');
+    expect(() =>
+      applyPatch(
+        parse(
+          '<html><body><div data-element-path="0,0">stays</div><div data-element-path="0,1">appeared</div></body></html>',
+        ),
+        ['attrs'],
+        [],
+      ),
+    ).toThrow();
+  });
+
+  test('structureDiverged tolerates JS clones (live count > fetched) — patches, never reloads', () => {
+    // embla cloned the live slide (two live, one server-rendered) — liveCount >
+    // fetchedCount is the tolerated direction; the patch must apply, not throw.
+    setup('<div data-element-path="0,0" src="old">a</div>' + '<div data-element-path="0,0" src="old">a-clone</div>');
+    const [real, clone] = [...doc.querySelectorAll('div')] as HTMLElement[];
+    expect(() =>
+      applyPatch(parse('<html><body><div data-element-path="0,0" src="new">a</div></body></html>'), ['attrs'], []),
+    ).not.toThrow();
+    expect(real!.getAttribute('src')).toBe('new'); // first occurrence patched
+    expect(clone!.getAttribute('src')).toBe('old'); // unpaired clone left as-is
+  });
+
+  // --- kind 'html': rich-text (set:html) innerHTML re-sync ---
+
+  test('html kind replaces a rich-text leaf innerHTML (text + nested markup)', () => {
+    // Heading renders <h1 ...>text <span class=custom-span>x</span> text</h1>;
+    // the span is raw set:html, never a stamped meno node.
+    setup('<h1 data-element-path="0,0">Build a <span class="hl">great</span> site</h1>');
+    applyPatch(
+      parse('<html><body><h1 data-element-path="0,0">Build a <span class="hl">better</span> site</h1></body></html>'),
+      ['html'],
+      [],
+    );
+    expect(doc.querySelector('h1')!.innerHTML).toBe('Build a <span class="hl">better</span> site');
+  });
+
+  test('html kind never innerHTML-replaces an element with a stamped descendant (preserves node identity + JS state)', () => {
+    // A component ROOT whose subtree has its own stamped node: an innerHTML replace
+    // would destroy/recreate that node (breaking pairing + wiping JS state), so
+    // syncHtml must skip the parent. The skipped parent's own text edit (prefix →
+    // PREFIX) is left to reload — the accepted tradeoff that keeps the child safe.
+    setup('<section data-element-path="0,0">prefix <div data-element-path="0,0,0">slide</div></section>');
+    const liveChild = doc.querySelector('[data-element-path="0,0,0"]')! as unknown as { __jsState?: string };
+    liveChild.__jsState = 'kept';
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0,0">PREFIX <div data-element-path="0,0,0">slide</div></section></body></html>',
+      ),
+      ['html'],
+      [],
+    );
+    const afterChild = doc.querySelector('[data-element-path="0,0,0"]')! as unknown as { __jsState?: string };
+    expect(afterChild).toBe(liveChild); // same node — section was NOT innerHTML-replaced
+    expect(afterChild.__jsState).toBe('kept'); // JS state survived
+  });
+
+  test('html kind skips a pure-text leaf (no element children) — JS-managed text not clobbered', () => {
+    // A counter the page JS animates: no element children → left to syncText, so a
+    // rich-text edit elsewhere can never reset it via innerHTML.
+    setup('<div data-element-path="0,0">456</div>');
+    applyPatch(parse('<html><body><div data-element-path="0,0">123</div></body></html>'), ['html'], []);
+    expect(doc.querySelector('div')!.innerHTML).toBe('456'); // untouched
+  });
+
+  test('html kind is gated by structureDiverged (a flipped conditional → reload)', () => {
+    setup('<h1 data-element-path="0,0">hi <b>x</b></h1>');
+    expect(() =>
+      applyPatch(
+        parse(
+          '<html><body><h1 data-element-path="0,0">hi <b>x</b></h1><div data-element-path="0,1">appeared</div></body></html>',
+        ),
+        ['html'],
+        [],
+      ),
+    ).toThrow();
+  });
+
+  // ---- structure kind: editor-driven insert / remove / move + re-stamp ---------
+  const id = (path: string) => ({ chain: [], path, item: '' });
+
+  test('structure insert: clones the new node from fetched, places it after the anchor, re-stamps', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">a</div><div data-element-path="0,1">b</div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      { kind: 'insert', parent: id('0'), newNode: id('0,1'), anchor: { after: id('0,0') } },
+    );
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs.length).toBe(2);
+    expect(divs[0]!.textContent).toBe('a');
+    expect(divs[1]!.textContent).toBe('b');
+    // re-stamped: the new child carries its fetched path.
+    expect(divs[1]!.getAttribute('data-element-path')).toBe('0,1');
+  });
+
+  test('structure insert at index 0: firstChild anchor prepends, re-stamps survivors to new paths', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">z</div><div data-element-path="0,1">a</div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      { kind: 'insert', parent: id('0'), newNode: id('0,0'), anchor: { firstChild: true } },
+    );
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs.length).toBe(2);
+    expect(divs[0]!.textContent).toBe('z'); // prepended
+    expect(divs[1]!.textContent).toBe('a'); // survivor shifted
+    // survivor re-stamped from "0,0" → "0,1".
+    expect(divs[1]!.getAttribute('data-element-path')).toBe('0,1');
+  });
+
+  test('structure insert places a script-bearing subtree and RECREATES its <script> (so it runs in-browser)', () => {
+    // happy-dom does not synchronously evaluate dynamically-inserted scripts, so we
+    // assert the observable contract of runScripts: the subtree is placed and its
+    // <script> is recreated (a fresh element with the same content) — which is what
+    // makes a NEW (never-run) scriptBind IIFE execute once in a real browser.
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">a</div>' +
+          '<div data-element-path="0,1">b<script>var x = 1;</script></div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      { kind: 'insert', parent: id('0'), newNode: id('0,1'), anchor: { after: id('0,0') } },
+    );
+    const inserted = doc.querySelectorAll('section > div')[1]!;
+    const script = inserted.querySelector('script');
+    expect(script).not.toBeNull();
+    expect(script!.textContent).toBe('var x = 1;');
+  });
+
+  test('structure remove: deletes the live target and re-stamps survivors', () => {
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,1">b</div></section>',
+    );
+    applyPatch(
+      parse('<html><body><section data-element-path="0"><div data-element-path="0,0">b</div></section></body></html>'),
+      ['structure'],
+      [],
+      undefined,
+      { kind: 'remove', target: id('0,0') },
+    );
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs.length).toBe(1);
+    expect(divs[0]!.textContent).toBe('b');
+    expect(divs[0]!.getAttribute('data-element-path')).toBe('0,0'); // re-stamped from "0,1"
+  });
+
+  test('structure move (reorder): relocates the LIVE element (identity preserved), re-stamps', () => {
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,1">b</div></section>',
+    );
+    const liveA = doc.querySelectorAll('section > div')[0]!; // the "a" element
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">b</div><div data-element-path="0,1">a</div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      { kind: 'move', from: id('0,0'), toParent: id('0'), anchor: { after: id('0,1') } },
+    );
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs[0]!.textContent).toBe('b');
+    expect(divs[1]!.textContent).toBe('a');
+    expect(divs[1]!).toBe(liveA); // SAME node moved (bound JS/state preserved), not re-cloned
+    expect(divs[1]!.getAttribute('data-element-path')).toBe('0,1'); // re-stamped
+  });
+
+  test('structure patch with NO op → throws (→ bridge reload)', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    expect(() =>
+      applyPatch(
+        parse(
+          '<html><body><section data-element-path="0"><div data-element-path="0,0">a</div></section></body></html>',
+        ),
+        ['structure'],
+        [],
+        undefined,
+        undefined,
+      ),
+    ).toThrow();
+  });
+
+  test('structure insert TOLERATES a JS-cloned stamped sibling (no reload; clone left alone)', () => {
+    // Live has an extra JS-inserted stamped clone the fetched SSR does not (a loop
+    // carousel/marquee — ubiquitous on real pages). The re-stamp two-pointer skips the
+    // clone instead of bailing, so the insert still patches (the whole reason structural
+    // edits kept reloading on JS-heavy mirror imports).
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,0">clone</div></section>',
+    );
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">a</div><div data-element-path="0,1">b</div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      { kind: 'insert', parent: id('0'), newNode: id('0,1'), anchor: { after: id('0,0') } },
+    );
+    const texts = Array.from(doc.querySelectorAll('section > div')).map((d) => d.textContent);
+    expect(texts).toContain('a');
+    expect(texts).toContain('b'); // inserted despite the clone
+    expect(texts).toContain('clone'); // clone untouched
+  });
+
+  test('structure op with an unresolvable target → throws (→ reload)', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    expect(() =>
+      applyPatch(
+        parse(
+          '<html><body><section data-element-path="0"><div data-element-path="0,0">a</div></section></body></html>',
+        ),
+        ['structure'],
+        [],
+        undefined,
+        { kind: 'remove', target: id('9,9') }, // no such element
+      ),
+    ).toThrow();
+  });
+
+  test('re-stamp SHORTFALL (op did not reproduce the server structure) → throws (→ reload)', () => {
+    // Live after removing one node has FEWER stamped elements than the fetched SSR — a
+    // real divergence (e.g. a hidden conditional fired). The two-pointer runs out of live
+    // before covering all fetched → throw → reload (the guard that survives clone tolerance).
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,1">b</div></section>',
+    );
+    expect(() =>
+      applyPatch(
+        parse(
+          '<html><body><section data-element-path="0">' +
+            '<div data-element-path="0,0">b</div><div data-element-path="0,1">c</div>' +
+            '</section></body></html>',
+        ),
+        ['structure'],
+        [],
+        undefined,
+        { kind: 'remove', target: id('0,0') }, // live → 2 stamped, fetched has 3
+      ),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH_JS optimistic structure ops — move/remove applied to the live DOM on
+// receipt (before the server 'structure' patch), reconciled by re-stamp only
+// ---------------------------------------------------------------------------
+
+describe('PATCH_JS optimistic structure ops (move/remove on receipt)', () => {
+  let win: Window;
+  let doc: Document;
+  let applyPatch: (
+    next: Document,
+    kinds: string[],
+    staleTokens: string[],
+    sheets: unknown,
+    op: unknown,
+    alreadyApplied?: boolean,
+  ) => void;
+  let applyStructureOpOptimistic: (op: unknown) => void;
+
+  const parse = (html: string): Document =>
+    new win.DOMParser().parseFromString(html, 'text/html') as unknown as Document;
+
+  const setup = (bodyHtml: string) => {
+    win = new Window();
+    (win as unknown as { SyntaxError: typeof SyntaxError }).SyntaxError = SyntaxError;
+    doc = win.document as unknown as Document;
+    doc.body.innerHTML = bodyHtml;
+    // resolveTarget/resolveAnchor/placeByAnchor live alongside PATCH_JS in the bridge
+    // scope, so evaluate the resolver + PATCH_JS in one scope exactly like production.
+    const fns = new Function(
+      'document',
+      `${XRAY_RESOLVER_JS}\n${PATCH_JS}\nreturn { applyPatch: applyPatch, applyStructureOpOptimistic: applyStructureOpOptimistic };`,
+    )(doc) as {
+      applyPatch: typeof applyPatch;
+      applyStructureOpOptimistic: typeof applyStructureOpOptimistic;
+    };
+    applyPatch = fns.applyPatch;
+    applyStructureOpOptimistic = fns.applyStructureOpOptimistic;
+  };
+
+  const id = (path: string) => ({ chain: [] as string[], path, item: '' });
+
+  test('move relocates the LIVE element immediately — no fetched doc, no re-stamp yet', () => {
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,1">b</div></section>',
+    );
+    const liveA = doc.querySelectorAll('section > div')[0]!; // "a"
+    applyStructureOpOptimistic({ kind: 'move', from: id('0,0'), toParent: id('0'), anchor: { after: id('0,1') } });
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs[0]!.textContent).toBe('b');
+    expect(divs[1]!.textContent).toBe('a');
+    expect(divs[1]!).toBe(liveA); // SAME node moved (bound JS/state preserved)
+    // No re-stamp in the optimistic pass: the moved node keeps its pre-op path until
+    // the correlated 'structure' patch reconciles.
+    expect(divs[1]!.getAttribute('data-element-path')).toBe('0,0');
+  });
+
+  test('remove deletes the live target immediately (no re-stamp yet)', () => {
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,1">b</div></section>',
+    );
+    applyStructureOpOptimistic({ kind: 'remove', target: id('0,0') });
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs.length).toBe(1);
+    expect(divs[0]!.textContent).toBe('b');
+    expect(divs[0]!.getAttribute('data-element-path')).toBe('0,1'); // untouched (no re-stamp)
+  });
+
+  test('reconcile: the follow-up structure patch (alreadyApplied) re-stamps but does NOT move again', () => {
+    setup(
+      '<section data-element-path="0"><div data-element-path="0,0">a</div><div data-element-path="0,1">b</div></section>',
+    );
+    const liveA = doc.querySelectorAll('section > div')[0]!;
+    const op = { kind: 'move', from: id('0,0'), toParent: id('0'), anchor: { after: id('0,1') } };
+    applyStructureOpOptimistic(op); // 1) optimistic apply on receipt
+    // 2) the server's 'structure' patch lands — alreadyApplied=true → re-stamp only
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">b</div><div data-element-path="0,1">a</div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      op,
+      true,
+    );
+    const divs = doc.querySelectorAll('section > div');
+    // NOT double-moved: still b, a — and re-stamped to the fetched post-op paths.
+    expect(divs[0]!.textContent).toBe('b');
+    expect(divs[1]!.textContent).toBe('a');
+    expect(divs[1]!).toBe(liveA); // identity preserved across the whole cycle
+    expect(divs[0]!.getAttribute('data-element-path')).toBe('0,0');
+    expect(divs[1]!.getAttribute('data-element-path')).toBe('0,1');
+  });
+
+  test('a GENERIC insert (no cloneOf) is unsupported by the optimistic path → throws (listener falls back to the gated apply)', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    expect(() =>
+      applyStructureOpOptimistic({ kind: 'insert', parent: id('0'), newNode: id('0,1'), anchor: { after: id('0,0') } }),
+    ).toThrow();
+  });
+
+  test('duplicate insert (cloneOf) shows an instant placeholder: live clone, ALL stamps stripped', () => {
+    setup(
+      '<section data-element-path="0">' +
+        '<div data-element-path="0,0">a<span data-element-path="0,0,0" data-meno-instance="x">deep</span></div>' +
+        '</section>',
+    );
+    applyStructureOpOptimistic({
+      kind: 'insert',
+      parent: id('0'),
+      newNode: id('0,1'),
+      anchor: { after: id('0,0') },
+      cloneOf: id('0,0'),
+    });
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs.length).toBe(2);
+    const placeholder = divs[1]!;
+    expect(placeholder.textContent).toBe('adeep'); // visually the duplicated subtree
+    expect(placeholder.hasAttribute('data-meno-optimistic-clone')).toBe(true);
+    // Every identity stamp stripped, root AND descendants — the placeholder must
+    // never shadow resolveTarget/anchor resolution while it waits for the patch.
+    expect(placeholder.hasAttribute('data-element-path')).toBe(false);
+    expect(placeholder.querySelector('[data-element-path]')).toBeNull();
+    expect(placeholder.querySelector('[data-meno-instance]')).toBeNull();
+    // The source keeps its stamps untouched.
+    expect(divs[0]!.getAttribute('data-element-path')).toBe('0,0');
+  });
+
+  test('reconcile: the structure patch swaps the placeholder for the authoritative SSR markup + re-stamps', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    const op = {
+      kind: 'insert',
+      parent: id('0'),
+      newNode: id('0,1'),
+      anchor: { after: id('0,0') },
+      cloneOf: id('0,0'),
+    };
+    applyStructureOpOptimistic(op); // 1) instant placeholder
+    // 2) the server's 'structure' patch lands (alreadyApplied=true). The fetched SSR's
+    // new node carries a marker attribute to prove the AUTHORITATIVE markup replaced
+    // the live clone, not merely got re-stamped over it.
+    applyPatch(
+      parse(
+        '<html><body><section data-element-path="0">' +
+          '<div data-element-path="0,0">a</div><div data-element-path="0,1" data-ssr="1">a</div>' +
+          '</section></body></html>',
+      ),
+      ['structure'],
+      [],
+      undefined,
+      op,
+      true,
+    );
+    const divs = doc.querySelectorAll('section > div');
+    expect(divs.length).toBe(2);
+    expect(doc.querySelector('[data-meno-optimistic-clone]')).toBeNull(); // placeholder gone
+    expect(divs[1]!.getAttribute('data-ssr')).toBe('1'); // SSR markup, same position
+    expect(divs[0]!.getAttribute('data-element-path')).toBe('0,0');
+    expect(divs[1]!.getAttribute('data-element-path')).toBe('0,1'); // re-stamped identity
+  });
+
+  test('an unresolvable target throws → the listener catches it and leaves the op for the gated path', () => {
+    setup('<section data-element-path="0"><div data-element-path="0,0">a</div></section>');
+    expect(() => applyStructureOpOptimistic({ kind: 'remove', target: id('9,9') })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH_JS optimistic text preview — write a single text node on receipt,
+// reconciled (overwritten) by the real 'text' patch
+// ---------------------------------------------------------------------------
+
+describe('PATCH_JS optimistic text preview', () => {
+  let win: Window;
+  let doc: Document;
+  let applyPatch: (next: Document, kinds: string[], staleTokens: string[]) => void;
+  let applyTextPreview: (
+    target: { chain: string[]; path: string; item: string; isComponent: boolean },
+    text: string,
+  ) => void;
+
+  const parse = (html: string): Document =>
+    new win.DOMParser().parseFromString(html, 'text/html') as unknown as Document;
+
+  const setup = (bodyHtml: string) => {
+    win = new Window();
+    (win as unknown as { SyntaxError: typeof SyntaxError }).SyntaxError = SyntaxError;
+    doc = win.document as unknown as Document;
+    doc.body.innerHTML = bodyHtml;
+    const fns = new Function(
+      'document',
+      `${XRAY_RESOLVER_JS}\n${PATCH_JS}\nreturn { applyPatch: applyPatch, applyTextPreview: applyTextPreview };`,
+    )(doc) as {
+      applyPatch: typeof applyPatch;
+      applyTextPreview: typeof applyTextPreview;
+    };
+    applyPatch = fns.applyPatch;
+    applyTextPreview = fns.applyTextPreview;
+  };
+
+  const TARGET = { chain: [] as string[], path: '0', item: '', isComponent: false };
+
+  test('writes the single direct-child text node immediately', () => {
+    setup('<p data-element-path="0">old</p>');
+    applyTextPreview(TARGET, 'new text');
+    expect(doc.querySelector('p')!.textContent).toBe('new text');
+  });
+
+  test('skips an element with NO text node (nothing to write)', () => {
+    setup('<p data-element-path="0"><span>x</span></p>');
+    applyTextPreview(TARGET, 'new text');
+    // untouched — the span child is preserved, no stray text node added
+    expect(doc.querySelector('p')!.innerHTML).toBe('<span>x</span>');
+  });
+
+  test('skips (leaves to the patch) when there are MULTIPLE/interleaved text nodes', () => {
+    setup('<p data-element-path="0">a<span>b</span>c</p>');
+    applyTextPreview(TARGET, 'z');
+    // both text nodes untouched — count !== 1 → no write
+    expect(doc.querySelector('p')!.textContent).toBe('abc');
+  });
+
+  test('never clobbers element-child siblings (writes the text node only)', () => {
+    setup('<p data-element-path="0">hello<span>x</span></p>');
+    // one text node ("hello") + one element child → count === 1 → write the text node
+    applyTextPreview(TARGET, 'bye');
+    expect(doc.querySelector('p span')).not.toBeNull(); // span survives
+    expect(doc.querySelector('p')!.firstChild!.nodeValue).toBe('bye');
+  });
+
+  test('an unresolvable target is a no-op', () => {
+    setup('<p data-element-path="0">old</p>');
+    applyTextPreview({ chain: [], path: '9,9', item: '', isComponent: false }, 'new');
+    expect(doc.querySelector('p')!.textContent).toBe('old'); // untouched
+  });
+
+  test('reconcile: a following text patch (syncText) overwrites the optimistic value', () => {
+    setup('<p data-element-path="0">old</p>');
+    applyTextPreview(TARGET, 'optimistic'); // 1) instant echo
+    expect(doc.querySelector('p')!.textContent).toBe('optimistic');
+    // 2) the real 'text' patch lands with the authoritative server value
+    applyPatch(parse('<html><body><p data-element-path="0">server</p></body></html>'), ['text'], []);
+    expect(doc.querySelector('p')!.textContent).toBe('server');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH_JS optimistic style preview — resolveTarget + apply + snapshot/restore
+// ---------------------------------------------------------------------------
+
+describe('PATCH_JS optimistic style preview', () => {
+  let win: Window;
+  let doc: Document;
+  let applyPatch: (next: Document, kinds: string[], staleTokens: string[]) => void;
+  let applyOptimistic: (
+    target: { chain: string[]; path: string; item: string; isComponent: boolean },
+    css: string,
+    media?: string,
+  ) => void;
+  let getOptimistic: () => Array<{ el: Element; original: string | null }>;
+
+  const parse = (html: string): Document =>
+    new win.DOMParser().parseFromString(html, 'text/html') as unknown as Document;
+
+  const setup = (bodyHtml: string, headHtml = '') => {
+    win = new Window();
+    (win as unknown as { SyntaxError: typeof SyntaxError }).SyntaxError = SyntaxError;
+    doc = win.document as unknown as Document;
+    doc.head.innerHTML = headHtml;
+    doc.body.innerHTML = bodyHtml;
+    // resolveTarget lives in XRAY_RESOLVER_JS — the bridge embeds it alongside
+    // PATCH_JS, so the test evaluates both in one scope (same as production).
+    const fns = new Function(
+      'document',
+      `${XRAY_RESOLVER_JS}\n${PATCH_JS}\nreturn { applyPatch: applyPatch, applyOptimistic: applyOptimistic, getOptimistic: function () { return optimistic; } };`,
+    )(doc) as {
+      applyPatch: typeof applyPatch;
+      applyOptimistic: typeof applyOptimistic;
+      getOptimistic: typeof getOptimistic;
+    };
+    applyPatch = fns.applyPatch;
+    applyOptimistic = fns.applyOptimistic;
+    getOptimistic = fns.getOptimistic;
+  };
+
+  // A plain root element (no instance chain) — resolveTarget's simplest case.
+  const TARGET = { chain: [] as string[], path: '0', item: '', isComponent: false };
+
+  test('applies the declaration inline and snapshots the original (null) style', () => {
+    setup('<div data-element-path="0" class="bg-old">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    applyOptimistic(TARGET, 'background-color: var(--primary)');
+    expect(el.getAttribute('style')).toContain('background-color: var(--primary)');
+    const reg = getOptimistic();
+    expect(reg).toHaveLength(1);
+    expect(reg[0]!.original).toBeNull(); // element had no style attr to begin with
+  });
+
+  test('unresolvable target is a no-op (no throw, registry stays empty)', () => {
+    setup('<div data-element-path="0">x</div>');
+    expect(() => applyOptimistic({ chain: [], path: '9', item: '', isComponent: false }, 'color: red')).not.toThrow();
+    expect(getOptimistic()).toHaveLength(0);
+  });
+
+  test('empty css is a no-op (bound/_mapping value yields no preview)', () => {
+    setup('<div data-element-path="0">x</div>');
+    applyOptimistic(TARGET, '');
+    expect(getOptimistic()).toHaveLength(0);
+  });
+
+  test('repeated edits to the same element keep the FIRST snapshot, apply the latest value', () => {
+    setup('<div data-element-path="0" style="margin: 4px">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    applyOptimistic(TARGET, 'padding: 10px');
+    applyOptimistic(TARGET, 'padding: 20px');
+    const reg = getOptimistic();
+    expect(reg).toHaveLength(1);
+    expect(reg[0]!.original).toBe('margin: 4px'); // snapshot taken once, on first touch
+    expect(el.style.getPropertyValue('padding')).toBe('20px'); // latest decl applied
+  });
+
+  test('applyPatch clears the optimistic inline (null original → removeAttribute) so the class wins', () => {
+    setup('<div data-element-path="0" class="bg-old">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    applyOptimistic(TARGET, 'background-color: red');
+    expect(el.getAttribute('style')).toContain('background-color: red');
+    // Real patch: utility class swaps bg-old → bg-new, no server inline style.
+    applyPatch(
+      parse('<html><body><div data-element-path="0" class="bg-new">x</div></body></html>'),
+      ['style'],
+      ['bg-old'],
+    );
+    expect(el.getAttribute('style')).toBeNull(); // optimistic inline removed
+    expect(el.getAttribute('class')).toBe('bg-new'); // canonical class-based styling wins
+    expect(getOptimistic()).toHaveLength(0); // registry cleared
+  });
+
+  test('applyPatch restores a non-empty snapshot, then server inline (define:vars) re-applies on top', () => {
+    setup('<div data-element-path="0" style="--gap: 4px" class="c">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    applyOptimistic(TARGET, 'padding: 99px');
+    expect(el.style.getPropertyValue('padding')).toBe('99px');
+    // Server re-renders --gap: 8px inline (define:vars) and keeps class c.
+    applyPatch(
+      parse('<html><body><div data-element-path="0" style="--gap: 8px" class="c">x</div></body></html>'),
+      ['style'],
+      [],
+    );
+    const style = el.getAttribute('style')!;
+    expect(style).not.toContain('padding'); // optimistic padding gone (restored to snapshot)
+    expect(style).toContain('--gap: 8px'); // server inline re-applied by mergeInlineStyle
+  });
+
+  // matchMedia gate: each design frame iframe is sized to its breakpoint, so the
+  // inline preview must only apply where the frame's viewport matches the edited
+  // breakpoint (otherwise a base edit bleeds into the tablet/mobile frames).
+  const stubMatchMedia = (matches: boolean) => {
+    (doc.defaultView as unknown as { matchMedia: (q: string) => { matches: boolean } }).matchMedia = (q) => ({
+      matches,
+      media: q,
+    });
+  };
+
+  test('media gate: skips when the frame viewport does not match the breakpoint', () => {
+    setup('<div data-element-path="0" class="bg-old">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    stubMatchMedia(false); // e.g. a base edit (min-width:1025px) in a 768px tablet frame
+    applyOptimistic(TARGET, 'color: red', '(min-width: 1025px)');
+    expect(getOptimistic()).toHaveLength(0); // not applied
+    expect(el.getAttribute('style')).toBeNull();
+  });
+
+  test('media gate: applies when the frame viewport matches the breakpoint', () => {
+    setup('<div data-element-path="0" class="bg-old">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    stubMatchMedia(true); // the matching frame
+    applyOptimistic(TARGET, 'color: red', '(min-width: 1025px)');
+    expect(el.getAttribute('style')).toContain('color: red');
+    expect(getOptimistic()).toHaveLength(1);
+  });
+
+  test('empty media applies unconditionally (single-frame / no breakpoints)', () => {
+    setup('<div data-element-path="0" class="bg-old">x</div>');
+    const el = doc.querySelector('div')! as HTMLElement;
+    stubMatchMedia(false); // even if matchMedia would say no, empty media bypasses the gate
+    applyOptimistic(TARGET, 'color: red', '');
+    expect(el.getAttribute('style')).toContain('color: red');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH_JS optimistic CSS-variable preview — global :root override + clear
+// ---------------------------------------------------------------------------
+
+describe('PATCH_JS optimistic variable preview', () => {
+  let win: Window;
+  let doc: Document;
+  let applyPatch: (
+    next: Document,
+    kinds: string[],
+    staleTokens: string[],
+    sheets?: { match: string; css: string }[],
+  ) => void;
+  let applyVarsPreview: (vars: Record<string, string>, media: string) => void;
+
+  const parse = (html: string): Document =>
+    new win.DOMParser().parseFromString(html, 'text/html') as unknown as Document;
+
+  const tag = () => doc.getElementById('meno-vars-preview');
+
+  const setup = (bodyHtml = '<div data-element-path="0">x</div>', headHtml = '') => {
+    win = new Window();
+    (win as unknown as { SyntaxError: typeof SyntaxError }).SyntaxError = SyntaxError;
+    doc = win.document as unknown as Document;
+    doc.head.innerHTML = headHtml;
+    doc.body.innerHTML = bodyHtml;
+    const fns = new Function(
+      'document',
+      `${XRAY_RESOLVER_JS}\n${PATCH_JS}\nreturn { applyPatch: applyPatch, applyVarsPreview: applyVarsPreview };`,
+    )(doc) as { applyPatch: typeof applyPatch; applyVarsPreview: typeof applyVarsPreview };
+    applyPatch = fns.applyPatch;
+    applyVarsPreview = fns.applyVarsPreview;
+  };
+
+  test('applies a single :root override style tag (base, no media)', () => {
+    setup();
+    applyVarsPreview({ '--primary': '#ff0000' }, '');
+    expect(tag()!.textContent).toContain(':root { --primary: #ff0000; }');
+    expect(tag()!.textContent).not.toContain('@media');
+  });
+
+  test('wraps non-base token edits in @media', () => {
+    setup();
+    applyVarsPreview({ '--h1-fs': '40px' }, '(max-width: 1024px)');
+    expect(tag()!.textContent).toBe('@media (max-width: 1024px) { :root { --h1-fs: 40px; } } ');
+  });
+
+  test('merges successive edits into one :root block (edit-all-at-once)', () => {
+    setup();
+    applyVarsPreview({ '--primary': '#f00' }, '');
+    applyVarsPreview({ '--gap': '24px' }, '');
+    const css = tag()!.textContent!;
+    expect(css).toContain('--primary: #f00;');
+    expect(css).toContain('--gap: 24px;');
+    // Same var re-set keeps the latest value, no duplicate.
+    applyVarsPreview({ '--primary': '#0f0' }, '');
+    expect(tag()!.textContent).toContain('--primary: #0f0;');
+    expect(tag()!.textContent).not.toContain('#f00');
+  });
+
+  test('sanitizes malformed names and CSS-breakout values', () => {
+    setup();
+    applyVarsPreview({ '--ok': 'red', 'bad name': 'red', '--evil': 'red; } body { x: 1' }, '');
+    const css = tag()!.textContent!;
+    expect(css).toContain('--ok: red;');
+    expect(css).not.toContain('bad name');
+    expect(css).not.toContain('--evil');
+  });
+
+  test('a theme.css patch (regenerated sheet in the payload) clears the override so the real values win', () => {
+    // Astro 6 dev serves theme.css as an EMPTY placeholder in the SSR HTML; the regenerated
+    // content arrives in the patch payload's `sheets` (match 'styles/theme.css', applied by
+    // applyPayloadSheets). That's the ONLY patch allowed to drop the optimistic override.
+    setup(
+      '<div data-element-path="0">x</div>',
+      '<style data-vite-dev-id="/proj/src/styles/theme.css">:root{--primary:#111}</style>',
+    );
+    applyVarsPreview({ '--primary': '#ff0000' }, '');
+    expect(tag()).not.toBeNull();
+    applyPatch(
+      parse('<html><head></head><body><div data-element-path="0">x</div></body></html>'),
+      ['style'],
+      [],
+      [{ match: 'styles/theme.css', css: ':root{--primary:#222}' }],
+    );
+    expect(tag()).toBeNull(); // optimistic override cleared
+    expect(doc.querySelector('style[data-vite-dev-id="/proj/src/styles/theme.css"]')!.textContent).toBe(
+      ':root{--primary:#222}',
+    );
+  });
+
+  test('a non-theme style patch (only the utility sheet) PRESERVES the optimistic variable override', () => {
+    // The Text-vs-Heading revert: editing font-weight on <Text> ships ONLY the meno-utilities
+    // sheet, never theme.css. applyPatch used to clearVarsPreview() unconditionally — wiping the
+    // optimistic --t-fs override and snapping an all-variable font-size back to the stale on-disk
+    // theme.css value (Heading, with a literal font-size fallback, was immune). The override must
+    // survive until its OWN theme.css patch lands with the authoritative value.
+    setup(
+      '<div data-element-path="0">x</div>',
+      '<style data-vite-dev-id="/proj/src/styles/theme.css">:root{--t-fs:18px}</style>',
+    );
+    applyVarsPreview({ '--t-fs': '30px' }, '');
+    expect(tag()).not.toBeNull();
+    applyPatch(
+      parse('<html><head></head><body><div data-element-path="0">x</div></body></html>'),
+      ['style'],
+      [],
+      [{ match: 'meno-utilities', css: '.fw{font-weight:700}' }],
+    );
+    expect(tag()).not.toBeNull(); // override survives — this patch carries no theme.css
+    expect(tag()!.textContent).toContain('--t-fs: 30px;');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH_JS optimistic class-rule preview — managed override sheet, sticky
+// ---------------------------------------------------------------------------
+
+describe('PATCH_JS optimistic class preview', () => {
+  let win: Window;
+  let doc: Document;
+  let applyPatch: (
+    next: Document,
+    kinds: string[],
+    staleTokens: string[],
+    sheets?: { match: string; css: string }[],
+  ) => void;
+  let applyClassPreview: (
+    className: string,
+    property: string,
+    value: string,
+    state: string,
+    media: string,
+    kind?: 'class' | 'tag',
+  ) => void;
+
+  const parse = (html: string): Document =>
+    new win.DOMParser().parseFromString(html, 'text/html') as unknown as Document;
+
+  const tag = () => doc.getElementById('meno-class-preview');
+
+  // Find a loaded CSSStyleRule by exact selector, optionally inside a given @media
+  // condition — for asserting the faithful in-place path mutated the REAL rule
+  // (not an appended override). Skips the managed override tag.
+  const findRule = (selector: string, media?: string): any => {
+    const norm = (s: string) => s.replace(/\s+/g, '');
+    const scan = (rules: any, inMedia: boolean): any => {
+      for (let j = 0; j < rules.length; j++) {
+        const r = rules[j];
+        if (r.cssRules && r.media) {
+          const cond = r.media?.mediaText || r.conditionText || '';
+          if (media && norm(cond) === norm(media)) {
+            const hit = scan(r.cssRules, true);
+            if (hit) return hit;
+          }
+          continue;
+        }
+        if (!media === !inMedia && r.selectorText === selector) return r;
+      }
+      return null;
+    };
+    const sheets = doc.styleSheets as any;
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].ownerNode && sheets[i].ownerNode.id === 'meno-class-preview') continue;
+      if (tag() && sheets[i] === (tag() as unknown as { sheet: unknown }).sheet) continue;
+      let rules: unknown;
+      try {
+        rules = sheets[i].cssRules;
+      } catch {
+        continue;
+      }
+      const hit = scan(rules, false);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  const setup = (headHtml = '') => {
+    win = new Window();
+    (win as unknown as { SyntaxError: typeof SyntaxError }).SyntaxError = SyntaxError;
+    doc = win.document as unknown as Document;
+    doc.head.innerHTML = headHtml;
+    doc.body.innerHTML = '<div data-element-path="0">x</div>';
+    const fns = new Function(
+      'document',
+      `${XRAY_RESOLVER_JS}\n${PATCH_JS}\nreturn { applyPatch: applyPatch, applyClassPreview: applyClassPreview };`,
+    )(doc) as { applyPatch: typeof applyPatch; applyClassPreview: typeof applyClassPreview };
+    applyPatch = fns.applyPatch;
+    applyClassPreview = fns.applyClassPreview;
+  };
+
+  test('applies a single class rule (base, no media/state)', () => {
+    setup();
+    applyClassPreview('button', 'padding', '24px', '', '');
+    expect(tag()!.textContent).toContain('.button { padding: 24px; }');
+    expect(tag()!.textContent).not.toContain('@media');
+    expect(tag()!.textContent).not.toContain(':hover');
+  });
+
+  test('appends the override sheet LAST so it wins source order over the mirror link', () => {
+    setup('<link rel="stylesheet" href="/_mirror/css/site.css">');
+    applyClassPreview('button', 'padding', '24px', '', '');
+    expect(doc.head.lastElementChild).toBe(tag());
+  });
+
+  test('emits a pseudo-state rule (.button:hover)', () => {
+    setup();
+    applyClassPreview('button', 'background-color', '#222', ':hover', '');
+    expect(tag()!.textContent).toContain('.button:hover { background-color: #222; }');
+  });
+
+  test('kind "tag" emits a bare type selector (h1, a:hover) — no leading dot', () => {
+    setup();
+    applyClassPreview('h1', 'font-size', '40px', '', '', 'tag');
+    expect(tag()!.textContent).toContain('h1 { font-size: 40px; }');
+    expect(tag()!.textContent).not.toContain('.h1');
+    applyClassPreview('a', 'color', 'blue', ':hover', '', 'tag');
+    expect(tag()!.textContent).toContain('a:hover { color: blue; }');
+  });
+
+  test('wraps a breakpoint edit in @media', () => {
+    setup();
+    applyClassPreview('button', 'padding', '16px', '', '(max-width: 540px)');
+    expect(tag()!.textContent).toBe('@media (max-width: 540px) { .button { padding: 16px; } } ');
+  });
+
+  test('accumulates multiple properties on the same selector', () => {
+    setup();
+    applyClassPreview('button', 'padding', '24px', '', '');
+    applyClassPreview('button', 'margin', '8px', '', '');
+    const css = tag()!.textContent!;
+    expect(css).toContain('padding: 24px;');
+    expect(css).toContain('margin: 8px;');
+    // Both in ONE .button block.
+    expect(css.match(/\.button \{/g)!.length).toBe(1);
+  });
+
+  test('re-setting the same property keeps the latest value (no duplicate)', () => {
+    setup();
+    applyClassPreview('button', 'padding', '24px', '', '');
+    applyClassPreview('button', 'padding', '30px', '', '');
+    expect(tag()!.textContent).toContain('padding: 30px;');
+    expect(tag()!.textContent).not.toContain('24px');
+  });
+
+  test('sanitizes malformed class/property and CSS-breakout values', () => {
+    setup();
+    applyClassPreview('bad name', 'padding', '24px', '', ''); // space in class → rejected
+    applyClassPreview('button', 'pad{ding', '24px', '', ''); // bad property → rejected
+    applyClassPreview('button', 'padding', '24px; } body { x: 1', '', ''); // breakout value → rejected
+    expect(tag()).toBeNull(); // nothing valid was applied
+    applyClassPreview('button', 'padding', '24px', '', '');
+    expect(tag()!.textContent).toContain('.button { padding: 24px; }');
+  });
+
+  test('FAITHFUL path: mutates the real loaded rule in place — no appended override tag', () => {
+    setup('<style>.button { padding: 10px; }</style>');
+    applyClassPreview('button', 'padding', '24px', '', '');
+    // The real rule is edited where it lives; no override sheet is appended, so
+    // the rule keeps its original source position + specificity (the whole point).
+    expect(findRule('.button').style.getPropertyValue('padding')).toBe('24px');
+    expect(tag()).toBeNull();
+  });
+
+  test('FAITHFUL path: edits the LAST source-order match so the cascade winner is preserved', () => {
+    // The bug this fixes: appending a fresh rule LAST wrongly promotes a shadowed
+    // (equal-specificity, earlier) class to win. Here `.button` (later) is the
+    // cascade winner for an element carrying both classes; editing the earlier
+    // `.text-white` must leave `.button` winning — exactly as a real file save.
+    setup('<style>.text-white { color: white; } .button { color: black; }</style>');
+    applyClassPreview('text-white', 'color', 'red', '', '');
+    expect(findRule('.text-white').style.getPropertyValue('color')).toBe('red');
+    // `.button` is untouched → it still wins the cascade (no source-order hijack).
+    expect(findRule('.button').style.getPropertyValue('color')).toBe('black');
+    expect(tag()).toBeNull();
+  });
+
+  test('FAITHFUL path: a duplicated selector mutates the LAST occurrence (cascade winner)', () => {
+    setup('<style>.button { color: red; }</style><style>.button { color: blue; }</style>');
+    applyClassPreview('button', 'color', 'green', '', '');
+    // Both sheets carry `.button { color }`; only the last (the winner) is edited.
+    const rules = doc.styleSheets as unknown as ArrayLike<{
+      cssRules: { length: number; [k: number]: { style: { getPropertyValue: (p: string) => string } } };
+    }>;
+    expect(rules[0]!.cssRules[0]!.style.getPropertyValue('color')).toBe('red');
+    expect(rules[1]!.cssRules[0]!.style.getPropertyValue('color')).toBe('green');
+    expect(tag()).toBeNull();
+  });
+
+  test('FAITHFUL path: a media edit targets the rule inside the matching @media only', () => {
+    setup('<style>.button { padding: 1px; } @media (max-width: 540px) { .button { padding: 2px; } }</style>');
+    applyClassPreview('button', 'padding', '9px', '', '(max-width: 540px)');
+    expect(findRule('.button', '(max-width: 540px)').style.getPropertyValue('padding')).toBe('9px');
+    // The base rule is left alone — a breakpoint edit must not leak to base.
+    expect(findRule('.button').style.getPropertyValue('padding')).toBe('1px');
+    expect(tag()).toBeNull();
+  });
+
+  test('FAITHFUL path: a removal DELETES the property from the real rule (not a `revert` hack)', () => {
+    setup('<style>.button { padding: 24px; color: red; }</style>');
+    applyClassPreview('button', 'padding', 'revert', '', '');
+    // In place we can do the real thing: the property is gone, siblings untouched.
+    expect(findRule('.button').style.getPropertyValue('padding')).toBe('');
+    expect(findRule('.button').style.getPropertyValue('color')).toBe('red');
+    expect(tag()).toBeNull();
+  });
+
+  test('FALLBACK path: with no accessible matching rule, appends the override sheet', () => {
+    // happy-dom does not parse the <link>, so no rule is readable → the appended
+    // override sheet is the only way to preview (the real-browser link would parse
+    // and take the faithful path instead).
+    setup('<link rel="stylesheet" href="/_mirror/css/site.css">');
+    applyClassPreview('button', 'padding', '24px', '', '');
+    expect(tag()!.textContent).toContain('.button { padding: 24px; }');
+    // A removal with no matching rule is a no-op (an additive sheet cannot unset).
+    setup('<link rel="stylesheet" href="/_mirror/css/site.css">');
+    applyClassPreview('button', 'padding', 'revert', '', '');
+    expect(tag()).toBeNull();
+  });
+
+  test('FAITHFUL path is STICKY — a theme.css patch leaves the in-place mirror edit intact', () => {
+    // The mirror sheet (not theme.css) carries the edited rule; a theme.css sheet
+    // swap must not revert it (there is no regenerated mirror sheet to supersede it).
+    setup(
+      '<style>.button { padding: 10px; }</style>' +
+        '<style data-vite-dev-id="/proj/src/styles/theme.css">:root{--x:1}</style>',
+    );
+    applyClassPreview('button', 'padding', '24px', '', '');
+    expect(findRule('.button').style.getPropertyValue('padding')).toBe('24px');
+    applyPatch(
+      parse('<html><head></head><body><div data-element-path="0">x</div></body></html>'),
+      ['style'],
+      [],
+      [{ match: 'styles/theme.css', css: ':root{--x:2}' }],
+    );
+    expect(findRule('.button').style.getPropertyValue('padding')).toBe('24px');
+  });
+
+  test('is STICKY — a real patch does NOT clear it (mirror CSS has no recompile)', () => {
+    setup('<style data-vite-dev-id="/proj/src/styles/theme.css">:root{--x:1}</style>');
+    applyClassPreview('button', 'padding', '24px', '', '');
+    expect(tag()).not.toBeNull();
+    // A theme.css patch clears the VARS preview, but the class override must survive —
+    // there is no regenerated mirror sheet to supersede it.
+    applyPatch(
+      parse('<html><head></head><body><div data-element-path="0">x</div></body></html>'),
+      ['style'],
+      [],
+      [{ match: 'styles/theme.css', css: ':root{--x:2}' }],
+    );
+    expect(tag()).not.toBeNull();
+    expect(tag()!.textContent).toContain('.button { padding: 24px; }');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contracts
+// ---------------------------------------------------------------------------
+
+describe('bridge contract', () => {
+  test('script gate helper and event name are stable', () => {
+    expect(PLAY_PATCH_EVENT).toBe('meno:astro:patch');
+    expect(PLAY_STYLE_PREVIEW_EVENT).toBe('meno:astro:style-preview');
+    expect(PLAY_VARS_PREVIEW_EVENT).toBe('meno:astro:vars-preview');
+    expect(PLAY_CLASS_PREVIEW_EVENT).toBe('meno:astro:class-preview');
+    expect(extractScriptBlocks('<div>x</div><script>a()</script>')).toBe('<script>a()</script>');
+  });
+
+  test('bridge rides vite client hot context with reload fallback, patching iframe-only', () => {
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain(`'${PLAY_PATCH_EVENT}'`);
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("import('/@vite/client')");
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('createHotContext');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('location.reload');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('window.self !== window.top');
+  });
+
+  test('top-level tabs (not the editor iframe) reload on patch events instead of going stale', () => {
+    // Patchable edits suppress Vite's stock full-reload for EVERY client, so a
+    // plain http://localhost:<port> preview tab must subscribe too — it maps
+    // patch events to a debounced reload (deferred while the tab is hidden).
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("createHotContext('/__meno-play-preview')");
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('pendingWhileHidden');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("addEventListener('visibilitychange'");
+    // The top-level branch is the iframe gate's else — both subscriptions ride
+    // the same event name.
+    const idx = PLAY_PATCH_BRIDGE_SCRIPT.indexOf('window.self !== window.top');
+    expect(idx).toBeGreaterThan(-1);
+    expect(PLAY_PATCH_BRIDGE_SCRIPT.split(`'${PLAY_PATCH_EVENT}'`).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('bridge embeds the X-Ray resolver and listens for optimistic style previews', () => {
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain(`'${PLAY_STYLE_PREVIEW_EVENT}'`);
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('resolveTarget'); // from XRAY_RESOLVER_JS
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('applyOptimistic');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("addEventListener('message'");
+  });
+
+  test('bridge listens for optimistic text previews', () => {
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain(`'${PLAY_TEXT_PREVIEW_EVENT}'`);
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('applyTextPreview');
+  });
+
+  test('bridge listens for optimistic variable previews', () => {
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain(`'${PLAY_VARS_PREVIEW_EVENT}'`);
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('applyVarsPreview');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('meno-vars-preview');
+  });
+
+  test('bridge buffers editor structure ops and applies move/remove optimistically on receipt', () => {
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain(`'${PLAY_STRUCTURE_OP_EVENT}'`);
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('applyStructureOpOptimistic');
+    // gated ONLY when nothing is mid-flight, so the exactly-one-op-per-patch invariant holds
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('opQueue.length === 0');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('!inflight');
+    // the buffered entry carries the applied flag the patch reconcile reads
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('applied: applied');
+  });
+
+  test('bridge preserves scroll position across the full reloads that remain', () => {
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('meno:play:scroll');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("addEventListener('pagehide'");
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('sessionStorage');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('window.scrollTo');
+    // restore only when the saved URL still matches (no stale offset after a nav);
+    // the match ignores the studio's ?t=<buildTimestamp> cache-buster, which
+    // Preview.tsx appends when it reloads the play iframe by re-assigning src
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('normScrollUrl(savedScroll.u) === normScrollUrl(location.href)');
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("searchParams.delete('t')");
+    // first restore runs at DOMContentLoaded (before first paint), not at 'load' —
+    // waiting for images/fonts paints the page at the top, then visibly jumps down
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("addEventListener('DOMContentLoaded', restoreScroll)");
+    // the jump must be INSTANT: a theme's html { scroll-behavior: smooth } would
+    // otherwise animate every restore (visible up-then-down bounce on reload) —
+    // the bridge forces inline scroll-behavior:auto for the duration of the jump
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("scrollBehavior = 'auto'");
+  });
+
+  test('bridge carries the page backdrop across reloads (no white flash in dark projects)', () => {
+    // Saved on pagehide alongside scroll…
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('meno:play:bg');
+    // …sampling what the user actually SEES: body, else html, else the first
+    // block wrapper (Meno layouts paint the dark background on a full-height
+    // section while html/body stay transparent — the exact shape that flashes
+    // white during an iframe navigation, which gets no paint holding).
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("querySelector('main,section,div')");
+    // Re-pinned SYNCHRONOUSLY in the head-inline script — before first paint.
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('document.documentElement.style.backgroundColor = savedBg.bg');
+    // Same-page reloads only (the editing loop), cache-buster-blind like scroll.
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('normScrollUrl(savedBg.u) === normScrollUrl(location.href)');
+    // The pin is lifted after load — it must never outlive the reload it papered
+    // over (an edit can legitimately change the page background).
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain("document.documentElement.style.backgroundColor = ''");
+  });
+
+  test('bridge settles one-shot animations on editor reloads and moved subtrees', () => {
+    // an editor reload (same-URL restore) snaps entrance animations to their end
+    // state instead of replaying every intro over the restored viewport
+    expect(PLAY_PATCH_BRIDGE_SCRIPT).toContain('settleAnimations(document)');
+    // a moved element is re-inserted — brand-new to the browser — so BOTH move
+    // paths (optimistic on receipt + reconcile in applyStructureOp) settle it
+    expect(PATCH_JS).toContain('function settleAnimations');
+    expect(PATCH_JS.split('settleAnimations(mvEl)').length - 1).toBe(2);
+    // infinite animations (pulses/spinners) cannot finish() — the per-animation
+    // catch leaves them running rather than aborting the whole settle
+    expect(PATCH_JS).toContain('.finish()');
+  });
+});

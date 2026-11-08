@@ -1,0 +1,312 @@
+[
+  {
+    "query": "Sveltia CMS github source",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/sveltia/sveltia-cms",
+            "title": "Sveltia CMS - GitHub",
+            "description": "# Sveltia CMS\n[Permalink: Sveltia CMS](https://github.com/sveltia/sveltia-cms#sveltia-cms)\n\n[![Sveltia CMS: Fast, Git-based, Headless, Modern UX, Mobile Support, I18n Support, Open Source](https://camo.githubusercontent.com/c31dd47454c47ec4e9ea275fdea8a79e233c319667127405637074df88d645ce/68747470733a2f2f7376656c746961636d732e6170702f696d616765732f686967686c69676874732f636f7665722e77656270)](https://sveltiacms.app/en/)",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://sveltiacms.app/en/",
+            "title": "Sveltia CMS \u2014 Free, open source, Git-based headless CMS",
+            "description": "# Sveltia CMSGit-based headless CMS, made right.\n- ![](https://sveltiacms.app/images/showcase/thumbs/collinwesterlundmusic-com.webp)\\\n- ![](https://sveltiacms.app/images/showcase/thumbs/collinwesterlundmusic-com.webp)\\\n\n### Teamwork without stepping on each other\u2019s toes\n- [![Anil Dash\u2019s avatar](https://cdn.bsky.app/img/avatar_thumbnail/plain/did:plc:sg2e2kqdsdp2q2zl44txadbp/bafkreicnvqv3tg434bghscobifd6fqltjrvq6li4qo4zmujjvtbefqfgxy)\\\n\\\nAnil Dash\\\n\\\n@anildash.com](https://bsky.app/profile/anildash.com/post/3m7osuyipnc22)\nah! it\u2019s published using Eleventy. The CMS (such as it is) is Sveltia, backed by Github, which works great on Netlify.",
+            "position": 2,
+            "category": null
+          },
+          {
+            "url": "https://jamstack.org/headless-cms/sveltia-cms/",
+            "title": "Sveltia CMS | Jamstack",
+            "description": "# Sveltia CMS\nHome page[[https://github.com/sveltia/sveltia-cms](https://github.com/sveltia/sveltia-cms)](https://github.com/sveltia/sveltia-cms)Repository[sveltia/sveltia-cms](https://github.com/sveltia/sveltia-cms)Open SourceYesType:Git-basedSupported Site Generators:All\n\n![](https://jamstack.org/img/cms/sveltia-cms1.png)![](https://jamstack.org/img/cms/sveltia-cms2.webp)![](https://jamstack.org/img/cms/sveltia-cms3.webp)![](https://jamstack.org/img/cms/sveltia-cms4.webp)![](https://jamstack.org/img/cms/sveltia-cms5.webp)![](https://jamstack.org/img/cms/sveltia-cms6.webp)",
+            "position": 3,
+            "category": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "Meno studio github source license",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://docs.github.com/articles/licensing-a-repository",
+            "title": "Licensing a repository - GitHub Docs",
+            "description": "For your repository to truly be open source, you'll need to license it so that others are free to use, change, and distribute the software. Copy markdown ...",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://www.reddit.com/r/github/comments/1fgks85/how_to_license_repositories_which_license_should/",
+            "title": "How To License Repositories & Which License Should I Choose",
+            "description": "Be free for everyone to contribute to, and use, free of charge. However, they cannot take the code and sell it (because it is foss). Secondly, ...",
+            "position": 2,
+            "category": null
+          },
+          {
+            "url": "https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/adding-a-license-to-a-repository",
+            "title": "Adding a license to a repository - GitHub Docs",
+            "description": "On GitHub, navigate to the main page of the repository. \u00b7 Above the list of files, select the Add file dropdown menu, then click Create new file. \u00b7 In the file ...",
+            "position": 3,
+            "category": "github"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "Sitereal app github source license",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/readme/guides/open-source-licensing",
+            "title": "A dev's guide to open source software licensing - GitHub",
+            "description": "Open Source software licenses and. Open Source simply means availability of the source code of a project, The license and its siblings are OSI approved",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://www.reddit.com/r/github/comments/1gstkrt/github_license_to_prevent_appcode_being_used_for/",
+            "title": "Github license to prevent app/code being used for a ... - Reddit",
+            "description": "Github license to prevent app/code being used for a product and sold and for it to be free and open source 's website source code on Github and ...",
+            "position": 2,
+            "category": null
+          },
+          {
+            "url": "https://github.com/gitroomhq/postiz-app/blob/main/LICENSE",
+            "title": "postiz-app/LICENSE at main - gitroomhq - GitHub",
+            "description": "GNU Affero General Public License v3.0. Permissions of this strongest copyleft license are conditioned on making available complete source code of licensed ...",
+            "position": 3,
+            "category": "github"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "superdesign dev github source",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/superdesigndev/superdesign",
+            "title": "superdesigndev/superdesign: AI Product Design Agent - GitHub",
+            "description": "# \ud83e\udde0 SuperDesign \u2014 AI Design Agent for Your IDE\n[Permalink: \ud83e\udde0 SuperDesign \u2014 AI Design Agent for Your IDE](https://github.com/superdesigndev/superdesign#-superdesign--ai-design-agent-for-your-ide)\n\n( [[https://github.com/superdesigndev/superdesign-skill](https://github.com/superdesigndev/superdesign-skill)](https://github.com/superdesigndev/superdesign-skill))\n\n### **By:** [AI Jason](https://x.com/jasonzhou1993)\n[Permalink: By:AI Jason](https://github.com/superdesigndev/superdesign#by-ai-jason)\n\n## \ud83d\udd17 Links\n- \ud83d\udce6 GitHub: [[https://github.com/superdesigndev/superdesign](https://github.com/superdesigndev/superdesign)](https://github.com/superdesigndev/superdesign)",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/superdesigndev/superdesign-skill",
+            "title": "GitHub - superdesigndev/superdesign-skill: The design skill for ...",
+            "description": "# Superdesign: UI, presentations, and graphics for coding agents\n## Install\n```\nnpx skills add superdesigndev/superdesign-skill\n```\n\n```\n/plugin marketplace add superdesigndev/superdesign-skill\n/plugin install superdesign@superdesign\n```\n\n```\nnpm install -g @superdesign/cli@latest\nsuperdesign login\n```\n\n## Use it\n```\n/superdesign set up a design system from my current codebase\n```\n\n```\n/superdesign improve the design of my dashboard\n```",
+            "position": 2,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/superdesigndev",
+            "title": "Superdesign - GitHub",
+            "description": "## Popular repositories   Loading\n1. [superdesign](https://github.com/superdesigndev/superdesign) superdesignPublic\n\n### Repositories\n- [superdesign](https://github.com/superdesigndev/superdesign)\nPublic",
+            "position": 3,
+            "category": "github"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "React Bits github license",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/DavidHDev/react-bits",
+            "title": "GitHub - DavidHDev/react-bits: The largest open-source library ...",
+            "description": "## Installation\n### Use it with your agent\n```\n{\n  \"registries\": {\n    \"@react-bits\": \"https://reactbits.dev/r/{name}.json\"\n  }\n}\n```\n\n## License\n[Permalink: License](https://github.com/DavidHDev/react-bits#license)\n\n[MIT + Commons Clause](https://github.com/davidhdev/react-bits/blob/main/LICENSE.md), free for personal and commercial use.\n\n## About\n### Resources\n[License](https://github.com/DavidHDev/react-bits#License-1-ov-file)",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/DavidHDev/react-bits/blob/main/LICENSE.md",
+            "title": "react-bits/LICENSE.md at main - DavidHDev - GitHub",
+            "description": "# LICENSE.md\n## Commons Clause Restriction\nThe same restriction covers the React Bits tools (Background Studio, Texture Lab, Shape Magic, Center Stage, Sound Lab and any tools added later) and the sounds in the sound library.",
+            "position": 2,
+            "category": "github"
+          },
+          {
+            "url": "https://reactbits.dev/",
+            "title": "React Bits \u2014 Free Animated React Components",
+            "description": "Free, open source React components for animated text, backgrounds, interactive cards and micro interactions. Explore live demos and copy the source.",
+            "position": 3,
+            "category": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "ThreeUI hero github source",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/MengTo/threeui",
+            "title": "Open-source ThreeUI Community catalog with live ... - GitHub",
+            "description": "# ThreeUI Community\n## Install the React package\n```\nimport { AtTheHorizon } from \"@designcodeio/threeui\";\nimport \"@designcodeio/threeui/style.css\";\n\nexport function Hero() {\n  return <AtTheHorizon />;\n}\n```\n\n## Synchronization\n```\nnpm run sync:community -- /path/to/main-threeui\n```",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://threeui.com/ui-elements/brand-orbs/github",
+            "title": "GitHub UI Component \u2014 Brand Orbs - ThreeUI",
+            "description": "GitHub is the ui elements preset in the Brand Orbs family. It uses Canvas 2D with 1 transparent canvas 2 d dot lattice pass. Twenty-three variants, small and ...",
+            "position": 2,
+            "category": null
+          },
+          {
+            "url": "https://x.com/MengTo/status/2090817187900780961?lang=en",
+            "title": "Meng To\u03c3\u03c4\u03bf X: \"\"I open-sourced ThreeUI, my library of three.js ...",
+            "description": "I open-sourced ThreeUI, my library of three.js components and landing pages. It includes procedural 3D hero sections, icons, and motion designs ...",
+            "position": 3,
+            "category": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "Sparkbites design bites github source",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/educlopez/design-bites?ref=sparkbites",
+            "title": "educlopez/design-bites at sparkbites - GitHub",
+            "description": "design-bites is powered by Sparkbites \u2014 a curated directory of inspiring websites for designers and developers. We analyze each site's typography, color ...",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/topics/design-md",
+            "title": "design-md \u00b7 GitHub Topics",
+            "description": "# design-md\n## Here are  183 public repositories  matching this topic...\n### [educlopez](https://github.com/educlopez) /  [design-bites](https://github.com/educlopez/design-bites)\nBy Sparkbites.",
+            "position": 2,
+            "category": "github"
+          },
+          {
+            "url": "https://www.youtube.com/watch?v=5YNnjR9NUM4&vl=en",
+            "title": "GitHub Spark vs. Replit - Vibe Code Challenge - YouTube",
+            "description": "We pit GitHub Spark (in public preview) against Replit's AI agent. The challenge? Build a fully functional community forum for DIY tips from ...",
+            "position": 3,
+            "category": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "OriginKit github license",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/vellum-ai/originkit",
+            "title": "GitHub - vellum-ai/originkit: Browse and import animated ...",
+            "description": "# Originkit Plugin\n## Setup\n```\n{ \"apiKey\": \"cmp_live_...\" }\n```\n\n## About\n### Resources\n[MIT license](https://github.com/vellum-ai/originkit#MIT-1-ov-file)",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/vellum-ai/originkit/blob/main/LICENSE",
+            "title": "license - vellum-ai/originkit - GitHub",
+            "description": "# LICENSE\n## Latest commit\n[fix Codex P1+P2: no disk secret writes, add MIT license](https://github.com/vellum-ai/originkit/commit/9aa260c2561ad9e765832dc342e9bbb5138858a4)",
+            "position": 2,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/lightsparkdev/origin",
+            "title": "Origin - The Lightspark Design System. - GitHub",
+            "description": "A design system built on Base UI with direct Figma-to-code styling. Philosophy. Base UI handles behavior, accessibility, and keyboard navigation; Figma Dev ...",
+            "position": 3,
+            "category": "github"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "Zeku dev source license",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://choosealicense.com/",
+            "title": "Choose an open source license | Choose a License",
+            "description": "The MIT License is short and to the point. It lets people do almost anything they want with your project, like making and distributing closed source versions.",
+            "position": 1,
+            "category": null
+          },
+          {
+            "url": "https://opensource.org/licenses",
+            "title": "OSI-approved license - Open Source Initiative",
+            "description": "Open source licenses are licenses that comply with the Open Source Definition \u2013 in brief, they allow software to be freely used, modified, and shared.",
+            "position": 2,
+            "category": null
+          },
+          {
+            "url": "https://github.com/zeek/website/blob/main/LICENSE",
+            "title": "license - zeek/website - GitHub",
+            "description": "zeek/website is licensed under the BSD 3-Clause. Redistribution and use in source and binary forms, with or without modification, are permitted provided",
+            "position": 3,
+            "category": "github"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "query": "benjitaylor skills stageshow github",
+    "result": {
+      "success": true,
+      "data": {
+        "web": [
+          {
+            "url": "https://github.com/benjitaylor/skills",
+            "title": "Skills for AI coding agents. - benjitaylor - GitHub",
+            "description": "## Latest commit\n[Stageshow 1.1.1: fix playground shake with always-on scroll bars](https://github.com/benjitaylor/skills/commit/299140fafd08df55a9c234e610c3f64af3f45531)\n\n## Folders and files\n| Name | Name | Last commit message | Last commit date |\n|-|-|-|-|\n| [.github/assets](https://github.com/benjitaylor/skills/tree/main/.github/assets) | [.github/assets](https://github.com/benjitaylor/skills/tree/main/.github/assets) | [Add Stageshow](https://github.com/benjitaylor/skills/commit/802057409787133703c56001080169e347305572) | last weekOct 31, 2026 |\n| [stageshow](https://github.com/benjitaylor/skills/tree/main/stageshow) | [stageshow](https://github.com/benjitaylor/skills/tree/main/stageshow) | [Stageshow 1.1.1: fix playground shake with always-on scroll bars](https://github.com/benjitaylor/skills/commit/299140fafd08df55a9c234e610c3f64af3f45531) | yesterdayNov 5, 2026 |\n| [.gitignore](https://github.com/benjitaylor/skills/blob/main/.gitignore) | [.gitignore](https://github.com/benjitaylor/skills/blob/main/.gitignore) | [Add Stageshow](https://github.com/benjitaylor/skills/commit/802057409787133703c56001080169e347305572) | last weekOct 31, 2026 |\n| [AGENTS.md](https://github.com/benjitaylor/skills/blob/main/AGENTS.md) | [AGENTS.md](https://github.com/benjitaylor/skills/blob/main/AGENTS.md) | [Add Stageshow](https://github.com/benjitaylor/skills/commit/802057409787133703c56001080169e347305572) | last weekOct 31, 2026 |\n| [CLAUDE.md](https://github.com/benjitaylor/skills/blob/main/CLAUDE.md) | [CLAUDE.md](https://github.com/benjitaylor/skills/blob/main/CLAUDE.md) | [Add Stageshow](https://github.com/benjitaylor/skills/commit/802057409787133703c56001080169e347305572) | last weekOct 31, 2026 |\n| [README.md](https://github.com/benjitaylor/skills/blob/main/README.md) | [README.md](https://github.com/benjitaylor/skills/blob/main/README.md) | [Add Stageshow](https://github.com/benjitaylor/skills/commit/802057409787133703c56001080169e347305572) | last weekOct 31, 2026 |\n\n# Skills\n## Stageshow\n[Permalink: Stageshow](https://github.com/benjitaylor/skills#stageshow)\n\n[![Product UI illustrations made with Stageshow](https://github.com/benjitaylor/skills/raw/main/.github/assets/stageshow.png)](https://github.com/benjitaylor/skills/blob/main/.github/assets/stageshow.png)\n\nfeature cards, cursor demos and bento grids, built in React. It includes guidance on composition and motion, a kit to copy from, examples, and tools that film the result so the agent can check its work.\n\n```\nnpx skills add benjitaylor/skills --skill stageshow\n```\n\n[How it works](https://benji.org/stageshow) \u00b7 [Read the skill](https://github.com/benjitaylor/skills/blob/main/stageshow/SKILL.md) \u00b7 [Preview the examples](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md#preview)\n\nEach skill includes its own licence and any third-party asset notices.\n\n## [Releases](https://github.com/benjitaylor/skills/releases) 2\u00a0(2)\n[Stageshow 1.1.1Latest\\\n\\\nyesterdayNov 5, 2026](https://github.com/benjitaylor/skills/releases/tag/stageshow-v1.1.1)",
+            "position": 1,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/benjitaylor/skills/blob/main/stageshow/README.md",
+            "title": "skills/stageshow/README.md at main \u00b7 benjitaylor/skills - GitHub",
+            "description": "[Skip to content](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md#start-of-content)\n\nYou signed in with another tab or window. [Reload](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md) to refresh your session.You signed out in another tab or window. [Reload](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md) to refresh your session.You switched accounts on another tab or window. [Reload](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md) to refresh your session.Dismiss alert\n\n# README.md\n## Latest commit\n[Add Stageshow](https://github.com/benjitaylor/skills/commit/802057409787133703c56001080169e347305572)\n\n## History\n[History](https://github.com/benjitaylor/skills/commits/main/stageshow/README.md)\n\n## File metadata and controls\n[Raw](https://github.com/benjitaylor/skills/raw/refs/heads/main/stageshow/README.md)\n\n# Stageshow\n[Permalink: Stageshow](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md#stageshow)\n\n## Verify\n[Permalink: Verify](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md#verify)\n\n## Contents\n[Permalink: Contents](https://github.com/benjitaylor/skills/blob/main/stageshow/README.md#contents)",
+            "position": 2,
+            "category": "github"
+          },
+          {
+            "url": "https://github.com/benjitaylor/skills/blob/main/stageshow/SKILL.md",
+            "title": "skills/stageshow/SKILL.md at main - benjitaylor - GitHub",
+            "description": "[Skip to content](https://github.com/benjitaylor/skills/blob/main/stageshow/SKILL.md#start-of-content)\n\n# SKILL.md\n## Latest commit\n[Stageshow 1.1.1: fix playground shake with always-on scroll bars](https://github.com/benjitaylor/skills/commit/299140fafd08df55a9c234e610c3f64af3f45531)\n\n## History\n[History](https://github.com/benjitaylor/skills/commits/main/stageshow/SKILL.md)\n\n## File metadata and controls\n[Raw](https://github.com/benjitaylor/skills/raw/refs/heads/main/stageshow/SKILL.md)\n\n| name | stageshow |\n\n# Stageshow\n## Examples\n[Permalink: Examples](https://github.com/benjitaylor/skills/blob/main/stageshow/SKILL.md#examples)\n\n### Gold\n[Permalink: Gold](https://github.com/benjitaylor/skills/blob/main/stageshow/SKILL.md#gold)\n\n## The references\n[Permalink: The references](https://github.com/benjitaylor/skills/blob/main/stageshow/SKILL.md#the-references)",
+            "position": 3,
+            "category": "github"
+          }
+        ]
+      }
+    }
+  }
+]

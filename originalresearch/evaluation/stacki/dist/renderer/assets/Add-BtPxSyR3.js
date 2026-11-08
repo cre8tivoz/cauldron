@@ -1,0 +1,1 @@
+import{g as e,dK as t}from"./index-Dw6YOgMX.js";const s=e.forwardRef(function(o,r){return t.jsx("svg",{"data-sanity-icon":"add",width:"1em",height:"1em",viewBox:"0 0 25 25",fill:"none",xmlns:"http://www.w3.org/2000/svg",...o,ref:r,children:t.jsx("path",{d:"M12.5 5V20M5 12.5H20",stroke:"currentColor",strokeWidth:1.2,strokeLinejoin:"round"})})});export{s as AddIcon,s as default};

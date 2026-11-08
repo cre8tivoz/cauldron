@@ -1,0 +1,357 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import githubBackend, { init } from '$lib/services/backends/git/github';
+import { getTokenPageURL } from '$lib/services/backends/git/github/auth';
+import {
+  BACKEND_LABEL,
+  BACKEND_NAME,
+  DEFAULT_API_ROOT,
+  DEFAULT_AUTH_PATH,
+  DEFAULT_AUTH_ROOT,
+  DEFAULT_PKCE_AUTH_PATH,
+  DEFAULT_PKCE_AUTH_ROOT,
+} from '$lib/services/backends/git/github/constants';
+import { repository } from '$lib/services/backends/git/github/repository';
+import { apiConfig, graphqlVars } from '$lib/services/backends/git/shared/api';
+import { cmsConfig } from '$lib/services/config';
+
+const mockPrefs = vi.hoisted(() => ({ devModeEnabled: false }));
+
+// Mock dependencies
+vi.mock('$lib/services/config', () => ({
+  cmsConfig: { current: undefined },
+}));
+vi.mock('$lib/services/user/prefs.svelte', () => ({
+  prefs: mockPrefs,
+}));
+vi.mock('@sveltia/i18n', async () => (await import('$lib/test/i18n')).createI18nMock());
+vi.mock('$lib/services/backends/git/github/auth', () => ({
+  getTokenPageURL: vi.fn(),
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+}));
+vi.mock('$lib/services/backends/git/github/commits', () => ({
+  commitChanges: vi.fn(),
+  fetchFileCommits: vi.fn(),
+  fetchLastCommit: vi.fn(),
+}));
+vi.mock('$lib/services/backends/git/github/deployment', () => ({
+  triggerDeployment: vi.fn(),
+  fetchBranchHeadSHA: vi.fn(),
+  fetchDeployments: vi.fn(),
+}));
+vi.mock('$lib/services/backends/git/github/files', () => ({
+  fetchFiles: vi.fn(),
+  fetchBlob: vi.fn(),
+  fetchDirSHA: vi.fn(),
+}));
+vi.mock('$lib/services/backends/git/github/repository', () => ({
+  repository: {},
+  getBaseURLs: vi.fn(() => ({})),
+}));
+vi.mock('$lib/services/backends/git/github/status', () => ({
+  checkStatus: vi.fn(),
+  STATUS_DASHBOARD_URL: 'https://www.githubstatus.com',
+}));
+vi.mock('$lib/services/backends/git/shared/api', () => ({
+  apiConfig: {},
+  graphqlVars: {},
+}));
+
+describe('GitHub backend service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Mock Object.assign used in the init function
+    vi.spyOn(Object, 'assign').mockImplementation(() => ({}));
+    // Mock getTokenPageURL
+    vi.mocked(getTokenPageURL).mockReturnValue(
+      'https://github.com/settings/personal-access-tokens/new?name=Sveltia+CMS&contents=write',
+    );
+    mockPrefs.devModeEnabled = false;
+    cmsConfig.current = undefined;
+  });
+
+  test('exports correct service structure', () => {
+    expect(githubBackend).toEqual({
+      isGit: true,
+      name: BACKEND_NAME,
+      label: BACKEND_LABEL,
+      repository,
+      statusDashboardURL: 'https://www.githubstatus.com',
+      checkStatus: expect.any(Function),
+      init: expect.any(Function),
+      signIn: expect.any(Function),
+      signOut: expect.any(Function),
+      fetchFiles: expect.any(Function),
+      fetchLastCommit: expect.any(Function),
+      fetchBlob: expect.any(Function),
+      fetchDirSHA: expect.any(Function),
+      commitChanges: expect.any(Function),
+      fetchFileCommits: expect.any(Function),
+      triggerDeployment: expect.any(Function),
+      fetchBranchHeadSHA: expect.any(Function),
+      fetchDeployments: expect.any(Function),
+      workflow: expect.any(Object),
+    });
+  });
+
+  describe('init', () => {
+    test('returns undefined when cmsConfig is undefined', () => {
+      const result = init();
+
+      expect(result).toBeUndefined();
+    });
+
+    test('narrows the OAuth scope when configured', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'main',
+          open_authoring: true,
+          auth_scope: 'public_repo',
+        },
+      });
+
+      init();
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        apiConfig,
+        expect.objectContaining({ authScope: 'public_repo,user' }),
+      );
+    });
+
+    test('requests each scope of a list', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'main',
+          open_authoring: true,
+          auth_scope: ['public_repo', 'workflow'],
+        },
+      });
+
+      init();
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        apiConfig,
+        expect.objectContaining({ authScope: 'public_repo,workflow,user' }),
+      );
+    });
+
+    test('returns undefined when backend is not GitHub', () => {
+      cmsConfig.current = /** @type {any} */ ({ backend: { name: 'other' } });
+
+      const result = init();
+
+      expect(result).toBeUndefined();
+    });
+
+    test('initializes with default configuration', () => {
+      const mockCmsConfig = {
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'main',
+        },
+      };
+
+      cmsConfig.current = /** @type {any} */ (mockCmsConfig);
+
+      const result = init();
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        repository,
+        expect.objectContaining({
+          service: BACKEND_NAME,
+          label: BACKEND_LABEL,
+          owner: 'owner',
+          repo: 'repo',
+          branch: 'main',
+          repoURL: 'https://github.com/owner/repo',
+          tokenPageURL:
+            'https://github.com/settings/personal-access-tokens/new?name=Sveltia+CMS&contents=write',
+          databaseName: `${BACKEND_NAME}:owner/repo`,
+          isSelfHosted: false,
+        }),
+        expect.any(Object),
+      );
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        apiConfig,
+        expect.objectContaining({
+          clientId: '',
+          authScope: 'repo,user',
+          authURL: `${DEFAULT_AUTH_ROOT}/${DEFAULT_AUTH_PATH}`,
+          tokenURL: `${DEFAULT_AUTH_ROOT}/${DEFAULT_AUTH_PATH}`,
+          restBaseURL: DEFAULT_API_ROOT,
+          graphqlBaseURL: `${DEFAULT_API_ROOT}/graphql`,
+        }),
+      );
+
+      expect(Object.assign).toHaveBeenCalledWith(graphqlVars, {
+        owner: 'owner',
+        repo: 'repo',
+        branch: 'main',
+      });
+
+      expect(result).toBe(repository);
+    });
+
+    test('initializes with custom configuration', () => {
+      const customAuthRoot = 'https://custom-auth.example.com';
+      const customAuthPath = 'custom/auth';
+      const customApiRoot = 'https://github.example.com/api/v3';
+      const customGraphqlRoot = 'https://github.example.com/api/graphql';
+
+      const mockCmsConfig = {
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'develop',
+          base_url: customAuthRoot,
+          auth_endpoint: customAuthPath,
+          api_root: customApiRoot,
+          graphql_api_root: customGraphqlRoot,
+        },
+      };
+
+      cmsConfig.current = /** @type {any} */ (mockCmsConfig);
+
+      const result = init();
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        repository,
+        expect.objectContaining({
+          service: BACKEND_NAME,
+          label: BACKEND_LABEL,
+          owner: 'owner',
+          repo: 'repo',
+          branch: 'develop',
+          repoURL: 'https://github.example.com/owner/repo',
+          tokenPageURL:
+            'https://github.com/settings/personal-access-tokens/new?name=Sveltia+CMS&contents=write',
+          databaseName: `${BACKEND_NAME}:owner/repo`,
+          isSelfHosted: true,
+        }),
+        expect.any(Object),
+      );
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        apiConfig,
+        expect.objectContaining({
+          clientId: '',
+          authURL: `${customAuthRoot}/${customAuthPath}`,
+          tokenURL: `${customAuthRoot}/${customAuthPath}`,
+          restBaseURL: 'https://github.example.com/api/v3',
+          graphqlBaseURL: 'https://github.example.com/api/graphql',
+        }),
+      );
+
+      expect(result).toBe(repository);
+    });
+
+    test('initializes with PKCE authentication type', () => {
+      const mockCmsConfig = {
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'main',
+          auth_type: 'pkce',
+        },
+      };
+
+      cmsConfig.current = /** @type {any} */ (mockCmsConfig);
+
+      const result = init();
+      const expectedAuthURL = `${DEFAULT_PKCE_AUTH_ROOT}/${DEFAULT_PKCE_AUTH_PATH}`;
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        apiConfig,
+        expect.objectContaining({
+          clientId: '',
+          authURL: expectedAuthURL,
+          tokenURL: expectedAuthURL.replace('/authorize', '/access_token'),
+          restBaseURL: DEFAULT_API_ROOT,
+          graphqlBaseURL: `${DEFAULT_API_ROOT}/graphql`,
+        }),
+      );
+
+      expect(result).toBe(repository);
+    });
+
+    test('initializes with default auth type when not specified', () => {
+      const mockCmsConfig = {
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'main',
+          auth_type: '',
+        },
+      };
+
+      cmsConfig.current = /** @type {any} */ (mockCmsConfig);
+
+      const result = init();
+      const expectedAuthURL = `${DEFAULT_AUTH_ROOT}/${DEFAULT_AUTH_PATH}`;
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        apiConfig,
+        expect.objectContaining({
+          clientId: '',
+          authURL: expectedAuthURL,
+          tokenURL: expectedAuthURL.replace('/authorize', '/access_token'),
+          restBaseURL: DEFAULT_API_ROOT,
+          graphqlBaseURL: `${DEFAULT_API_ROOT}/graphql`,
+        }),
+      );
+
+      expect(result).toBe(repository);
+    });
+
+    test('logs repository info in dev mode', () => {
+      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const mockCmsConfig = {
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo',
+          branch: 'main',
+        },
+      };
+
+      mockPrefs.devModeEnabled = true;
+      cmsConfig.current = /** @type {any} */ (mockCmsConfig);
+
+      init();
+
+      expect(consoleSpy).toHaveBeenCalledWith('repositoryInfo', repository);
+
+      consoleSpy.mockRestore();
+    });
+
+    test('handles repository path with trailing slash', () => {
+      const mockCmsConfig = {
+        backend: {
+          name: BACKEND_NAME,
+          repo: 'owner/repo/',
+          branch: 'main',
+        },
+      };
+
+      cmsConfig.current = /** @type {any} */ (mockCmsConfig);
+
+      init();
+
+      expect(Object.assign).toHaveBeenCalledWith(
+        repository,
+        expect.objectContaining({
+          owner: 'owner',
+          repo: 'repo',
+        }),
+        expect.any(Object),
+      );
+    });
+  });
+});

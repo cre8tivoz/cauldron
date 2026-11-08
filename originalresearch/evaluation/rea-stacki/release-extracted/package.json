@@ -1,0 +1,26 @@
+{
+  "name": "stacki",
+  "version": "0.0.23",
+  "description": "Stacki - Visual Website Editor",
+  "main": "./out/main/index.js",
+  "author": "Stacki",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@monaco-editor/react": "^4.7.0",
+    "caniuse-lite": "^1.0.30001781",
+    "css-tree": "^3.1.0",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.9",
+    "immer": "^10.1.1",
+    "monaco-editor": "^0.52.2",
+    "nanoid": "^5.0.9",
+    "node-html-parser": "^7.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vscode-css-languageservice": "^6.3.10",
+    "zustand": "^5.0.3"
+  }
+}

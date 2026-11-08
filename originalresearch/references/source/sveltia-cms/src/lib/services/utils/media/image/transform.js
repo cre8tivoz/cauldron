@@ -1,0 +1,240 @@
+import { loadModule } from '$lib/services/app/dependencies';
+import { exportCanvasAsBlob } from '$lib/services/utils/media/image/encode';
+import { decodeHEIC } from '$lib/services/utils/media/image/heic';
+import { resolveTransformOptions } from '$lib/services/utils/media/image/options';
+import { resizeCanvas } from '$lib/services/utils/media/image/resize';
+import { sniffRasterImageFormat } from '$lib/services/utils/media/image/sniff';
+
+/**
+ * @import { InternalImageTransformationOptions } from '$lib/types/private';
+ */
+
+/**
+ * Options for transforming an image to a thumbnail, which is a WebP image with a maximum width and
+ * height of 512 pixels, and a quality of 85, or a JPEG or PNG image where WebP can’t be encoded.
+ * @type {InternalImageTransformationOptions}
+ */
+export const THUMBNAIL_TRANSFORM_OPTIONS = {
+  format: 'webp',
+  quality: 85,
+  width: 512,
+  height: 512,
+  fit: 'contain',
+  // A thumbnail is only shown in the CMS, so where WebP can’t be encoded natively, another format
+  // will do, rather than loading an encoder for every thumbnail
+  nativeOnly: true,
+};
+
+/**
+ * Create an image source from a Blob URL. This function creates an `<img>` element, waits for it to
+ * load, and returns the image element along with its natural dimensions.
+ * @param {object} args Arguments.
+ * @param {File | Blob} args.blob File or blob to be converted to an image source.
+ * @returns {Promise<{ source: CanvasImageSource, naturalWidth: number, naturalHeight: number }>}
+ * Image element and its natural dimensions.
+ * @throws {Error} If the browser cannot decode the image.
+ */
+export const createImageSource = async ({ blob }) => {
+  const blobURL = URL.createObjectURL(blob);
+  const image = new Image();
+
+  return new Promise((resolve, reject) => {
+    image.addEventListener(
+      'load',
+      () => {
+        resolve({
+          source: image,
+          naturalWidth: image.naturalWidth,
+          naturalHeight: image.naturalHeight,
+        });
+
+        URL.revokeObjectURL(blobURL);
+      },
+      { once: true },
+    );
+
+    // Files the browser can’t decode, such as a HEIC image saved with a `.jpg` extension, fire
+    // `error` instead of `load`
+    image.addEventListener(
+      'error',
+      () => {
+        URL.revokeObjectURL(blobURL);
+        reject(new Error('Failed to decode image'));
+      },
+      { once: true },
+    );
+
+    image.src = blobURL;
+  });
+};
+
+/**
+ * Create a video source from a Blob URL. This function creates a `<video>` element, waits for it to
+ * be ready, and returns the video element along with its natural dimensions.
+ * @param {object} args Arguments.
+ * @param {File | Blob} args.blob File or blob to be converted to an video source.
+ * @returns {Promise<{ source: CanvasImageSource, naturalWidth: number, naturalHeight: number }>}
+ * Video element and its natural dimensions.
+ * @throws {Error} If the browser cannot decode the video.
+ */
+export const createVideoSource = async ({ blob }) => {
+  const blobURL = URL.createObjectURL(blob);
+  const video = document.createElement('video');
+
+  return new Promise((resolve, reject) => {
+    video.addEventListener(
+      'canplay',
+      () => {
+        video.pause();
+
+        resolve({
+          source: video,
+          naturalWidth: video.videoWidth,
+          naturalHeight: video.videoHeight,
+        });
+
+        URL.revokeObjectURL(blobURL);
+      },
+      { once: true },
+    );
+
+    // Files the browser can’t decode fire `error` instead of `canplay`. The element is removed here
+    // because the caller only cleans it up on the success path.
+    video.addEventListener(
+      'error',
+      () => {
+        document.body.removeChild(video);
+        URL.revokeObjectURL(blobURL);
+        reject(new Error('Failed to decode video'));
+      },
+      { once: true },
+    );
+
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    // Add `<video>` to DOM or it won’t be rendered on canvas
+    video.style.opacity = '0';
+    video.style.pointerEvents = 'none';
+    document.body.appendChild(video);
+
+    // Assign the source last, so the element is already in the DOM when `error` fires
+    video.src = blobURL;
+  });
+};
+
+/**
+ * Get an image source from a Blob or File. If the Blob is a video, create a `<video>` element, and
+ * return it. If it’s an image, create an `<img>` element and return it.
+ * @param {File | Blob} blob File or blob to be converted to an image source.
+ * @returns {Promise<{ source: CanvasImageSource, naturalWidth: number, naturalHeight: number }>}
+ * Canvas image source and its natural dimensions.
+ */
+export const createSource = async (blob) => {
+  if (blob.type.startsWith('video/')) {
+    return createVideoSource({ blob });
+  }
+
+  return createImageSource({ blob });
+};
+
+/**
+ * Create an image bitmap from a Blob the browser can’t decode natively, by decoding it with a
+ * library if it’s a HEIC image, which only Safari decodes natively.
+ * @param {File | Blob} blob File or blob.
+ * @returns {Promise<ImageBitmap | undefined>} Bitmap, or `undefined` if the blob isn’t a HEIC
+ * image.
+ * @throws {Error} If the HEIC image can’t be decoded.
+ */
+const createFallbackImageBitmap = async (blob) => {
+  // Sniff the content rather than trust the type: a HEIC photo is often saved with a `.jpg`
+  // extension, and the `.heic` type isn’t set by every platform
+  if ((await sniffRasterImageFormat(blob)) !== 'heic') {
+    return undefined;
+  }
+
+  return createImageBitmap(await decodeHEIC(blob));
+};
+
+/**
+ * Convert the given image file to another format.
+ * @param {File | Blob} blob Source file.
+ * @param {InternalImageTransformationOptions} [options] Options.
+ * @returns {Promise<Blob>} New image file.
+ * @throws {Error} If the file is not an image.
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob
+ * @see https://stackoverflow.com/q/62909538
+ */
+export const transformImage = async (blob, options = {}) => {
+  const {
+    format,
+    quality,
+    width: requestedWidth,
+    height: requestedHeight,
+    fit,
+    nativeOnly,
+  } = resolveTransformOptions(options);
+
+  /** @type {CanvasImageSource | undefined} */
+  let source;
+  /** @type {number} */
+  let naturalWidth = 0;
+  /** @type {number} */
+  let naturalHeight = 0;
+
+  try {
+    source = await createImageBitmap(blob);
+  } catch {
+    // Not a format the browser decodes natively, or a video, or SVG
+    source = await createFallbackImageBitmap(blob);
+  }
+
+  if (source) {
+    ({ width: naturalWidth, height: naturalHeight } = source);
+  } else {
+    // Fall back to `<img>` or `<video>`; this includes SVG
+    ({ source, naturalWidth, naturalHeight } = await createSource(blob));
+  }
+
+  const width = requestedWidth ?? naturalWidth;
+  const height = requestedHeight ?? naturalHeight;
+  const canvas = new OffscreenCanvas(512, 512);
+  const context = /** @type {OffscreenCanvasRenderingContext2D} */ (canvas.getContext('2d'));
+
+  resizeCanvas(canvas, { width: naturalWidth, height: naturalHeight }, { fit, width, height });
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+  // Clean up
+  if (source instanceof HTMLVideoElement) {
+    document.body.removeChild(source);
+  } else if ('close' in source) {
+    // An `ImageBitmap` holds the decoded pixels until it’s closed, and a batch of thumbnails would
+    // otherwise keep a full-size copy of every image around until the garbage collector gets to it
+    source.close();
+  }
+
+  return exportCanvasAsBlob(canvas, { format, quality, nativeOnly });
+};
+
+/**
+ * Optimize a SVG image using the SVGO library.
+ * @param {File | Blob} blob Source file.
+ * @returns {Promise<Blob>} Optimized image file.
+ * @see https://github.com/svg/svgo/issues/1050
+ */
+export const optimizeSVG = async (blob) => {
+  const string = await blob.text();
+
+  try {
+    /** @type {import('svgo')} */
+    const { optimize } = await loadModule('svgo', 'dist/svgo.browser.js');
+    const { data } = optimize(string);
+
+    return new Blob([data], { type: blob.type });
+  } catch {
+    //
+  }
+
+  return blob;
+};

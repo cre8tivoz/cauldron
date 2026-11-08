@@ -1,0 +1,1987 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { formatFileName } from '$lib/services/assets/file-name';
+import { cmsConfig } from '$lib/services/config/state';
+
+import uploadcareService, {
+  deleteFiles,
+  generateSignature,
+  getLibraryOptions,
+  getPublicKey,
+  isAssetURL,
+  isEnabled,
+  list,
+  parseResults,
+  search,
+  upload,
+} from './uploadcare';
+
+// Mock dependencies
+vi.mock('$lib/services/config/state', () => ({
+  cmsConfig: { current: undefined },
+}));
+
+vi.mock('@sveltia/utils/misc', () => ({
+  sleep: vi.fn(),
+}));
+
+vi.mock('$lib/services/assets/file-name', () => ({
+  formatFileName: vi.fn((name) => name),
+}));
+
+// Setup global fetch mock
+global.fetch = vi.fn();
+
+describe('integrations/media-libraries/cloud/uploadcare', () => {
+  const mockPublicKey = 'abcdef1234567890abcd';
+  const mockSecretKey = 'fedcba0987654321fedc';
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    // Mock the cmsConfig to return uploadcare config
+    cmsConfig.current = /** @type {any} */ ({
+      media_libraries: {
+        uploadcare: {
+          config: {
+            publicKey: mockPublicKey,
+          },
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('service configuration', () => {
+    it('should have correct service configuration', () => {
+      expect(uploadcareService.serviceType).toBe('cloud_storage');
+      expect(uploadcareService.serviceId).toBe('uploadcare');
+      expect(uploadcareService.serviceLabel).toBe('Uploadcare');
+      expect(uploadcareService.serviceURL).toBe('https://uploadcare.com/');
+      expect(uploadcareService.showServiceLink).toBe(true);
+      expect(uploadcareService.hotlinking).toBe(true);
+      expect(uploadcareService.authType).toBe('api_key');
+      expect(uploadcareService.developerURL).toBe('https://uploadcare.com/docs/');
+      expect(uploadcareService.apiKeyURL).toBe('https://app.uploadcare.com/projects/-/api-keys/');
+      expect(uploadcareService.apiKeyPattern).toBeInstanceOf(RegExp);
+      // eslint-disable-next-line import-x/no-named-as-default-member
+      expect(uploadcareService.list).toBeDefined();
+      // eslint-disable-next-line import-x/no-named-as-default-member
+      expect(uploadcareService.search).toBeDefined();
+    });
+
+    it('should validate public key format', () => {
+      const { apiKeyPattern } = uploadcareService;
+
+      if (!apiKeyPattern) {
+        throw new Error('apiKeyPattern is not defined');
+      }
+
+      expect(apiKeyPattern.test('abcdef1234567890abcd')).toBe(true);
+      expect(apiKeyPattern.test('0123456789abcdef0123')).toBe(true);
+      expect(apiKeyPattern.test('short')).toBe(false);
+      expect(apiKeyPattern.test('123456789012345678901')).toBe(false); // too long (21 chars)
+      expect(apiKeyPattern.test('abcdefg1234567890abc')).toBe(false); // contains 'g' (invalid hex)
+    });
+  });
+
+  describe('getPublicKey', () => {
+    it('should return the public key from config', () => {
+      const key = getPublicKey();
+
+      expect(key).toBe(mockPublicKey);
+    });
+
+    it('should return undefined when config is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      const key = getPublicKey();
+
+      expect(key).toBeUndefined();
+    });
+
+    it('should return undefined when uploadcare config is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {},
+      });
+
+      const key = getPublicKey();
+
+      expect(key).toBeUndefined();
+    });
+  });
+
+  describe('getPublicKey with a field configuration', () => {
+    it('should inherit the site-level public key', () => {
+      const fieldConfig = /** @type {any} */ ({
+        widget: 'file',
+        media_libraries: { uploadcare: { settings: { autoFilename: true } } },
+      });
+
+      expect(getPublicKey(fieldConfig)).toBe(mockPublicKey);
+    });
+
+    it('should prefer the field-level public key', () => {
+      const fieldConfig = /** @type {any} */ ({
+        widget: 'file',
+        media_libraries: { uploadcare: { config: { publicKey: 'field-key' } } },
+      });
+
+      expect(getPublicKey(fieldConfig)).toBe('field-key');
+    });
+
+    it('should return undefined when the field disables Uploadcare', () => {
+      const fieldConfig = /** @type {any} */ ({
+        widget: 'file',
+        media_libraries: { uploadcare: false },
+      });
+
+      expect(getPublicKey(fieldConfig)).toBeUndefined();
+    });
+  });
+
+  describe('getLibraryOptions', () => {
+    it('should return uploadcare library options from media_libraries', () => {
+      const options = getLibraryOptions();
+
+      expect(options).toBeDefined();
+      expect(/** @type {any} */ (options)?.config?.publicKey).toBe(mockPublicKey);
+    });
+
+    it('should return undefined when config is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      const options = getLibraryOptions();
+
+      expect(options).toBeUndefined();
+    });
+
+    it('should support legacy media_library config', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_library: {
+          name: 'uploadcare',
+          config: {
+            publicKey: 'legacy-public-key',
+          },
+        },
+      });
+
+      const options = getLibraryOptions();
+
+      expect(options).toBeDefined();
+      expect(/** @type {any} */ (options)?.config?.publicKey).toBe('legacy-public-key');
+    });
+
+    it('should return undefined for non-uploadcare media_library', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_library: {
+          name: 'other-service',
+          config: {},
+        },
+      });
+
+      const options = getLibraryOptions();
+
+      expect(options).toBeUndefined();
+    });
+  });
+
+  describe('isEnabled', () => {
+    it('should return true when public key is configured', () => {
+      expect(isEnabled()).toBe(true);
+    });
+
+    it('should return false when config is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      expect(isEnabled()).toBe(false);
+    });
+
+    it('should return false when public key is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {},
+          },
+        },
+      });
+
+      expect(isEnabled()).toBe(false);
+    });
+
+    it('should return false when uploadcare config is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {},
+      });
+
+      expect(isEnabled()).toBe(false);
+    });
+
+    it('should return true when field-level config is present', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      expect(
+        isEnabled(
+          /** @type {any} */ ({
+            widget: 'file',
+            media_libraries: {
+              uploadcare: {
+                config: {
+                  publicKey: mockPublicKey,
+                },
+              },
+            },
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('should inherit the site-level public key when the field-level config has none', () => {
+      expect(
+        isEnabled(
+          /** @type {any} */ ({
+            widget: 'file',
+            media_libraries: { uploadcare: { config: { multiple: true } } },
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('should return false when field-level config has missing public key', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      expect(
+        isEnabled(
+          /** @type {any} */ ({
+            widget: 'file',
+            media_libraries: {
+              uploadcare: {
+                config: {},
+              },
+            },
+          }),
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe('generateSignature', () => {
+    /** @type {Crypto} */
+    let originalCrypto;
+
+    beforeEach(() => {
+      // Save original crypto and mock it
+      originalCrypto = globalThis.crypto;
+      Object.defineProperty(globalThis, 'crypto', {
+        value: {
+          subtle: {
+            importKey: vi.fn().mockResolvedValue({}),
+            sign: vi.fn().mockResolvedValue(new ArrayBuffer(32)),
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      // Restore original crypto
+      Object.defineProperty(globalThis, 'crypto', {
+        value: originalCrypto,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('should generate signature from secret key and expire timestamp', async () => {
+      const expire = Math.floor(Date.now() / 1000) + 1800;
+      const signature = await generateSignature(mockSecretKey, expire);
+
+      expect(signature).toBeDefined();
+      expect(typeof signature).toBe('string');
+      expect(signature.length).toBeGreaterThan(0);
+      expect(global.crypto.subtle.importKey).toHaveBeenCalledWith(
+        'raw',
+        expect.any(Uint8Array),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      );
+      expect(global.crypto.subtle.sign).toHaveBeenCalled();
+    });
+
+    it('should return hex string', async () => {
+      const expire = Math.floor(Date.now() / 1000) + 1800;
+      const signature = await generateSignature(mockSecretKey, expire);
+
+      expect(signature).toMatch(/^[0-9a-f]+$/);
+    });
+
+    it('should use HMAC-SHA256', async () => {
+      const expire = Math.floor(Date.now() / 1000) + 1800;
+
+      await generateSignature(mockSecretKey, expire);
+
+      expect(global.crypto.subtle.importKey).toHaveBeenCalledWith(
+        'raw',
+        expect.any(Uint8Array),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      );
+    });
+
+    it('should produce different signatures for different expire times', async () => {
+      const expire1 = 1000000000;
+      const expire2 = 2000000000;
+
+      // Mock different outputs
+      vi.spyOn(global.crypto.subtle, 'sign')
+        .mockResolvedValueOnce(new Uint8Array([1, 2, 3, 4]).buffer)
+        .mockResolvedValueOnce(new Uint8Array([5, 6, 7, 8]).buffer);
+
+      const signature1 = await generateSignature(mockSecretKey, expire1);
+      const signature2 = await generateSignature(mockSecretKey, expire2);
+
+      expect(signature1).not.toBe(signature2);
+    });
+  });
+
+  describe('parseResults', () => {
+    it('should parse image files correctly', () => {
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: { image: { width: 1920, height: 1080 } },
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toEqual({
+        id: 'abc123',
+        description: 'image.jpg',
+        previewURL: 'https://ucarecdn.com/abc123/-/preview/400x400/',
+        downloadURL: 'https://ucarecdn.com/abc123/',
+        fileName: 'image.jpg',
+        lastModified: new Date('2025-01-01T00:00:00.000Z'),
+        size: 12345,
+        kind: 'image',
+      });
+    });
+
+    it('should keep the site-level settings the field-level options don’t override', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: { publicKey: mockPublicKey },
+            settings: { autoFilename: true, defaultOperations: '/resize/800x/' },
+          },
+        },
+      });
+
+      const fieldConfig = /** @type {any} */ ({
+        widget: 'image',
+        media_libraries: { uploadcare: { settings: { autoFilename: false } } },
+      });
+
+      const [result] = parseResults(
+        [
+          {
+            uuid: 'abc123',
+            original_filename: 'image.jpg',
+            original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+            size: 12345,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            datetime_stored: '2025-01-01T00:00:00.000Z',
+            datetime_removed: null,
+          },
+        ],
+        { fieldConfig },
+      );
+
+      expect(result.downloadURL).toBe('https://ucarecdn.com/abc123/-/resize/800x/');
+    });
+
+    it('should parse video files correctly', () => {
+      const mockResults = [
+        {
+          uuid: 'def456',
+          original_filename: 'video.mp4',
+          original_file_url: 'https://ucarecdn.com/def456/video.mp4',
+          size: 98765,
+          mime_type: 'video/mp4',
+          is_image: false,
+          is_ready: true,
+          content_info: { video: { duration: 120 } },
+          datetime_uploaded: '2025-01-02T00:00:00.000Z',
+          datetime_stored: '2025-01-02T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toEqual({
+        id: 'def456',
+        description: 'video.mp4',
+        previewURL: 'https://ucarecdn.com/def456/',
+        downloadURL: 'https://ucarecdn.com/def456/',
+        fileName: 'video.mp4',
+        lastModified: new Date('2025-01-02T00:00:00.000Z'),
+        size: 98765,
+        kind: 'video',
+      });
+    });
+
+    it('should parse other file types correctly', () => {
+      const mockResults = [
+        {
+          uuid: 'ghi789',
+          original_filename: 'document.pdf',
+          original_file_url: 'https://ucarecdn.com/ghi789/document.pdf',
+          size: 54321,
+          mime_type: 'application/pdf',
+          is_image: false,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-03T00:00:00.000Z',
+          datetime_stored: '2025-01-03T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toEqual({
+        id: 'ghi789',
+        description: 'document.pdf',
+        previewURL: 'https://ucarecdn.com/ghi789/',
+        downloadURL: 'https://ucarecdn.com/ghi789/',
+        fileName: 'document.pdf',
+        lastModified: new Date('2025-01-03T00:00:00.000Z'),
+        size: 54321,
+        kind: 'other',
+      });
+    });
+
+    it('should parse multiple files correctly', () => {
+      const mockResults = [
+        {
+          uuid: 'file1',
+          original_filename: 'image1.jpg',
+          original_file_url: 'https://ucarecdn.com/file1/image1.jpg',
+          size: 100,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+        {
+          uuid: 'file2',
+          original_filename: 'image2.png',
+          original_file_url: 'https://ucarecdn.com/file2/image2.png',
+          size: 200,
+          mime_type: 'image/png',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-02T00:00:00.000Z',
+          datetime_stored: '2025-01-02T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].id).toBe('file1');
+      expect(results[1].id).toBe('file2');
+    });
+
+    it('should use custom cdnBase when configured', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+              cdnBase: 'https://custom-cdn.example.com',
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].previewURL).toBe(
+        'https://custom-cdn.example.com/abc123/-/preview/400x400/',
+      );
+      expect(results[0].downloadURL).toBe('https://custom-cdn.example.com/abc123/');
+    });
+
+    it('should include filename in downloadURL when autoFilename is true', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+            },
+            settings: {
+              autoFilename: true,
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].downloadURL).toBe('https://ucarecdn.com/abc123/image.jpg');
+    });
+
+    it('should encode the filename in downloadURL when autoFilename is true', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+            },
+            settings: {
+              autoFilename: true,
+            },
+          },
+        },
+      });
+
+      const results = parseResults([
+        {
+          uuid: 'abc123',
+          original_filename: 'photo #1 (50%).jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/photo%20%231%20(50%25).jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ]);
+
+      expect(results[0].downloadURL).toBe(
+        'https://ucarecdn.com/abc123/photo%20%231%20%2850%25%29.jpg',
+      );
+      expect(results[0].fileName).toBe('photo #1 (50%).jpg');
+    });
+
+    it('should not include filename when autoFilename is false', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+            },
+            settings: {
+              autoFilename: false,
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].downloadURL).toBe('https://ucarecdn.com/abc123/');
+    });
+
+    it('should include defaultOperations in downloadURL when configured for images', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+            },
+            settings: {
+              defaultOperations: '/quality/smart/-/format/auto/',
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].downloadURL).toBe(
+        'https://ucarecdn.com/abc123/-/quality/smart/-/format/auto/',
+      );
+    });
+
+    it('should not apply defaultOperations to videos', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+            },
+            settings: {
+              defaultOperations: '/quality/smart/-/format/auto/',
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'def456',
+          original_filename: 'video.mp4',
+          original_file_url: 'https://ucarecdn.com/def456/video.mp4',
+          size: 98765,
+          mime_type: 'video/mp4',
+          is_image: false,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-02T00:00:00.000Z',
+          datetime_stored: '2025-01-02T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].downloadURL).toBe('https://ucarecdn.com/def456/');
+      expect(results[0].previewURL).toBe('https://ucarecdn.com/def456/');
+    });
+
+    it('should combine defaultOperations with autoFilename for images', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+            },
+            settings: {
+              autoFilename: true,
+              defaultOperations: '/quality/smart/-/format/auto/',
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].downloadURL).toBe(
+        'https://ucarecdn.com/abc123/-/quality/smart/-/format/auto/image.jpg',
+      );
+    });
+
+    it('should use all options together for images: cdnBase, defaultOperations, and autoFilename', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+              cdnBase: 'https://custom-cdn.example.com',
+            },
+            settings: {
+              autoFilename: true,
+              defaultOperations: '/quality/smart/-/format/auto/',
+            },
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].previewURL).toBe(
+        'https://custom-cdn.example.com/abc123/-/preview/400x400/',
+      );
+      expect(results[0].downloadURL).toBe(
+        'https://custom-cdn.example.com/abc123/-/quality/smart/-/format/auto/image.jpg',
+      );
+    });
+
+    it('should use field-level config over global config', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: {
+            config: {
+              publicKey: mockPublicKey,
+              cdnBase: 'https://global-cdn.example.com',
+            },
+            settings: {
+              autoFilename: false,
+              defaultOperations: '/global/operations/',
+            },
+          },
+        },
+      });
+
+      const fieldConfig = /** @type {import('$lib/types/public').ImageField} */ ({
+        name: 'test_image',
+        widget: 'image',
+        media_library: {
+          name: 'uploadcare',
+          config: {
+            cdnBase: 'https://field-cdn.example.com',
+          },
+          settings: {
+            autoFilename: true,
+            defaultOperations: '/field/operations/',
+          },
+        },
+      });
+
+      const mockResults = [
+        {
+          uuid: 'abc123',
+          original_filename: 'image.jpg',
+          original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+          size: 12345,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults, { fieldConfig });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].previewURL).toBe('https://field-cdn.example.com/abc123/-/preview/400x400/');
+      expect(results[0].downloadURL).toBe(
+        'https://field-cdn.example.com/abc123/-/field/operations/image.jpg',
+      );
+    });
+
+    it('should handle missing library options with fallbacks', () => {
+      // Test line 77: when getLibraryOptions(fieldConfig) returns undefined
+      // Should fall back to getLibraryOptions() which returns the global config
+      const mockResults = [
+        {
+          uuid: 'test123',
+          original_filename: 'test.jpg',
+          original_file_url: 'https://ucarecdn.com/test123/test.jpg',
+          size: 1000,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      // Call with undefined fieldConfig - should use global config
+      const results = parseResults(mockResults, { fieldConfig: undefined });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('test123');
+      // Should use default CDN base and no special operations
+      expect(results[0].downloadURL).toBe('https://ucarecdn.com/test123/');
+    });
+
+    it('should use empty options when all fallbacks are exhausted', () => {
+      // Test line 77: when both getLibraryOptions(fieldConfig) and getLibraryOptions()
+      // return undefined, should fall back to empty object {}
+      cmsConfig.current = /** @type {any} */ ({}); // No uploadcare config
+
+      const mockResults = [
+        {
+          uuid: 'fallback123',
+          original_filename: 'fallback.jpg',
+          original_file_url: 'https://ucarecdn.com/fallback123/fallback.jpg',
+          size: 2000,
+          mime_type: 'image/jpeg',
+          is_image: true,
+          is_ready: true,
+          content_info: null,
+          datetime_uploaded: '2025-01-01T00:00:00.000Z',
+          datetime_stored: '2025-01-01T00:00:00.000Z',
+          datetime_removed: null,
+        },
+      ];
+
+      const results = parseResults(mockResults);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('fallback123');
+      // With no library options, should use original_file_url base
+      expect(results[0].downloadURL).toBe('https://ucarecdn.com/fallback123/');
+    });
+  });
+
+  describe('list', () => {
+    it('should fetch files successfully', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'abc123',
+            original_filename: 'image.jpg',
+            original_file_url: 'https://ucarecdn.com/abc123/image.jpg',
+            size: 12345,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            datetime_stored: '2025-01-01T00:00:00.000Z',
+            datetime_removed: null,
+          },
+        ],
+        next: null,
+        total: 1,
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const results = await list({ apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('https://api.uploadcare.com/files/'),
+        expect.objectContaining({
+          headers: {
+            Accept: 'application/vnd.uploadcare-v0.7+json',
+            Authorization: `Uploadcare.Simple ${mockPublicKey}:${mockSecretKey}`,
+          },
+        }),
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('abc123');
+    });
+
+    it('should handle pagination', async () => {
+      const mockResponsePage1 = {
+        results: [
+          {
+            uuid: 'file1',
+            original_filename: 'image1.jpg',
+            original_file_url: 'https://ucarecdn.com/file1/image1.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            datetime_stored: '2025-01-01T00:00:00.000Z',
+            datetime_removed: null,
+          },
+        ],
+        next: 'https://api.uploadcare.com/files/?page=2',
+        total: 2,
+      };
+
+      const mockResponsePage2 = {
+        results: [
+          {
+            uuid: 'file2',
+            original_filename: 'image2.jpg',
+            original_file_url: 'https://ucarecdn.com/file2/image2.jpg',
+            size: 200,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-02T00:00:00.000Z',
+            datetime_stored: '2025-01-02T00:00:00.000Z',
+            datetime_removed: null,
+          },
+        ],
+        next: null,
+        total: 2,
+      };
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue(mockResponsePage1),
+          }),
+        )
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue(mockResponsePage2),
+          }),
+        );
+
+      const results = await list({ apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(results).toHaveLength(2);
+      expect(results[0].id).toBe('file1');
+      expect(results[1].id).toBe('file2');
+    });
+
+    it('should break loop when nextUrl is null (no more pages)', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'file1',
+            original_filename: 'single-image.jpg',
+            original_file_url: 'https://ucarecdn.com/file1/single-image.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            datetime_stored: '2025-01-01T00:00:00.000Z',
+            datetime_removed: null,
+          },
+        ],
+        next: null,
+        total: 1,
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const results = await list({ apiKey: mockSecretKey });
+
+      // Should fetch only once and return the single file
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('file1');
+    });
+
+    it('should filter results with kind and custom filter, then break on null nextUrl', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'file1',
+            original_filename: 'special-image.jpg',
+            original_file_url: 'https://ucarecdn.com/file1/special-image.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            datetime_stored: '2025-01-01T00:00:00.000Z',
+            datetime_removed: null,
+          },
+          {
+            uuid: 'file2',
+            original_filename: 'other-image.jpg',
+            original_file_url: 'https://ucarecdn.com/file2/other-image.jpg',
+            size: 200,
+            mime_type: 'image/jpeg',
+            is_image: true,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-02T00:00:00.000Z',
+            datetime_stored: '2025-01-02T00:00:00.000Z',
+            datetime_removed: null,
+          },
+          {
+            uuid: 'file3',
+            original_filename: 'document.pdf',
+            original_file_url: 'https://ucarecdn.com/file3/document.pdf',
+            size: 300,
+            mime_type: 'application/pdf',
+            is_image: false,
+            is_ready: true,
+            content_info: null,
+            datetime_uploaded: '2025-01-03T00:00:00.000Z',
+            datetime_stored: '2025-01-03T00:00:00.000Z',
+            datetime_removed: null,
+          },
+        ],
+        next: null,
+        total: 3,
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const results = await list({ kind: 'image', apiKey: mockSecretKey });
+
+      // Should fetch only once
+      expect(fetch).toHaveBeenCalledTimes(1);
+      // Should return only images (not the PDF)
+      expect(results).toHaveLength(2);
+      expect(results[0].kind).toBe('image');
+      expect(results[1].kind).toBe('image');
+    });
+
+    it('should reject when public key is not configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      await expect(list({ apiKey: '' })).rejects.toThrow('Uploadcare public key is not configured');
+    });
+
+    it('should reject when API request fails', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: false,
+          statusText: 'Unauthorized',
+          text: vi.fn().mockResolvedValue('Incorrect authentication credentials.'),
+        }),
+      );
+
+      await expect(list({ apiKey: mockSecretKey })).rejects.toThrow(
+        'Failed to fetch files: Incorrect authentication credentials.',
+      );
+    });
+
+    it('should limit to 5 pages', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'file',
+            original_filename: 'image.jpg',
+            original_file_url: 'https://ucarecdn.com/file/image.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: 'https://api.uploadcare.com/files/?page=next',
+        total: 1000,
+      };
+
+      const mockResponseLast = {
+        ...mockResponse,
+        next: null,
+      };
+
+      // Mock 5 pages - last page should have next: null
+      for (let i = 0; i < 4; i += 1) {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue(mockResponse),
+          }),
+        );
+      }
+
+      // Last page with next: null
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponseLast),
+        }),
+      );
+
+      const results = await list({ apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(5);
+      expect(results).toHaveLength(5); // 1 result per page
+    });
+  });
+
+  describe('search', () => {
+    it('should search files successfully', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'abc123',
+            original_filename: 'test-image.jpg',
+            original_file_url: 'https://ucarecdn.com/abc123/test-image.jpg',
+            size: 12345,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+          {
+            uuid: 'def456',
+            original_filename: 'other-file.png',
+            original_file_url: 'https://ucarecdn.com/def456/other-file.png',
+            size: 54321,
+            mime_type: 'image/png',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-02T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: null,
+        total: 2,
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const results = await search('test', { apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(results).toHaveLength(1); // Only 'test-image.jpg' matches
+      expect(results[0].id).toBe('abc123');
+      expect(results[0].fileName).toBe('test-image.jpg');
+    });
+
+    it('should filter results case-insensitively', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'file1',
+            original_filename: 'TEST-Image.jpg',
+            original_file_url: 'https://ucarecdn.com/file1/TEST-Image.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+          {
+            uuid: 'file2',
+            original_filename: 'other.jpg',
+            original_file_url: 'https://ucarecdn.com/file2/other.jpg',
+            size: 200,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-02T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: null,
+        total: 2,
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const results = await search('test', { apiKey: mockSecretKey });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe('file1');
+    });
+
+    it('should handle pagination during search', async () => {
+      const mockResponsePage1 = {
+        results: [
+          {
+            uuid: 'file1',
+            original_filename: 'search-result-1.jpg',
+            original_file_url: 'https://ucarecdn.com/file1/search-result-1.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: 'https://api.uploadcare.com/files/?page=2',
+        total: 2,
+      };
+
+      const mockResponsePage2 = {
+        results: [
+          {
+            uuid: 'file2',
+            original_filename: 'search-result-2.jpg',
+            original_file_url: 'https://ucarecdn.com/file2/search-result-2.jpg',
+            size: 200,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-02T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: null,
+        total: 2,
+      };
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue(mockResponsePage1),
+          }),
+        )
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue(mockResponsePage2),
+          }),
+        );
+
+      const results = await search('result', { apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(results).toHaveLength(2);
+      expect(results[0].id).toBe('file1');
+      expect(results[1].id).toBe('file2');
+    });
+
+    it('should reject when public key is not configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      await expect(search('test', { apiKey: '' })).rejects.toThrow(
+        'Uploadcare public key is not configured',
+      );
+    });
+
+    it('should reject when API request fails', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: false,
+          statusText: 'Bad Request',
+          text: vi.fn().mockResolvedValue('Invalid query.'),
+        }),
+      );
+
+      await expect(search('test', { apiKey: mockSecretKey })).rejects.toThrow(
+        'Failed to fetch files: Invalid query.',
+      );
+    });
+
+    it('should limit to 10 pages for search', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'file',
+            original_filename: 'searchable-image.jpg',
+            original_file_url: 'https://ucarecdn.com/file/searchable-image.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: 'https://api.uploadcare.com/files/?page=next',
+        total: 1000,
+      };
+
+      // Mock 10 pages
+      for (let i = 0; i < 10; i += 1) {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue(mockResponse),
+          }),
+        );
+      }
+
+      const results = await search('searchable', { apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(10);
+      expect(results).toHaveLength(10); // 1 matching result per page
+    });
+
+    it('should return empty array when no results match', async () => {
+      const mockResponse = {
+        results: [
+          {
+            uuid: 'file1',
+            original_filename: 'image.jpg',
+            original_file_url: 'https://ucarecdn.com/file1/image.jpg',
+            size: 100,
+            mime_type: 'image/jpeg',
+            content_info: null,
+
+            datetime_uploaded: '2025-01-01T00:00:00.000Z',
+            is_image: true,
+            is_ready: true,
+          },
+        ],
+        next: null,
+        total: 1,
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const results = await search('nonexistent', { apiKey: mockSecretKey });
+
+      expect(results).toHaveLength(0);
+    });
+  });
+
+  describe('upload', () => {
+    /** @type {Crypto} */
+    let originalCrypto;
+
+    beforeEach(() => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: { uploadcare: { config: { publicKey: mockPublicKey } } },
+      });
+      // Save original crypto and mock it
+      originalCrypto = globalThis.crypto;
+      Object.defineProperty(globalThis, 'crypto', {
+        value: {
+          subtle: {
+            importKey: vi.fn().mockResolvedValue({}),
+            sign: vi.fn().mockResolvedValue(new ArrayBuffer(32)),
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      vi.mocked(formatFileName).mockImplementation((name) => name);
+      // Restore original crypto
+      Object.defineProperty(globalThis, 'crypto', {
+        value: originalCrypto,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('should upload a single file successfully', async () => {
+      const mockFile = new File(['test content'], 'test.jpg', { type: 'image/jpeg' });
+
+      const mockResponse = {
+        'test.jpg': 'abc-123',
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const result = await upload([mockFile], { apiKey: mockSecretKey });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 'abc-123',
+        fileName: 'test.jpg',
+        kind: 'image',
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        'https://upload.uploadcare.com/base/',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.any(FormData),
+        }),
+      );
+      // The CDN origin is looked up with the REST API, which isn’t mocked here
+      expect(fetch).toHaveBeenCalledWith('https://api.uploadcare.com/files/abc-123/', {
+        headers: {
+          Accept: 'application/vnd.uploadcare-v0.7+json',
+          Authorization: `Uploadcare.Simple ${mockPublicKey}:${mockSecretKey}`,
+        },
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should upload multiple files successfully', async () => {
+      const mockFile1 = new File(['content 1'], 'file1.jpg', { type: 'image/jpeg' });
+      const mockFile2 = new File(['content 2'], 'file2.png', { type: 'image/png' });
+
+      const mockResponse = {
+        'file1.jpg': 'abc-123',
+        'file2.png': 'def-456',
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const result = await upload([mockFile1, mockFile2], { apiKey: mockSecretKey });
+
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe('abc-123');
+      expect(result[1].id).toBe('def-456');
+      // The origin is looked up once for all the files
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should give the uploaded files the URL of the project’s own CDN', async () => {
+      const mockFile1 = new File(['content 1'], 'file1.jpg', { type: 'image/jpeg' });
+      const mockFile2 = new File(['content 2'], 'file2.png', { type: 'image/png' });
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ 'file1.jpg': 'abc-123', 'file2.png': 'def-456' }),
+          }),
+        )
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue({
+              uuid: 'abc-123',
+              original_file_url: 'https://demo.ucarecd.net/abc-123/file1.jpg',
+            }),
+          }),
+        );
+
+      const result = await upload([mockFile1, mockFile2], { apiKey: mockSecretKey });
+
+      expect(result.map(({ previewURL }) => previewURL)).toEqual([
+        'https://demo.ucarecd.net/abc-123/-/preview/400x400/',
+        'https://demo.ucarecd.net/def-456/-/preview/400x400/',
+      ]);
+      expect(result[1].downloadURL).toBe('https://demo.ucarecd.net/def-456/');
+    });
+
+    it.each([
+      ['the file info request fails', { ok: false, status: 500 }],
+      ['the file has no URL', { ok: true, json: vi.fn().mockResolvedValue({ uuid: 'abc-123' }) }],
+    ])('should fall back to the legacy CDN when %s', async (_label, infoResponse) => {
+      const mockFile = new File(['test content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          /** @type {any} */ ({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ 'test.jpg': 'abc-123' }),
+          }),
+        )
+        .mockResolvedValueOnce(/** @type {any} */ (infoResponse));
+
+      const result = await upload([mockFile], { apiKey: mockSecretKey });
+
+      expect(result[0].downloadURL).toBe('https://ucarecdn.com/abc-123/');
+    });
+
+    it('should not look up the CDN origin when a CDN base is configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: { config: { publicKey: mockPublicKey, cdnBase: 'https://cdn.example.com' } },
+        },
+      });
+
+      const mockFile = new File(['test content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ 'test.jpg': 'abc-123' }),
+        }),
+      );
+
+      const result = await upload([mockFile], { apiKey: mockSecretKey });
+
+      expect(result[0].downloadURL).toBe('https://cdn.example.com/abc-123/');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not look up the CDN origin when no file was uploaded', async () => {
+      const mockFile = new File(['test content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ UPLOADCARE_PUB_KEY: mockPublicKey }),
+        }),
+      );
+
+      expect(await upload([mockFile], { apiKey: mockSecretKey })).toEqual([]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should include signature in FormData', async () => {
+      const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue({
+            'test.jpg': { uuid: 'abc-123' },
+          }),
+        }),
+      );
+
+      await upload([mockFile], { apiKey: mockSecretKey });
+
+      const formData = vi.mocked(fetch).mock.calls[0]?.[1]?.body;
+
+      expect(formData).toBeInstanceOf(FormData);
+
+      // Verify crypto was called to generate signature
+      expect(global.crypto.subtle.importKey).toHaveBeenCalled();
+      expect(global.crypto.subtle.sign).toHaveBeenCalled();
+    });
+
+    it('should upload non-image files with correct kind', async () => {
+      const mockFilePDF = new File(['pdf content'], 'document.pdf', { type: 'application/pdf' });
+      const mockFileVideo = new File(['video content'], 'video.mp4', { type: 'video/mp4' });
+
+      const mockResponse = {
+        'document.pdf': 'pdf-uuid-123',
+        'video.mp4': 'video-uuid-456',
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const result = await upload([mockFilePDF, mockFileVideo], { apiKey: mockSecretKey });
+
+      expect(result).toHaveLength(2);
+      // PDF should have kind: 'other'
+      expect(result[0]).toMatchObject({
+        id: 'pdf-uuid-123',
+        fileName: 'document.pdf',
+        kind: 'other',
+      });
+      // Video should have kind: 'video'
+      expect(result[1]).toMatchObject({
+        id: 'video-uuid-456',
+        fileName: 'video.mp4',
+        kind: 'video',
+      });
+    });
+
+    it('should handle file without type property', async () => {
+      const mockFile = new File(['content'], 'unknown.bin');
+
+      // Clear the type property
+      Object.defineProperty(mockFile, 'type', {
+        value: '',
+        writable: false,
+      });
+
+      const mockResponse = {
+        'unknown.bin': 'unknown-uuid-789',
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const result = await upload([mockFile], { apiKey: mockSecretKey });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 'unknown-uuid-789',
+        fileName: 'unknown.bin',
+        kind: 'other',
+      });
+    });
+
+    it('should match a file whose name was changed by the formatting', async () => {
+      // A macOS file name is often in the decomposed (NFD) form, which the formatting normalizes
+      const originalName = 'cafe\u0301.jpg';
+      const formattedName = originalName.normalize();
+      const mockFile = new File(['image content'], originalName, { type: 'image/jpeg' });
+
+      vi.mocked(formatFileName).mockImplementationOnce((name) => name.normalize());
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ [formattedName]: 'nfc-uuid' }),
+        }),
+      );
+
+      const result = await upload([mockFile], { apiKey: mockSecretKey });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 'nfc-uuid',
+        fileName: formattedName,
+        size: mockFile.size,
+        kind: 'image',
+        previewURL: 'https://ucarecdn.com/nfc-uuid/-/preview/400x400/',
+      });
+    });
+
+    it('should give files with the same name distinct form field names', async () => {
+      const mockFile1 = new File(['content 1'], 'photo.jpg', { type: 'image/jpeg' });
+      const mockFile2 = new File(['content 22'], 'photo.jpg', { type: 'image/png' });
+
+      vi.mocked(formatFileName).mockImplementation((name, { assetNamesInSameFolder = [] } = {}) =>
+        assetNamesInSameFolder.includes(name) ? name.replace('.', '-1.') : name,
+      );
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ 'photo.jpg': 'uuid-1', 'photo-1.jpg': 'uuid-2' }),
+        }),
+      );
+
+      const result = await upload([mockFile1, mockFile2], { apiKey: mockSecretKey });
+      const formData = /** @type {FormData} */ (vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+
+      expect(formData.get('photo.jpg')).toBeInstanceOf(File);
+      expect(formData.get('photo-1.jpg')).toBeInstanceOf(File);
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({ id: 'uuid-1', size: mockFile1.size });
+      expect(result[1]).toMatchObject({ id: 'uuid-2', size: mockFile2.size });
+    });
+
+    it('should handle file size as 0 when file not found', async () => {
+      const mockFile = new File(['content'], 'original.txt', { type: 'text/plain' });
+
+      const mockResponse = {
+        // Server returns a different filename
+        'renamed.txt': 'renamed-uuid-999',
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockResponse),
+        }),
+      );
+
+      const result = await upload([mockFile], { apiKey: mockSecretKey });
+
+      expect(result).toHaveLength(1);
+      // When file is not found by name, size should default to 0
+      expect(result[0]).toMatchObject({
+        id: 'renamed-uuid-999',
+        fileName: 'renamed.txt',
+        size: 0,
+      });
+    });
+
+    it('should reject when public key is not configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({ media_libraries: {} });
+
+      const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+
+      await expect(upload([mockFile], { apiKey: mockSecretKey })).rejects.toThrow(
+        'Uploadcare public key is not configured',
+      );
+    });
+
+    it('should reject when API key is not provided', async () => {
+      const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+
+      await expect(upload([mockFile], /** @type {any} */ ({}))).rejects.toThrow(
+        'Uploadcare secret key is not provided',
+      );
+    });
+
+    it('should handle upload failure', async () => {
+      const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: false,
+          status: 403,
+          statusText: 'Forbidden',
+          text: vi.fn().mockResolvedValue('Public key is blocked.'),
+        }),
+      );
+
+      await expect(upload([mockFile], { apiKey: mockSecretKey })).rejects.toThrow(
+        'Failed to upload files: Public key is blocked.',
+      );
+    });
+
+    it('should handle empty file array', async () => {
+      const result = await upload([], { apiKey: mockSecretKey });
+
+      expect(result).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('should generate valid signature format', async () => {
+      const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        /** @type {any} */ ({
+          ok: true,
+          json: vi.fn().mockResolvedValue({
+            'test.jpg': { uuid: 'abc-123' },
+          }),
+        }),
+      );
+
+      await upload([mockFile], { apiKey: mockSecretKey });
+
+      // Verify signature generation was called with correct algorithm
+      expect(global.crypto.subtle.importKey).toHaveBeenCalledWith(
+        'raw',
+        expect.any(Uint8Array),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      );
+    });
+  });
+
+  describe('isAssetURL', () => {
+    it('should match the default CDN or the configured one', () => {
+      expect(uploadcareService).toMatchObject({ isAssetURL });
+      expect(isAssetURL('https://ucarecdn.com/uuid/a.jpg')).toBe(true);
+      // A project’s own CDN subdomain
+      expect(isAssetURL('https://demo.ucarecd.net/uuid/a.jpg')).toBe(true);
+      expect(isAssetURL('https://ucarecd.net/uuid/a.jpg')).toBe(false);
+      expect(isAssetURL('https://demo.ucarecd.net.example.com/uuid/a.jpg')).toBe(false);
+      expect(isAssetURL('https://example.com/a.jpg')).toBe(false);
+
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          uploadcare: { config: { publicKey: mockPublicKey, cdnBase: 'https://cdn.example.com' } },
+        },
+      });
+
+      expect(isAssetURL('https://cdn.example.com/uuid/')).toBe(true);
+      expect(isAssetURL('https://ucarecdn.com/uuid/a.jpg')).toBe(false);
+      expect(isAssetURL('https://demo.ucarecd.net/uuid/a.jpg')).toBe(false);
+    });
+
+    it('should be false when the service is not configured', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+      expect(isAssetURL('https://ucarecdn.com/uuid/a.jpg')).toBe(false);
+    });
+
+    it('should be false when the configured CDN base is not a valid URL', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: { uploadcare: { config: { publicKey: mockPublicKey, cdnBase: 'cdn' } } },
+      });
+      expect(isAssetURL('https://ucarecdn.com/uuid/a.jpg')).toBe(false);
+    });
+  });
+
+  describe('deleteFiles', () => {
+    /** @type {any[]} */
+    const assets = [
+      { id: 'uuid-1', fileName: 'one.jpg' },
+      { id: 'uuid-2', fileName: 'two.jpg' },
+    ];
+
+    it('should be exposed on the service, without rename or replace', () => {
+      expect(uploadcareService.delete).toBe(deleteFiles);
+      expect(uploadcareService.rename).toBeUndefined();
+      expect(uploadcareService.replace).toBeUndefined();
+    });
+
+    it('should delete files in a single batch request', async () => {
+      vi.mocked(fetch).mockResolvedValue(/** @type {any} */ ({ ok: true }));
+
+      await deleteFiles(assets, { apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith('https://api.uploadcare.com/files/storage/', {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/vnd.uploadcare-v0.7+json',
+          Authorization: `Uploadcare.Simple ${mockPublicKey}:${mockSecretKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(['uuid-1', 'uuid-2']),
+      });
+    });
+
+    it('should split more than 100 files into batches', async () => {
+      const { sleep } = await import('@sveltia/utils/misc');
+
+      const manyAssets = Array.from(
+        { length: 150 },
+        (_, index) => /** @type {any} */ ({ id: `uuid-${index}`, fileName: `${index}.jpg` }),
+      );
+
+      vi.mocked(fetch).mockResolvedValue(/** @type {any} */ ({ ok: true }));
+
+      await deleteFiles(manyAssets, { apiKey: mockSecretKey });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+
+      const bodies = vi.mocked(fetch).mock.calls.map(([, init]) => String(init?.body));
+
+      expect(JSON.parse(bodies[0])).toHaveLength(100);
+      expect(JSON.parse(bodies[1])).toHaveLength(50);
+      expect(sleep).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject when the public key is not configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      await expect(deleteFiles(assets, { apiKey: mockSecretKey })).rejects.toThrow(
+        'Uploadcare public key is not configured',
+      );
+    });
+
+    it('should reject when the secret key is not provided', async () => {
+      await expect(deleteFiles(assets, { apiKey: '' })).rejects.toThrow(
+        'Uploadcare secret key is not provided',
+      );
+    });
+
+    it('should throw when the request fails', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        /** @type {any} */ ({
+          ok: false,
+          statusText: 'Forbidden',
+          text: vi.fn().mockResolvedValue('Secret key is invalid.'),
+        }),
+      );
+
+      await expect(deleteFiles(assets, { apiKey: mockSecretKey })).rejects.toThrow(
+        'Failed to delete files: Secret key is invalid.',
+      );
+    });
+  });
+});

@@ -1,0 +1,136 @@
+import { getPathInfo } from '@sveltia/utils/file';
+
+import { checkBodyField, isFormatMismatch } from '$lib/services/config/parser/collections/format';
+import { checkPreviewPath } from '$lib/services/config/parser/collections/preview';
+import { checkSummaryTemplate } from '$lib/services/config/parser/collections/templates';
+import { parseFields } from '$lib/services/config/parser/fields';
+import { checkI18nOverrides } from '$lib/services/config/parser/i18n';
+import { checkFolderTemplateTags } from '$lib/services/config/parser/media';
+import { addMessage, checkName } from '$lib/services/config/parser/utils/validator';
+import {
+  getOmitDefaultLocaleOption,
+  mergeI18nConfigs,
+} from '$lib/services/contents/i18n/config/merge';
+import {
+  canOmitLocalePlaceholder,
+  hasLocalePlaceholder,
+} from '$lib/services/contents/i18n/placeholder';
+
+/**
+ * @import { CmsConfig, CollectionFile, FileCollection } from '$lib/types/public';
+ * @import { ConfigParserCollectors, InternalSingletonCollection } from '$lib/types/private';
+ */
+
+/**
+ * Parse and validate a single collection file configuration.
+ * @param {object} context Context.
+ * @param {CmsConfig} context.cmsConfig Raw CMS configuration.
+ * @param {FileCollection | InternalSingletonCollection} context.collection Collection config to
+ * parse.
+ * @param {CollectionFile} context.collectionFile File config to parse.
+ * @param {ConfigParserCollectors} collectors Collectors.
+ */
+export const parseCollectionFile = (context, collectors) => {
+  const { cmsConfig, collection, collectionFile } = context;
+  // @ts-ignore singleton files don’t have `format` property on their files
+  const { file, format = collection.format, fields, i18n, summary } = collectionFile;
+
+  const { preview_path: previewPath, preview_path_date_field: previewPathDateField } =
+    collectionFile;
+
+  const { extension } = getPathInfo(file);
+
+  if (isFormatMismatch(extension, format, fields)) {
+    addMessage({
+      strKey: 'file_format_mismatch',
+      context,
+      values: { extension, format },
+      collectors,
+    });
+  }
+
+  if (!fields?.length) {
+    addMessage({ strKey: 'collection_file_no_fields', context, collectors });
+  }
+
+  if (hasLocalePlaceholder(file) && !i18n) {
+    // The `{{locale}}` placeholder in the `file` path is only valid if i18n is enabled for the
+    // collection file. Otherwise, it will be replaced with the internal `_default` locale code,
+    // which is likely not the intended behavior.
+    addMessage({ strKey: 'collection_file_i18n_required', context, collectors });
+  }
+
+  if (hasLocalePlaceholder(file) && !canOmitLocalePlaceholder(file)) {
+    // The `omit_default_locale_from_file_path` option can be set at the site, collection or file
+    // level, as can its deprecated alias. With the placeholder anywhere it can’t be removed without
+    // breaking the rest of the path, like `i18n/{{locale}}.yaml`, the option can’t apply, and the
+    // default locale is kept in the path instead, which is worth a warning
+    const config = mergeI18nConfigs({ cmsConfig, collection, file: collectionFile });
+
+    if (config?.locales?.length && getOmitDefaultLocaleOption(config)) {
+      addMessage({
+        type: 'warning',
+        strKey: 'locale_not_omitted_from_file_path',
+        values: { file },
+        context,
+        collectors,
+      });
+    }
+  }
+
+  // Validate the `i18n` option against the collection’s configuration it builds on
+  checkI18nOverrides(context, collectors);
+
+  checkFolderTemplateTags({ config: collectionFile, context, collectors });
+
+  parseFields(fields, context, collectors);
+
+  checkBodyField({
+    extension,
+    format,
+    // @ts-ignore A singleton collection doesn’t have the `body_field` option
+    bodyField: collectionFile.body_field ?? collection.body_field,
+    fields,
+    context,
+    collectors,
+  });
+
+  // A collection file’s own `preview_path` is used instead of the collection’s, not merged with
+  // it, so the fields available to fill it in are the file’s own
+  checkPreviewPath({
+    pathTemplate: previewPath,
+    dateFieldName: previewPathDateField,
+    fields: fields ?? [],
+    context,
+    collectors,
+  });
+
+  // Validate the `summary` option against the file’s fields, like an entry collection’s
+  checkSummaryTemplate({ template: summary, fields, context, collectors });
+};
+
+/**
+ * Parse and validate multiple collection file configurations.
+ * @param {object} context Context.
+ * @param {CmsConfig} context.cmsConfig Raw CMS configuration.
+ * @param {FileCollection | InternalSingletonCollection} context.collection Collection config to
+ * parse.
+ * @param {ConfigParserCollectors} collectors Collectors.
+ */
+export const parseCollectionFiles = (context, collectors) => {
+  const { cmsConfig, collection } = context;
+  const { files } = collection;
+  const checkNameArgs = { nameCounts: {}, strKeyBase: 'collection_file_name', collectors };
+
+  files.forEach((collectionFile, index) => {
+    // Skip file dividers
+    if ('divider' in collectionFile) return;
+
+    const { name } = collectionFile;
+    const newContext = { cmsConfig, collection, collectionFile };
+
+    if (checkName({ ...checkNameArgs, name, index, context: newContext })) {
+      parseCollectionFile(newContext, collectors);
+    }
+  });
+};

@@ -1,0 +1,217 @@
+import { describe, expect, test } from 'vitest';
+
+import {
+  deleteSubtree,
+  getMemoizedSubtree,
+  getSubtree,
+  getSubtreeEntries,
+  isPlaceholder,
+  setSubtree,
+} from '$lib/services/contents/entry/subtree';
+
+describe('isPlaceholder()', () => {
+  test('should detect empty objects and arrays', () => {
+    expect(isPlaceholder({})).toBe(true);
+    expect(isPlaceholder([])).toBe(true);
+  });
+
+  test('should reject anything else', () => {
+    expect(isPlaceholder({ a: 1 })).toBe(false);
+    expect(isPlaceholder(['a'])).toBe(false);
+    expect(isPlaceholder('')).toBe(false);
+    expect(isPlaceholder(null)).toBe(false);
+    expect(isPlaceholder(undefined)).toBe(false);
+    expect(isPlaceholder(0)).toBe(false);
+  });
+});
+
+describe('getSubtreeEntries()', () => {
+  test('should put the object placeholder first', () => {
+    const entries = getSubtreeEntries('snippet', { code: 'a', lang: 'js' });
+
+    expect(Object.keys(entries)).toEqual(['snippet', 'snippet.code', 'snippet.lang']);
+    expect(entries.snippet).toEqual({});
+  });
+
+  test('should put the array placeholder first', () => {
+    const entries = getSubtreeEntries('tags', ['a', 'b']);
+
+    expect(Object.keys(entries)).toEqual(['tags', 'tags.0', 'tags.1']);
+    expect(entries.tags).toEqual([]);
+  });
+
+  test('should flatten nested values', () => {
+    expect(getSubtreeEntries('meta', { author: { name: 'Kohei' } })).toEqual({
+      meta: {},
+      'meta.author.name': 'Kohei',
+    });
+  });
+
+  test('should escape the dots in object keys', () => {
+    const entries = getSubtreeEntries('list', [{ kv: { 'example.com': 'a' } }]);
+
+    expect(entries).toEqual({ list: [], 'list.0.kv.example\uE000com': 'a' });
+    expect(getSubtree(entries, 'list')).toEqual([{ kv: { 'example.com': 'a' } }]);
+  });
+
+  test('should keep the placeholder for an empty value', () => {
+    expect(getSubtreeEntries('tags', [])).toEqual({ tags: [] });
+    expect(getSubtreeEntries('meta', {})).toEqual({ meta: {} });
+  });
+});
+
+describe('getSubtree()', () => {
+  test('should assemble an object', () => {
+    const valueMap = { snippet: {}, 'snippet.code': 'a', 'snippet.lang': 'js' };
+
+    expect(getSubtree(valueMap, 'snippet')).toEqual({ code: 'a', lang: 'js' });
+  });
+
+  test('should assemble an array', () => {
+    const valueMap = { tags: [], 'tags.0': 'a', 'tags.1': 'b' };
+
+    expect(getSubtree(valueMap, 'tags')).toEqual(['a', 'b']);
+  });
+
+  test('should assemble an array even when the placeholder is missing', () => {
+    expect(getSubtree({ 'tags.0': 'a', 'tags.1': 'b' }, 'tags')).toEqual(['a', 'b']);
+  });
+
+  test('should keep numeric keys as an object when the placeholder says so', () => {
+    // This is what the placeholder is for: without it, `unflatten()` would build an array
+    const valueMap = { kv: {}, 'kv.0': 'a', 'kv.1': 'b' };
+
+    expect(getSubtree(valueMap, 'kv')).toEqual({ 0: 'a', 1: 'b' });
+  });
+
+  test('should survive a placeholder written after its children', () => {
+    const valueMap = { 'snippet.code': 'a', 'snippet.lang': 'js', snippet: {} };
+
+    expect(getSubtree(valueMap, 'snippet')).toEqual({ code: 'a', lang: 'js' });
+  });
+
+  test('should ignore a non-placeholder value at the key path', () => {
+    const valueMap = { snippet: 'scalar', 'snippet.code': 'a' };
+
+    expect(getSubtree(valueMap, 'snippet')).toEqual({ code: 'a' });
+  });
+
+  test('should return undefined when there are no children', () => {
+    expect(getSubtree({ snippet: {} }, 'snippet')).toBeUndefined();
+    expect(getSubtree({}, 'snippet')).toBeUndefined();
+  });
+
+  test('should not pick up a sibling with a shared prefix', () => {
+    const valueMap = { 'tag.0': 'a', 'tags.0': 'b' };
+
+    expect(getSubtree(valueMap, 'tag')).toEqual(['a']);
+    expect(getSubtree(valueMap, 'tags')).toEqual(['b']);
+  });
+
+  test('should reread a value map mutated in place with the `live` option', () => {
+    /** @type {Record<string, any>} */
+    const valueMap = {};
+
+    expect(getSubtree(valueMap, 'tags', { live: true })).toBeUndefined();
+
+    valueMap['tags.0'] = 'a';
+
+    // Without the option, the memoized key path index would still describe the map as it was above
+    expect(getSubtree(valueMap, 'tags', { live: true })).toEqual(['a']);
+
+    valueMap['tags.1'] = 'b';
+
+    expect(getSubtree(valueMap, 'tags', { live: true })).toEqual(['a', 'b']);
+  });
+});
+
+describe('deleteSubtree()', () => {
+  test('should drop the key path and everything below it', () => {
+    const valueMap = { title: 'x', tags: [], 'tags.0': 'a', 'tags.1': 'b' };
+
+    deleteSubtree(valueMap, 'tags');
+    expect(valueMap).toEqual({ title: 'x' });
+  });
+
+  test('should not drop a sibling with a shared prefix', () => {
+    const valueMap = { tag: 'x', 'tags.0': 'a' };
+
+    deleteSubtree(valueMap, 'tags');
+    expect(valueMap).toEqual({ tag: 'x' });
+  });
+});
+
+describe('setSubtree()', () => {
+  test('should replace the existing subtree', () => {
+    const valueMap = { title: 'x', tags: [], 'tags.0': 'a', 'tags.1': 'b' };
+
+    setSubtree(valueMap, 'tags', ['c']);
+    expect(valueMap).toEqual({ title: 'x', tags: [], 'tags.0': 'c' });
+  });
+
+  test('should drop keys the new value no longer has', () => {
+    const valueMap = { snippet: {}, 'snippet.code': 'a', 'snippet.lang': 'js' };
+
+    setSubtree(valueMap, 'snippet', { code: 'b' });
+    expect(valueMap).toEqual({ snippet: {}, 'snippet.code': 'b' });
+  });
+
+  test('should round-trip through getSubtree', () => {
+    /** @type {Record<string, any>} */
+    const valueMap = {};
+    const value = { author: { name: 'Kohei' }, tags: ['a', 'b'] };
+
+    setSubtree(valueMap, 'meta', value);
+    expect(getSubtree(valueMap, 'meta')).toEqual(value);
+  });
+});
+
+describe('getMemoizedSubtree()', () => {
+  /**
+   * Create a snapshot of a list with two items, as the value map is replaced on every change.
+   * @param {Record<string, any>} [changes] Values to change.
+   * @returns {Record<string, any>} Value map.
+   */
+  const createValueMap = (changes = {}) => ({
+    title: 'Page',
+    items: [],
+    'items.0.name': 'A',
+    'items.0.tags': [],
+    'items.1.name': 'B',
+    'items.1.details': {},
+    ...changes,
+  });
+
+  test('should hand back the same value while nothing under the key path has changed', () => {
+    const memo = {};
+    const first = getMemoizedSubtree(memo, createValueMap(), 'items');
+
+    expect(first).toEqual([
+      { name: 'A', tags: [] },
+      { name: 'B', details: {} },
+    ]);
+    // A value elsewhere changed, in a new snapshot whose placeholders are new, empty objects
+    expect(getMemoizedSubtree(memo, createValueMap({ title: 'Page 2' }), 'items')).toBe(first);
+  });
+
+  test('should assemble the value again once something under the key path has changed', () => {
+    const memo = {};
+    const first = getMemoizedSubtree(memo, createValueMap(), 'items');
+
+    expect(getMemoizedSubtree(memo, createValueMap({ 'items.1.name': 'C' }), 'items')).toEqual([
+      { name: 'A', tags: [] },
+      { name: 'C', details: {} },
+    ]);
+    // An item added or removed changes the key paths
+    expect(getMemoizedSubtree(memo, createValueMap({ 'items.2.name': 'D' }), 'items')).toHaveLength(
+      3,
+    );
+    expect(getMemoizedSubtree(memo, createValueMap(), 'items')).not.toBe(first);
+    // A placeholder that turns into a value, or another key path
+    expect(getMemoizedSubtree(memo, createValueMap({ 'items.0.tags': null }), 'items')).toEqual([
+      { name: 'A', tags: null },
+      { name: 'B', details: {} },
+    ]);
+    expect(getMemoizedSubtree(memo, createValueMap(), 'other')).toBeUndefined();
+  });
+});

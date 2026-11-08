@@ -1,0 +1,1103 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createCollectors } from '$lib/test/config-parser';
+
+const mockGet = vi.fn();
+const mockGetListFormatter = vi.fn();
+
+/** @type {Record<string, string>} */
+const mockI18nStrings = {
+  'config.error.test_error': 'Test error message',
+  'config.warning.test_warning': 'Test warning message',
+  'config.error.invalid_type': 'Expected {expected}, got {actual}',
+  'config.error.unsupported_deprecated_option': 'Unsupported option: {prop} (use {newProp})',
+  'config.error.custom_message': 'Custom unsupported option: {prop}',
+  'config.error.invalid_regex': 'Invalid regex in {option}: {pattern}',
+  'config.error.duplicate_names': 'Duplicate name found: {name}',
+  'config.error.duplicate_duplicate_names': 'Duplicate name found: {name}',
+  'config.error.invalid_duplicate_names': 'Invalid name found: {name}',
+  'config.error.my_custom_key': 'Custom duplicate message: {name}',
+  'config.error.missing_field_names': 'Missing field name at position {count}',
+  'config.error.invalid_field_name': 'Invalid field name <a>learn more</a>',
+  'config.error.invalid_field_names': 'Invalid field name: {name}',
+  'config.error.duplicate_field_names': 'Duplicate field name: {name}',
+  'config.error_locator.collection': 'Collection: {collection}',
+  'config.error_locator.file': 'File: {file}',
+  'config.error_locator.component': 'Component: {component}',
+  'config.error_locator.field': 'Field: {field}',
+  'config.custom_extra': 'Custom extra message',
+  'config.compatibility_link':
+    'See the compatibility notes for details: https://sveltiacms.app/en/docs/migration/netlify-decap-cms#compatibility',
+};
+
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ strings: mockI18nStrings, locale: 'en-US' }),
+);
+
+vi.mock('$lib/services/contents/i18n', () => ({
+  getListFormatter: mockGetListFormatter,
+}));
+
+// Must import after mocking
+const { addMessage, checkUnsupportedOptions, isValidName, checkName, checkRegex } =
+  await import('./validator.js');
+
+describe('messages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockGet.mockImplementation((store) => store);
+
+    mockGetListFormatter.mockReturnValue({
+      /**
+       * Format array.
+       * @param {string[]} arr Array to format.
+       * @returns {string} Formatted string.
+       */
+      format: (arr) => arr.join(', '),
+    });
+  });
+
+  describe('addMessage', () => {
+    it('should add an error message with no context', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        type: 'error',
+        strKey: 'test_error',
+        collectors,
+      });
+
+      expect(Array.from(collectors.errors)).toContain('Test error message');
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should add a warning message when type is warning', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        type: 'warning',
+        strKey: 'test_warning',
+        collectors,
+      });
+
+      expect(Array.from(collectors.warnings)).toContain('Test warning message');
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should default to error type when not specified', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'test_error',
+        collectors,
+      });
+
+      expect(Array.from(collectors.errors)).toContain('Test error message');
+    });
+
+    it('should include collection locator when context has collection', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts', label: 'Posts' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Collection: Posts');
+    });
+
+    it('should fall back to the name when a label is an empty string', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'pages', label: '', label_singular: '' },
+        collectionFile: { name: 'general', label: '' },
+      };
+
+      addMessage({ strKey: 'test_error', context, collectors });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Collection: pages');
+      expect(message).toContain('File: general');
+    });
+
+    it('should prefer the singular label, then the label, then the name', () => {
+      const collectors = createCollectors();
+      /** @type {any} */
+      const base = { name: 'pages', label: 'Pages', label_singular: 'Page' };
+
+      addMessage({ strKey: 'test_error', context: { collection: base }, collectors });
+      addMessage({
+        strKey: 'test_error',
+        context: { collection: { ...base, label_singular: '' } },
+        collectors,
+      });
+
+      const messages = Array.from(collectors.errors);
+
+      expect(messages[0]).toContain('Collection: Page');
+      expect(messages[1]).toContain('Collection: Pages');
+    });
+
+    it('should include file locator when context has collectionFile', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collectionFile: { name: 'post-1', label: 'Post 1' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('File: Post 1');
+    });
+
+    it('should include component locator when context has componentName', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        componentName: 'my-component',
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Component: my-component');
+    });
+
+    it('should include field locator when context has typedKeyPath', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        typedKeyPath: 'fields.0.name',
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Field: fields.0.name');
+    });
+
+    it('should include all locators when context has collection, file, component, and field', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts', label: 'Posts' },
+        collectionFile: { name: 'post-1', label: 'Post 1' },
+        componentName: 'my-component',
+        typedKeyPath: 'fields.0.name',
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Collection: Posts');
+      expect(message).toContain('File: Post 1');
+      expect(message).toContain('Component: my-component');
+      expect(message).toContain('Field: fields.0.name');
+    });
+
+    it('should use collection.label when available', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts', label: 'My Posts' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('My Posts');
+    });
+
+    it('should use collection.name as fallback when label is not available', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('posts');
+    });
+
+    it('should substitute i18n values in message', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'invalid_type',
+        values: { expected: 'string', actual: 'number' },
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toBe('Expected string, got number');
+    });
+
+    it('should call getListFormatter with the current locale', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts', label: 'Posts' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      expect(mockGetListFormatter).toHaveBeenCalledWith('en-US');
+    });
+
+    it('should handle empty context gracefully', () => {
+      const collectors = createCollectors();
+      /** @type {any} */
+      const context = {};
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      expect(Array.from(collectors.errors)).toContain('Test error message');
+    });
+
+    it('should wrap invalid field name messages in a link', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'invalid_field_name',
+        values: { name: 'invalid.name' },
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('href=');
+      expect(message).toContain('learn more');
+    });
+
+    it('should use file.label when available', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collectionFile: { name: 'post-1', label: 'Custom Label' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Custom Label');
+    });
+
+    it('should use file.name as fallback when label is not available', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collectionFile: { name: 'post-1' },
+      };
+
+      addMessage({
+        strKey: 'test_error',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('post-1');
+    });
+
+    it('should handle multiple values in i18n message', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'unsupported_deprecated_option',
+        values: { prop: 'oldField', newProp: 'newField' },
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('oldField');
+      expect(message).toContain('newField');
+    });
+
+    it('should append extra i18n string when extraStrKey is provided', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'test_error',
+        extraStrKey: 'compatibility_link',
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Test error message');
+      expect(message).toContain('See the compatibility notes');
+    });
+
+    it('should not append extra string when extraStrKey is not provided', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'test_error',
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toBe('Test error message');
+      expect(message).not.toContain('compatibility');
+    });
+
+    it('should append extra string with proper spacing when extraStrKey is provided', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'unsupported_deprecated_option',
+        values: { prop: 'oldField', newProp: 'newField' },
+        extraStrKey: 'compatibility_link',
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      // Check that the extra string is appended with a space separator
+      expect(message).toMatch(
+        /Unsupported option: oldField \(use newField\) See the compatibility notes/,
+      );
+    });
+
+    it('should use an undefined link value for non-compatibility extra messages', () => {
+      const collectors = createCollectors();
+
+      addMessage({
+        strKey: 'test_error',
+        extraStrKey: 'custom_extra',
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Custom extra message');
+    });
+  });
+
+  describe('checkUnsupportedOptions', () => {
+    it('should not add a message when unsupported option is not present', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: { someProp: 'value' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should add an error message when error type option is present', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: { oldProp: 'value' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should add a warning message when warning type option is present', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'warning', prop: 'oldProp', newProp: 'newProp' }],
+        config: { oldProp: 'value' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.warnings.size).toBe(1);
+    });
+
+    it('should use default strKey when not provided', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: { oldProp: 'value' },
+        context: {},
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Unsupported option:');
+    });
+
+    it('should use custom strKey when provided', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'oldProp', newProp: 'newProp', strKey: 'custom_message' },
+        ],
+        config: { oldProp: 'value' },
+        context: {},
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Custom unsupported option:');
+    });
+
+    it('should check multiple unsupported options', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'oldProp1', newProp: 'newProp1' },
+          { type: 'error', prop: 'oldProp2', newProp: 'newProp2' },
+        ],
+        config: { oldProp1: 'value1', oldProp2: 'value2' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(2);
+    });
+
+    it('should only add message for present options among multiple unsupported options', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'oldProp1', newProp: 'newProp1' },
+          { type: 'error', prop: 'oldProp2', newProp: 'newProp2' },
+          { type: 'error', prop: 'oldProp3', newProp: 'newProp3' },
+        ],
+        config: { oldProp1: 'value1', oldProp3: 'value3' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(2);
+    });
+
+    it('should pass context and collectors to addMessage', () => {
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts', label: 'Posts' },
+      };
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: { oldProp: 'value' },
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('Posts');
+    });
+
+    it('should pass prop and newProp values to addMessage', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldField', newProp: 'newField' }],
+        config: { oldField: 'someValue' },
+        context: {},
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('oldField');
+      expect(message).toContain('newField');
+    });
+
+    it('should handle mixed error and warning types', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'errorProp', newProp: 'newErrorProp' },
+          { type: 'warning', prop: 'warningProp', newProp: 'newWarningProp' },
+        ],
+        config: { errorProp: 'value1', warningProp: 'value2' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(1);
+      expect(collectors.warnings.size).toBe(1);
+    });
+
+    it('should handle empty config', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: {},
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should handle empty UNSUPPORTED_OPTIONS array', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [],
+        config: { someField: 'value' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should check value when specified', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'oldProp', newProp: 'newProp', value: 'specific' },
+        ],
+        config: { oldProp: 'specific' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should not add message when value does not match', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'oldProp', newProp: 'newProp', value: 'specific' },
+        ],
+        config: { oldProp: 'different' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should add message when value is undefined (any value matches)', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: { oldProp: 'anyValue' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should handle value being false', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp', value: false }],
+        config: { oldProp: false },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should not add message when value is false but config has true', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp', value: false }],
+        config: { oldProp: true },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should handle multiple options with different values', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'prop1', newProp: 'newProp1', value: 'value1' },
+          { type: 'error', prop: 'prop2', newProp: 'newProp2', value: 'value2' },
+        ],
+        config: { prop1: 'value1', prop2: 'value2' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(2);
+    });
+
+    it('should filter multiple options by value', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [
+          { type: 'error', prop: 'prop1', newProp: 'newProp1', value: 'value1' },
+          { type: 'error', prop: 'prop2', newProp: 'newProp2', value: 'value2' },
+        ],
+        config: { prop1: 'value1', prop2: 'different' },
+        context: {},
+        collectors,
+      });
+
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should include compatibility_link in error message', () => {
+      const collectors = createCollectors();
+
+      checkUnsupportedOptions({
+        UNSUPPORTED_OPTIONS: [{ type: 'error', prop: 'oldProp', newProp: 'newProp' }],
+        config: { oldProp: 'value' },
+        context: {},
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('See the compatibility notes');
+      expect(message).toContain('https://sveltiacms.app');
+    });
+  });
+
+  describe('isValidName', () => {
+    it('should return true for valid names', () => {
+      expect(isValidName('validName')).toBe(true);
+      expect(isValidName('valid_name')).toBe(true);
+      expect(isValidName('ValidName')).toBe(true);
+      expect(isValidName('valid-name')).toBe(true);
+      expect(isValidName('name123')).toBe(true);
+      expect(isValidName('a')).toBe(true);
+      expect(isValidName('valid@name')).toBe(true);
+    });
+
+    it('should return false for `__proto__`, which a plain object can’t hold a value under', () => {
+      expect(isValidName('__proto__')).toBe(false);
+      expect(isValidName('constructor')).toBe(true);
+    });
+
+    it('should return false for names with spaces', () => {
+      expect(isValidName('invalid name')).toBe(false);
+      expect(isValidName(' name')).toBe(false);
+      expect(isValidName('name ')).toBe(false);
+      expect(isValidName(' name ')).toBe(false);
+    });
+
+    it('should return false for names with dots', () => {
+      expect(isValidName('invalid.name')).toBe(false);
+      expect(isValidName('.name')).toBe(false);
+      expect(isValidName('name.')).toBe(false);
+    });
+
+    it('should return false for names with angle brackets', () => {
+      expect(isValidName('invalid<name')).toBe(false);
+      expect(isValidName('invalid>name')).toBe(false);
+      expect(isValidName('<name')).toBe(false);
+      expect(isValidName('name>')).toBe(false);
+      expect(isValidName('<name>')).toBe(false);
+    });
+
+    it('should return false for names with colons', () => {
+      expect(isValidName('invalid:name')).toBe(false);
+      expect(isValidName(':name')).toBe(false);
+      expect(isValidName('name:')).toBe(false);
+      expect(isValidName(':')).toBe(false);
+    });
+
+    it('should return false for names with asterisks', () => {
+      expect(isValidName('invalid*name')).toBe(false);
+      expect(isValidName('*name')).toBe(false);
+      expect(isValidName('name*')).toBe(false);
+      expect(isValidName('*')).toBe(false);
+    });
+
+    it('should return false for empty strings', () => {
+      expect(isValidName('')).toBe(false);
+    });
+
+    it('should return false for strings with only whitespace', () => {
+      expect(isValidName(' ')).toBe(false);
+      expect(isValidName('  ')).toBe(false);
+      expect(isValidName('\t')).toBe(false);
+      expect(isValidName('\n')).toBe(false);
+    });
+
+    it('should return false for names with multiple invalid characters', () => {
+      expect(isValidName('invalid<name>')).toBe(false);
+      expect(isValidName('invalid name.')).toBe(false);
+      expect(isValidName('invalid*name<>')).toBe(false);
+    });
+  });
+
+  describe('checkName', () => {
+    it('should return true for valid unique names', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const result = checkName({
+        name: 'validName',
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(result).toBe(true);
+      expect(collectors.errors.size).toBe(0);
+      expect(nameCounts.validName).toBe(1);
+    });
+
+    it('should catch a duplicate name that is an `Object.prototype` member', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+      const args = { nameCounts, strKeyBase: 'field_name', context: {}, collectors };
+
+      expect(checkName({ ...args, name: 'constructor', index: 0 })).toBe(true);
+      // `Object` was taken for the count, so the second one wasn’t caught
+      expect(checkName({ ...args, name: 'constructor', index: 1 })).toBe(false);
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should leave a missing name to the schema', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const result = checkName({
+        name: null,
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      // The schema reports a missing name, so repeating it would show two messages for one mistake
+      expect(result).toBe(false);
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should return false for empty string name', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const result = checkName({
+        name: '',
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(result).toBe(false);
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should report an undefined name the schema can’t require', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const args = {
+        name: undefined,
+        index: 5,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      };
+
+      expect(checkName(args)).toBe(false);
+      expect(collectors.errors.size).toBe(0);
+
+      // A view group or filter name is one the schema can’t require, so it’s reported either way
+      expect(checkName({ ...args, required: true })).toBe(false);
+      expect(collectors.errors.size).toBe(1);
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('6'); // index + 1
+    });
+
+    it('should return false for invalid name', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const result = checkName({
+        name: 'invalid.name',
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(result).toBe(false);
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should return false for duplicate name', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = { duplicate: 1 };
+
+      const result = checkName({
+        name: 'duplicate',
+        index: 1,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(result).toBe(false);
+      expect(collectors.errors.size).toBe(1);
+      expect(nameCounts.duplicate).toBe(1); // Not incremented
+    });
+
+    it('should increment name count on success', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      checkName({
+        name: 'first',
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(nameCounts.first).toBe(1);
+
+      checkName({
+        name: 'second',
+        index: 1,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(nameCounts.second).toBe(1);
+      expect(nameCounts.first).toBe(1);
+    });
+
+    it('should use 1-based index in error message', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      checkName({
+        name: '',
+        index: 9,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toContain('10'); // index + 1
+    });
+
+    it('should include context information in error messages', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      /** @type {any} */
+      const context = {
+        collection: { name: 'posts', label: 'Posts' },
+        typedKeyPath: 'fields.name',
+      };
+
+      checkName({
+        name: 'invalid:name',
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context,
+        collectors,
+      });
+
+      const message = Array.from(collectors.errors)[0];
+
+      expect(message).toBeTruthy();
+      expect(collectors.errors.size).toBe(1);
+    });
+
+    it('should leave a non-string name to the schema', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const result = checkName({
+        name: 123,
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+        // Even where a name is required, a wrong type is the schema’s to report
+        required: true,
+      });
+
+      expect(result).toBe(false);
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should handle names with special allowed characters', () => {
+      const collectors = createCollectors();
+      /** @type {Record<string, number>} */
+      const nameCounts = {};
+
+      const result = checkName({
+        name: 'field_name-123',
+        index: 0,
+        nameCounts,
+        strKeyBase: 'field_names',
+        context: {},
+        collectors,
+      });
+
+      expect(result).toBe(true);
+      expect(collectors.errors.size).toBe(0);
+      expect(nameCounts['field_name-123']).toBe(1);
+    });
+  });
+
+  describe('checkRegex', () => {
+    it('should accept a pattern that compiles, in either notation', () => {
+      const collectors = createCollectors();
+
+      checkRegex({ option: 'pattern', pattern: '^\\d+$', context: {}, collectors });
+      checkRegex({ option: 'pattern', pattern: '/^.{0,280}$/s', context: {}, collectors });
+      checkRegex({ option: 'pattern', pattern: /^\d+$/, context: {}, collectors });
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should leave a pattern of another type to the schema', () => {
+      const collectors = createCollectors();
+
+      checkRegex({ option: 'pattern', pattern: undefined, context: {}, collectors });
+      checkRegex({ option: 'pattern', pattern: true, context: {}, collectors });
+      checkRegex({ option: 'pattern', pattern: ['^a'], context: {}, collectors });
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should report a pattern that does not compile', () => {
+      const collectors = createCollectors();
+
+      checkRegex({ option: 'filter', pattern: '^(\\d+$', context: {}, collectors });
+
+      expect([...collectors.errors]).toEqual(['Invalid regex in filter: ^(\\d+$']);
+    });
+
+    it('should report an empty pattern, which cannot be compiled either', () => {
+      const collectors = createCollectors();
+
+      checkRegex({ option: 'pattern', pattern: '', context: {}, collectors });
+
+      expect(collectors.errors.size).toBe(1);
+    });
+  });
+});

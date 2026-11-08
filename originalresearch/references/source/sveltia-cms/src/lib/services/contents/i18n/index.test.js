@@ -1,0 +1,627 @@
+/* eslint-disable jsdoc/require-jsdoc */
+/* eslint-disable max-classes-per-file */
+
+import { describe, expect, test, vi } from 'vitest';
+
+import {
+  getCanonicalLocale,
+  getDirection,
+  getListFormatter,
+  getLocaleLabel,
+  getLocalePath,
+} from '$lib/services/contents/i18n';
+import { DEFAULT_I18N_CONFIG } from '$lib/services/contents/i18n/config';
+
+/**
+ * Default options for `Intl.DisplayNames()`. Use `English (US)` instead of `American English` for a
+ * better language listing.
+ * @type {Intl.DisplayNamesOptions}
+ */
+const LANG_FORMATTER_OPTIONS = {
+  type: 'language',
+  languageDisplay: 'standard',
+  style: 'short',
+  fallback: 'none',
+};
+
+// Controllable locale mock so we can set appLocale.current to null/undefined to cover the
+// `appLocale.current ?? 'en'` fallback branch in getLocaleLabel's default parameter.
+const mockLocale = vi.hoisted(() => ({ current: /** @type {string | null} */ (''), set: vi.fn() }));
+
+vi.mock('@sveltia/i18n', () => ({
+  locale: mockLocale,
+
+  isRTL: (/** @type {string} */ locale) =>
+    ['ar', 'he', 'fa', 'ur', 'dv', 'ha', 'ps', 'yi'].includes(locale),
+}));
+
+describe('Test getDirection()', () => {
+  test('returns "auto" for _default locale', () => {
+    expect(getDirection('_default')).toBe('auto');
+  });
+
+  test('returns "rtl" for RTL locales', () => {
+    expect(getDirection('ar')).toBe('rtl');
+    expect(getDirection('he')).toBe('rtl');
+    expect(getDirection('fa')).toBe('rtl');
+    expect(getDirection('ur')).toBe('rtl');
+  });
+
+  test('returns "ltr" for LTR locales', () => {
+    expect(getDirection('en')).toBe('ltr');
+    expect(getDirection('fr')).toBe('ltr');
+    expect(getDirection('de')).toBe('ltr');
+    expect(getDirection('ja')).toBe('ltr');
+    expect(getDirection('zh')).toBe('ltr');
+  });
+});
+
+describe('Test getCanonicalLocale()', () => {
+  test('valid locale code', () => {
+    expect(getCanonicalLocale('en')).toEqual('en');
+    expect(getCanonicalLocale('fr')).toEqual('fr');
+    expect(getCanonicalLocale('en-us')).toEqual('en-US');
+    expect(getCanonicalLocale('en-CA')).toEqual('en-CA');
+  });
+
+  test('invalid locale code', () => {
+    expect(getCanonicalLocale('_default')).toEqual(undefined);
+    expect(getCanonicalLocale('EN_US')).toEqual(undefined);
+  });
+});
+
+describe('Test getLocalePath()', () => {
+  test('basic locale replacement', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr', 'es'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/{{locale}}/hello.md' })).toBe(
+      'posts/en/hello.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'posts/{{locale}}/hello.md' })).toBe(
+      'posts/fr/hello.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'es', path: 'posts/{{locale}}/hello.md' })).toBe(
+      'posts/es/hello.md',
+    );
+  });
+
+  test('locale replacement in filename', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.en.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.fr.md',
+    );
+  });
+
+  test('multiple locale placeholder replacements', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    expect(
+      getLocalePath({
+        _i18n,
+        locale: 'en',
+        path: '{{locale}}/posts/{{locale}}/hello.{{locale}}.md',
+      }),
+    ).toBe('en/posts/en/hello.en.md');
+
+    expect(
+      getLocalePath({
+        _i18n,
+        locale: 'fr',
+        path: '{{locale}}/posts/{{locale}}/hello.{{locale}}.md',
+      }),
+    ).toBe('fr/posts/fr/hello.fr.md');
+  });
+
+  test('omit default locale from filename when enabled', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr', 'es'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: true,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Default locale should have .{{locale}} part removed from filename
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.md',
+    );
+
+    // Non-default locales should still have the locale in filename
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.fr.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'es', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.es.md',
+    );
+  });
+
+  test('omit default locale from filename with different extensions', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: true,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Test with .md extension
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.md',
+    );
+
+    // Test with .json extension
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'data/config.{{locale}}.json' })).toBe(
+      'data/config.json',
+    );
+
+    // Test with .yaml extension
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'data/config.{{locale}}.yaml' })).toBe(
+      'data/config.yaml',
+    );
+
+    // Test with .yml extension
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'data/config.{{locale}}.yml' })).toBe(
+      'data/config.yml',
+    );
+  });
+
+  test('omit default locale from folder pattern (multiple_folders)', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr', 'es'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: true,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Default locale: omit the {{locale}}/ folder part
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'content/{{locale}}/products.md' })).toBe(
+      'content/products.md',
+    );
+
+    // Non-default locales: include the locale folder
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'content/{{locale}}/products.md' })).toBe(
+      'content/fr/products.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'es', path: 'content/{{locale}}/products.md' })).toBe(
+      'content/es/products.md',
+    );
+  });
+
+  test('omit default locale from root folder pattern (multiple_root_folders)', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: true,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Default locale: omit the {{locale}}/ folder at the beginning
+    expect(getLocalePath({ _i18n, locale: 'en', path: '{{locale}}/settings.yaml' })).toBe(
+      'settings.yaml',
+    );
+
+    // Non-default locales: include the locale folder
+    expect(getLocalePath({ _i18n, locale: 'fr', path: '{{locale}}/settings.yaml' })).toBe(
+      'fr/settings.yaml',
+    );
+  });
+
+  test('omit default locale from collection folder path', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: true,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Default locale: omit the {{locale}} folder, wherever it is, without leaving a slash behind
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'content/{{locale}}/posts' })).toBe(
+      'content/posts',
+    );
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'content/{{locale}}' })).toBe('content');
+    expect(getLocalePath({ _i18n, locale: 'en', path: '{{locale}}' })).toBe('');
+
+    // Non-default locales: include the locale folder
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'content/{{locale}}/posts' })).toBe(
+      'content/fr/posts',
+    );
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'content/{{locale}}' })).toBe('content/fr');
+    expect(getLocalePath({ _i18n, locale: 'fr', path: '{{locale}}' })).toBe('fr');
+  });
+
+  test('omit default locale disabled', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Default locale should still have the locale in filename when disabled
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.en.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.fr.md',
+    );
+  });
+
+  test('path without locale placeholder', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr'],
+      defaultLocale: 'en',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Path without locale placeholder should remain unchanged
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/hello.md' })).toBe('posts/hello.md');
+
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'posts/hello.md' })).toBe('posts/hello.md');
+  });
+
+  test('different default locales', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en', 'fr', 'es'],
+      defaultLocale: 'fr',
+      omitDefaultLocaleFromFilePath: true,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // French is the default locale, so it should be omitted
+    expect(getLocalePath({ _i18n, locale: 'fr', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.md',
+    );
+
+    // Other locales should still include the locale
+    expect(getLocalePath({ _i18n, locale: 'en', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.en.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'es', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello.es.md',
+    );
+  });
+
+  test('edge cases and special characters', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: true,
+      allLocales: ['en-US', 'zh-CN'],
+      defaultLocale: 'en-US',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // Test with locales containing hyphens
+    expect(getLocalePath({ _i18n, locale: 'en-US', path: 'posts/{{locale}}/hello.md' })).toBe(
+      'posts/en-US/hello.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: 'zh-CN', path: 'posts/{{locale}}/hello.md' })).toBe(
+      'posts/zh-CN/hello.md',
+    );
+  });
+
+  test('_default locale handling', () => {
+    const _i18n = {
+      ...DEFAULT_I18N_CONFIG,
+      i18nEnabled: false,
+      allLocales: ['_default'],
+      defaultLocale: '_default',
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    };
+
+    // _default locale should be handled normally
+    expect(getLocalePath({ _i18n, locale: '_default', path: 'posts/{{locale}}/hello.md' })).toBe(
+      'posts/_default/hello.md',
+    );
+
+    expect(getLocalePath({ _i18n, locale: '_default', path: 'posts/hello.{{locale}}.md' })).toBe(
+      'posts/hello._default.md',
+    );
+  });
+});
+
+describe('Test getLocaleLabel()', () => {
+  test('returns undefined for _default locale', () => {
+    expect(getLocaleLabel('_default')).toBe(undefined);
+  });
+
+  test('returns formatted locale name in default display locale (English)', () => {
+    // Default displayLocale is 'en', so these should return English names
+    expect(getLocaleLabel('en')).toBe('English');
+    expect(getLocaleLabel('fr')).toBe('French');
+    expect(getLocaleLabel('es')).toBe('Spanish');
+    expect(getLocaleLabel('de')).toBe('German');
+    expect(getLocaleLabel('ja')).toBe('Japanese');
+    expect(getLocaleLabel('zh')).toBe('Chinese');
+    expect(getLocaleLabel('ko')).toBe('Korean');
+    expect(getLocaleLabel('ar')).toBe('Arabic');
+    expect(getLocaleLabel('ru')).toBe('Russian');
+  });
+
+  test('returns native locale name when displayLocale matches locale', () => {
+    expect(getLocaleLabel('en', { displayLocale: 'en' })).toBe('English');
+    expect(getLocaleLabel('fr', { displayLocale: 'fr' })).toBe('Français');
+    expect(getLocaleLabel('es', { displayLocale: 'es' })).toBe('Español');
+    expect(getLocaleLabel('de', { displayLocale: 'de' })).toBe('Deutsch');
+    expect(getLocaleLabel('ja', { displayLocale: 'ja' })).toBe('日本語');
+    expect(getLocaleLabel('zh', { displayLocale: 'zh' })).toBe('中文');
+  });
+
+  test('handles locale variants correctly in English', () => {
+    // Test locale variants in English (default display locale)
+    // Uses languageDisplay: 'standard' for format like "English (US)" instead of "American English"
+    expect(getLocaleLabel('en-US')).toBe('English (US)');
+    expect(getLocaleLabel('en-GB')).toBe('English (UK)');
+    expect(getLocaleLabel('fr-CA')).toBe('French (Canada)');
+    expect(getLocaleLabel('zh-CN')).toBe('Chinese (China)');
+    expect(getLocaleLabel('zh-TW')).toBe('Chinese (Taiwan)');
+    expect(getLocaleLabel('pt-BR')).toBe('Portuguese (Brazil)');
+    expect(getLocaleLabel('es-MX')).toBe('Spanish (Mexico)');
+  });
+
+  test('handles locale variants correctly with custom displayLocale', () => {
+    // Testing with actual output values based on system's Intl.DisplayNames behavior
+    const enUSLabel = getLocaleLabel('en-US', { displayLocale: 'en-US' });
+    const enGBLabel = getLocaleLabel('en-GB', { displayLocale: 'en-GB' });
+    const frCALabel = getLocaleLabel('fr-CA', { displayLocale: 'fr-CA' });
+
+    // Verify these return meaningful locale names (not just the code)
+    expect(enUSLabel).not.toBe('en-US');
+    expect(enGBLabel).not.toBe('en-GB');
+    expect(frCALabel).not.toBe('fr-CA');
+
+    // Verify they contain expected keywords (adjusted for actual output)
+    expect(enUSLabel?.toLowerCase()).toContain('english');
+    expect(enGBLabel?.toLowerCase()).toContain('english');
+    expect(frCALabel?.toLowerCase()).toContain('français');
+  });
+
+  test('handles invalid canonical locale', () => {
+    // Test with a locale that getCanonicalLocale returns undefined for
+    expect(getLocaleLabel('INVALID_LOCALE')).toBe(undefined);
+    expect(getLocaleLabel('EN_US')).toBe(undefined);
+  });
+
+  test('returns locale names in different display locales', () => {
+    // Test that function works with different locale codes when using custom displayLocale
+    expect(getLocaleLabel('ko', { displayLocale: 'ko' })).toBe('한국어');
+    expect(getLocaleLabel('ar', { displayLocale: 'ar' })).toBe('العربية');
+    expect(getLocaleLabel('ru', { displayLocale: 'ru' })).toBe('Русский');
+  });
+
+  test('handles unknown locale codes with fallback: none', () => {
+    // With fallback: 'none', unknown locales should return undefined
+    const unknownResult = getLocaleLabel('xyz-unknown');
+
+    expect(unknownResult).toBe(undefined);
+
+    // Empty string should return undefined (invalid canonical locale)
+    expect(getLocaleLabel('')).toBe(undefined);
+  });
+
+  test('capitalizes first letter of locale labels', () => {
+    // Verify that labels are properly capitalized (important for languages like French)
+    const french = getLocaleLabel('fr', { displayLocale: 'fr' });
+
+    expect(french).toBe('Français');
+    expect(french?.charAt(0)).toBe('F');
+
+    const spanish = getLocaleLabel('es', { displayLocale: 'es' });
+
+    expect(spanish).toBe('Español');
+    expect(spanish?.charAt(0)).toBe('E');
+  });
+
+  test('compares different displayLocale settings', () => {
+    // Test that displayLocale affects the output
+    const frenchInFrench = getLocaleLabel('fr', { displayLocale: 'fr' });
+    const frenchInEnglish = getLocaleLabel('fr', { displayLocale: 'en' });
+
+    expect(frenchInFrench).toBe('Français');
+    expect(frenchInEnglish).toBe('French');
+    expect(frenchInFrench).not.toBe(frenchInEnglish);
+
+    // Test with another language
+    const germanInGerman = getLocaleLabel('de', { displayLocale: 'de' });
+    const germanInEnglish = getLocaleLabel('de', { displayLocale: 'en' });
+
+    expect(germanInGerman).toBe('Deutsch');
+    expect(germanInEnglish).toBe('German');
+    expect(germanInGerman).not.toBe(germanInEnglish);
+  });
+
+  test('handles default parameters correctly', () => {
+    // When no options object is provided, should use default displayLocale ('en')
+    expect(getLocaleLabel('fr')).toBe('French');
+    expect(getLocaleLabel('de')).toBe('German');
+    expect(getLocaleLabel('ja')).toBe('Japanese');
+
+    // When empty options object is provided, should use defaults
+    expect(getLocaleLabel('fr', {})).toBe('French');
+    expect(getLocaleLabel('de', {})).toBe('German');
+    expect(getLocaleLabel('ja', {})).toBe('Japanese');
+  });
+
+  test('handles formatter.of() returning falsy value', () => {
+    const originalDisplayNames = Intl.DisplayNames;
+
+    /** @type {any} */
+    const MockDisplayNames = class {
+      // Returns undefined/null to simulate fallback: 'none' behavior
+      of() {
+        return undefined;
+      }
+    };
+
+    // @ts-ignore
+    Intl.DisplayNames = MockDisplayNames;
+
+    // Use a displayLocale ('it') not yet in displayNamesCache so the mock constructor is invoked.
+    const result = getLocaleLabel('en', { displayLocale: 'it' });
+
+    expect(result).toBe(undefined);
+
+    // @ts-ignore
+    Intl.DisplayNames = originalDisplayNames;
+  });
+
+  test('handles formatter.of() errors gracefully', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalDisplayNames = Intl.DisplayNames;
+
+    /** @type {any} */
+    const MockDisplayNames = class {
+      /**
+       * Throws test error.
+       * @throws {Error} Test error.
+       */
+      of() {
+        throw new Error('Test error');
+      }
+    };
+
+    // @ts-ignore
+    Intl.DisplayNames = MockDisplayNames;
+
+    // Use a displayLocale ('rm') not yet in displayNamesCache so the mock constructor is invoked.
+    const result = getLocaleLabel('en', { displayLocale: 'rm' });
+
+    expect(result).toBe(undefined);
+    expect(errorSpy).toHaveBeenCalled();
+
+    // @ts-ignore
+    Intl.DisplayNames = originalDisplayNames;
+    errorSpy.mockRestore();
+  });
+});
+
+describe('Test getListFormatter()', () => {
+  test('should return the same formatter instance for identical locale and options', () => {
+    const formatter1 = getListFormatter('en', { style: 'narrow', type: 'conjunction' });
+    const formatter2 = getListFormatter('en', { style: 'narrow', type: 'conjunction' });
+
+    // Cache hit: both calls must return the exact same object reference.
+    expect(formatter1).toBe(formatter2);
+  });
+
+  test('should return different formatter instances for different options', () => {
+    const formatter1 = getListFormatter('en', { style: 'narrow', type: 'conjunction' });
+    const formatter2 = getListFormatter('en', { style: 'long', type: 'disjunction' });
+
+    expect(formatter1).not.toBe(formatter2);
+  });
+
+  test('should format items that aren’t strings', () => {
+    expect(getListFormatter('en').format(['a', 1, true, null, undefined, 2n])).toBe(
+      'a, 1, true, 2',
+    );
+  });
+});
+
+describe('Test getLocaleLabel() null/undefined appLocale.current', () => {
+  test('falls back to en when appLocale.current is null', () => {
+    mockLocale.current = null;
+    // null ?? 'en' → 'en', so displayLocale becomes 'en' and the formatter returns English names
+    expect(getLocaleLabel('en')).toBe('English');
+    expect(getLocaleLabel('fr')).toBe('French');
+    mockLocale.current = '';
+  });
+});
+
+describe('Test getLocaleLabel() cache', () => {
+  test('should reuse the cached Intl.DisplayNames for the same displayLocale', () => {
+    // 'nl' is not used by any other test — guarantees a cache miss on first call.
+    const spy = vi.spyOn(Intl, 'DisplayNames');
+
+    getLocaleLabel('en', { displayLocale: 'nl' });
+    // Second call with same displayLocale: should hit displayNamesCache, not call constructor.
+    getLocaleLabel('fr', { displayLocale: 'nl' });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  test('uses Intl.DisplayNames with undefined locale when displayLocale is falsy', () => {
+    // Passing displayLocale: '' triggers the else branch at index.js:88
+    const spy = vi.spyOn(Intl, 'DisplayNames');
+
+    getLocaleLabel('en', { displayLocale: '' });
+
+    // Should have been called with undefined as first argument (the else branch)
+    expect(spy).toHaveBeenCalledWith(undefined, LANG_FORMATTER_OPTIONS);
+    spy.mockRestore();
+  });
+});
+
+describe('Test getLocaleLabel() formatterOptions', () => {
+  test('uses default LANG_FORMATTER_OPTIONS when not provided', () => {
+    const spy = vi.spyOn(Intl, 'DisplayNames');
+
+    // Call with a unique displayLocale to ensure cache miss
+    getLocaleLabel('en', { displayLocale: 'pt' });
+
+    expect(spy).toHaveBeenCalledWith('pt', LANG_FORMATTER_OPTIONS);
+    spy.mockRestore();
+  });
+
+  test('uses custom formatterOptions when provided', () => {
+    const spy = vi.spyOn(Intl, 'DisplayNames');
+    /** @type {Intl.DisplayNamesOptions} */
+    const customOptions = { type: 'language', style: 'long' };
+
+    // Call with a unique displayLocale to ensure cache miss
+    getLocaleLabel('en', { displayLocale: 'pl', formatterOptions: customOptions });
+
+    expect(spy).toHaveBeenCalledWith('pl', customOptions);
+    spy.mockRestore();
+  });
+});

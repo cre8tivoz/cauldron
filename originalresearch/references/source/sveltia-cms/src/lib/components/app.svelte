@@ -1,0 +1,455 @@
+<script>
+  import { AppShell } from '@sveltia/ui';
+  import { onMount } from 'svelte';
+
+  import ErrorBoundary from '$lib/components/common/error-boundary.svelte';
+  import EntrancePage from '$lib/components/entrance/entrance-page.svelte';
+  import CommitMessageDialog from '$lib/components/global/commit-message-dialog.svelte';
+  import BackendStatusIndicator from '$lib/components/global/infobars/backend-status-indicator.svelte';
+  import UpdateNotification from '$lib/components/global/infobars/update-notification.svelte';
+  import LocaleLoadErrorToast from '$lib/components/global/locale-load-error-toast.svelte';
+  import MainRouter from '$lib/components/global/main-router.svelte';
+  import ForkPermissionDialog from '$lib/components/workflow/fork-permission-dialog.svelte';
+  import OpenAuthoringIndicator from '$lib/components/workflow/open-authoring-indicator.svelte';
+  import {
+    appIconURLs,
+    appLogoType,
+    appLogoURL,
+    appManifestURL,
+    appTitle,
+  } from '$lib/services/app/branding';
+  import { missingBrowserFeatures } from '$lib/services/app/browser-support';
+  import { initAppLocale } from '$lib/services/app/i18n';
+  import { initAppInstallDetection } from '$lib/services/app/install';
+  import {
+    announcedPageStatus,
+    mainAreaTitle,
+    overlayTitle,
+    startViewTransition,
+  } from '$lib/services/app/navigation';
+  import { backend } from '$lib/services/backends';
+  import { cmsConfigLoaded, DEV_SITE_URL } from '$lib/services/config';
+  import { initCmsConfig } from '$lib/services/config/init';
+  import { dataLoaded } from '$lib/services/contents';
+  import { user } from '$lib/services/user/account.svelte';
+  import { initUserEnvDetection } from '$lib/services/user/env.svelte';
+
+  /**
+   * @import { CmsConfig } from '$lib/types/public';
+   */
+
+  /**
+   * @typedef {object} Props
+   * @property {CmsConfig} [config] Configuration specified with manual initialization.
+   */
+
+  /** @type {Props} */
+  let {
+    /* eslint-disable prefer-const */
+    config,
+    /* eslint-enable prefer-const */
+  } = $props();
+
+  // The strings for the default locale are always bundled with the app, so the UI can be rendered
+  // right away, even while the strings for another locale are being fetched from the CDN
+  initAppLocale();
+
+  $effect.pre(() => {
+    initUserEnvDetection();
+  });
+
+  onMount(() => {
+    // An outdated browser would fail while loading the configuration; the entrance page asks the
+    // user to update it instead
+    if (missingBrowserFeatures.current.length) {
+      // eslint-disable-next-line no-console
+      console.error('Unsupported browser. Missing features:', missingBrowserFeatures.current);
+
+      return;
+    }
+
+    initCmsConfig(config);
+  });
+
+  // Listen from the start: the browser offers to install the app only once, shortly after the
+  // page loads, when the account menu holding the Install as App item is usually closed
+  onMount(() => initAppInstallDetection());
+
+  // Fix the position of the custom mount element if needed
+  // @see https://decapcms.org/docs/custom-mounting/
+  // @see https://sveltiacms.app/en/docs/customization#custom-mount-element
+  onMount(() => {
+    const ncRoot = /** @type {HTMLElement | null} */ (document.querySelector('#nc-root'));
+
+    if (!!ncRoot && window.getComputedStyle(ncRoot).position === 'static') {
+      // Wait for the next frame to ensure the element is rendered before calculating its position
+      window.requestAnimationFrame(() => {
+        const { top, height } = ncRoot.getBoundingClientRect();
+
+        if (height) {
+          ncRoot.style.position = 'relative';
+        } else {
+          // Make sure the CMS UI won’t overlap with a header
+          ncRoot.style.position = 'fixed';
+          ncRoot.style.inset = `${top}px 0 0 0`;
+        }
+      });
+    }
+  });
+
+  let transitioned = $state(false);
+
+  // “Posts › Hello – Acme CMS” while editing, “Posts Collection – Acme CMS” on the list, and just
+  // the app name on the sign-in page, so each view has its own title (WCAG 2.4.2)
+  const documentTitle = $derived(
+    [overlayTitle.current || mainAreaTitle.current, appTitle.current].filter(Boolean).join(' – '),
+  );
+
+  $effect(() => {
+    if (dataLoaded.current && user.account) {
+      startViewTransition('forwards', () => {
+        transitioned = true;
+      });
+    } else {
+      startViewTransition('backwards', () => {
+        transitioned = false;
+      });
+    }
+  });
+</script>
+
+<svelte:head>
+  <meta name="referrer" content="same-origin" />
+  <meta name="robots" content="noindex" />
+  {#if cmsConfigLoaded.current}
+    <title>{documentTitle}</title>
+    <link rel="icon" href={appLogoURL.current} type={appLogoType.current} />
+    {#if appIconURLs.current}
+      <link rel="apple-touch-icon" href={appIconURLs.current.large} />
+    {/if}
+    {#if appManifestURL.current}
+      <link rel="manifest" href={appManifestURL.current} />
+    {/if}
+  {/if}
+  {#if DEV_SITE_URL}
+    <link href="{DEV_SITE_URL}/admin/config.yml" type="application/yaml" rel="cms-config-url" />
+  {/if}
+</svelte:head>
+
+<svelte:body
+  onmousedown={(event) => {
+    // The press can land on an element within the link, e.g. `<strong>` in a Markdown field hint
+    const link = /** @type {HTMLElement | null} */ (event.target)?.closest('a');
+
+    if (link) {
+      const { origin, pathname } = link;
+
+      // Open external links and links to different paths in a new tab
+      if (origin !== window.location.origin || pathname !== window.location.pathname) {
+        link.rel = 'noopener noreferrer';
+        link.target = '_blank';
+      }
+    }
+  }}
+/>
+
+<AppShell>
+  <div role="none" class="outer">
+    <!-- The page has a boundary of its own, so a failing page leaves the infobars and dialogs
+    around it working; this one catches a failure in those -->
+    <ErrorBoundary scope="page">
+      <LocaleLoadErrorToast />
+      <UpdateNotification />
+      <ForkPermissionDialog />
+      <CommitMessageDialog />
+      {#if backend.current}
+        <BackendStatusIndicator />
+      {/if}
+      {#if user.account && dataLoaded.current}
+        <OpenAuthoringIndicator />
+      {/if}
+      <div role="none" class="main">
+        <ErrorBoundary scope="page">
+          {#if user.account && dataLoaded.current && transitioned}
+            <MainRouter />
+          {:else}
+            <EntrancePage />
+          {/if}
+        </ErrorBoundary>
+      </div>
+    </ErrorBoundary>
+  </div>
+  <div role="status">{announcedPageStatus.current}</div>
+</AppShell>
+
+<style>
+  @view-transition {
+    navigation: auto;
+  }
+
+  @keyframes slide-out-to-left {
+    from {
+      transform: translateX(0);
+      filter: brightness(1);
+    }
+
+    to {
+      transform: translateX(-20%);
+      filter: brightness(0.5);
+    }
+  }
+
+  @keyframes slide-out-to-right {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+
+    to {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+  }
+
+  @keyframes slide-in-from-right {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-in-from-left {
+    from {
+      transform: translateX(-20%);
+      filter: brightness(0.5);
+    }
+
+    to {
+      transform: translateX(0);
+      filter: brightness(1);
+    }
+  }
+
+  /* RTL-specific keyframes that mirror the depth effect */
+  @keyframes slide-out-to-left-rtl {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+
+    to {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+  }
+
+  @keyframes slide-out-to-right-rtl {
+    from {
+      transform: translateX(0);
+      filter: brightness(1);
+    }
+
+    to {
+      transform: translateX(20%);
+      filter: brightness(0.5);
+    }
+  }
+
+  @keyframes slide-in-from-right-rtl {
+    from {
+      transform: translateX(20%);
+      filter: brightness(0.5);
+    }
+
+    to {
+      transform: translateX(0);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes slide-in-from-left-rtl {
+    from {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  :global {
+    html:active-view-transition-type(forwards) {
+      @media (width < 768px) {
+        &::view-transition-old(page-root) {
+          z-index: 999;
+          animation: 100ms ease-in both slide-out-to-left;
+
+          @media (prefers-reduced-motion) {
+            animation: none;
+          }
+        }
+
+        &::view-transition-new(page-root) {
+          @media (width < 768px) {
+            z-index: 1000;
+            animation: 100ms ease-in both slide-in-from-right;
+          }
+
+          @media (prefers-reduced-motion) {
+            animation: none;
+          }
+        }
+
+        &:dir(rtl) {
+          &::view-transition-old(page-root) {
+            animation: 100ms ease-in both slide-out-to-right-rtl;
+
+            @media (prefers-reduced-motion) {
+              animation: none;
+            }
+          }
+
+          &::view-transition-new(page-root) {
+            animation: 100ms ease-in both slide-in-from-left-rtl;
+
+            @media (prefers-reduced-motion) {
+              animation: none;
+            }
+          }
+        }
+      }
+    }
+
+    html:active-view-transition-type(backwards) {
+      @media (width < 768px) {
+        &::view-transition-old(page-root) {
+          z-index: 1000;
+          animation: 100ms ease-in both slide-out-to-right;
+
+          @media (prefers-reduced-motion) {
+            animation: none;
+          }
+        }
+
+        &::view-transition-new(page-root) {
+          z-index: 999;
+          animation: 100ms ease-in both slide-in-from-left;
+
+          @media (prefers-reduced-motion) {
+            animation: none;
+          }
+        }
+
+        &:dir(rtl) {
+          &::view-transition-old(page-root) {
+            animation: 100ms ease-in both slide-out-to-left-rtl;
+
+            @media (prefers-reduced-motion) {
+              animation: none;
+            }
+          }
+
+          &::view-transition-new(page-root) {
+            animation: 100ms ease-in both slide-in-from-right-rtl;
+
+            @media (prefers-reduced-motion) {
+              animation: none;
+            }
+          }
+        }
+      }
+    }
+
+    html:active-view-transition-type(unknown) {
+      &::view-transition-old(page-main) {
+        animation: 100ms ease-in both fade-out;
+
+        @media (prefers-reduced-motion) {
+          animation: none;
+        }
+      }
+
+      &::view-transition-new(page-main) {
+        animation: 100ms ease-in both fade-in;
+
+        @media (prefers-reduced-motion) {
+          animation: none;
+        }
+      }
+    }
+
+    body:not(:has(#nc-root)) {
+      overflow: hidden;
+    }
+
+    #nc-root > .sui.app-shell {
+      position: absolute;
+    }
+
+    .sui.app-shell {
+      /* A placeholder is often the only visible label of a search box, so it has to meet the 4.5:1
+        text contrast. Sveltia UI only renders it at full strength in the high-contrast themes; the
+        default themes leave it at 50% opacity, which is 2.6:1 on white. */
+      --sui-textbox-placeholder-foreground-color: var(--sui-tertiary-foreground-color);
+      --sui-textbox-placeholder-opacity: 1;
+      /* Border drawn where a primary area (page content, editor panes, asset preview) meets a
+        secondary one (sidebars, toolbars, the gutter between panes). The default themes tell them
+        apart by background alone, so the width is zero; the high-contrast themes, which set
+        `--sui-modal-border-width` to outline dialogs for the same reason, get a visible line. */
+      --area-border: var(--sui-modal-border-width) solid var(--sui-primary-border-color);
+    }
+  }
+
+  .outer {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  .main {
+    position: relative;
+    flex: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--sui-secondary-background-color);
+  }
+
+  [role='status'] {
+    position: absolute;
+    z-index: -1;
+    opacity: 0;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+</style>

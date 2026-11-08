@@ -1,0 +1,104 @@
+import { generateUUID } from '@sveltia/utils/crypto';
+
+import { DATE_TIME_FIELDS, UUID_TYPES } from '$lib/services/common/template/constants';
+import { getFileNameParts } from '$lib/services/common/template/utils';
+import {
+  getSharedEntryFileName,
+  stripIndexFileName,
+} from '$lib/services/contents/collection/nested';
+import { getEntryDirName } from '$lib/services/contents/entry/paths';
+import { getEntrySummaryFromContent } from '$lib/services/contents/entry/summary';
+
+/**
+ * @import { ReplaceSubContext } from '$lib/services/common/template/replacers';
+ */
+
+/**
+ * Handles date-time related template tags.
+ * @param {string} tag The template tag.
+ * @param {Record<string, string>} dateTimeParts Date-time parts object.
+ * @returns {string | undefined} The date-time value or undefined if not a date-time tag.
+ */
+export const handleDateTimeTag = (tag, dateTimeParts) =>
+  DATE_TIME_FIELDS.includes(tag) ? dateTimeParts[tag] : undefined;
+
+/**
+ * Handles UUID-related template tags.
+ * @param {string} tag The template tag.
+ * @returns {string | undefined} The UUID value or undefined if not a UUID tag.
+ */
+export const handleUuidTag = (tag) =>
+  Object.hasOwn(UUID_TYPES, tag) ? generateUUID(UUID_TYPES[tag].length) : undefined;
+
+/**
+ * Handles slug-related template tags.
+ * @param {string} tag Field name or special tag.
+ * @param {ReplaceSubContext} context Replacement context.
+ * @returns {string | undefined} The slug value or undefined if not a slug tag.
+ */
+export const handleSlugTag = (tag, context) => {
+  if (tag !== 'slug') {
+    return undefined;
+  }
+
+  const { type, isIndexFile, currentSlug, content, identifierField, collection } = context;
+
+  // Return an empty string instead of `_index` when generating the preview path for an index file
+  // @see https://github.com/sveltia/sveltia-cms/issues/468
+  if (type === 'preview_path' && isIndexFile) {
+    return '';
+  }
+
+  const slug = currentSlug ?? getEntrySummaryFromContent(content, { identifierField });
+
+  // In a collection with nested entries, an entry’s slug is its path within the collection folder,
+  // which ends with the file name shared by every entry, e.g. `guides/intro/_index`. That file name
+  // is an implementation detail of the content folder, not part of the entry’s URL.
+  // @see https://github.com/decaporg/decap-cms/issues/4963
+  if (type === 'preview_path' && collection) {
+    // The collection’s own index file stands for the root of the preview path, so nothing is left
+    if (slug === getSharedEntryFileName(collection)) {
+      return '';
+    }
+
+    return stripIndexFileName(collection, slug);
+  }
+
+  return slug;
+};
+
+/**
+ * Handles file path related template tags.
+ * @param {string} tag The template tag.
+ * @param {string | undefined} entryFilePath Entry file path.
+ * @param {string | undefined} basePath Base path.
+ * @param {string[]} [localeSuffixes] Locale codes that can follow the file name, with the
+ * `multiple_files` i18n structure.
+ * @param {RegExp} [fullPathRegEx] Entry collection’s entry path matcher, which tells the
+ * `{{dirname}}` tag where the locale folder is.
+ * @returns {string | undefined} The file path value or undefined if not a file path tag.
+ */
+export const handleFilePathTag = (
+  tag,
+  entryFilePath,
+  basePath,
+  localeSuffixes = [],
+  fullPathRegEx = undefined,
+) => {
+  if (!entryFilePath) {
+    return '';
+  }
+
+  switch (tag) {
+    case 'dirname':
+      // @see https://github.com/decaporg/decap-cms/issues/7752
+      return getEntryDirName(entryFilePath, { basePath, fullPathRegEx });
+
+    case 'filename':
+    case 'extension':
+      return getFileNameParts(entryFilePath, localeSuffixes)[tag];
+
+    default:
+      return undefined;
+  }
+};

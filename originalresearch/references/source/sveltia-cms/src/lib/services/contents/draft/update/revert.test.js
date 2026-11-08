@@ -1,0 +1,1422 @@
+// @ts-nocheck
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { isAutoDuplicationEnabled } from '$lib/services/contents/draft';
+import { getField } from '$lib/services/contents/entry/fields';
+import { useActualDraftFieldArgs } from '$lib/test/fields';
+
+import {
+  revertChanges as _revertChanges,
+  isFieldChanged,
+  resolveOriginalKeyPath,
+  revertFields,
+  revertLocale,
+} from './revert';
+
+vi.mock('$lib/services/contents/entry/fields');
+
+await useActualDraftFieldArgs();
+
+describe('draft/update/revert', () => {
+  let mockEntryDraft;
+  /**
+   * Revert changes made to the mock entry draft.
+   * @param {any} [args] Arguments other than the draft.
+   * @returns {void} Nothing.
+   */
+  const revertChanges = (args = {}) => _revertChanges({ draft: mockEntryDraft, ...args });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    mockEntryDraft = {
+      collection: {
+        _i18n: {
+          defaultLocale: 'en',
+          allLocales: ['en', 'ja'],
+        },
+      },
+      collectionFile: undefined,
+      collectionName: 'posts',
+      fileName: undefined,
+      isIndexFile: false,
+      fields: [],
+      originalLocales: { en: true, ja: true },
+      currentLocales: { en: true, ja: true },
+      currentValues: {
+        en: {
+          title: 'Modified Title',
+          body: 'Modified Body',
+          date: '2024-01-02',
+        },
+        ja: {
+          title: 'Modified Japanese Title',
+          body: 'Modified Japanese Body',
+        },
+      },
+      originalValues: {
+        en: {
+          title: 'Original Title',
+          body: 'Original Body',
+          date: '2024-01-01',
+        },
+        ja: {
+          title: 'Original Japanese Title',
+          body: 'Original Japanese Body',
+        },
+      },
+    };
+
+    vi.mocked(getField).mockImplementation(({ keyPath }) => {
+      if (keyPath === 'title') {
+        return { name: 'title', widget: 'string', i18n: 'translate' };
+      }
+
+      if (keyPath === 'body') {
+        return { name: 'body', widget: 'markdown', i18n: true };
+      }
+
+      if (keyPath === 'date') {
+        return { name: 'date', widget: 'datetime', i18n: 'duplicate' };
+      }
+
+      return undefined;
+    });
+  });
+
+  describe('revertChanges', () => {
+    it('restores the folder the entry is filed in', () => {
+      // Moving an entry with the path editor is a change of its own, so a full revert undoes it
+      mockEntryDraft.originalPath = 'company';
+      mockEntryDraft.currentPath = 'archive';
+
+      revertChanges();
+
+      expect(mockEntryDraft.currentPath).toBe('company');
+    });
+
+    it('restores the slugs', () => {
+      // A slug edited with the slug editor names the file, or the folder in a collection with
+      // nested entries, so a full revert undoes the rename too
+      mockEntryDraft.originalSlugs = { en: 'company', ja: 'kaisha' };
+      mockEntryDraft.currentSlugs = { en: 'company', ja: 'kigyou' };
+
+      revertChanges();
+
+      const { currentSlugs } = mockEntryDraft;
+
+      expect(currentSlugs).toEqual({ en: 'company', ja: 'kaisha' });
+      // A copy, so that editing the slug again doesn’t alter the original
+      expect(currentSlugs).not.toBe(mockEntryDraft.originalSlugs);
+    });
+
+    it('restores the locales the entry is output in', () => {
+      // A locale disabled with the locale switcher would otherwise stay disabled, and saving would
+      // delete its file
+      mockEntryDraft.currentLocales = { en: true, ja: false };
+
+      revertChanges();
+
+      const { currentLocales } = mockEntryDraft;
+
+      expect(currentLocales).toEqual({ en: true, ja: true });
+      // A copy, so that toggling a locale again doesn’t alter the original
+      expect(currentLocales).not.toBe(mockEntryDraft.originalLocales);
+    });
+
+    it('leaves the locales alone when only one locale or field is reverted', () => {
+      mockEntryDraft.currentLocales = { en: true, ja: false };
+
+      revertChanges({ locale: 'en' });
+      revertChanges({ keyPath: 'title' });
+
+      expect(mockEntryDraft.currentLocales).toEqual({ en: true, ja: false });
+    });
+
+    it('leaves the slugs alone when only one locale is reverted', () => {
+      mockEntryDraft.originalSlugs = { en: 'company', ja: 'kaisha' };
+      mockEntryDraft.currentSlugs = { en: 'company', ja: 'kigyou' };
+
+      revertChanges({ locale: 'ja' });
+
+      expect(mockEntryDraft.currentSlugs).toEqual({ en: 'company', ja: 'kigyou' });
+    });
+
+    it('leaves the folder alone when only one locale is reverted', () => {
+      mockEntryDraft.originalPath = 'company';
+      mockEntryDraft.currentPath = 'archive';
+
+      revertChanges({ locale: 'en' });
+
+      expect(mockEntryDraft.currentPath).toBe('archive');
+    });
+
+    it('leaves the folder alone when only one field is reverted', () => {
+      mockEntryDraft.originalPath = 'company';
+      mockEntryDraft.currentPath = 'archive';
+
+      revertChanges({ keyPath: 'title' });
+
+      expect(mockEntryDraft.currentPath).toBe('archive');
+    });
+
+    it('should revert all fields in all locales', () => {
+      revertChanges();
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Original Title');
+      expect(mockEntryDraft.currentValues.en.body).toBe('Original Body');
+      expect(mockEntryDraft.currentValues.ja.title).toBe('Original Japanese Title');
+    });
+
+    it('should revert all fields in specific locale', () => {
+      revertChanges({ locale: 'en' });
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Original Title');
+      expect(mockEntryDraft.currentValues.en.body).toBe('Original Body');
+    });
+
+    it('should revert specific field in all locales', () => {
+      revertChanges({ keyPath: 'title' });
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Original Title');
+      expect(mockEntryDraft.currentValues.ja.title).toBe('Original Japanese Title');
+    });
+
+    it('should revert specific field in specific locale', () => {
+      revertChanges({ locale: 'en', keyPath: 'title' });
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Original Title');
+      // Other values should remain modified
+      expect(mockEntryDraft.currentValues.en.body).toBe('Modified Body');
+    });
+
+    it('should not revert a sibling whose name begins with the key path', () => {
+      const currentValues = {
+        en: {
+          tag: 'Modified Tag',
+          tags: 'Modified Tags',
+          tagline: 'Modified Tagline',
+          'tag.0': 'Modified Item',
+        },
+      };
+
+      revertFields({
+        locale: 'en',
+        isDefaultLocale: true,
+        keyPath: 'tag',
+        getFieldArgs: {
+          valueMap: {
+            tag: 'Original Tag',
+            tags: 'Original Tags',
+            tagline: 'Original Tagline',
+            'tag.0': 'Original Item',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.en.tag).toBe('Original Tag');
+      expect(currentValues.en['tag.0']).toBe('Original Item');
+      expect(currentValues.en.tags).toBe('Modified Tags');
+      expect(currentValues.en.tagline).toBe('Modified Tagline');
+    });
+
+    it('should revert every locale to its own values when reverting everything', () => {
+      // https://github.com/sveltia/sveltia-cms/issues/1128
+      const getFieldImpl = vi.mocked(getField).getMockImplementation();
+      /** @type {boolean[]} */
+      const autoDuplication = [];
+
+      vi.mocked(getField).mockImplementation((args) => {
+        autoDuplication.push(isAutoDuplicationEnabled());
+
+        return args.keyPath === 'tag'
+          ? { name: 'tag', widget: 'string', i18n: 'sync' }
+          : getFieldImpl?.(args);
+      });
+
+      // The locales’ original values differ, e.g. as the files were edited elsewhere
+      mockEntryDraft.currentValues.en.tag = 'Edited';
+      mockEntryDraft.currentValues.ja.tag = 'Edited';
+      mockEntryDraft.originalValues.en.tag = 'Tag';
+      mockEntryDraft.originalValues.ja.tag = 'Étiquette';
+
+      revertChanges();
+
+      expect(mockEntryDraft.currentValues.en.tag).toBe('Tag');
+      expect(mockEntryDraft.currentValues.ja.tag).toBe('Étiquette');
+      // Nothing is copied from one locale to another meanwhile
+      expect(autoDuplication).not.toContain(true);
+
+      // Reverting one locale reverts the field there, and the value proxy copies it to the others
+      mockEntryDraft.currentValues.ja.tag = 'Edited';
+      autoDuplication.length = 0;
+      revertChanges({ locale: 'ja' });
+
+      expect(mockEntryDraft.currentValues.ja.tag).toBe('Étiquette');
+      expect(autoDuplication).not.toContain(false);
+    });
+
+    it('should only revert translatable fields in non-default locale', () => {
+      revertChanges({ locale: 'ja' });
+
+      expect(mockEntryDraft.currentValues.ja.title).toBe('Original Japanese Title');
+      expect(mockEntryDraft.currentValues.ja.body).toBe('Original Japanese Body');
+    });
+
+    it('should revert all fields including i18n-duplicate in default locale', () => {
+      revertChanges({ locale: 'en' });
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Original Title');
+      expect(mockEntryDraft.currentValues.en.date).toBe('2024-01-01');
+    });
+
+    it('should handle empty keyPath as reverting all fields', () => {
+      revertChanges({ locale: 'en', keyPath: '' });
+
+      expect(mockEntryDraft.currentValues.en.title).toBe('Original Title');
+      expect(mockEntryDraft.currentValues.en.body).toBe('Original Body');
+    });
+
+    it('should handle nested field keyPaths', () => {
+      mockEntryDraft.currentValues.en['metadata.author'] = 'Modified Author';
+      mockEntryDraft.originalValues.en['metadata.author'] = 'Original Author';
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'metadata.author') {
+          return { name: 'author', widget: 'string', i18n: true };
+        }
+
+        return undefined;
+      });
+
+      revertChanges({ locale: 'en', keyPath: 'metadata.author' });
+
+      expect(mockEntryDraft.currentValues.en['metadata.author']).toBe('Original Author');
+    });
+
+    describe('with KeyValue fields', () => {
+      beforeEach(() => {
+        vi.mocked(getField).mockImplementation(({ keyPath }) => {
+          if (keyPath === 'labels') {
+            return { name: 'labels', widget: 'keyvalue', i18n: true };
+          }
+
+          if (keyPath === 'metadata') {
+            return { name: 'metadata', widget: 'keyvalue', i18n: 'duplicate_keys' };
+          }
+
+          return undefined;
+        });
+
+        mockEntryDraft.currentValues = {
+          en: { 'labels.x': 'X2', 'metadata.a': '1', 'metadata.bee': '2', 'metadata.c': '3' },
+          ja: { 'labels.y': 'Y2', 'metadata.a': 'いち', 'metadata.bee': 'に', 'metadata.c': '' },
+        };
+
+        mockEntryDraft.originalValues = {
+          en: { 'labels.x': 'X', 'metadata.a': '1', 'metadata.b': '2' },
+          ja: { 'labels.y': 'Y', 'metadata.a': 'イチ', 'metadata.b': 'ニ' },
+        };
+      });
+
+      it('should revert the pairs of a translatable field in any locale', () => {
+        revertChanges({ keyPath: 'labels' });
+
+        expect(mockEntryDraft.currentValues.en['labels.x']).toBe('X');
+        expect(mockEntryDraft.currentValues.ja['labels.y']).toBe('Y');
+      });
+
+      it('should mirror the keys reverted in the default locale to the other locales', () => {
+        revertChanges({ locale: 'en', keyPath: 'metadata' });
+
+        expect(mockEntryDraft.currentValues.en).toEqual({
+          'labels.x': 'X2',
+          'metadata.a': '1',
+          'metadata.b': '2',
+        });
+        // The values are kept: `bee` is renamed back to `b`, and the added `c` is dropped
+        expect(mockEntryDraft.currentValues.ja).toEqual({
+          'labels.y': 'Y2',
+          'metadata.a': 'いち',
+          'metadata.b': 'に',
+        });
+      });
+
+      it('should line up the pairs reverted in another locale with the default locale', () => {
+        revertChanges({ locale: 'ja', keyPath: 'metadata' });
+
+        expect(mockEntryDraft.currentValues.en).toEqual({
+          'labels.x': 'X2',
+          'metadata.a': '1',
+          'metadata.bee': '2',
+          'metadata.c': '3',
+        });
+        expect(mockEntryDraft.currentValues.ja).toEqual({
+          'labels.y': 'Y2',
+          'metadata.a': 'イチ',
+          'metadata.bee': 'ニ',
+          'metadata.c': '',
+        });
+      });
+
+      it('should revert everything consistently', () => {
+        revertChanges();
+
+        expect(mockEntryDraft.currentValues).toEqual(mockEntryDraft.originalValues);
+      });
+    });
+
+    it('should revert the values without a field of their own in another locale', () => {
+      // An item of a List field without subfields, the code of a Code field and a KeyValue pair
+      // aren’t described by a field configuration, so they’re governed by the field owning them
+      /** @type {Record<string, any>} */
+      const fields = {
+        tags: { name: 'tags', widget: 'list', i18n: true },
+        snippet: { name: 'snippet', widget: 'code', i18n: true },
+        links: { name: 'links', widget: 'keyvalue', i18n: 'sync' },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => fields[keyPath]);
+
+      const original = {
+        'tags.0': 'タグ',
+        'snippet.code': 'a',
+        'snippet.lang': 'js',
+        'links.home': '/ja',
+      };
+
+      mockEntryDraft.originalValues.ja = { ...original };
+      mockEntryDraft.currentValues.ja = {
+        'tags.0': 'タグ 2',
+        'tags.1': 'タグ 3',
+        'snippet.code': 'b',
+        'snippet.lang': 'py',
+        'links.home': '/ja/',
+      };
+
+      revertChanges({ locale: 'ja' });
+
+      expect(mockEntryDraft.currentValues.ja).toEqual(original);
+    });
+    // https://github.com/sveltia/sveltia-cms/issues/1065
+    describe('with a paired List field', () => {
+      const residencesField = {
+        name: 'residences',
+        widget: 'list',
+        i18n: true,
+        fields: [
+          { name: 'name', widget: 'string', i18n: 'duplicate' },
+          { name: 'description', widget: 'text', i18n: true },
+        ],
+      };
+
+      const [nameField, descriptionField] = residencesField.fields;
+
+      beforeEach(() => {
+        mockEntryDraft.fields = [
+          { name: 'title', widget: 'string', i18n: true },
+          { name: 'details', widget: 'object', fields: [residencesField] },
+        ];
+
+        vi.mocked(getField).mockImplementation(({ keyPath }) => {
+          if (keyPath === 'title') {
+            return { name: 'title', widget: 'string', i18n: true };
+          }
+
+          if (keyPath === 'details') {
+            return mockEntryDraft.fields[1];
+          }
+
+          if (keyPath === 'details.residences') {
+            return residencesField;
+          }
+
+          if (/^details\.residences\.\d+\.name$/.test(keyPath)) {
+            return nameField;
+          }
+
+          if (/^details\.residences\.\d+\.description$/.test(keyPath)) {
+            return descriptionField;
+          }
+
+          return undefined;
+        });
+
+        // The first item has been removed in the default locale, and thus in the other locale
+        mockEntryDraft.currentValues = {
+          en: {
+            title: 'Title 2',
+            'details.residences.0.name': 'B',
+            'details.residences.0.description': 'B (en)',
+          },
+          ja: {
+            title: 'タイトル 2',
+            'details.residences.0.name': 'B',
+            'details.residences.0.description': 'B (ja)',
+          },
+        };
+
+        mockEntryDraft.originalValues = {
+          en: {
+            title: 'Title',
+            'details.residences.0.name': 'A',
+            'details.residences.0.description': 'A (en)',
+            'details.residences.1.name': 'B',
+            'details.residences.1.description': 'B (en)',
+          },
+          ja: {
+            title: 'タイトル',
+            'details.residences.0.name': 'A',
+            'details.residences.0.description': 'A (ja)',
+            'details.residences.1.name': 'B',
+            'details.residences.1.description': 'B (ja)',
+          },
+        };
+      });
+
+      it('should revert the items in every locale when reverted in the default locale', () => {
+        revertChanges({ locale: 'en', keyPath: 'details.residences' });
+
+        expect(mockEntryDraft.currentValues.en).toEqual({
+          ...mockEntryDraft.originalValues.en,
+          title: 'Title 2',
+        });
+        expect(mockEntryDraft.currentValues.ja).toEqual({
+          ...mockEntryDraft.originalValues.ja,
+          title: 'タイトル 2',
+        });
+      });
+
+      it('should revert the items nested in the field reverted in the default locale', () => {
+        revertChanges({ locale: 'en', keyPath: 'details' });
+
+        expect(mockEntryDraft.currentValues.ja).toEqual({
+          ...mockEntryDraft.originalValues.ja,
+          title: 'タイトル 2',
+        });
+      });
+
+      it('should revert the items but not the other fields in the other locales', () => {
+        revertChanges({ locale: 'en' });
+
+        expect(mockEntryDraft.currentValues.en).toEqual(mockEntryDraft.originalValues.en);
+        expect(mockEntryDraft.currentValues.ja).toEqual({
+          ...mockEntryDraft.originalValues.ja,
+          title: 'タイトル 2',
+        });
+      });
+
+      it('should leave the other locales alone for another field', () => {
+        revertChanges({ locale: 'en', keyPath: 'title' });
+        revertChanges({ locale: 'en', keyPath: 'unknown' });
+
+        expect(mockEntryDraft.currentValues.ja['details.residences.1.name']).toBeUndefined();
+      });
+
+      it('should revert the items in the other locales to their own values', () => {
+        // A subfield using the `sync` strategy would otherwise be copied from each locale reverted
+        // to the others, including the default locale, so the last one would win, e.g. where the
+        // locales’ original values differ as the files were edited elsewhere
+        const getFieldImpl = vi.mocked(getField).getMockImplementation();
+        /** @type {boolean[]} */
+        const autoDuplication = [];
+
+        vi.mocked(getField).mockImplementation((args) => {
+          // The original values are looked up while they’re restored
+          if (args.valueMap === mockEntryDraft.originalValues.ja) {
+            autoDuplication.push(isAutoDuplicationEnabled());
+          }
+
+          return getFieldImpl?.(args);
+        });
+
+        revertChanges({ locale: 'en', keyPath: 'details.residences' });
+
+        expect(autoDuplication).not.toHaveLength(0);
+        expect(autoDuplication).not.toContain(true);
+      });
+
+      it('should skip a locale without content', () => {
+        delete mockEntryDraft.currentValues.ja;
+
+        revertChanges({ locale: 'en', keyPath: 'details.residences' });
+
+        expect(mockEntryDraft.currentValues.ja).toBeUndefined();
+      });
+    });
+  });
+
+  describe('revertFields (internal)', () => {
+    it('should reset fields when reset=true', () => {
+      const currentValues = {
+        en: {
+          title: 'Modified Title',
+          body: 'Modified Body',
+        },
+      };
+
+      revertFields({
+        locale: 'en',
+        isDefaultLocale: true,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: { title: 'Current Title', body: 'Current Body' },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: true,
+      });
+
+      expect(currentValues.en.title).toBeUndefined();
+      expect(currentValues.en.body).toBeUndefined();
+    });
+
+    it('should restore values when reset=false', () => {
+      const currentValues = {
+        en: {
+          title: 'Modified Title',
+        },
+      };
+
+      revertFields({
+        locale: 'en',
+        isDefaultLocale: true,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: { title: 'Original Title', body: 'Original Body' },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.en.title).toBe('Original Title');
+      expect(currentValues.en.body).toBe('Original Body');
+    });
+
+    it('should only revert fields matching keyPath', () => {
+      const currentValues = {
+        en: {
+          title: 'Modified Title',
+          body: 'Modified Body',
+          'metadata.author': 'Modified Author',
+        },
+      };
+
+      revertFields({
+        locale: 'en',
+        isDefaultLocale: true,
+        keyPath: 'metadata',
+        getFieldArgs: {
+          valueMap: {
+            title: 'Original Title',
+            body: 'Original Body',
+            'metadata.author': 'Original Author',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.en.title).toBe('Modified Title');
+      expect(currentValues.en.body).toBe('Modified Body');
+      expect(currentValues.en['metadata.author']).toBe('Original Author');
+    });
+
+    it('should only revert translatable fields in non-default locale', () => {
+      const currentValues = {
+        ja: {
+          title: 'Modified Japanese Title',
+          date: 'Modified Date',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'title') {
+          return { name: 'title', widget: 'string', i18n: 'translate' };
+        }
+
+        if (keyPath === 'date') {
+          return { name: 'date', widget: 'datetime', i18n: 'duplicate' };
+        }
+
+        return undefined;
+      });
+
+      revertFields({
+        locale: 'ja',
+        isDefaultLocale: false,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: {
+            title: 'Original Japanese Title',
+            date: 'Original Date',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.ja.title).toBe('Original Japanese Title');
+      expect(currentValues.ja.date).toBe('Modified Date');
+    });
+
+    it('should revert a synced field in non-default locale', () => {
+      // https://github.com/sveltia/sveltia-cms/issues/1128
+      const currentValues = {
+        ja: { date: 'Modified Date', 'links.0.url': 'Modified URL' },
+      };
+
+      /** @type {Record<string, any>} */
+      const fields = {
+        date: { name: 'date', widget: 'datetime', i18n: 'sync' },
+        links: { name: 'links', widget: 'list', i18n: 'sync' },
+        // Synced along with the List field
+        'links.0.url': { name: 'url', widget: 'string' },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => fields[keyPath]);
+
+      revertFields({
+        locale: 'ja',
+        isDefaultLocale: false,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: { date: 'Original Date', 'links.0.url': 'Original URL' },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.ja).toEqual({ date: 'Original Date', 'links.0.url': 'Original URL' });
+    });
+
+    it('should revert all fields in default locale', () => {
+      const currentValues = {
+        en: {
+          title: 'Modified Title',
+          date: 'Modified Date',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'title') {
+          return { name: 'title', widget: 'string', i18n: 'translate' };
+        }
+
+        if (keyPath === 'date') {
+          return { name: 'date', widget: 'datetime', i18n: 'duplicate' };
+        }
+
+        return undefined;
+      });
+
+      revertFields({
+        locale: 'en',
+        isDefaultLocale: true,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: {
+            title: 'Original Title',
+            date: 'Original Date',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.en.title).toBe('Original Title');
+      expect(currentValues.en.date).toBe('Original Date');
+    });
+
+    it('should handle i18n=true fields', () => {
+      const currentValues = {
+        ja: {
+          body: 'Modified Body',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'body') {
+          return { name: 'body', widget: 'markdown', i18n: true };
+        }
+
+        return undefined;
+      });
+
+      revertFields({
+        locale: 'ja',
+        isDefaultLocale: false,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: { body: 'Original Body' },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.ja.body).toBe('Original Body');
+    });
+
+    it('should not revert non-translatable fields in non-default locale', () => {
+      const currentValues = {
+        ja: {
+          title: 'Modified Title',
+          status: 'Modified Status',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'title') {
+          return { name: 'title', widget: 'string', i18n: 'translate' };
+        }
+
+        if (keyPath === 'status') {
+          return { name: 'status', widget: 'select', i18n: false };
+        }
+
+        return undefined;
+      });
+
+      revertFields({
+        locale: 'ja',
+        isDefaultLocale: false,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: {
+            title: 'Original Title',
+            status: 'Original Status',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.ja.title).toBe('Original Title');
+      expect(currentValues.ja.status).toBe('Modified Status');
+    });
+
+    it('should not revert field with undefined i18n config in non-default locale', () => {
+      const currentValues = {
+        ja: {
+          title: 'Modified Title',
+          custom: 'Modified Custom',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'title') {
+          return { name: 'title', widget: 'string', i18n: 'translate' };
+        }
+
+        if (keyPath === 'custom') {
+          return { name: 'custom', widget: 'string' };
+        }
+
+        return undefined;
+      });
+
+      revertFields({
+        locale: 'ja',
+        isDefaultLocale: false,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: {
+            title: 'Original Title',
+            custom: 'Original Custom',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.ja.title).toBe('Original Title');
+      expect(currentValues.ja.custom).toBe('Modified Custom');
+    });
+
+    it('should not revert field when getField returns undefined in non-default locale', () => {
+      const currentValues = {
+        ja: {
+          title: 'Modified Title',
+          unknown: 'Modified Unknown',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'title') {
+          return { name: 'title', widget: 'string', i18n: 'translate' };
+        }
+
+        return undefined;
+      });
+
+      revertFields({
+        locale: 'ja',
+        isDefaultLocale: false,
+        keyPath: '',
+        getFieldArgs: {
+          valueMap: {
+            title: 'Original Title',
+            unknown: 'Original Unknown',
+          },
+          collectionName: 'posts',
+          fileName: undefined,
+          keyPath: '',
+          isIndexFile: false,
+        },
+        currentValues,
+        reset: false,
+      });
+
+      expect(currentValues.ja.title).toBe('Original Title');
+      expect(currentValues.ja.unknown).toBe('Modified Unknown');
+    });
+  });
+
+  describe('revertLocale (internal)', () => {
+    it('should reset and restore values for a locale', () => {
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en', 'ja'],
+          },
+        },
+        collectionFile: undefined,
+        collectionName: 'posts',
+        fileName: undefined,
+        isIndexFile: false,
+        currentValues: {
+          en: {
+            title: 'Modified Title',
+            body: 'Modified Body',
+          },
+        },
+        originalValues: {
+          en: {
+            title: 'Original Title',
+            body: 'Original Body',
+            date: '2024-01-01',
+          },
+        },
+      };
+
+      revertLocale({ draft, keyPath: '', locale: 'en' });
+
+      expect(draft.currentValues.en.title).toBe('Original Title');
+      expect(draft.currentValues.en.body).toBe('Original Body');
+      expect(draft.currentValues.en.date).toBe('2024-01-01');
+    });
+
+    it('should handle specific keyPath', () => {
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en', 'ja'],
+          },
+        },
+        collectionFile: undefined,
+        collectionName: 'posts',
+        fileName: undefined,
+        isIndexFile: false,
+        currentValues: {
+          en: {
+            title: 'Modified Title',
+            body: 'Modified Body',
+          },
+        },
+        originalValues: {
+          en: {
+            title: 'Original Title',
+            body: 'Original Body',
+          },
+        },
+      };
+
+      revertLocale({ draft, keyPath: 'title', locale: 'en' });
+
+      expect(draft.currentValues.en.title).toBe('Original Title');
+      expect(draft.currentValues.en.body).toBe('Modified Body');
+    });
+
+    it('should use collectionFile i18n config when available', () => {
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en', 'ja'],
+          },
+        },
+        collectionFile: {
+          _i18n: {
+            defaultLocale: 'fr',
+            allLocales: ['fr', 'de'],
+          },
+        },
+        collectionName: 'pages',
+        fileName: 'about',
+        isIndexFile: false,
+        currentValues: {
+          fr: {
+            title: 'Modified French Title',
+          },
+        },
+        originalValues: {
+          fr: {
+            title: 'Original French Title',
+          },
+        },
+      };
+
+      revertLocale({ draft, keyPath: '', locale: 'fr' });
+
+      expect(draft.currentValues.fr.title).toBe('Original French Title');
+    });
+
+    it('should handle non-default locale correctly', () => {
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en', 'ja'],
+          },
+        },
+        collectionFile: undefined,
+        collectionName: 'posts',
+        fileName: undefined,
+        isIndexFile: false,
+        currentValues: {
+          ja: {
+            title: 'Modified Japanese Title',
+            date: 'Modified Date',
+          },
+        },
+        originalValues: {
+          ja: {
+            title: 'Original Japanese Title',
+            date: 'Original Date',
+          },
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'title') {
+          return { name: 'title', widget: 'string', i18n: 'translate' };
+        }
+
+        if (keyPath === 'date') {
+          return { name: 'date', widget: 'datetime', i18n: 'duplicate' };
+        }
+
+        return undefined;
+      });
+
+      revertLocale({ draft, keyPath: '', locale: 'ja' });
+
+      expect(draft.currentValues.ja.title).toBe('Original Japanese Title');
+      expect(draft.currentValues.ja.date).toBe('Modified Date');
+    });
+  });
+
+  describe('resolveOriginalKeyPath', () => {
+    it('should return undefined when no __sc_item_original_key_path exists', () => {
+      const valueMap = {
+        'checklist.0.label': 'Item 1',
+        'checklist.1.label': 'Item 2',
+      };
+
+      expect(resolveOriginalKeyPath(valueMap, 'checklist.0.label')).toBeUndefined();
+    });
+
+    it('should return undefined for non-list key paths', () => {
+      const valueMap = { title: 'Hello' };
+
+      expect(resolveOriginalKeyPath(valueMap, 'title')).toBeUndefined();
+    });
+
+    it('should resolve original key path for reordered items', () => {
+      const valueMap = {
+        'checklist.0.label': 'Item 2',
+        'checklist.0.__sc_item_original_key_path': 'checklist.1',
+        'checklist.1.label': 'Item 1',
+        'checklist.1.__sc_item_original_key_path': 'checklist.0',
+      };
+
+      expect(resolveOriginalKeyPath(valueMap, 'checklist.0.label')).toEqual({
+        originalKeyPath: 'checklist.1.label',
+        currentPrefix: 'checklist.0',
+        originalPrefix: 'checklist.1',
+      });
+
+      expect(resolveOriginalKeyPath(valueMap, 'checklist.1.label')).toEqual({
+        originalKeyPath: 'checklist.0.label',
+        currentPrefix: 'checklist.1',
+        originalPrefix: 'checklist.0',
+      });
+    });
+
+    it('should resolve original key path for list item itself', () => {
+      const valueMap = {
+        'checklist.0.__sc_item_original_key_path': 'checklist.2',
+      };
+
+      expect(resolveOriginalKeyPath(valueMap, 'checklist.0')).toEqual({
+        originalKeyPath: 'checklist.2',
+        currentPrefix: 'checklist.0',
+        originalPrefix: 'checklist.2',
+      });
+    });
+
+    it('should resolve deeply nested key path', () => {
+      const valueMap = {
+        'sections.0.items.1.__sc_item_original_key_path': 'sections.0.items.0',
+      };
+
+      expect(resolveOriginalKeyPath(valueMap, 'sections.0.items.1.title')).toEqual({
+        originalKeyPath: 'sections.0.items.0.title',
+        currentPrefix: 'sections.0.items.1',
+        originalPrefix: 'sections.0.items.0',
+      });
+    });
+
+    it('should resolve the items of an outer and a nested list that have both moved', () => {
+      // Item A moved from `sections.0` to `sections.1`, then its nested list was changed, which
+      // tagged its nested items with their key paths at that time
+      const valueMap = {
+        'sections.0.__sc_item_original_key_path': 'sections.1',
+        'sections.1.__sc_item_original_key_path': 'sections.0',
+        'sections.1.items.0.__sc_item_original_key_path': 'sections.1.items.1',
+        'sections.1.items.1.__sc_item_original_key_path': 'sections.1.items.0',
+      };
+
+      expect(resolveOriginalKeyPath(valueMap, 'sections.1.items.0.title')).toEqual({
+        originalKeyPath: 'sections.0.items.1.title',
+        currentPrefix: 'sections.1.items.0',
+        originalPrefix: 'sections.0.items.1',
+      });
+
+      // The nested items were tagged before A moved
+      valueMap['sections.1.items.0.__sc_item_original_key_path'] = 'sections.0.items.1';
+
+      expect(resolveOriginalKeyPath(valueMap, 'sections.1.items.0.title')).toEqual({
+        originalKeyPath: 'sections.0.items.1.title',
+        currentPrefix: 'sections.1.items.0',
+        originalPrefix: 'sections.0.items.1',
+      });
+    });
+  });
+
+  describe('isFieldChanged', () => {
+    it('should compare a nested item of a moved item with its own original value', () => {
+      const originalValueMap = {
+        'sections.0.items.0.title': 'A1',
+        'sections.0.items.1.title': 'A2',
+        'sections.1.items.0.title': 'B1',
+      };
+
+      // Item A moved to `sections.1`, then a new item was added to the top of its nested list
+      const currentValueMap = {
+        'sections.0.__sc_item_original_key_path': 'sections.1',
+        'sections.0.items.0.title': 'B1',
+        'sections.1.__sc_item_original_key_path': 'sections.0',
+        'sections.1.items.0.title': 'New',
+        'sections.1.items.1.__sc_item_original_key_path': 'sections.1.items.0',
+        'sections.1.items.1.title': 'A1',
+        'sections.1.items.2.__sc_item_original_key_path': 'sections.1.items.1',
+        'sections.1.items.2.title': 'A2',
+      };
+
+      expect(
+        isFieldChanged({ currentValueMap, originalValueMap, keyPath: 'sections.1.items.1.title' }),
+      ).toBe(false);
+      expect(
+        isFieldChanged({ currentValueMap, originalValueMap, keyPath: 'sections.1.items.2.title' }),
+      ).toBe(false);
+    });
+
+    it('should compare the value of a simple field', () => {
+      expect(
+        isFieldChanged({
+          currentValueMap: { title: 'Hello', body: 'New' },
+          originalValueMap: { title: 'Hello', body: 'Old' },
+          keyPath: 'title',
+        }),
+      ).toBe(false);
+      expect(
+        isFieldChanged({
+          currentValueMap: { title: 'Hi' },
+          originalValueMap: { title: 'Hello' },
+          keyPath: 'title',
+        }),
+      ).toBe(true);
+      expect(
+        isFieldChanged({ currentValueMap: { title: '' }, originalValueMap: {}, keyPath: 'title' }),
+      ).toBe(true);
+    });
+
+    it('should treat a missing value and an undefined value alike', () => {
+      expect(
+        isFieldChanged({
+          currentValueMap: { title: undefined },
+          originalValueMap: {},
+          keyPath: 'title',
+        }),
+      ).toBe(false);
+    });
+
+    it('should compare the subfields of an object field', () => {
+      const originalValueMap = { 'author.name': 'Alice', 'author.email': 'a@example.com' };
+
+      expect(
+        isFieldChanged({
+          currentValueMap: { ...originalValueMap },
+          originalValueMap,
+          keyPath: 'author',
+        }),
+      ).toBe(false);
+      expect(
+        isFieldChanged({
+          currentValueMap: { ...originalValueMap, 'author.name': 'Bob' },
+          originalValueMap,
+          keyPath: 'author',
+        }),
+      ).toBe(true);
+      expect(
+        isFieldChanged({
+          currentValueMap: { 'author.name': 'Alice' },
+          originalValueMap,
+          keyPath: 'author',
+        }),
+      ).toBe(true);
+    });
+
+    it('should not match a sibling field sharing the key path as a prefix', () => {
+      expect(
+        isFieldChanged({
+          currentValueMap: { author: 'Alice', authors: 'Bob' },
+          originalValueMap: { author: 'Alice', authors: 'Carol' },
+          keyPath: 'author',
+        }),
+      ).toBe(false);
+    });
+
+    it('should ignore empty placeholders and internal props', () => {
+      expect(
+        isFieldChanged({
+          currentValueMap: {
+            author: {},
+            'author.name': 'Alice',
+            'author.tags': [],
+            'author.links.0.__sc_item_id': 'abc',
+          },
+          originalValueMap: { 'author.name': 'Alice' },
+          keyPath: 'author',
+        }),
+      ).toBe(false);
+    });
+
+    it('should compare the items of a list field', () => {
+      expect(
+        isFieldChanged({
+          currentValueMap: { tags: [], 'tags.0': 'a', 'tags.1': 'b' },
+          originalValueMap: { 'tags.0': 'a', 'tags.1': 'b' },
+          keyPath: 'tags',
+        }),
+      ).toBe(false);
+      expect(
+        isFieldChanged({
+          currentValueMap: { 'tags.0': 'b', 'tags.1': 'a' },
+          originalValueMap: { 'tags.0': 'a', 'tags.1': 'b' },
+          keyPath: 'tags',
+        }),
+      ).toBe(true);
+    });
+
+    it('should compare a field inside a reordered list item with its original value', () => {
+      const originalValueMap = {
+        'items.0.author.name': 'Alice',
+        'items.1.author.name': 'Bob',
+      };
+
+      const currentValueMap = {
+        'items.0.author.name': 'Bob',
+        'items.0.__sc_item_original_key_path': 'items.1',
+        'items.1.author.name': 'Alice',
+        'items.1.__sc_item_original_key_path': 'items.0',
+      };
+
+      expect(isFieldChanged({ currentValueMap, originalValueMap, keyPath: 'items.0.author' })).toBe(
+        false,
+      );
+      expect(
+        isFieldChanged({
+          currentValueMap: { ...currentValueMap, 'items.1.author.name': 'Carol' },
+          originalValueMap,
+          keyPath: 'items.1.author',
+        }),
+      ).toBe(true);
+    });
+  });
+
+  describe('revertLocale with reordered list items', () => {
+    it('should revert a field inside a reordered list item using the original key path', () => {
+      vi.mocked(getField).mockReturnValue({ name: 'label', widget: 'string', i18n: true });
+
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en'],
+          },
+        },
+        collectionFile: undefined,
+        collectionName: 'posts',
+        fileName: undefined,
+        isIndexFile: false,
+        currentValues: {
+          en: {
+            'checklist.0.label': 'Modified Item 2',
+            'checklist.0.__sc_item_original_key_path': 'checklist.1',
+            'checklist.0.__sc_item_id': 'uuid-b',
+            'checklist.1.label': 'Item 1',
+            'checklist.1.__sc_item_original_key_path': 'checklist.0',
+            'checklist.1.__sc_item_id': 'uuid-a',
+          },
+        },
+        originalValues: {
+          en: {
+            'checklist.0.label': 'Original Item 1',
+            'checklist.1.label': 'Original Item 2',
+          },
+        },
+      };
+
+      revertLocale({ draft, keyPath: 'checklist.0.label', locale: 'en' });
+
+      // Should restore from checklist.1 (original position) to checklist.0 (current position)
+      expect(draft.currentValues.en['checklist.0.label']).toBe('Original Item 2');
+      // Other values should remain unchanged
+      expect(draft.currentValues.en['checklist.1.label']).toBe('Item 1');
+    });
+
+    it('should revert the whole list field regardless of reordering', () => {
+      vi.mocked(getField).mockReturnValue({ name: 'label', widget: 'string', i18n: true });
+
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en'],
+          },
+        },
+        collectionFile: undefined,
+        collectionName: 'posts',
+        fileName: undefined,
+        isIndexFile: false,
+        currentValues: {
+          en: {
+            'checklist.0.label': 'Item 2',
+            'checklist.0.__sc_item_original_key_path': 'checklist.1',
+            'checklist.0.__sc_item_id': 'uuid-b',
+            'checklist.1.label': 'Item 1',
+            'checklist.1.__sc_item_original_key_path': 'checklist.0',
+            'checklist.1.__sc_item_id': 'uuid-a',
+          },
+        },
+        originalValues: {
+          en: {
+            'checklist.0.label': 'Original Item 1',
+            'checklist.1.label': 'Original Item 2',
+          },
+        },
+      };
+
+      revertLocale({ draft, keyPath: 'checklist', locale: 'en' });
+
+      // Should restore all original values
+      expect(draft.currentValues.en['checklist.0.label']).toBe('Original Item 1');
+      expect(draft.currentValues.en['checklist.1.label']).toBe('Original Item 2');
+      // Internal tracking properties should be removed
+      expect(draft.currentValues.en['checklist.0.__sc_item_original_key_path']).toBeUndefined();
+      expect(draft.currentValues.en['checklist.1.__sc_item_original_key_path']).toBeUndefined();
+    });
+
+    it('should revert after item deletion', () => {
+      vi.mocked(getField).mockReturnValue({ name: 'label', widget: 'string', i18n: true });
+
+      const draft = {
+        collection: {
+          _i18n: {
+            defaultLocale: 'en',
+            allLocales: ['en'],
+          },
+        },
+        collectionFile: undefined,
+        collectionName: 'posts',
+        fileName: undefined,
+        isIndexFile: false,
+        currentValues: {
+          en: {
+            // Item at index 0 was deleted; original item at index 1 shifted to index 0
+            'checklist.0.label': 'Item 2',
+            'checklist.0.__sc_item_original_key_path': 'checklist.1',
+            'checklist.0.__sc_item_id': 'uuid-b',
+          },
+        },
+        originalValues: {
+          en: {
+            'checklist.0.label': 'Original Item 1',
+            'checklist.1.label': 'Original Item 2',
+          },
+        },
+      };
+
+      revertLocale({ draft, keyPath: 'checklist', locale: 'en' });
+
+      // Should restore all original values
+      expect(draft.currentValues.en['checklist.0.label']).toBe('Original Item 1');
+      expect(draft.currentValues.en['checklist.1.label']).toBe('Original Item 2');
+    });
+  });
+});

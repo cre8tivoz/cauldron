@@ -1,0 +1,668 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import {
+    Alert,
+    Button,
+    EmptyState,
+    Group,
+    Icon,
+    Infobar,
+    ResizableHandle,
+    ResizablePane,
+    ResizablePaneGroup,
+    Spacer,
+    Toast,
+  } from '@sveltia/ui';
+  import { sleep } from '@sveltia/utils/misc';
+  import { onMount, tick, untrack } from 'svelte';
+
+  import PaneBody from '$lib/components/contents/details/pane-body.svelte';
+  import PaneHeader from '$lib/components/contents/details/pane-header.svelte';
+  import PendingEditInfobar from '$lib/components/contents/details/pending-edit-infobar.svelte';
+  import RemoteChangeInfobar from '$lib/components/contents/details/remote-change-infobar.svelte';
+  import SidebarSheet from '$lib/components/contents/details/sidebar/sidebar-sheet.svelte';
+  import Sidebar from '$lib/components/contents/details/sidebar/sidebar.svelte';
+  import Toolbar from '$lib/components/contents/details/toolbar.svelte';
+  import { focusOverlay, rememberFocus } from '$lib/services/app/focus';
+  import { goto } from '$lib/services/app/navigation';
+  import { getReadonlyMessage, isDraftReadonly } from '$lib/services/config/readonly';
+  import { selectedCollection } from '$lib/services/contents/collection';
+  import { collectionState } from '$lib/services/contents/collection/view';
+  import { resetBackupToastState, scheduleBackup } from '$lib/services/contents/draft/backup';
+  import { getValueMapVersion } from '$lib/services/contents/draft/create/versioned-map.svelte';
+  import { initEntryDraftEditor } from '$lib/services/contents/draft/editor.svelte';
+  import { setEntryDraftContext } from '$lib/services/contents/draft/state.svelte';
+  import {
+    editorFirstPane,
+    editorSecondPane,
+    showContentOverlay,
+    showDuplicateToast,
+  } from '$lib/services/contents/editor';
+  import { revealEditorField } from '$lib/services/contents/editor/fields';
+  import {
+    getDefaultPanes,
+    getLocaleContentLabel,
+    getPanesEditingLocale,
+    getPaneSizes,
+    getPaneStateKey,
+    getRestoredPanes,
+    savePaneState,
+  } from '$lib/services/contents/editor/panes';
+  import {
+    afterPendingFieldUpdates,
+    awaitPendingFieldUpdates,
+  } from '$lib/services/contents/editor/pending';
+  import { entryEditorSettings } from '$lib/services/contents/editor/settings';
+  import { getDraftI18nConfig } from '$lib/services/contents/i18n/config';
+  import { env } from '$lib/services/user/env.svelte';
+  import { prefs } from '$lib/services/user/prefs.svelte';
+  import { createLatestGuard } from '$lib/services/utils/scheduling';
+  import { watch } from '$lib/services/utils/state.svelte';
+
+  /**
+   * @import { EntryDraftState } from '$lib/services/contents/draft/state.svelte';
+   * @import { EntryDraft, EntryEditorPane, InternalLocaleCode } from '$lib/types/private';
+   * @import { FieldKeyPath } from '$lib/types/public';
+   */
+
+  /**
+   * @typedef {object} Props
+   * @property {EntryDraftState} entryDraft Draft to edit. The editor components below read it
+   * from the context.
+   * @property {string | undefined} [editorLocale] The locale to open the editor in.
+   * @property {boolean} [loading] Whether the entry is still being resolved. That happens when it
+   * was opened with a deep link before the Editorial Workflow drafts have been fetched.
+   */
+
+  /** @type {Props} */
+  let {
+    /* eslint-disable prefer-const */
+    entryDraft,
+    editorLocale = undefined,
+    loading = false,
+    /* eslint-enable prefer-const */
+  } = $props();
+
+  // svelte-ignore state_referenced_locally
+  setEntryDraftContext(entryDraft);
+
+  let restoring = false;
+  let switching = false;
+  /**
+   * Guard for field highlight requests, so a request still looking for its field can tell whether a
+   * newer one has come in.
+   */
+  const highlightRequestGuard = createLatestGuard();
+  /**
+   * Width of the first pane in pixels, used to place the pane swap button over the gutter between
+   * the panes. The button sits next to the resize handle rather than inside it: the handle is a
+   * focusable `separator`, and a button nested in it is an interactive control inside another one.
+   * @type {number}
+   */
+  let firstPaneWidth = $state(0);
+
+  let hidden = $state(true);
+  /** @type {HTMLElement | undefined} */
+  let wrapper = $state();
+  /** @type {HTMLElement | undefined} */
+  let firstPaneContentArea = $state();
+  /** @type {HTMLElement | undefined} */
+  let secondPaneContentArea = $state();
+
+  const notFound = $derived(entryDraft.current === undefined);
+  const {
+    isNew = true,
+    canPreview = true,
+    canShowSecondPane = true,
+    collection,
+    collectionName,
+    collectionFile,
+    fileName,
+    isIndexFile,
+  } = $derived(/** @type {EntryDraft} */ (entryDraft.current ?? {}));
+  const { showPreview, showSecondPane: secondPaneShown = true } = $derived(
+    entryEditorSettings.current ?? {},
+  );
+  // The user’s choice only applies where the `editor.second_pane` option allows the second pane
+  const showSecondPane = $derived(canShowSecondPane && secondPaneShown);
+  const { i18nEnabled, allLocales, defaultLocale } = $derived(
+    getDraftI18nConfig(entryDraft.current),
+  );
+  const paneStateKey = $derived(getPaneStateKey({ collection, collectionFile }));
+  const {
+    readonly: collectionReadonly,
+    canCreate,
+    quota,
+    creationDisabled,
+  } = $derived(collectionState.current);
+  // The entry can be viewed but not changed, which the editor says up front
+  const readonly = $derived(isDraftReadonly(entryDraft.current));
+  const [firstPaneSize, secondPaneSize, minPaneSize] = $derived(
+    getPaneSizes({ firstPane: editorFirstPane.current, secondPane: editorSecondPane.current }),
+  );
+
+  /**
+   * Restore the pane state from IndexedDB.
+   * @returns {Promise<boolean>} Whether the panes are restored.
+   */
+  const restorePanes = async () => {
+    // Guard against re-entrance while the panes are being applied, which the `await`s below leave
+    // room for
+    /* v8 ignore next 3 */
+    if (restoring) {
+      return false;
+    }
+
+    const panes = getRestoredPanes({
+      /* v8 ignore next -- there’s no key without a collection, and then no draft to restore for */
+      savedPanes: entryEditorSettings.current?.paneStates?.[paneStateKey ?? ''],
+      editorLocale,
+      allLocales,
+      defaultLocale,
+      canPreview,
+      showPreview,
+      showSecondPane,
+    });
+
+    if (!panes) {
+      return false;
+    }
+
+    restoring = true;
+    await tick();
+    [editorFirstPane.current, editorSecondPane.current] = panes;
+
+    if (env.isSmallScreen || env.isMediumScreen) {
+      editorSecondPane.current = null;
+    }
+
+    await tick();
+    restoring = false;
+
+    return true;
+  };
+
+  /**
+   * Hide the preview pane if it’s disabled by the user or the collection/file.
+   */
+  const switchPanes = async () => {
+    if (!entryDraft.current || switching) {
+      return;
+    }
+
+    switching = true;
+
+    if (!(await restorePanes())) {
+      [editorFirstPane.current, editorSecondPane.current] = getDefaultPanes({
+        editorLocale,
+        currentLocale: editorFirstPane.current?.locale,
+        defaultLocale,
+        allLocales,
+        i18nEnabled,
+        canPreview,
+        showPreview,
+        showSecondPane,
+        singlePane: env.isSmallScreen || env.isMediumScreen,
+      });
+    }
+
+    switching = false;
+  };
+
+  /**
+   * Save the pane state to IndexedDB.
+   */
+  const savePanes = () => {
+    const firstPane = editorFirstPane.current;
+    const secondPane = editorSecondPane.current;
+
+    if (collection && !restoring && firstPane && secondPane && paneStateKey) {
+      savePaneState(paneStateKey, [firstPane, secondPane]);
+    }
+  };
+
+  /**
+   * Swap the panes.
+   */
+  const swapPanes = () => {
+    afterPendingFieldUpdates(() => {
+      [editorFirstPane.current, editorSecondPane.current] = [
+        editorSecondPane.current,
+        editorFirstPane.current,
+      ];
+    });
+  };
+
+  /**
+   * Mark the draft as manually interacted when the user performs an action in the editor body.
+   * @param {Event} event DOM event.
+   */
+  const markInteracted = (event) => {
+    if (event.isTrusted && entryDraft.current && !entryDraft.current.interacted) {
+      entryDraft.current.interacted = true;
+    }
+  };
+
+  /**
+   * Ensure the given locale’s edit pane is visible, switching panes if needed.
+   * @param {InternalLocaleCode} locale Locale code.
+   */
+  const ensureEditPaneVisible = async (locale) => {
+    // The panes are about to change, so let what was just typed reach the draft first
+    await awaitPendingFieldUpdates();
+
+    const panes = getPanesEditingLocale({
+      firstPane: editorFirstPane.current,
+      secondPane: editorSecondPane.current,
+      locale,
+    });
+
+    // Already visible in an edit pane
+    if (!panes) {
+      return;
+    }
+
+    [editorFirstPane.current, editorSecondPane.current] = panes;
+
+    // Wait for the DOM to update after the pane switch
+    await sleep(100);
+  };
+
+  /**
+   * Reveal the requested editor field: switch to an edit pane for the locale if needed, then expand
+   * the parent list/object(s), move the field into the viewport and focus a control within it.
+   * @param {object} args Arguments.
+   * @param {InternalLocaleCode} args.locale Locale code.
+   * @param {FieldKeyPath} args.keyPath Key path of the field.
+   */
+  const revealRequestedField = async ({ locale, keyPath }) => {
+    const isLatest = highlightRequestGuard.next();
+
+    await ensureEditPaneVisible(locale);
+
+    const draft = entryDraft.current;
+
+    // The draft may have gone away while the pane was switched
+    /* v8 ignore next 3 */
+    if (!draft) {
+      return;
+    }
+
+    /**
+     * Check whether a newer request has come in.
+     * @returns {boolean} Result.
+     */
+    const isOutdated = () => !isLatest();
+
+    await revealEditorField({ draft, locale, keyPath, isOutdated });
+  };
+
+  /**
+   * Highlight the editor field if the URL state contains a highlight object, such as when the user
+   * clicks a search result or validation error. Then clear the highlight state so that it doesn’t
+   * trigger again on navigation.
+   */
+  const revealRequestedFieldIfNeeded = async () => {
+    const { state } = window.history;
+    const { locale, keyPath } = state?.highlight ?? {};
+
+    if (typeof locale === 'string' && typeof keyPath === 'string' && locale && keyPath) {
+      await revealRequestedField({ locale, keyPath });
+      window.history.replaceState({ ...state, highlight: null }, '');
+    }
+  };
+
+  /**
+   * Called when a message event is received. If the event is a highlight event, calls
+   * {@link revealRequestedField} with the event payload.
+   * @param {MessageEvent} event The message event.
+   */
+  const onmessage = (event) => {
+    // Only accept messages from the same window to prevent potential security issues
+    if (event.source !== window) {
+      return;
+    }
+
+    if (event.data?.type === 'highlight-editor-field' && event.data.payload) {
+      revealRequestedField(event.data.payload);
+    }
+  };
+
+  onMount(() => {
+    if (!showContentOverlay.current) {
+      entryDraft.current = null;
+    }
+
+    // The row or the New button that opened the editor gets the focus back once it closes
+    const restoreFocus = rememberFocus();
+
+    window.addEventListener('message', onmessage);
+
+    return () => {
+      window.removeEventListener('message', onmessage);
+      restoreFocus();
+    };
+  });
+
+  $effect(() => {
+    if (prefs.devModeEnabled) {
+      // Log a plain copy rather than the `$state` proxy. Taking it reads every value in the draft,
+      // so the draft is logged again whenever a value or its validity changes
+      // eslint-disable-next-line no-console
+      console.info('entryDraft', $state.snapshot(entryDraft.current));
+    }
+  });
+
+  // Register the editor root, which the rich text editor components look the draft up with, and
+  // resolve the Compute fields
+  initEntryDraftEditor(
+    () => entryDraft,
+    () => wrapper,
+  );
+
+  $effect(() => {
+    const draft = entryDraft.current;
+
+    if (draft) {
+      // Depend on everything that goes into a backup
+      Object.values(draft.currentValues).forEach(getValueMapVersion);
+      void $state.snapshot(draft.currentLocales);
+      void $state.snapshot(draft.currentSlugs);
+      // The files map holds `File` objects, which can’t be snapshotted; a file can be replaced
+      Object.values(draft.files).forEach(({ file }) => void file);
+      // A pending entry opened again and changed takes the place of its earlier version
+      draft.pendingEntries.forEach((pendingEntry) => void pendingEntry);
+      void draft.interacted;
+    }
+
+    // Back up the draft automatically whenever it changes, or drop a pending backup once it’s gone
+    untrack(() => scheduleBackup(draft));
+  });
+
+  $effect(() => {
+    if (paneStateKey) {
+      // Reset the editor panes
+      editorFirstPane.current = null;
+      editorSecondPane.current = null;
+    }
+  });
+
+  // The pane state key also changes between the files of a file/singleton collection, which share
+  // the collection
+  watch(
+    () => [
+      paneStateKey,
+      collection,
+      showSecondPane,
+      showPreview,
+      canPreview,
+      env.isSmallScreen,
+      env.isMediumScreen,
+    ],
+    () => {
+      switchPanes();
+    },
+  );
+
+  $effect(() => {
+    void [editorFirstPane.current, editorSecondPane.current];
+    savePanes();
+  });
+
+  $effect(() => {
+    /* v8 ignore next -- the wrapper is bound as long as the overlay is mounted */
+    if (wrapper) {
+      (async () => {
+        // The overlay is only rendered while it’s shown, so there is nothing to do once it’s
+        // closed; the page shows the backup toast then
+        if (hidden) {
+          hidden = false;
+          await switchPanes();
+          await focusOverlay(() => wrapper);
+          await revealRequestedFieldIfNeeded();
+          resetBackupToastState();
+        }
+      })();
+    }
+  });
+</script>
+
+{#snippet pane(
+  /** @type {'first' | 'second'} */ position,
+  /** @type {EntryEditorPane} */ { locale, mode },
+)}
+  {@const thisPane = position === 'first' ? editorFirstPane : editorSecondPane}
+  {@const thatPane = position === 'first' ? editorSecondPane : editorFirstPane}
+  <div class="pane-wrapper">
+    <Group
+      class="pane"
+      ariaLabel={getLocaleContentLabel(
+        mode === 'edit' ? 'edit_x_locale' : 'preview_x_locale',
+        locale,
+      )}
+      data-locale={locale}
+      data-mode={mode}
+    >
+      <PaneHeader id={`${position}-pane-header`} {thisPane} {thatPane} />
+      {#if position === 'first'}
+        <PaneBody
+          id="first-pane-body"
+          {thisPane}
+          bind:thisPaneContentArea={firstPaneContentArea}
+          thatPaneContentArea={secondPaneContentArea}
+        />
+      {:else}
+        <PaneBody
+          id="second-pane-body"
+          {thisPane}
+          bind:thisPaneContentArea={secondPaneContentArea}
+          thatPaneContentArea={firstPaneContentArea}
+        />
+      {/if}
+    </Group>
+  </div>
+{/snippet}
+
+<div
+  role="group"
+  class="wrapper content-editor"
+  aria-label={_('content_editor')}
+  bind:this={wrapper}
+>
+  {#key entryDraft.current?.id}
+    <!-- A new entry that can’t be created gets the message in place of the editor instead -->
+    {#if readonly && !loading && !(isNew && creationDisabled)}
+      <Infobar
+        dismissible={false}
+        --sui-infobar-border-width="0 0 1px"
+        --sui-infobar-message-justify-content="center"
+      >
+        {getReadonlyMessage('entry', { collection, collectionFile })}
+      </Infobar>
+    {/if}
+    <Toolbar disabled={loading || (isNew && creationDisabled)} />
+    {#if loading}
+      <EmptyState>
+        <div role="none">{_('loading_entries', { values: { count: 1 } })}</div>
+      </EmptyState>
+    {:else if entryDraft.current === null}
+      <!-- Hide the content after saving a draft -->
+    {:else if notFound || (isNew && creationDisabled)}
+      <EmptyState>
+        <div role="none">
+          {#if notFound}
+            {_('entry_not_found')}
+          {:else if collectionReadonly}
+            {getReadonlyMessage('collection', { collection })}
+          {:else if !canCreate}
+            {_('creating_entries_disabled_by_admin')}
+          {:else}
+            {_('creating_entries_disabled_by_quota', { values: { quota } })}
+          {/if}
+        </div>
+        <div role="none">
+          <Button
+            variant="primary"
+            onclick={() => {
+              // The draft is gone when the entry couldn’t be found, so fall back to the collection
+              // the URL pointed at
+              const targetCollection = collectionName ?? selectedCollection.current?.name;
+
+              goto(targetCollection ? `/collections/${targetCollection}` : '/collections', {
+                replaceState: true,
+                transitionType: 'backwards',
+              });
+            }}
+          >
+            {_('back_to_collection')}
+          </Button>
+        </div>
+      </EmptyState>
+    {:else}
+      <RemoteChangeInfobar />
+      <PendingEditInfobar />
+      <div role="none" class="body" onpointerdown={markInteracted} onkeydown={markInteracted}>
+        {#key `${collectionName}|${fileName}|${isIndexFile}`}
+          <div role="none" class="content-area">
+            {#if editorFirstPane.current && editorSecondPane.current}
+              <ResizablePaneGroup
+                onResize={({ sizes }) => {
+                  /* v8 ignore next -- the group is only rendered with both panes */
+                  if (editorFirstPane.current && editorSecondPane.current) {
+                    const [firstWidth, secondWidth] = sizes;
+
+                    // Replace the objects rather than mutating them, so the change is noticed
+                    editorFirstPane.current = { ...editorFirstPane.current, width: firstWidth };
+                    editorSecondPane.current = {
+                      ...editorSecondPane.current,
+                      width: secondWidth,
+                    };
+                  }
+                }}
+              >
+                <ResizablePane defaultSize={firstPaneSize} minSize={minPaneSize}>
+                  <div role="none" class="pane-measure" bind:clientWidth={firstPaneWidth}>
+                    {@render pane('first', editorFirstPane.current)}
+                  </div>
+                </ResizablePane>
+                <ResizableHandle />
+                <ResizablePane defaultSize={secondPaneSize} minSize={minPaneSize}>
+                  {@render pane('second', editorSecondPane.current)}
+                </ResizablePane>
+              </ResizablePaneGroup>
+              <Button
+                class="swap-button"
+                iconic
+                size="small"
+                variant="tertiary"
+                aria-label={_('swap_panes')}
+                style="--gutter-position: {firstPaneWidth}px"
+                onclick={swapPanes}
+              >
+                <Icon name="swap_horiz" />
+              </Button>
+            {:else if editorFirstPane.current}
+              {@render pane('first', editorFirstPane.current)}
+            {:else if editorSecondPane.current}
+              {@render pane('second', editorSecondPane.current)}
+            {:else}
+              <Spacer flex />
+            {/if}
+          </div>
+          <!-- The sidebar doesn’t fit on a small screen, so its panels open in a bottom sheet -->
+          {#if env.isSmallScreen}
+            <SidebarSheet />
+          {:else}
+            <Sidebar />
+          {/if}
+        {/key}
+      </div>
+    {/if}
+  {/key}
+</div>
+
+<Toast bind:show={showDuplicateToast.current}>
+  <Alert status="success">
+    {_('entry_duplicated')}
+  </Alert>
+</Toast>
+
+<style>
+  .wrapper {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--sui-secondary-background-color);
+  }
+
+  .pane-wrapper {
+    display: contents;
+
+    :global {
+      & > .pane {
+        flex: auto;
+        height: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+    }
+  }
+
+  .body {
+    flex: auto;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .content-area {
+    position: relative;
+    flex: auto;
+    border-block-start: var(--area-border); /* below the toolbar */
+    background-color: var(--sui-primary-background-color);
+
+    &:not(:only-child) {
+      border-inline-end: var(--area-border); /* sidebar is present */
+      border-start-end-radius: 16px;
+    }
+
+    :global {
+      .sui.resizable-handle {
+        border-inline: var(--area-border); /* between the panes */
+        background-color: var(--sui-secondary-background-color); /* same as toolbar */
+      }
+
+      /* Centred over the gutter, whose position is the first pane’s width */
+      .swap-button {
+        position: absolute;
+        top: calc(50% - 12px);
+        inset-inline-start: calc(
+          var(--gutter-position) + var(--sui-resizable-handle-size, 4px) / 2
+        );
+        /* Above the handle’s hit area, a positioned `::before` pseudo-element at `z-index: 1` */
+        z-index: 2;
+        margin: 0;
+        border-radius: 50%;
+        opacity: 0.5;
+        translate: -50%;
+
+        &:dir(rtl) {
+          translate: 50%;
+        }
+
+        &:hover,
+        &:focus-visible {
+          opacity: 1;
+        }
+      }
+    }
+  }
+
+  .pane-measure {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+</style>

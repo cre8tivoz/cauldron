@@ -1,0 +1,304 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { allTranslationServices, machineTranslationServices, translator } from '.';
+
+// Mock the individual translator services
+vi.mock('./google.js', () => ({
+  default: {
+    serviceId: 'google',
+    serviceLabel: 'Google Cloud Translation',
+    apiLabel: 'Cloud Translation API',
+    developerURL: 'https://console.cloud.google.com/apis/library/translate.googleapis.com',
+    apiKeyURL: 'https://console.cloud.google.com/apis/api/translate.googleapis.com/credentials',
+    apiKeyPattern: /AIza[0-9A-Za-z-_]{35}/,
+    markdownSupported: false,
+    availability: vi.fn(),
+    translate: vi.fn(),
+  },
+}));
+
+vi.mock('./google-ai.js', () => ({
+  default: {
+    serviceId: 'google-ai',
+    serviceLabel: 'Google Gemini',
+    apiLabel: 'Gemini API',
+    developerURL: 'https://ai.google.dev/gemini-api/docs',
+    apiKeyURL: 'https://aistudio.google.com/api-keys',
+    apiKeyPattern: /AIza[a-zA-Z0-9_-]{35}/,
+    markdownSupported: true,
+    availability: vi.fn(),
+    translate: vi.fn(),
+  },
+}));
+
+vi.mock('./openai.js', () => ({
+  default: {
+    serviceId: 'openai',
+    serviceLabel: 'OpenAI GPT',
+    apiLabel: 'OpenAI API',
+    developerURL: 'https://platform.openai.com/docs/overview',
+    apiKeyURL: 'https://platform.openai.com/api-keys',
+    apiKeyPattern: /sk-[a-zA-Z0-9-_]{40,}/,
+    markdownSupported: true,
+    availability: vi.fn(),
+    translate: vi.fn(),
+  },
+}));
+
+vi.mock('./anthropic.js', () => ({
+  default: {
+    serviceId: 'anthropic',
+    serviceLabel: 'Anthropic Claude',
+    apiLabel: 'Anthropic API',
+    developerURL: 'https://console.anthropic.com/',
+    apiKeyURL: 'https://console.anthropic.com/settings/keys',
+    apiKeyPattern: /sk-ant-[a-zA-Z0-9-_]{40,}/,
+    markdownSupported: true,
+    availability: vi.fn(),
+    translate: vi.fn(),
+  },
+}));
+
+vi.mock('./deepseek.js', () => ({
+  default: {
+    serviceId: 'deepseek',
+    serviceLabel: 'DeepSeek',
+    apiLabel: 'DeepSeek API',
+    developerURL: 'https://api-docs.deepseek.com/',
+    apiKeyURL: 'https://platform.deepseek.com/api_keys',
+    apiKeyPattern: /sk-[a-zA-Z0-9]{32,}/,
+    markdownSupported: true,
+    availability: vi.fn(),
+    translate: vi.fn(),
+  },
+}));
+
+vi.mock('./mistral.js', () => ({
+  default: {
+    serviceId: 'mistral',
+    serviceLabel: 'Mistral',
+    apiLabel: 'Mistral AI API',
+    developerURL: 'https://docs.mistral.ai/',
+    apiKeyURL: 'https://console.mistral.ai/home?profile_dialog=api-keys',
+    apiKeyPattern: /[a-zA-Z0-9]{32,}/,
+    markdownSupported: true,
+    availability: vi.fn(),
+    translate: vi.fn(),
+  },
+}));
+
+/** @type {{ defaultTranslationService: string | undefined }} */
+const mockPrefs = vi.hoisted(
+  () =>
+    /** @type {{ defaultTranslationService: string | undefined }} */ ({
+      defaultTranslationService: 'google',
+    }),
+);
+
+vi.mock('$lib/services/user/prefs.svelte', () => ({
+  prefs: mockPrefs,
+}));
+
+describe('Translator Services Index', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPrefs.defaultTranslationService = 'google';
+  });
+
+  describe('allTranslationServices', () => {
+    it('should export all available translation services', () => {
+      expect(allTranslationServices).toBeDefined();
+      expect(typeof allTranslationServices).toBe('object');
+    });
+
+    it('should include Google translator service', () => {
+      expect(allTranslationServices).toHaveProperty('google');
+      expect(allTranslationServices.google).toBeDefined();
+      expect(allTranslationServices.google.serviceId).toBe('google');
+    });
+
+    it('should include Gemini translator service', () => {
+      expect(allTranslationServices).toHaveProperty('google-ai');
+      expect(allTranslationServices['google-ai']).toBeDefined();
+      expect(allTranslationServices['google-ai'].serviceId).toBe('google-ai');
+    });
+
+    it('should include OpenAI translator service', () => {
+      expect(allTranslationServices).toHaveProperty('openai');
+      expect(allTranslationServices.openai).toBeDefined();
+      expect(allTranslationServices.openai.serviceId).toBe('openai');
+    });
+
+    it('should include DeepSeek translator service', () => {
+      expect(allTranslationServices).toHaveProperty('deepseek');
+      expect(allTranslationServices.deepseek).toBeDefined();
+      expect(allTranslationServices.deepseek.serviceId).toBe('deepseek');
+    });
+
+    it('should include Mistral AI translator service', () => {
+      expect(allTranslationServices).toHaveProperty('mistral');
+      expect(allTranslationServices.mistral).toBeDefined();
+      expect(allTranslationServices.mistral.serviceId).toBe('mistral');
+    });
+
+    it('should have all required properties for each service', () => {
+      const requiredProperties = [
+        'serviceId',
+        'serviceLabel',
+        'apiLabel',
+        'developerURL',
+        'apiKeyURL',
+        'apiKeyPattern',
+        'markdownSupported',
+        'availability',
+        'translate',
+      ];
+
+      Object.values(allTranslationServices).forEach((service) => {
+        requiredProperties.forEach((prop) => {
+          expect(service).toHaveProperty(prop);
+        });
+      });
+    });
+
+    it('should have unique service IDs', () => {
+      const serviceIds = Object.values(allTranslationServices).map((service) => service.serviceId);
+      const uniqueServiceIds = [...new Set(serviceIds)];
+
+      expect(serviceIds.length).toBe(uniqueServiceIds.length);
+    });
+
+    it('should have callable function properties', () => {
+      Object.values(allTranslationServices).forEach((service) => {
+        expect(typeof service.availability).toBe('function');
+        expect(typeof service.translate).toBe('function');
+      });
+    });
+
+    it('should have correct markdown support flags', () => {
+      expect(allTranslationServices.google.markdownSupported).toBe(false);
+      expect(allTranslationServices.openai.markdownSupported).toBe(true);
+      expect(allTranslationServices.deepseek.markdownSupported).toBe(true);
+    });
+  });
+
+  describe('machineTranslationServices', () => {
+    it('should only include the dedicated machine translation services', () => {
+      expect(machineTranslationServices).toEqual({ google: allTranslationServices.google });
+    });
+  });
+
+  describe('translator state', () => {
+    it('should default to Google translator', () => {
+      mockPrefs.defaultTranslationService = undefined;
+
+      expect(translator.current).toBe(allTranslationServices.google);
+    });
+
+    it('should follow the preference', () => {
+      mockPrefs.defaultTranslationService = 'openai';
+
+      expect(translator.current).toBe(allTranslationServices.openai);
+    });
+
+    it('should fall back to Google for an unknown service', () => {
+      mockPrefs.defaultTranslationService = 'deepl';
+
+      expect(translator.current).toBe(allTranslationServices.google);
+    });
+  });
+
+  describe('Service Integration', () => {
+    it('should allow accessing services by service ID', () => {
+      expect(allTranslationServices.google).toBeDefined();
+      expect(allTranslationServices.google.serviceId).toBe('google');
+    });
+
+    it('should provide consistent interface across all services', () => {
+      const serviceKeys = Object.keys(allTranslationServices);
+
+      expect(serviceKeys.length).toBeGreaterThan(0);
+
+      serviceKeys.forEach((key) => {
+        const service = allTranslationServices[key];
+
+        // Test service metadata
+        expect(typeof service.serviceId).toBe('string');
+        expect(typeof service.serviceLabel).toBe('string');
+        expect(typeof service.developerURL).toBe('string');
+        expect(typeof service.apiKeyURL).toBe('string');
+        expect(service.apiKeyPattern).toBeInstanceOf(RegExp);
+        expect(typeof service.markdownSupported).toBe('boolean');
+
+        // Test service functions
+        expect(typeof service.availability).toBe('function');
+        expect(typeof service.translate).toBe('function');
+      });
+    });
+  });
+
+  describe('Service Function Calls', () => {
+    it('should allow calling service functions from allTranslationServices', async () => {
+      const googleService = allTranslationServices.google;
+
+      // Mock the availability function to return a resolved promise
+      vi.mocked(googleService.availability).mockResolvedValue(true);
+
+      // Test function calls don't throw errors (functions are mocked)
+      await expect(
+        googleService.availability({ sourceLanguage: 'en', targetLanguage: 'fr' }),
+      ).resolves.toBe(true);
+    });
+
+    it('should properly mock service functions', async () => {
+      const googleService = allTranslationServices.google;
+
+      // Mock the availability function to return a resolved promise
+      vi.mocked(googleService.availability).mockResolvedValue(true);
+
+      await googleService.availability({ sourceLanguage: 'en', targetLanguage: 'fr' });
+
+      expect(googleService.availability).toHaveBeenCalledWith({
+        sourceLanguage: 'en',
+        targetLanguage: 'fr',
+      });
+    });
+
+    it('should allow mocking translate function calls', async () => {
+      const googleService = allTranslationServices.google;
+      // Mock the translate function to return a specific result
+      const mockTranslate = vi.mocked(googleService.translate);
+
+      mockTranslate.mockResolvedValueOnce(['Bonjour']);
+
+      const result = await googleService.translate(['Hello'], {
+        sourceLanguage: 'en',
+        targetLanguage: 'fr',
+        apiKey: 'test-key',
+      });
+
+      expect(result).toEqual(['Bonjour']);
+      expect(mockTranslate).toHaveBeenCalledWith(['Hello'], {
+        sourceLanguage: 'en',
+        targetLanguage: 'fr',
+        apiKey: 'test-key',
+      });
+    });
+  });
+
+  describe('Module Exports', () => {
+    it('should export the expected functions and objects', () => {
+      expect(typeof allTranslationServices).toBe('object');
+      expect(translator).toBeDefined();
+    });
+
+    it('should not export internal implementation details', () => {
+      // Ensure the module only exports what's intended for public use
+      const moduleKeys = Object.keys({ allTranslationServices, translator });
+
+      expect(moduleKeys).toContain('allTranslationServices');
+      expect(moduleKeys).toContain('translator');
+      expect(moduleKeys).toHaveLength(2);
+    });
+  });
+});

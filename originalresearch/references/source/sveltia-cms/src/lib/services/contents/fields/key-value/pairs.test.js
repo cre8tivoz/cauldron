@@ -1,0 +1,212 @@
+import { describe, expect, test, vi } from 'vitest';
+
+import { alignPairOrder, getKeyValueField, getPairsFromContent, setPairs } from './pairs';
+
+/**
+ * @import { Field } from '$lib/types/public';
+ */
+
+/** @type {Field[]} */
+const fields = [
+  { name: 'title', widget: 'string' },
+  { name: 'metadata', widget: 'keyvalue', i18n: 'duplicate_keys' },
+  {
+    name: 'sections',
+    widget: 'list',
+    fields: [{ name: 'attrs', widget: 'keyvalue' }],
+  },
+];
+
+vi.mock('$lib/services/contents/collection', () => ({
+  getCollection: vi.fn(() => ({ name: 'posts', _type: 'entry', fields })),
+}));
+
+describe('Test getPairsFromContent()', () => {
+  test('should extract the pairs stored under the key path, in insertion order', () => {
+    const content = {
+      title: 'Hello',
+      'metadata.b': '2',
+      'metadata.a': '1',
+      'metadata.': 'empty key',
+      'other.a': 'x',
+    };
+
+    expect(getPairsFromContent(content, 'metadata')).toEqual([
+      ['b', '2'],
+      ['a', '1'],
+      ['', 'empty key'],
+    ]);
+  });
+
+  test('should read the pairs from the key path index of a value map that isn’t mutated', () => {
+    const content = { title: 'Hello', 'metadata.b': '2', 'metadata.a': '1', 'other.a': 'x' };
+
+    expect(getPairsFromContent(content, 'metadata', { live: false })).toEqual([
+      ['b', '2'],
+      ['a', '1'],
+    ]);
+  });
+
+  test('should return an empty array when the field holds no pairs', () => {
+    expect(getPairsFromContent({ title: 'Hello', metadata: null }, 'metadata')).toEqual([]);
+  });
+});
+
+describe('Test pairs with a dot in the key', () => {
+  test('should unescape the keys stored escaped', () => {
+    const content = { 'metadata.example\uE000com': 'a', 'metadata.v1\uE0002': 'b' };
+
+    expect(getPairsFromContent(content, 'metadata')).toEqual([
+      ['example.com', 'a'],
+      ['v1.2', 'b'],
+    ]);
+  });
+
+  test('should store the keys escaped, so they aren’t split into nested objects on save', () => {
+    /** @type {Record<string, any>} */
+    const content = { title: 'Hello', metadata: null };
+
+    setPairs(content, 'metadata', [
+      ['example.com', 'a'],
+      ['v1.2', 'b'],
+    ]);
+
+    expect(content).toEqual({
+      title: 'Hello',
+      'metadata.example\uE000com': 'a',
+      'metadata.v1\uE0002': 'b',
+    });
+    expect(getPairsFromContent(content, 'metadata')).toEqual([
+      ['example.com', 'a'],
+      ['v1.2', 'b'],
+    ]);
+  });
+
+  test('should resolve the KeyValue field a pair with an escaped key belongs to', () => {
+    expect(
+      getKeyValueField({ collectionName: 'posts', keyPath: 'metadata.example\uE000com' }),
+    ).toEqual(fields[1]);
+  });
+});
+
+describe('Test setPairs()', () => {
+  test('should replace the existing pairs, leaving other fields alone', () => {
+    const content = {
+      title: 'Hello',
+      'metadata.old': 'x',
+      'other.old': 'y',
+    };
+
+    setPairs(content, 'metadata', [
+      ['a', '1'],
+      ['b', '2'],
+    ]);
+
+    expect(content).toEqual({
+      title: 'Hello',
+      'metadata.a': '1',
+      'metadata.b': '2',
+      'other.old': 'y',
+    });
+  });
+
+  test('should remove the `null` placeholder once there are pairs', () => {
+    const content = { metadata: null };
+
+    setPairs(content, 'metadata', [['a', '1']]);
+
+    expect(content).toEqual({ 'metadata.a': '1' });
+  });
+
+  test('should keep the `null` placeholder while there are no pairs', () => {
+    const content = { metadata: null, 'metadata.a': '1' };
+
+    setPairs(content, 'metadata', []);
+
+    expect(content).toEqual({ metadata: null });
+  });
+
+  test('should not touch a non-null value stored at the key path', () => {
+    const content = { metadata: {} };
+
+    setPairs(content, 'metadata', [['a', '1']]);
+
+    expect(content).toEqual({ metadata: {}, 'metadata.a': '1' });
+  });
+});
+
+describe('Test alignPairOrder()', () => {
+  test('should put the pairs in the reference order, keeping their values', () => {
+    const content = { title: 'Salut', 'metadata.b': 'deux', 'metadata.a': 'un' };
+
+    alignPairOrder({
+      content,
+      referenceContent: { 'metadata.a': '1', 'metadata.b': '2' },
+      keyPath: 'metadata',
+    });
+
+    expect(Object.entries(content)).toEqual([
+      ['title', 'Salut'],
+      ['metadata.a', 'un'],
+      ['metadata.b', 'deux'],
+    ]);
+  });
+
+  test('should put the keys the reference lacks last, adding none of its own', () => {
+    const content = { 'metadata.c': 'trois', 'metadata.b': 'deux' };
+
+    alignPairOrder({
+      content,
+      referenceContent: { 'metadata.a': '1', 'metadata.b': '2', 'metadata.c': '3' },
+      keyPath: 'metadata',
+    });
+    expect(Object.entries(content)).toEqual([
+      ['metadata.b', 'deux'],
+      ['metadata.c', 'trois'],
+    ]);
+
+    alignPairOrder({ content, referenceContent: { 'metadata.c': '3' }, keyPath: 'metadata' });
+    expect(Object.entries(content)).toEqual([
+      ['metadata.c', 'trois'],
+      ['metadata.b', 'deux'],
+    ]);
+  });
+
+  test('should leave the content alone if the order is already right', () => {
+    const content = { 'metadata.a': 'un', title: 'Salut', 'metadata.b': 'deux' };
+
+    alignPairOrder({
+      content,
+      referenceContent: { 'metadata.a': '1', 'metadata.b': '2' },
+      keyPath: 'metadata',
+    });
+
+    expect(Object.keys(content)).toEqual(['metadata.a', 'title', 'metadata.b']);
+  });
+});
+
+describe('Test getKeyValueField()', () => {
+  test('should resolve the KeyValue field a pair belongs to', () => {
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'metadata.foo' })).toEqual(
+      fields[1],
+    );
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'metadata.' })).toEqual(fields[1]);
+  });
+
+  test('should resolve a KeyValue field nested in a list item', () => {
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'sections.0.attrs.foo' })).toEqual({
+      name: 'attrs',
+      widget: 'keyvalue',
+    });
+  });
+
+  test('should return `undefined` for a top-level key path', () => {
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'metadata' })).toBeUndefined();
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'title' })).toBeUndefined();
+  });
+
+  test('should return `undefined` when the parent is not a KeyValue field', () => {
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'sections.0' })).toBeUndefined();
+    expect(getKeyValueField({ collectionName: 'posts', keyPath: 'unknown.foo' })).toBeUndefined();
+  });
+});

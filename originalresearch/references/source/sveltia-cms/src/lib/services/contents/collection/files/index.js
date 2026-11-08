@@ -1,0 +1,153 @@
+import { stripSlashes } from '@sveltia/utils/string';
+
+import { cmsConfig } from '$lib/services/config';
+import { allEntryFolders, findEntryByPaths } from '$lib/services/contents';
+import { getCollection, getValidCollections } from '$lib/services/contents/collection';
+import { getValidCollectionFiles } from '$lib/services/contents/collection/predicates';
+import { getLocalePath } from '$lib/services/contents/i18n';
+
+/**
+ * @import {
+ * Entry,
+ * InternalCmsConfig,
+ * InternalCollection,
+ * InternalCollectionFile,
+ * } from '$lib/types/private';
+ * @import { CollectionFile } from '$lib/types/public';
+ */
+
+/**
+ * Get a file in a file/singleton collection by its name.
+ * @param {InternalCollection | string} collection Collection or collection name.
+ * @param {string} fileName File name.
+ * @returns {InternalCollectionFile | undefined} Collection file.
+ */
+export const getCollectionFile = (collection, fileName) => {
+  /** @type {InternalCollection | undefined} */
+  const _collection = typeof collection === 'string' ? getCollection(collection) : collection;
+
+  // The file name may come from the URL, so it may be the name of an `Object.prototype` member
+  if (
+    !_collection ||
+    !('_fileMap' in _collection) ||
+    !Object.hasOwn(_collection._fileMap, fileName)
+  ) {
+    return undefined;
+  }
+
+  return _collection._fileMap[fileName];
+};
+
+/**
+ * Look up a collection and, if a file name is given, one of its files.
+ * @param {string} collectionName Collection name.
+ * @param {string | undefined} fileName File name. Given only for a file/singleton collection.
+ * @returns {{ collection: InternalCollection, collectionFile: InternalCollectionFile | undefined }
+ * | undefined} Collection and collection file, the latter `undefined` when no file name is given.
+ * `undefined` when the collection is not found, or a file name is given but the file is not found,
+ * which includes the case where the collection is an entry collection.
+ */
+export const resolveCollectionAndFile = (collectionName, fileName) => {
+  const collection = getCollection(collectionName);
+
+  if (!collection) {
+    return undefined;
+  }
+
+  const collectionFile = fileName ? getCollectionFile(collection, fileName) : undefined;
+
+  if (fileName && !collectionFile) {
+    return undefined;
+  }
+
+  return { collection, collectionFile };
+};
+
+/**
+ * Get a human-readable label for a collection file. If the file has a `label` property, it is used;
+ * otherwise, the `name` property is used.
+ * @param {InternalCollectionFile} file Collection file.
+ * @returns {string} File label.
+ */
+export const getCollectionFileLabel = (file) => file.label || file.name;
+
+/**
+ * Get a file/singleton collection’s file configurations that matches the given entry. One file can
+ * theoretically appear in multiple collections files depending on the configuration, so that the
+ * result is an array. A file is matched by the path of any locale of the entry, as the file of the
+ * default locale may not exist when the locales are stored in separate files.
+ * @param {InternalCollection} collection Collection.
+ * @param {Entry} entry Entry.
+ * @returns {InternalCollectionFile[]} Collection files.
+ */
+export const getCollectionFilesByEntry = (collection, entry) => {
+  if (!('_fileMap' in collection)) {
+    // It’s an entry collection
+    return [];
+  }
+
+  return Object.values(collection._fileMap).filter(({ file, _file, _i18n }) =>
+    Object.entries(entry.locales).some(
+      ([locale, { path }]) =>
+        path ===
+        (locale === _i18n.defaultLocale
+          ? _file.fullPath
+          : getLocalePath({ _i18n, locale, path: stripSlashes(file) })),
+    ),
+  );
+};
+
+/**
+ * Get a file/singleton collection entry that matches the given collection name and file name.
+ * @param {string} collectionName Collection name.
+ * @param {string} fileName Collection file name.
+ * @returns {Entry | undefined} File.
+ * @see https://decapcms.org/docs/collection-file/
+ * @see https://sveltiacms.app/en/docs/collections/files
+ */
+export const getCollectionFileEntry = (collectionName, fileName) => {
+  // Pre-find the valid file paths from `allEntryFolders` to avoid calling
+  // `getAssociatedCollections()` per entry, which iterates `allEntryFolders` internally for each
+  // entry.
+  const folderInfo = allEntryFolders.current.find(
+    ({ collectionName: cn, fileName: fn }) => cn === collectionName && fn === fileName,
+  );
+
+  if (!folderInfo?.filePathMap) {
+    return undefined;
+  }
+
+  // Relation fields look this up for every option list they build, so the entries are found
+  // through the path index rather than by going through all of them
+  return findEntryByPaths(Object.values(folderInfo.filePathMap));
+};
+
+/**
+ * Get the index of a collection file with the given name.
+ * @param {string | undefined} collectionName Collection name.
+ * @param {string | undefined} fileName Collection file name.
+ * @returns {number} Index.
+ */
+export const getCollectionFileIndex = (collectionName, fileName) => {
+  if (collectionName && fileName) {
+    const { collections, singletons } = /** @type {InternalCmsConfig} */ (cmsConfig.current);
+
+    if (collectionName === '_singletons') {
+      if (Array.isArray(singletons)) {
+        return getValidCollectionFiles(singletons).findIndex((file) => file.name === fileName);
+      }
+
+      return -1;
+    }
+
+    const collection = getValidCollections({ collections }).find(
+      ({ name }) => name === collectionName,
+    );
+
+    if (collection && 'files' in collection) {
+      return collection.files.findIndex(({ name }) => name === fileName);
+    }
+  }
+
+  return -1;
+};

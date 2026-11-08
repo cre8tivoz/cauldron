@@ -1,0 +1,5 @@
+/Users/habibi/.hermes/profiles/claudia/cache/scratch/zeku-mount/.VolumeIcon.icns
+/Users/habibi/.hermes/profiles/claudia/cache/scratch/zeku-mount/Zeku.app/Contents/_CodeSignature/CodeResources
+/Users/habibi/.hermes/profiles/claudia/cache/scratch/zeku-mount/Zeku.app/Contents/Info.plist
+/Users/habibi/.hermes/profiles/claudia/cache/scratch/zeku-mount/Zeku.app/Contents/MacOS/zeku
+/Users/habibi/.hermes/profiles/claudia/cache/scratch/zeku-mount/Zeku.app/Contents/Resources/icon.icns

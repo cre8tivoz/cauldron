@@ -1,0 +1,24 @@
+
+> build
+> astro build
+
+21:31:09 [vite] Re-optimizing dependencies because vite config has changed
+21:31:09 [types] Generated 79ms
+21:31:09 [build] output: "static"
+21:31:09 [build] mode: "static"
+21:31:09 [build] directory: /Users/habibi/hermes/apps-codebases/cauldron-astro/evaluation/site/dist/
+21:31:09 [build] Collecting build info...
+21:31:09 [build] ✓ Completed in 100ms.
+21:31:09 [build] Building static entrypoints...
+21:31:09 [vite] ✓ built in 313ms
+21:31:09 [vite] ✓ built in 13ms
+21:31:09 [build] Rearranging server assets...
+
+ generating static routes 
+21:31:09   ├─ /contact/index.html (+8ms) 
+21:31:09   ├─ /index.html (+2ms) 
+21:31:09 ✓ Completed in 22ms.
+
+21:31:09 [build] ✓ Completed in 372ms.
+21:31:09 [build] 2 page(s) built in 473ms
+21:31:09 [build] Complete!

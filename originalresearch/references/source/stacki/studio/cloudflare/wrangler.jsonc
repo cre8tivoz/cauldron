@@ -1,0 +1,36 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "stacki-studio",
+  "main": "../src/cloudflare/worker.ts",
+  "compatibility_date": "2026-10-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  // Keep diagnostic logging opt-in to avoid unexpected Observability charges.
+  "observability": { "enabled": false },
+  "limits": { "cpu_ms": 50 },
+  "assets": { "directory": "../dist", "binding": "ASSETS", "run_worker_first": true },
+  "containers": [
+    {
+      "class_name": "PreviewContainer",
+      "image": "../Dockerfile",
+      "max_instances": 1,
+      // Builds need room for source, Git objects, dependencies and isolated output.
+      "instance_type": "standard-2",
+    },
+  ],
+  "durable_objects": { "bindings": [{ "name": "PREVIEW", "class_name": "PreviewContainer" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PreviewContainer"] }],
+  "r2_buckets": [{ "binding": "DRAFTS", "bucket_name": "stacki-studio-drafts" }],
+  "vars": {
+    "STUDIO_ORIGIN": "https://studio.example.com",
+    "PREVIEW_ORIGIN": "https://preview.example.com",
+    "GITHUB_REPOSITORY": "owner/project",
+    "GITHUB_BRANCH": "main",
+    "GITHUB_APP_ID": "",
+    "GITHUB_INSTALLATION_ID": "",
+    "GITHUB_CLIENT_ID": "",
+    "EDITOR_ACCESS": "repository",
+    "EDITOR_GITHUB_IDS": "",
+  },
+}

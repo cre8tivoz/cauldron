@@ -1,0 +1,221 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import { Button, ConfirmationDialog, Icon, PromptDialog, Spacer } from '@sveltia/ui';
+  import { onMount } from 'svelte';
+
+  import { DOCS_BASE_URL } from '$lib/services/app';
+  import { allBackendServices } from '$lib/services/backends';
+  import { isDemoSite } from '$lib/services/backends/fs/seed';
+  import { cancelAuthorization } from '$lib/services/backends/git/shared/auth';
+  import { cmsConfig } from '$lib/services/config';
+  import { auth, signInAutomatically, signInManually } from '$lib/services/user/auth.svelte';
+  import { env } from '$lib/services/user/env.svelte';
+  import { getSignInOptions } from '$lib/services/user/sign-in-options';
+  import { makeLink } from '$lib/services/utils/string';
+  import { isWorkflowConfigured } from '$lib/services/workflow/config';
+
+  /**
+   * @import { Backend, GitBackend } from '$lib/types/public';
+   */
+
+  let showTokenDialog = $state(false);
+  let token = $state('');
+
+  const configuredBackend = $derived(/** @type {Backend} */ (cmsConfig.current?.backend));
+  const backendName = $derived(/** @type {string} */ (configuredBackend.name));
+  const backend = $derived(allBackendServices[backendName]);
+  const isTestRepo = $derived(backendName === 'test-repo');
+  const isDemo = $derived(isDemoSite(backendName));
+  const testRepoUnsupported = $derived(isTestRepo && !env.isTestBackendSupported);
+  // The test repository has no `repo` option, and the name only goes with the local option
+  const repositoryName = $derived(
+    /** @type {GitBackend} */ (configuredBackend).repo?.split('/').pop(),
+  );
+  const showLocalBackendOption = $derived(env.isLocalHost && !isTestRepo);
+  const trimmedToken = $derived(token.trim());
+  /**
+   * Whether to tell the user that the token also needs pull request access. Only a GitHub
+   * fine-grained token has that permission separate from the content one; a GitLab token with the
+   * `api` scope covers merge requests already.
+   */
+  const showWorkflowNote = $derived(
+    backendName === 'github' && isWorkflowConfigured(cmsConfig.current),
+  );
+
+  const { serviceLabel, tokenOptionHidden, oauthOptionHidden, oauthOptionDisabled } = $derived(
+    getSignInOptions(configuredBackend, backend?.label),
+  );
+
+  /* v8 ignore start -- the name is only read while the dialog is open, when the account is set */
+  /**
+   * Account name to show when the user is asked whether to sign in with a magic link.
+   */
+  const magicLinkAccountName = $derived.by(() => {
+    const { login, name } = auth.magicLinkConfirmation?.account ?? {};
+
+    return login || name || '';
+  });
+  /* v8 ignore stop */
+
+  onMount(() => {
+    // Skip automatic sign-in if there’s already an error (e.g. repository access denied), so the
+    // error message is preserved and the user can try again with different credentials. Also skip
+    // it while a sign-in is in progress, which would otherwise select the configured backend while
+    // the user is signing in with the local one
+    if (!auth.signInError.message && !auth.signingIn) {
+      signInAutomatically();
+    }
+  });
+</script>
+
+<div role="none" class="buttons">
+  {#if auth.signingIn}
+    <div role="alert" class="message">{_('signing_in')}</div>
+    {#if cancelAuthorization.current}
+      <!--
+        The app can’t always tell when the user closes the sign-in popup, e.g. when GitLab’s sign-in
+        page has severed it from this window, so let the user get out of the pending sign-in
+      -->
+      <Button variant="secondary" label={_('cancel')} onclick={cancelAuthorization.current} />
+    {/if}
+  {:else if backend}
+    {#if showLocalBackendOption}
+      <Button
+        variant="primary"
+        label={_('work_with_local_repo')}
+        disabled={!env.isLocalBackendSupported}
+        onclick={async () => {
+          await signInManually('local');
+        }}
+      />
+      {#if !env.isLocalBackendSupported}
+        <div role="alert">
+          {#if env.isBrave}
+            {@html makeLink(
+              _('local_workflow.disabled'),
+              `${DOCS_BASE_URL}/workflows/local#enabling-file-system-access-api-in-brave`,
+            )}
+          {:else}
+            {_('local_workflow.unsupported_browser')}
+          {/if}
+        </div>
+      {:else if !auth.signInError.message}
+        <div role="none">
+          {#if repositoryName}
+            {_('work_with_local_repo_description', { values: { repo: repositoryName } })}
+          {:else}
+            {_('work_with_local_repo_description_no_repo')}
+          {/if}
+        </div>
+      {/if}
+      <Spacer />
+    {/if}
+    {#if !oauthOptionHidden}
+      <Button
+        variant={showLocalBackendOption ? 'secondary' : 'primary'}
+        label={isDemo
+          ? _('start_demo')
+          : isTestRepo
+            ? _('work_with_test_repo')
+            : _('sign_in_with_x', { values: { service: serviceLabel } })}
+        disabled={oauthOptionDisabled || testRepoUnsupported}
+        onclick={async () => {
+          await signInManually(backendName);
+        }}
+      />
+      {#if testRepoUnsupported}
+        <div role="alert">{_('test_repo_unsupported_browser')}</div>
+      {/if}
+    {/if}
+    {#if !isTestRepo && !tokenOptionHidden}
+      <Button
+        variant="secondary"
+        label={_('sign_in_using_access_token', { values: { service: serviceLabel } })}
+        onclick={() => {
+          showTokenDialog = true;
+        }}
+      />
+    {/if}
+  {/if}
+  {#if auth.signInError.message && auth.signInError.context === 'authentication'}
+    <div role="alert" class="error iconic">
+      <Icon name="error" />
+      {auth.signInError.message}
+    </div>
+  {/if}
+</div>
+
+<PromptDialog
+  bind:open={showTokenDialog}
+  bind:value={token}
+  title={_('sign_in_using_access_token')}
+  textboxAttrs={{ spellcheck: false, ariaLabel: _('personal_access_token') }}
+  okLabel={_('sign_in')}
+  okDisabled={!trimmedToken}
+  onOk={() => {
+    signInManually(backendName, trimmedToken);
+  }}
+  onkeydown={(event) => {
+    if (!event.isComposing && event.key === 'Enter' && trimmedToken) {
+      event.preventDefault();
+      showTokenDialog = false;
+      signInManually(backendName, trimmedToken);
+    }
+  }}
+>
+  {_('sign_in_using_access_token_description')}
+  {#if showWorkflowNote}
+    {_('sign_in_using_access_token_workflow_note')}
+  {/if}
+  {#if backend?.repository?.tokenPageURL}
+    {@html makeLink(
+      _('sign_in_using_access_token_link', { values: { service: serviceLabel } }),
+      backend.repository.tokenPageURL,
+    )}
+  {/if}
+</PromptDialog>
+
+<ConfirmationDialog
+  open={!!auth.magicLinkConfirmation}
+  title={_('sign_in_with_link')}
+  okLabel={_('sign_in')}
+  onOk={() => {
+    auth.magicLinkConfirmation?.resolve(true);
+  }}
+  onClose={() => {
+    // Covers the Cancel button, the Escape key and any other way out. Signing in has already
+    // settled the prompt, so this leaves it alone
+    auth.magicLinkConfirmation?.resolve(false);
+  }}
+>
+  {_('sign_in_with_link_confirmation', {
+    values: { account: magicLinkAccountName, service: serviceLabel },
+  })}
+</ConfirmationDialog>
+
+<style>
+  .buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+
+    :global {
+      .button {
+        width: 320px;
+      }
+    }
+  }
+
+  [role='alert'] {
+    &.iconic {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    &.error {
+      color: var(--sui-error-foreground-color);
+    }
+  }
+</style>

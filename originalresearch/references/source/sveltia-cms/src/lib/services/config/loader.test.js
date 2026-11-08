@@ -1,0 +1,1256 @@
+// @ts-nocheck - Disable TypeScript checking for test file due to complex mocking
+/* eslint-disable jsdoc/require-jsdoc, jsdoc/require-description, jsdoc/require-returns */
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import {
+  fetchCmsConfig,
+  fetchFile,
+  getConfigLinks,
+  getConfigPath,
+  prefetchCmsConfig,
+  verifyLinksAreSecure,
+} from './loader';
+
+vi.mock('@sveltia/i18n', () => ({
+  _: (key, options) => {
+    // Return a predictable string based on the key
+    if (key === 'config.error.fetch_failed_with_manual_init') {
+      return 'Fetch failed (manual init)';
+    }
+
+    if (key === 'config.error.fetch_failed') {
+      return 'Fetch failed';
+    }
+
+    if (key === 'config.error.fetch_failed_not_ok') {
+      return `Fetch failed with status ${options?.values?.status || '???'}`;
+    }
+
+    if (key === 'config.error.parse_failed') {
+      return 'Parse failed';
+    }
+
+    if (key === 'config.error.parse_failed_unsupported_type') {
+      return 'Unsupported type';
+    }
+
+    if (key === 'config.error.parse_failed_invalid_object') {
+      return 'Invalid object';
+    }
+
+    if (key === 'config.schema_tip') {
+      return 'Schema help message';
+    }
+
+    return key;
+  },
+}));
+
+vi.mock('$lib/services/user/env.svelte', () => ({
+  env: {
+    isLocalHost: false,
+  },
+}));
+
+// Vitest runs in development mode, where the config file would be loaded from the local live site;
+// test the production behaviour by default
+vi.mock('$lib/services/config/constants', async (importOriginal) => ({
+  .../** @type {object} */ (await importOriginal()),
+  DEV_SITE_URL: undefined,
+}));
+
+// Mock dependencies
+global.fetch = vi.fn();
+global.document = {
+  querySelectorAll: vi.fn(),
+};
+global.window = {
+  location: {
+    pathname: '/admin/',
+    origin: 'https://example.com',
+    href: 'https://example.com/admin/',
+  },
+};
+
+describe('config/loader', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('getConfigPath', () => {
+    test('should append config.yml if path ends with a slash', () => {
+      expect(getConfigPath('/admin/')).toBe('/admin/config.yml');
+      expect(getConfigPath('/admin/cms/')).toBe('/admin/cms/config.yml');
+      expect(getConfigPath('/')).toBe('/config.yml');
+    });
+
+    test('should replace file with config.yml if path ends with a file', () => {
+      expect(getConfigPath('/admin/index.html')).toBe('/admin/config.yml');
+      expect(getConfigPath('/admin/cms.php')).toBe('/admin/config.yml');
+      expect(getConfigPath('/admin/app.js')).toBe('/admin/config.yml');
+    });
+
+    test('should append config.yml if path does not end with a slash or file', () => {
+      expect(getConfigPath('/admin')).toBe('/admin/config.yml');
+      expect(getConfigPath('/admin/cms')).toBe('/admin/cms/config.yml');
+      expect(getConfigPath('/nested/path')).toBe('/nested/path/config.yml');
+    });
+
+    test('should handle edge cases', () => {
+      expect(getConfigPath('')).toBe('/config.yml');
+      expect(getConfigPath('/admin/file.name.ext')).toBe('/admin/config.yml');
+      expect(getConfigPath('/admin/no-extension')).toBe('/admin/no-extension/config.yml');
+    });
+
+    test('should keep the path on the same origin when it starts with multiple slashes', () => {
+      expect(getConfigPath('//evil.example/')).toBe('/evil.example/config.yml');
+      expect(getConfigPath('///evil.example/admin')).toBe('/evil.example/admin/config.yml');
+      expect(getConfigPath('//evil.example/index.html')).toBe('/evil.example/config.yml');
+      expect(getConfigPath('//')).toBe('/config.yml');
+      expect(new URL(getConfigPath('//evil.example/'), 'https://example.com/').origin).toBe(
+        'https://example.com',
+      );
+    });
+  });
+
+  describe('verifyLinksAreSecure', () => {
+    beforeEach(() => {
+      global.window = {
+        location: {
+          pathname: '/admin/',
+          origin: 'https://example.com',
+          href: 'https://example.com/admin/',
+        },
+      };
+    });
+
+    test('should return true for HTTPS URLs', () => {
+      const links = [
+        { href: 'https://example.com/config.yml' },
+        { href: 'https://cdn.example.com/config.json' },
+      ];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return true for localhost URLs', () => {
+      const links = [
+        { href: 'http://localhost/config.yml' },
+        { href: 'http://localhost:3000/config.json' },
+      ];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return true for 127.0.0.1 URLs', () => {
+      const links = [
+        { href: 'http://127.0.0.1/config.yml' },
+        { href: 'http://127.0.0.1:8080/config' },
+      ];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return false for HTTP URLs with non-loopback domains', () => {
+      const links = [{ href: 'http://example.com/config.yml' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(false);
+    });
+
+    test('should return false for mixed secure and insecure URLs', () => {
+      const links = [
+        { href: 'https://example.com/config.yml' },
+        { href: 'http://example.com/config.json' },
+      ];
+
+      expect(verifyLinksAreSecure(links)).toBe(false);
+    });
+
+    test('should return true for empty array', () => {
+      expect(verifyLinksAreSecure([])).toBe(true);
+    });
+
+    test('should return true for relative URLs that resolve to HTTPS', () => {
+      global.window.location.origin = 'https://example.com';
+
+      const links = [{ href: 'relative/path/config.yml' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return true for relative HTTPS URLs from secure origin', () => {
+      global.window.location.origin = 'https://secure.example.com';
+
+      const links = [{ href: '/config.yml' }, { href: './config/base.yml' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return true for relative URLs from localhost origin', () => {
+      global.window.location.origin = 'http://localhost:3000';
+
+      const links = [{ href: '/config.yml' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return false for relative URLs from insecure HTTP origin', () => {
+      global.window.location.origin = 'http://insecure-domain.com';
+
+      const links = [{ href: '/config.yml' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(false);
+    });
+
+    test('should handle multiple links with mixed types', () => {
+      const links = [
+        { href: 'https://example.com/config.yml', type: 'application/yaml' },
+        { href: 'http://localhost:3000/config.json', type: 'application/json' },
+      ];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return true for HTTP links from HTTP origin when host is localhost', () => {
+      global.window.location.origin = 'http://localhost:8080';
+
+      const links = [{ href: 'http://localhost:8080/config.yml' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(true);
+    });
+
+    test('should return false for links with invalid URLs that throw during parsing (line 144)', () => {
+      // 'http://' with no host causes new URL() to throw a TypeError
+      const links = [{ href: 'http://' }];
+
+      expect(verifyLinksAreSecure(links)).toBe(false);
+    });
+  });
+
+  describe('getConfigLinks', () => {
+    test('should use the link elements on the page', () => {
+      const mockLinks = [{ href: 'custom-config.yml', type: 'application/yaml' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      expect(getConfigLinks()).toEqual([{ href: 'custom-config.yml', type: 'application/yaml' }]);
+    });
+
+    test('should leave the type unset for a link element without the `type` attribute', () => {
+      // A real `HTMLLinkElement` reports a missing `type` attribute as an empty string
+      const mockLinks = [{ href: 'custom-config.yml', type: '' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      expect(getConfigLinks()).toEqual([{ href: 'custom-config.yml', type: undefined }]);
+    });
+
+    test('should fall back to the file next to the admin page', () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      expect(getConfigLinks()).toEqual([{ href: '/admin/config.yml' }]);
+    });
+
+    test('should load the file from the local live site during development', async () => {
+      vi.resetModules();
+      vi.doMock('$lib/services/config/constants', async (importOriginal) => ({
+        .../** @type {object} */ (await importOriginal()),
+        DEV_SITE_URL: 'http://localhost:3000',
+      }));
+
+      const { getConfigLinks: getDevConfigLinks } = await import('./loader');
+
+      document.querySelectorAll.mockReturnValue([]);
+
+      expect(getDevConfigLinks()).toEqual([{ href: 'http://localhost:3000/admin/config.yml' }]);
+
+      vi.doUnmock('$lib/services/config/constants');
+    });
+  });
+
+  describe('prefetchCmsConfig', () => {
+    test('should request the config file once and hand the response to fetchFile()', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      const response = {
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('collections:\n  - name: posts'),
+      };
+
+      fetch.mockResolvedValue(response);
+
+      prefetchCmsConfig();
+      // A second call while the response is on its way doesn’t request it again
+      prefetchCmsConfig();
+
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({ pathname: '/admin/config.yml' }),
+      );
+
+      const result = await fetchFile({ href: '/admin/config.yml' });
+
+      // The response requested ahead of time is used rather than a new request
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(result).toEqual({ collections: [{ name: 'posts' }] });
+
+      // …but only once, so a later reload of the config is fresh
+      await fetchFile({ href: '/admin/config.yml' });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    test('should ignore and drop a response requested for a different URL', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('collections: []'),
+      });
+
+      prefetchCmsConfig();
+
+      // A `<link>` that appeared after the prefetch names another file
+      document.querySelectorAll.mockReturnValue([
+        { href: 'other-config.yml', type: 'application/yaml' },
+      ]);
+      await fetchCmsConfig();
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenLastCalledWith(
+        expect.objectContaining({ pathname: '/admin/other-config.yml' }),
+      );
+
+      // The unused response is dropped rather than kept for a later load
+      await fetchFile({ href: '/admin/config.yml' });
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    test('should leave a failed request for fetchFile() to report', async () => {
+      const unhandled = vi.fn();
+
+      process.on('unhandledRejection', unhandled);
+      document.querySelectorAll.mockReturnValue([]);
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      prefetchCmsConfig();
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      process.off('unhandledRejection', unhandled);
+
+      expect(unhandled).not.toHaveBeenCalled();
+      await expect(fetchFile({ href: '/admin/config.yml' })).rejects.toThrow();
+    });
+
+    test('should not request an insecure URL', () => {
+      document.querySelectorAll.mockReturnValue([
+        { href: 'http://insecure.example.com/config.yml' },
+      ]);
+
+      prefetchCmsConfig();
+
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    test('should skip an invalid URL', () => {
+      document.querySelectorAll.mockReturnValue([{ href: 'https://' }]);
+
+      expect(() => prefetchCmsConfig()).not.toThrow();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fetchCmsConfig', () => {
+    test('should fetch config from default path when no link elements', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('collections:\n  - name: posts'),
+      });
+
+      const result = await fetchCmsConfig();
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({ pathname: '/admin/config.yml' }),
+      );
+      expect(result).toEqual({ collections: [{ name: 'posts' }] });
+    });
+
+    test('should fetch config from link elements', async () => {
+      const mockLinks = [{ href: 'custom-config.yml', type: 'application/yaml' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('backend:\n  name: github'),
+      });
+
+      const result = await fetchCmsConfig();
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({ pathname: '/admin/custom-config.yml' }),
+      );
+      expect(result).toEqual({ backend: { name: 'github' } });
+    });
+
+    test('should merge multiple config files', async () => {
+      const mockLinks = [
+        { href: 'base-config.yml', type: 'application/yaml' },
+        { href: 'override-config.yml', type: 'application/yaml' },
+      ];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      fetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          /**
+           *
+           */
+          text: () => Promise.resolve('backend:\n  name: github\ncollections:\n  - name: posts'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          /**
+           *
+           */
+          text: () => Promise.resolve('media_folder: static/images\ncollections:\n  - name: pages'),
+        });
+
+      const result = await fetchCmsConfig();
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        backend: { name: 'github' },
+        media_folder: 'static/images',
+        collections: [{ name: 'posts' }, { name: 'pages' }],
+      });
+    });
+
+    test('should not let a merged config file set the prototype of the result', async () => {
+      const mockLinks = [
+        { href: 'base-config.json', type: 'application/json' },
+        { href: 'override-config.json', type: 'application/json' },
+      ];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      fetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          /**
+           *
+           */
+          json: () =>
+            Promise.resolve(JSON.parse('{"__proto__":{"base":true},"backend":{"name":"github"}}')),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          /**
+           *
+           */
+          json: () =>
+            Promise.resolve(
+              JSON.parse('{"__proto__":{"polluted":true},"backend":{"__proto__":{"x":1}}}'),
+            ),
+        });
+
+      const result = await fetchCmsConfig();
+
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(result.backend)).toBe(Object.prototype);
+      expect(result).toEqual({ backend: { name: 'github' } });
+      expect(/** @type {any} */ (result).base).toBeUndefined();
+      expect(/** @type {any} */ (result).polluted).toBeUndefined();
+    });
+
+    test('should handle JSON config files', async () => {
+      const mockLinks = [{ href: 'config.json', type: 'application/json' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ backend: { name: 'gitlab' } }),
+      });
+
+      const result = await fetchCmsConfig();
+
+      expect(result).toEqual({ backend: { name: 'gitlab' } });
+    });
+
+    test('should handle legacy application/x-yaml type', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('backend:\n  name: gitea'),
+      });
+
+      const result = await fetchFile({ href: '/config.yml', type: 'application/x-yaml' });
+
+      expect(result).toEqual({ backend: { name: 'gitea' } });
+    });
+
+    test('should throw error for unsupported file type', async () => {
+      const mockLinks = [{ href: 'config.xml', type: 'application/xml' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      await expect(fetchCmsConfig()).rejects.toThrow();
+    });
+
+    test('should throw error for fetch failure', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      await expect(fetchCmsConfig()).rejects.toThrow();
+    });
+
+    test('should throw error for non-ok response', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      await expect(fetchCmsConfig()).rejects.toThrow();
+    });
+
+    test('should throw error for invalid YAML', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('invalid: yaml: content:'),
+      });
+
+      await expect(fetchCmsConfig()).rejects.toThrow();
+    });
+
+    test('should throw error for invalid JSON', async () => {
+      const mockLinks = [{ href: 'config.json', type: 'application/json' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new Error('Invalid JSON')),
+      });
+
+      await expect(fetchCmsConfig()).rejects.toThrow();
+    });
+
+    test('should throw error for non-object result', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('- item1\n- item2'),
+      });
+
+      await expect(fetchCmsConfig()).rejects.toThrow();
+    });
+
+    test('should handle default file type', async () => {
+      const mockLinks = [
+        { href: 'config.yml' }, // no type specified
+      ];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('backend:\n  name: github'),
+      });
+
+      const result = await fetchCmsConfig();
+
+      expect(result).toEqual({ backend: { name: 'github' } });
+    });
+
+    test('should parse a link element without the `type` attribute as YAML', async () => {
+      // A real `HTMLLinkElement` reports a missing `type` attribute as an empty string
+      document.querySelectorAll.mockReturnValue([{ href: 'config.yml', type: '' }]);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('backend:\n  name: github'),
+      });
+
+      const result = await fetchCmsConfig();
+
+      expect(result).toEqual({ backend: { name: 'github' } });
+    });
+
+    test('should handle YAML merge feature', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(`
+defaults: &defaults
+  media_folder: static/images
+
+backend:
+  <<: *defaults
+  name: github
+`),
+      });
+
+      const result = await fetchCmsConfig();
+
+      expect(result.backend.media_folder).toBe('static/images');
+      expect(result.backend.name).toBe('github');
+    });
+
+    test('should use correct error message when manualInit is false', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      try {
+        await fetchCmsConfig({ manualInit: false });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed');
+      }
+    });
+
+    test('should use correct error message when manualInit is true', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      try {
+        await fetchCmsConfig({ manualInit: true });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed (manual init)');
+      }
+    });
+  });
+
+  describe('fetchFile', () => {
+    test('should fetch and parse YAML file', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('backend:\n  name: github\ncollections:\n  - name: posts'),
+      });
+
+      const result = await fetchFile({ href: '/config.yml', type: 'application/yaml' });
+
+      expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/config.yml' }));
+      expect(result).toEqual({ backend: { name: 'github' }, collections: [{ name: 'posts' }] });
+    });
+
+    test('should fetch and parse JSON file', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ backend: { name: 'gitlab' }, media_folder: 'static' }),
+      });
+
+      const result = await fetchFile({ href: '/config.json', type: 'application/json' });
+
+      expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/config.json' }));
+      expect(result).toEqual({ backend: { name: 'gitlab' }, media_folder: 'static' });
+    });
+
+    test('should append a cache-busting timestamp parameter to the URL', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('test: value'),
+      });
+
+      const before = Date.now();
+
+      await fetchFile({ href: '/config.yml' });
+
+      const after = Date.now();
+      const calledUrl = /** @type {URL} */ (fetch.mock.calls[0][0]);
+
+      expect(calledUrl).toBeInstanceOf(URL);
+      expect(calledUrl.searchParams.has('_')).toBe(true);
+
+      const ts = Number(calledUrl.searchParams.get('_'));
+
+      expect(ts).toBeGreaterThanOrEqual(before);
+      expect(ts).toBeLessThanOrEqual(after);
+    });
+
+    test('should use default type application/yaml', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('test: value'),
+      });
+
+      const result = await fetchFile({ href: '/config.yml' });
+
+      expect(result).toEqual({ test: 'value' });
+    });
+
+    test('should handle text/yaml type', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('backend:\n  name: gitea'),
+      });
+
+      const result = await fetchFile({ href: '/config.yml', type: 'text/yaml' });
+
+      expect(result).toEqual({ backend: { name: 'gitea' } });
+    });
+
+    test('should throw error for unsupported file type', async () => {
+      await expect(fetchFile({ href: '/config.xml', type: 'application/xml' })).rejects.toThrow();
+    });
+
+    test('should throw error when fetch fails', async () => {
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      await expect(fetchFile({ href: '/config.yml' })).rejects.toThrow();
+    });
+
+    test('should throw error for non-ok response', async () => {
+      fetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      await expect(fetchFile({ href: '/config.yml' })).rejects.toThrow();
+    });
+
+    test('should throw error for invalid YAML', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('invalid: yaml: [content'),
+      });
+
+      await expect(fetchFile({ href: '/config.yml' })).rejects.toThrow();
+    });
+
+    test('should throw error for invalid JSON', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new Error('Invalid JSON')),
+      });
+
+      await expect(fetchFile({ href: '/config.json', type: 'application/json' })).rejects.toThrow();
+    });
+
+    test('should throw error for non-object result', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('- item1\n- item2'),
+      });
+
+      await expect(fetchFile({ href: '/config.yml' })).rejects.toThrow();
+    });
+
+    test('should throw error for null result', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('null'),
+      });
+
+      await expect(fetchFile({ href: '/config.yml' })).rejects.toThrow();
+    });
+
+    test('should fetch and parse TOML file', async () => {
+      const tomlContent = `
+[backend]
+name = "github"
+repo = "test/repo"
+
+[[collections]]
+name = "posts"
+folder = "content/posts"
+
+[[collections]]
+name = "pages"
+folder = "content/pages"
+`;
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(tomlContent),
+      });
+
+      const result = await fetchFile({ href: '/config.toml', type: 'application/toml' });
+
+      expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/config.toml' }));
+      expect(result).toEqual({
+        backend: { name: 'github', repo: 'test/repo' },
+        collections: [
+          { name: 'posts', folder: 'content/posts' },
+          { name: 'pages', folder: 'content/pages' },
+        ],
+      });
+    });
+
+    test('should throw error for invalid TOML', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('[invalid toml content'),
+      });
+
+      await expect(fetchFile({ href: '/config.toml', type: 'application/toml' })).rejects.toThrow();
+    });
+
+    test('should handle complex nested YAML', async () => {
+      const complexYaml = `
+backend:
+  name: github
+  repo: test/repo
+collections:
+  - name: posts
+    folder: content/posts
+    fields:
+      - { name: title, widget: string }
+      - { name: body, widget: markdown }
+`;
+
+      fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(complexYaml),
+      });
+
+      const result = await fetchFile({ href: '/config.yml' });
+
+      expect(result).toEqual({
+        backend: { name: 'github', repo: 'test/repo' },
+        collections: [
+          {
+            name: 'posts',
+            folder: 'content/posts',
+            fields: [
+              { name: 'title', widget: 'string' },
+              { name: 'body', widget: 'markdown' },
+            ],
+          },
+        ],
+      });
+    });
+
+    test('should use correct error message when manualInit is false and fetch fails', async () => {
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      try {
+        await fetchFile({ href: '/config.yml' }, { manualInit: false });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed');
+      }
+    });
+
+    test('should use correct error message when manualInit is true and fetch fails', async () => {
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      try {
+        await fetchFile({ href: '/config.yml' }, { manualInit: true });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed (manual init)');
+      }
+    });
+
+    test('should pass manualInit option to fetchFile when called from fetchCmsConfig', async () => {
+      document.querySelectorAll.mockReturnValue([]);
+
+      fetch.mockRejectedValue(new Error('Network error'));
+
+      try {
+        await fetchCmsConfig({ manualInit: true });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed (manual init)');
+      }
+    });
+
+    test('should use correct error message when manualInit is false and response is not ok', async () => {
+      fetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      try {
+        await fetchFile({ href: '/config.yml' }, { manualInit: false });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed');
+      }
+    });
+
+    test('should use correct error message when manualInit is true and response is not ok', async () => {
+      fetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      try {
+        await fetchFile({ href: '/config.yml' }, { manualInit: true });
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).toBe('Fetch failed (manual init)');
+      }
+    });
+  });
+
+  describe('fetchCmsConfig insecure URL handling (line 167)', () => {
+    beforeEach(() => {
+      global.window = {
+        location: {
+          pathname: '/admin/',
+          origin: 'https://example.com',
+          href: 'https://example.com/admin/',
+        },
+      };
+    });
+
+    test('should throw error when a single link is on an insecure HTTP URL (line 167)', async () => {
+      const mockLinks = [{ href: 'http://insecure-domain.com/config.yml' }];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      await expect(fetchCmsConfig()).rejects.toThrow('config.error.insecure_urls');
+    });
+
+    test('should throw error with plural message when multiple insecure links', async () => {
+      const mockLinks = [
+        { href: 'http://insecure-domain.com/config.yml' },
+        { href: 'http://insecure-domain.com/extra.yml' },
+      ];
+
+      document.querySelectorAll.mockReturnValue(mockLinks);
+
+      await expect(fetchCmsConfig()).rejects.toThrow('config.error.insecure_urls');
+    });
+  });
+
+  describe('schema help functionality', () => {
+    let consoleInfoSpy;
+
+    beforeEach(() => {
+      consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    });
+
+    afterEach(async () => {
+      const { env } = await import('$lib/services/user/env.svelte');
+
+      consoleInfoSpy.mockRestore();
+      env.isLocalHost = false;
+    });
+
+    describe('fetchFile schema detection', () => {
+      test('should detect missing schema in JSON file', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ backend: { name: 'github' } }),
+        });
+
+        await fetchFile(
+          { href: '/config.json', type: 'application/json' },
+          { showSchemaTip: true },
+        );
+
+        expect(consoleInfoSpy).toHaveBeenCalledWith('Schema help message');
+      });
+
+      test('should not show help when JSON has correct schema', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              $schema: 'https://unpkg.com/@sveltia/cms/schema/sveltia-cms.json',
+              backend: { name: 'github' },
+            }),
+        });
+
+        await fetchFile(
+          { href: '/config.json', type: 'application/json' },
+          { showSchemaTip: true },
+        );
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should detect missing schema in YAML file', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchFile({ href: '/config.yml', type: 'application/yaml' }, { showSchemaTip: true });
+
+        expect(consoleInfoSpy).toHaveBeenCalledWith('Schema help message');
+      });
+
+      test('should not show help when YAML has correct schema comment', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        const yamlWithSchema = `# yaml-language-server: $schema=https://unpkg.com/@sveltia/cms/schema/sveltia-cms.json
+backend:
+  name: github`;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(yamlWithSchema),
+        });
+
+        await fetchFile({ href: '/config.yml', type: 'application/yaml' }, { showSchemaTip: true });
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should detect missing schema in TOML file', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('[backend]\nname = "github"'),
+        });
+
+        await fetchFile(
+          { href: '/config.toml', type: 'application/toml' },
+          { showSchemaTip: true },
+        );
+
+        expect(consoleInfoSpy).toHaveBeenCalledWith('Schema help message');
+      });
+
+      test('should not show help when TOML has correct schema comment', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        const tomlWithSchema = `#:schema https://unpkg.com/@sveltia/cms/schema/sveltia-cms.json
+
+[backend]
+name = "github"`;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(tomlWithSchema),
+        });
+
+        await fetchFile(
+          { href: '/config.toml', type: 'application/toml' },
+          { showSchemaTip: true },
+        );
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should not show help when showSchemaTip is false', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ backend: { name: 'github' } }),
+        });
+
+        await fetchFile(
+          { href: '/config.json', type: 'application/json' },
+          { showSchemaTip: false },
+        );
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should not show help when showSchemaTip is undefined', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ backend: { name: 'github' } }),
+        });
+
+        await fetchFile({ href: '/config.json', type: 'application/json' });
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should handle legacy text/yaml type with schema detection', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchFile({ href: '/config.yml', type: 'text/yaml' }, { showSchemaTip: true });
+
+        expect(consoleInfoSpy).toHaveBeenCalledWith('Schema help message');
+      });
+    });
+
+    describe('fetchCmsConfig schema help conditions', () => {
+      test('should pass showSchemaTip=true when on localhost with single config', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        const mockLinks = [{ href: '/config.yml', type: 'application/yaml' }];
+
+        document.querySelectorAll.mockReturnValue(mockLinks);
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchCmsConfig();
+
+        expect(consoleInfoSpy).toHaveBeenCalledWith('Schema help message');
+      });
+
+      test('should not show help when not on localhost', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = false;
+
+        const mockLinks = [{ href: '/config.yml', type: 'application/yaml' }];
+
+        document.querySelectorAll.mockReturnValue(mockLinks);
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchCmsConfig();
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should not show help when manualInit is true', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        const mockLinks = [{ href: '/config.yml', type: 'application/yaml' }];
+
+        document.querySelectorAll.mockReturnValue(mockLinks);
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchCmsConfig({ manualInit: true });
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should not show help when multiple config files are merged', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        const mockLinks = [
+          { href: '/config1.yml', type: 'application/yaml' },
+          { href: '/config2.yml', type: 'application/yaml' },
+        ];
+
+        document.querySelectorAll.mockReturnValue(mockLinks);
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchCmsConfig();
+
+        expect(consoleInfoSpy).not.toHaveBeenCalled();
+      });
+
+      test('should show help for default config path when no links', async () => {
+        const { env } = await import('$lib/services/user/env.svelte');
+
+        env.isLocalHost = true;
+
+        document.querySelectorAll.mockReturnValue([]);
+
+        fetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve('backend:\n  name: github'),
+        });
+
+        await fetchCmsConfig();
+
+        expect(consoleInfoSpy).toHaveBeenCalledWith('Schema help message');
+      });
+    });
+  });
+});

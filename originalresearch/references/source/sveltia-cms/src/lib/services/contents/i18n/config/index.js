@@ -1,0 +1,267 @@
+import { cmsConfig } from '$lib/services/config';
+import { warnDeprecation } from '$lib/services/config/deprecations';
+import {
+  DEFAULT_CANONICAL_SLUG,
+  DEFAULT_LOCALE_KEY,
+  I18N_STRUCTURES,
+} from '$lib/services/contents/i18n/config/constants';
+import { mergeI18nConfigs } from '$lib/services/contents/i18n/config/merge';
+import {
+  canOmitLocalePlaceholder,
+  hasLocalePlaceholder,
+} from '$lib/services/contents/i18n/placeholder';
+
+/**
+ * @import {
+ * EntryDraft,
+ * I18nFileStructureMap,
+ * InternalCmsConfig,
+ * InternalI18nOptions,
+ * } from '$lib/types/private';
+ * @import { Collection, CollectionFile, I18nFileStructure } from '$lib/types/public';
+ */
+
+/**
+ * The default, normalized i18n configuration with no locales defined.
+ * @type {InternalI18nOptions}
+ */
+export const DEFAULT_I18N_CONFIG = {
+  i18nEnabled: false,
+  saveAllLocales: true,
+  allLocales: [DEFAULT_LOCALE_KEY],
+  initialLocales: [DEFAULT_LOCALE_KEY],
+  defaultLocale: DEFAULT_LOCALE_KEY,
+  structure: I18N_STRUCTURES.SINGLE_FILE,
+  structureMap: {
+    i18nSingleFile: false,
+    i18nSingleFileDefaultRoot: false,
+    i18nMultiFile: false,
+    i18nMultiFolder: false,
+    i18nMultiRootFolder: false,
+  },
+  canonicalSlug: { ...DEFAULT_CANONICAL_SLUG },
+  omitDefaultLocaleFromFilePath: false,
+  omitDefaultLocaleFromPreviewPath: false,
+};
+
+/**
+ * Get the normalized i18n configuration of the collection or collection file an entry draft
+ * belongs to.
+ * @param {EntryDraft | null | undefined} draft Entry draft.
+ * @returns {InternalI18nOptions} I18n configuration, or the default one if there is no draft.
+ */
+export const getDraftI18nConfig = (draft) =>
+  (draft?.collectionFile ?? draft?.collection)?._i18n ?? DEFAULT_I18N_CONFIG;
+
+/**
+ * Determines the appropriate structure based on the collection or file configuration.
+ * @param {I18nFileStructure} defaultStructure The default structure from config.
+ * @param {CollectionFile} [file] The collection file configuration.
+ * @param {string} [folder] The `folder` option of an entry collection.
+ * @param {string} [dataFile] The `file` option of an entry collection, which stores all the entries
+ * in one file.
+ * @returns {I18nFileStructure} The determined structure.
+ */
+export const determineStructure = (defaultStructure, file, folder, dataFile) => {
+  if (!file && typeof dataFile !== 'string') {
+    // The `{{locale}}` placeholder says where the locale folder goes, so the collection has one
+    // folder per locale wherever the configured structure would put it
+    if (typeof folder === 'string' && hasLocalePlaceholder(folder)) {
+      return I18N_STRUCTURES.MULTIPLE_FOLDERS;
+    }
+
+    return defaultStructure;
+  }
+
+  if (file?.file.includes('{{locale}}')) {
+    return I18N_STRUCTURES.MULTIPLE_FILES;
+  }
+
+  // For file collections without `{{locale}}`, and entry collections storing all the entries in
+  // one file, preserve `single_file_default_root` if set; otherwise fall back to `single_file`.
+  if (defaultStructure === I18N_STRUCTURES.SINGLE_FILE_DEFAULT_ROOT) {
+    return I18N_STRUCTURES.SINGLE_FILE_DEFAULT_ROOT;
+  }
+
+  return I18N_STRUCTURES.SINGLE_FILE;
+};
+
+/**
+ * Creates the structure map based on i18n status and structure.
+ * @param {boolean} i18nEnabled Whether i18n is enabled.
+ * @param {string} structure The current structure.
+ * @returns {I18nFileStructureMap} The structure map.
+ */
+export const createStructureMap = (i18nEnabled, structure) => ({
+  i18nSingleFile: i18nEnabled && structure === I18N_STRUCTURES.SINGLE_FILE,
+  i18nSingleFileDefaultRoot: i18nEnabled && structure === I18N_STRUCTURES.SINGLE_FILE_DEFAULT_ROOT,
+  i18nMultiFile: i18nEnabled && structure === I18N_STRUCTURES.MULTIPLE_FILES,
+  i18nMultiFolder: i18nEnabled && structure === I18N_STRUCTURES.MULTIPLE_FOLDERS,
+  i18nMultiRootFolder:
+    i18nEnabled &&
+    (structure === I18N_STRUCTURES.MULTIPLE_FOLDERS_I18N_ROOT || // deprecated
+      structure === I18N_STRUCTURES.MULTIPLE_ROOT_FOLDERS), // new name
+});
+
+/**
+ * Check if the given i18n structure stores all the locales of an entry in one file: the
+ * `single_file` or `single_file_default_root` structure.
+ * @param {Partial<I18nFileStructureMap>} structureMap Structure map of the normalized i18n
+ * configuration.
+ * @returns {boolean} Result.
+ */
+export const usesSingleFileStructure = ({ i18nSingleFile, i18nSingleFileDefaultRoot }) =>
+  !!i18nSingleFile || !!i18nSingleFileDefaultRoot;
+
+/**
+ * Check if the given i18n structure stores each locale of an entry in a file of its own: the
+ * `multiple_files`, `multiple_folders` or `multiple_root_folders` structure.
+ * @param {Partial<I18nFileStructureMap>} structureMap Structure map of the normalized i18n
+ * configuration.
+ * @returns {boolean} Result.
+ */
+export const usesMultiFileStructure = ({ i18nMultiFile, i18nMultiFolder, i18nMultiRootFolder }) =>
+  !!i18nMultiFile || !!i18nMultiFolder || !!i18nMultiRootFolder;
+
+/**
+ * Determines the default locale from the available locales.
+ * @param {boolean} i18nEnabled Whether i18n is enabled.
+ * @param {string[]} allLocales All available locales.
+ * @param {string} [specifiedDefault] The specified default locale.
+ * @returns {string} The default locale.
+ */
+export const determineDefaultLocale = (i18nEnabled, allLocales, specifiedDefault) => {
+  if (!i18nEnabled) {
+    return DEFAULT_LOCALE_KEY;
+  }
+
+  return specifiedDefault && allLocales.includes(specifiedDefault)
+    ? specifiedDefault
+    : allLocales[0];
+};
+
+/**
+ * Determines the initial locales based on configuration.
+ * @param {string | string[] | undefined} initialLocalesConfig The initial locales configuration.
+ * @param {string[]} allLocales All available locales.
+ * @param {string} defaultLocale The default locale.
+ * @returns {string[]} The initial locales.
+ */
+export const determineInitialLocales = (initialLocalesConfig, allLocales, defaultLocale) => {
+  if (initialLocalesConfig === 'all') {
+    return allLocales;
+  }
+
+  if (initialLocalesConfig === 'default') {
+    return [defaultLocale];
+  }
+
+  return allLocales.filter(
+    (locale) =>
+      // Default locale cannot be disabled
+      locale === defaultLocale ||
+      (Array.isArray(initialLocalesConfig) ? initialLocalesConfig.includes(locale) : true),
+  );
+};
+
+/**
+ * Determines whether the default locale should be omitted from the file path.
+ * @param {boolean} omitDefaultLocale The raw `omit_default_locale_from_file_path` config value.
+ * @param {I18nFileStructureMap} structureMap The structure map.
+ * @param {CollectionFile} [file] The collection file configuration.
+ * @returns {boolean} Whether to omit the default locale from the file path.
+ */
+export const determineOmitDefaultLocale = (omitDefaultLocale, structureMap, file) => {
+  if (!omitDefaultLocale) {
+    return false;
+  }
+
+  // The placeholder has to be where it can be removed without breaking the rest of the path. In any
+  // other position the locale is kept, which the config parser warns about
+  if (file) {
+    return canOmitLocalePlaceholder(file.file);
+  }
+
+  return usesMultiFileStructure(structureMap);
+};
+
+/**
+ * Get the normalized i18n configuration for the given collection or collection file.
+ * @param {Collection} collection Developer-defined collection.
+ * @param {CollectionFile} [file] Developer-defined collection file.
+ * @returns {InternalI18nOptions} Config.
+ * @see https://decapcms.org/docs/i18n/
+ * @see https://sveltiacms.app/en/docs/i18n
+ */
+export const normalizeI18nConfig = (collection, file) => {
+  const config = mergeI18nConfigs({
+    cmsConfig: /** @type {InternalCmsConfig} */ (cmsConfig.current),
+    collection,
+    file,
+  });
+
+  const {
+    structure: defaultStructure = I18N_STRUCTURES.SINGLE_FILE,
+    locales = [],
+    default_locale: specifiedDefaultLocale,
+    initial_locales: initialLocalesConfig,
+    save_all_locales: saveAllLocalesConfig = true,
+    canonical_slug: canonicalSlugConfig = { key: undefined, value: undefined },
+    omit_default_locale_from_filename: omitDefaultLocaleLegacy,
+    omit_default_locale_from_file_path: omitDefaultLocale = omitDefaultLocaleLegacy ?? false,
+    omit_default_locale_from_preview_path: omitDefaultLocaleFromPreviewPath = false,
+  } = config ?? {};
+
+  // @todo Remove the option prior to the 1.0 release.
+  if (config?.save_all_locales !== undefined) {
+    warnDeprecation('save_all_locales');
+  }
+
+  if (omitDefaultLocaleLegacy !== undefined) {
+    warnDeprecation('omit_default_locale_from_filename');
+  }
+
+  const {
+    key: canonicalSlugKey = DEFAULT_CANONICAL_SLUG.key,
+    value: canonicalSlugTemplate = DEFAULT_CANONICAL_SLUG.value,
+  } = canonicalSlugConfig;
+
+  const i18nEnabled = locales.length > 0;
+  const allLocales = i18nEnabled ? locales : [DEFAULT_LOCALE_KEY];
+  const defaultLocale = determineDefaultLocale(i18nEnabled, allLocales, specifiedDefaultLocale);
+  const { folder, file: dataFile } = /** @type {{ folder?: string, file?: string }} */ (collection);
+  const structure = determineStructure(defaultStructure, file, folder, dataFile);
+  const structureMap = createStructureMap(i18nEnabled, structure);
+
+  const saveAllLocales = i18nEnabled
+    ? saveAllLocalesConfig === true && initialLocalesConfig === undefined
+    : true;
+
+  const initialLocales = determineInitialLocales(initialLocalesConfig, allLocales, defaultLocale);
+
+  const omitDefaultLocaleFromFilePath = determineOmitDefaultLocale(
+    omitDefaultLocale,
+    structureMap,
+    file,
+  );
+
+  if (structure === 'multiple_folders_i18n_root') {
+    warnDeprecation('multiple_folders_i18n_root');
+  }
+
+  return {
+    i18nEnabled,
+    saveAllLocales,
+    allLocales,
+    defaultLocale,
+    initialLocales,
+    structure,
+    structureMap,
+    canonicalSlug: {
+      key: canonicalSlugKey,
+      value: canonicalSlugTemplate,
+    },
+    omitDefaultLocaleFromFilePath,
+    omitDefaultLocaleFromPreviewPath,
+  };
+};

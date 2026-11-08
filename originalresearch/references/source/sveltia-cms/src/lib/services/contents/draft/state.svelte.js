@@ -1,0 +1,138 @@
+import { getContext, setContext, untrack } from 'svelte';
+
+import { isDraftModified } from '$lib/services/contents/draft';
+import { getValueMapSnapshots } from '$lib/services/contents/draft/value-map.svelte';
+import { getOrCreate } from '$lib/services/utils/cache';
+
+/**
+ * @import { EntryDraft, FlattenedEntryContent, InternalLocaleCode } from '$lib/types/private';
+ */
+
+/**
+ * Key of the Svelte context holding an {@link EntryDraftState}.
+ */
+const CONTEXT_KEY = 'entry-draft';
+/**
+ * Attribute marking an editor root element registered with {@link setEntryDraftRoot}.
+ */
+const ROOT_ATTRIBUTE = 'data-entry-draft-root';
+/**
+ * Entry draft states keyed by editor root element. See {@link setEntryDraftRoot}.
+ * @type {WeakMap<Element, EntryDraftState>}
+ */
+const rootElementMap = new WeakMap();
+/**
+ * Snapshots of the original value maps, keyed by the reactive value map they were taken from. A
+ * locale’s original values are only ever replaced as a whole — when the draft is saved, a locale
+ * is enabled or a backup is restored — never changed in place, so a snapshot stays valid as long as
+ * the map it was taken from is the one in the draft.
+ * @type {WeakMap<FlattenedEntryContent, FlattenedEntryContent>}
+ */
+const originalValueSnapshots = new WeakMap();
+
+/**
+ * Get a snapshot of the original values of every locale of the given draft. Called from a
+ * `$derived`, this only depends on which map each locale holds, not on every value in it.
+ * @param {EntryDraft} draft Entry draft.
+ * @returns {Record<InternalLocaleCode, FlattenedEntryContent>} Original values, keyed by locale.
+ */
+const getOriginalValueSnapshots = (draft) =>
+  Object.fromEntries(
+    Object.entries(draft.originalValues).map(([locale, valueMap]) => [
+      locale,
+      // A locale enabled without any content yet has no original values
+      valueMap
+        ? getOrCreate(originalValueSnapshots, valueMap, () =>
+            untrack(() => $state.snapshot(valueMap)),
+          )
+        : valueMap,
+    ]),
+  );
+
+/**
+ * Get a copy of the given draft for {@link isDraftModified} to compare, holding the shared value
+ * map snapshots rather than the value map proxies. The check is recomputed on every keystroke, and
+ * reading the values through the proxies would make it depend on every value of every locale, and
+ * pay for each read.
+ * @param {EntryDraft | null | undefined} draft Entry draft.
+ * @returns {EntryDraft | null | undefined} Copy of the draft, or the draft itself if there is none.
+ */
+const getComparedDraft = (draft) =>
+  draft && {
+    ...draft,
+    originalValues: getOriginalValueSnapshots(draft),
+    currentValues: getValueMapSnapshots(draft),
+  };
+
+/**
+ * Reactive container for the entry draft open in an editor. The draft itself is a deeply reactive
+ * `$state` object, so a field editor mutating its values notifies exactly the components that read
+ * them; this container is what lets the draft be replaced as a whole, e.g. when another entry is
+ * opened or the current one is saved.
+ *
+ * Each editor instance has its own container, provided to its descendants with
+ * {@link setEntryDraftContext}, so more than one entry can be edited at the same time.
+ */
+export class EntryDraftState {
+  /**
+   * Current draft. `undefined` if there is no draft, e.g. the entry could not be found, or `null`
+   * once the draft has been saved and the editor is about to close.
+   * @type {EntryDraft | null | undefined}
+   */
+  current = $state.raw();
+
+  /**
+   * Whether the current draft has been modified.
+   */
+  modified = $derived(isDraftModified(getComparedDraft(this.current)));
+}
+
+/**
+ * Provide the given entry draft state to the descendant components. Called by the editor root.
+ * @param {EntryDraftState} entryDraft Entry draft state.
+ * @returns {EntryDraftState} The same state.
+ */
+export const setEntryDraftContext = (entryDraft) => setContext(CONTEXT_KEY, entryDraft);
+
+/**
+ * Get the entry draft state provided by the nearest editor root.
+ * @returns {EntryDraftState} Entry draft state.
+ */
+export const getEntryDraftContext = () => getContext(CONTEXT_KEY);
+
+/**
+ * Create the `context` option for Svelte’s `mount()`, so that a component mounted outside the
+ * Svelte component tree — the entry preview rendered in an iframe, or a field preview rendered by a
+ * React preview template — can still find the given entry draft state with
+ * {@link getEntryDraftContext}, which would otherwise be `undefined` there.
+ * @param {EntryDraftState} entryDraft Entry draft state.
+ * @returns {Map<string, EntryDraftState>} Context map.
+ */
+export const createEntryDraftMountContext = (entryDraft) =>
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  new Map([[CONTEXT_KEY, entryDraft]]);
+
+/**
+ * Register the given element as the root of an editor holding the given entry draft state, so that
+ * a component rendered somewhere below it but mounted outside the Svelte component tree — a rich
+ * text editor component, which Lexical mounts on its own — can still find the state through the
+ * DOM with {@link getEntryDraftByElement}, as the Svelte context doesn’t reach it.
+ * @param {Element} element Editor root element.
+ * @param {EntryDraftState} entryDraft Entry draft state.
+ */
+export const setEntryDraftRoot = (element, entryDraft) => {
+  element.setAttribute(ROOT_ATTRIBUTE, '');
+  rootElementMap.set(element, entryDraft);
+};
+
+/**
+ * Get the entry draft state of the editor the given element is rendered in.
+ * @param {Element | null | undefined} element Element within an editor.
+ * @returns {EntryDraftState | undefined} Entry draft state, or `undefined` if the element is not
+ * within a registered editor root.
+ */
+export const getEntryDraftByElement = (element) => {
+  const root = element?.closest(`[${ROOT_ATTRIBUTE}]`);
+
+  return root ? rootElementMap.get(root) : undefined;
+};

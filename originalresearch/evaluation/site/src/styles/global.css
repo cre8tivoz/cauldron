@@ -1,0 +1,12 @@
+ :root { color-scheme: light; --accent: #215747; --paper: #f6f3eb; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: #202520; font-family: system-ui, sans-serif; }
+header, main, footer { width: min(1080px, calc(100% - 48px)); margin-inline: auto; }
+header { display: flex; justify-content: space-between; align-items: center; padding-block: 24px; border-bottom: 1px solid #b8bcb4; }
+nav { display: flex; gap: 24px; } a { color: var(--accent); } a:focus-visible { outline: 3px solid #b55025; outline-offset: 4px; }
+.hero { padding-block: 80px; max-width: 780px; } .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; }
+h1 { font-size: clamp(36px, 6vw, 72px); line-height: 1.05; letter-spacing: -.045em; margin-block: 20px; }
+p { line-height: 1.6; } .button { display: inline-flex; min-height: 44px; align-items: center; padding: 12px 20px; background: var(--accent); color: white; border-radius: 4px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; } article { padding: 20px; border: 1px solid #b8bcb4; }
+footer { padding-block: 40px; margin-top: 50px; font-size: 12px; } .skip { position: absolute; top: -100px; } .skip:focus { top: 8px; }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .hero { padding-block: 48px; } header, main, footer { width: calc(100% - 32px); } }

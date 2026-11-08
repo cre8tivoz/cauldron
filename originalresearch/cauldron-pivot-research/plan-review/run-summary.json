@@ -1,0 +1,7 @@
+{
+  "requests": 43,
+  "input_tokens": 44379,
+  "estimated_usd": 0.00186,
+  "cap_usd": 0.5,
+  "model": "jev-1.14.0"
+}

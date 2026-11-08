@@ -1,0 +1,203 @@
+<!--
+  @component
+  Let a custom field control open the same Select Assets dialog as a built-in File/Image field. The
+  dialog is opened imperatively with `pick()`, which resolves with what the user picked, so that a
+  React control can `await` it the way it awaits `addFile()`.
+-->
+<script>
+  import { onDestroy } from 'svelte';
+
+  import SelectAssetsDialog from '$lib/components/assets/browser/select-assets-dialog.svelte';
+  import ConflictResolutionDialog from '$lib/components/assets/shared/conflict-resolution-dialog.svelte';
+  import RejectedFilesAlertDialog from '$lib/components/assets/shared/rejected-files-alert-dialog.svelte';
+  import { getEntryDraftContext } from '$lib/services/contents/draft/state.svelte';
+  import {
+    getCustomFieldAssetOptions,
+    getPickedAssetKind,
+    resolvePickedResources,
+  } from '$lib/services/contents/fields/custom/files';
+  import { getAcceptedFileTypes } from '$lib/services/integrations/media-libraries/default';
+
+  /**
+   * @import { InternalLocaleCode, SelectedResource, TypedFieldKeyPath } from '$lib/types/private';
+   * @import {
+   * CustomField,
+   * CustomFieldPickFileOptions,
+   * CustomFieldPickedFile,
+   * MediaField,
+   * } from '$lib/types/public';
+   */
+
+  /**
+   * @typedef {object} Props
+   * @property {CustomField} fieldConfig Field configuration.
+   * @property {TypedFieldKeyPath} typedKeyPath Typed key path to the field.
+   * @property {string} [componentName] Name of the rich text editor component the field is part
+   * of, if any.
+   * @property {boolean} [inEditorComponent] Whether the field is rendered in a rich text editor
+   * component.
+   * @property {InternalLocaleCode} [locale] Locale the field is edited in, which an existing asset
+   * in an entry-relative folder is referenced relative to.
+   */
+
+  /** @type {Props} */
+  let {
+    /* eslint-disable prefer-const */
+    fieldConfig,
+    typedKeyPath,
+    componentName = undefined,
+    inEditorComponent = false,
+    locale = undefined,
+    /* eslint-enable prefer-const */
+  } = $props();
+
+  const entryDraft = getEntryDraftContext();
+
+  let open = $state(false);
+  /** @type {CustomFieldPickFileOptions} */
+  let options = $state.raw({});
+  /** @type {RejectedFilesAlertDialog | undefined} */
+  let rejectedFilesAlert = $state();
+  /**
+   * Settles the promise returned by the pending `pick()` call. `undefined` while nothing is
+   * pending. The resolver is dropped as soon as a selection is made, so that the dialog closing
+   * afterwards doesn’t resolve the same call again with `null`.
+   * @type {PromiseWithResolvers<CustomFieldPickedFile | CustomFieldPickedFile[] | null> |
+   * undefined}
+   */
+  let pending;
+
+  const assetOptions = $derived(
+    entryDraft.current
+      ? getCustomFieldAssetOptions({
+          draft: entryDraft.current,
+          fieldConfig,
+          typedKeyPath,
+          componentName,
+        })
+      : undefined,
+  );
+  const kind = $derived(getPickedAssetKind(options));
+  // The dialog only falls back to the image types once, so give it the types for every pick. HEIC
+  // photos are accepted only if they’re converted on upload
+  const accept = $derived(
+    getAcceptedFileTypes({
+      accept: options.accept,
+      image: kind === 'image',
+      transformations: assetOptions?.libraryConfig.transformations,
+    }),
+  );
+  /* v8 ignore start -- only read to report a file exceeding the configured size */
+  const maxSize = $derived(assetOptions?.libraryConfig.max_file_size ?? Infinity);
+  /* v8 ignore stop */
+  // The dialog only reads the media library options from the field configuration, which a custom
+  // field may define the same way as a File/Image field
+  const mediaFieldConfig = $derived(/** @type {MediaField} */ (/** @type {any} */ (fieldConfig)));
+
+  /**
+   * Open the dialog and wait for the user to pick something. A call made while the dialog is
+   * already open shares the outcome of the pending call, since only one pick can be in progress.
+   * @param {CustomFieldPickFileOptions} [pickOptions] Options.
+   * @returns {Promise<CustomFieldPickedFile | CustomFieldPickedFile[] | null>} Picked file(s), or
+   * `null` if the dialog is dismissed or nothing usable is picked.
+   * @throws {Error} When no entry is being edited.
+   */
+  export const pick = async (pickOptions = {}) => {
+    if (!entryDraft.current) {
+      throw new Error('pickFile() can only be called while an entry is being edited');
+    }
+
+    if (!pending) {
+      pending = Promise.withResolvers();
+      options = pickOptions;
+      open = true;
+    }
+
+    return pending.promise;
+  };
+
+  /**
+   * Handle the resources selected in the dialog.
+   * @param {SelectedResource[]} resources Selected resources.
+   */
+  const onSelect = async (resources) => {
+    const draft = entryDraft.current;
+    /* v8 ignore start -- the dialog is only shown while a pick is pending and the draft is there */
+    const { resolve, reject } = pending ?? {};
+    // Read before the await below: another `pick()` call made in the meantime replaces the options
+    const { multiple = false } = options;
+
+    pending = undefined;
+
+    if (!resolve || !reject) {
+      return;
+    }
+
+    // The draft may have gone away while the dialog was closing; nothing can be picked then
+    if (!draft) {
+      resolve(null);
+
+      return;
+    }
+    /* v8 ignore stop */
+
+    try {
+      const { files, ...rejected } = await resolvePickedResources({
+        draft,
+        fieldConfig,
+        typedKeyPath,
+        componentName,
+        locale,
+        inEditorComponent,
+        resources,
+        accept,
+      });
+
+      rejectedFilesAlert?.report(rejected);
+
+      if (!files.length) {
+        resolve(null);
+      } else if (multiple) {
+        resolve(files);
+      } else {
+        resolve(files[0]);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  };
+
+  /**
+   * Handle the dialog being closed. The call is still pending if the dialog was dismissed rather
+   * than closed with the Insert button.
+   */
+  const onClose = () => {
+    pending?.resolve(null);
+    pending = undefined;
+  };
+
+  // The dialog doesn’t get to close when the editor is left while it’s open, so settle the call
+  // here rather than leaving the control waiting forever
+  onDestroy(onClose);
+</script>
+
+{#if assetOptions}
+  <SelectAssetsDialog
+    {kind}
+    {accept}
+    multiple={!!options.multiple}
+    canEnterURL={options.allowURL ?? true}
+    draft={entryDraft.current}
+    {locale}
+    fieldConfig={mediaFieldConfig}
+    assetLibraryFolderMap={assetOptions.folderMap}
+    enabledCloudServiceEntries={assetOptions.cloudServiceEntries}
+    bind:open
+    {onSelect}
+    {onClose}
+  />
+
+  <ConflictResolutionDialog />
+
+  <RejectedFilesAlertDialog bind:this={rejectedFilesAlert} {maxSize} {accept} />
+{/if}

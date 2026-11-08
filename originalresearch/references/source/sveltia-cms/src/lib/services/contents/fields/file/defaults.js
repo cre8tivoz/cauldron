@@ -1,0 +1,44 @@
+import { getSubtreeEntries } from '$lib/services/contents/entry/subtree';
+import { isMultiple } from '$lib/services/integrations/media-libraries/multiple';
+
+/**
+ * @import { GetDefaultValueMapFuncArgs } from '$lib/types/private';
+ * @import { MediaField } from '$lib/types/public';
+ */
+
+/**
+ * Get the default value map for a File/Image field.
+ * @param {GetDefaultValueMapFuncArgs} args Arguments.
+ * @returns {Record<string, string>} Default value map.
+ */
+export const getDefaultValueMap = ({ fieldConfig, keyPath, dynamicValue }) => {
+  const config = /** @type {MediaField} */ (fieldConfig);
+  const defaultValue = config.default;
+  const multiple = isMultiple(config);
+  /** @type {string | string[]} */
+  let value = '';
+
+  if (dynamicValue !== undefined) {
+    value = multiple ? dynamicValue.split(/,\s*/) : dynamicValue;
+  } else if (multiple) {
+    value = Array.isArray(defaultValue) ? defaultValue : [];
+  } else {
+    value = typeof defaultValue === 'string' ? defaultValue : '';
+  }
+
+  /** @type {Record<string, any>} */
+  const content = {};
+
+  // An empty list is kept, like that of a List field, so an optional field without files is still
+  // written out as an empty value
+  if (multiple && Array.isArray(value)) {
+    value = value.map((val) => val.trim()).filter((val) => val !== '');
+    Object.assign(content, getSubtreeEntries(keyPath, value));
+  }
+
+  if (!multiple && typeof value === 'string') {
+    content[keyPath] = value.trim();
+  }
+
+  return content;
+};

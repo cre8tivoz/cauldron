@@ -1,0 +1,248 @@
+import { postJSON } from '$lib/services/integrations/ai/api';
+
+/**
+ * @import { LanguagePair, TranslationOptions, TranslationService } from '$lib/types/private';
+ */
+
+const serviceId = 'google';
+const serviceLabel = 'Google Cloud Translation';
+const apiLabel = 'Cloud Translation API';
+const developerURL = 'https://console.cloud.google.com/apis/library/translate.googleapis.com';
+const apiKeyURL = 'https://console.cloud.google.com/apis/api/translate.googleapis.com/credentials';
+// Anchored, so a key for another service entered while this one is selected isn’t accepted and sent
+// to the wrong API
+const apiKeyPattern = /^AIza[0-9A-Za-z-_]{35}$/;
+
+/**
+ * Supported source/target languages for Google Cloud Translation API.
+ * @see https://cloud.google.com/translate/docs/languages
+ */
+const SUPPORTED_LANGUAGES = [
+  'ab,ace,ach,af,ak,alz,am,ar,as,awa,ay,az',
+  'ba,ban,bbc,be,bem,bew,bg,bho,bik,bm,bn,br,bs,bts,btx,bua',
+  'ca,ceb,cgg,chm,ckb,cnh,co,crh,crs,cs,cv,cy',
+  'da,de,din,doi,dov,dv,dz',
+  'ee,el,en,eo,es,et,eu',
+  'fa,ff,fi,fil,fj,fr,fr-CA,fr-FR,fy',
+  'ga,gaa,gd,gl,gn,gom,gu',
+  'ha,haw,he,hi,hil,hmn,hr,hrx,ht,hu,hy',
+  'id,ig,ilo,is,it,iw',
+  'ja,jv,jw',
+  'ka,kk,km,kn,ko,kri,ktu,ku,ky',
+  'la,lb,lg,li,lij,lmo,ln,lo,lt,ltg,luo,lus,lv',
+  'mai,mak,mg,mi,min,mk,ml,mn,mni-Mtei,mr,ms,ms-Arab,mt,my',
+  'ne,new,nl,no,nr,nso,nus,ny',
+  'oc,om,or',
+  'pa,pa-Arab,pag,pam,pap,pl,ps,pt,pt-BR,pt-PT',
+  'qu',
+  'rn,ro,rom,ru,rw',
+  'sa,scn,sd,sg,shn,si,sk,sl,sm,sn,so,sq,sr,ss,st,su,sv,sw,szl',
+  'ta,te,tet,tg,th,ti,tk,tl,tn,tr,ts,tt',
+  'ug,uk,ur,uz',
+  'vi',
+  'xh',
+  'yi,yo,yua,yue',
+  'zh,zh-CN,zh-TW,zu',
+]
+  .join(',')
+  .split(',');
+
+/**
+ * Language codes that Google Cloud Translation API knows under a different code.
+ * @type {Record<string, string>}
+ */
+const LANGUAGE_ALIASES = {
+  // Norwegian written standard, which Google calls Norwegian
+  nb: 'no',
+};
+
+/**
+ * Get the script a locale is most likely written in, e.g. `Arab` for `pa-PK` and `Guru` for `pa`.
+ * @param {string} locale Locale code.
+ * @returns {string | undefined} Script code, or `undefined` if the locale code is invalid or its
+ * script is unknown.
+ */
+const getLikelyScript = (locale) => {
+  try {
+    return new Intl.Locale(locale).maximize().script;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Normalize a locale code to a supported language code. A locale can have a script code, like
+ * `zh-Hant` or `pa-Arab`, and a region code, like `fr-FR`, in either case and separated with a
+ * hyphen or an underscore. Without a script code, the script is the one the region implies, e.g.
+ * the Arabic script for `pa-PK`.
+ * @param {string} locale Locale code, e.g., 'en', 'fr-FR', 'zh-CN', 'zh-Hant'.
+ * @returns {string | undefined} Normalized language code, e.g., 'en', 'fr-FR', 'zh-CN', 'zh-TW'.
+ */
+export const normalizeLanguage = (locale) => {
+  const [language, ...parts] = locale.split(/[-_]/);
+  const lang = language.toLowerCase();
+  const scriptTag = parts.find((tag) => /^[a-z]{4}$/i.test(tag));
+  const regionTag = parts.find((tag) => /^(?:[a-z]{2}|\d{3})$/i.test(tag));
+  const region = regionTag?.toUpperCase();
+
+  const script = scriptTag
+    ? `${scriptTag[0].toUpperCase()}${scriptTag.slice(1).toLowerCase()}`
+    : region && getLikelyScript(`${lang}-${region}`);
+
+  // Chinese: We should not fall back to `zh` for Traditional Chinese, because it’s Simplified
+  if (lang === 'zh') {
+    if (script === 'Hant') {
+      return 'zh-TW';
+    }
+
+    if (script === 'Hans') {
+      return 'zh-CN';
+    }
+  }
+
+  // The bare language code gives the text in the language’s usual script, so don’t fall back to it
+  // for another script, e.g. `sr` for `sr-Latn` or `sr-ME`, which Google writes in Cyrillic
+  if (
+    script &&
+    !SUPPORTED_LANGUAGES.includes(`${lang}-${script}`) &&
+    script !== getLikelyScript(lang)
+  ) {
+    return undefined;
+  }
+
+  const candidates = [
+    script ? `${lang}-${script}` : undefined,
+    region ? `${lang}-${region}` : undefined,
+    LANGUAGE_ALIASES[lang] ?? lang,
+  ];
+
+  return candidates.find((code) => !!code && SUPPORTED_LANGUAGES.includes(code));
+};
+
+/**
+ * Check if the given source and target languages are supported.
+ * @param {LanguagePair} languages Language pair.
+ * @returns {Promise<boolean>} True if both source and target languages are supported.
+ */
+export const availability = async ({ sourceLanguage, targetLanguage }) =>
+  !!normalizeLanguage(sourceLanguage) && !!normalizeLanguage(targetLanguage);
+
+/**
+ * Maximum number of text segments the Cloud Translation API v2 accepts in a request.
+ */
+const MAX_SEGMENTS_PER_REQUEST = 128;
+/**
+ * Maximum total size of the texts in a request, in UTF-8 bytes. The API rejects a request larger
+ * than 100K bytes, so this leaves room for the rest of the JSON body.
+ * @see https://cloud.google.com/translate/quotas
+ */
+const MAX_BYTES_PER_REQUEST = 90_000;
+
+/**
+ * Split the given texts into chunks that each fit in a single API request: at most
+ * {@link MAX_SEGMENTS_PER_REQUEST} texts and {@link MAX_BYTES_PER_REQUEST} bytes. A text larger
+ * than the byte budget is given a chunk of its own, as a single text can’t be split.
+ * @param {string[]} texts Texts.
+ * @returns {string[][]} Chunks of texts in the original order.
+ */
+export const chunkTexts = (texts) => {
+  const encoder = new TextEncoder();
+  /** @type {string[][]} */
+  const chunks = [];
+  /** @type {string[]} */
+  let chunk = [];
+  let chunkSize = 0;
+
+  texts.forEach((text) => {
+    const size = encoder.encode(text).length;
+
+    if (
+      chunk.length &&
+      (chunk.length >= MAX_SEGMENTS_PER_REQUEST || chunkSize + size > MAX_BYTES_PER_REQUEST)
+    ) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkSize = 0;
+    }
+
+    chunk.push(text);
+    chunkSize += size;
+  });
+
+  if (chunk.length) {
+    chunks.push(chunk);
+  }
+
+  return chunks;
+};
+
+/**
+ * Translate the given text with Google Cloud Translation API using the basic model and HTML format.
+ * The texts are sent in as many requests as the API limits require, one after another.
+ * @param {string[]} texts Array of original texts.
+ * @param {TranslationOptions} options Options.
+ * @returns {Promise<string[]>} Translated strings in the original order.
+ * @throws {Error} When the source or target locale is not supported or API call fails.
+ * @see https://cloud.google.com/translate/docs/basic/translating-text
+ * @see https://cloud.google.com/translate/docs/reference/rest/v2/translate
+ * @see https://cloud.google.com/docs/authentication/api-keys-use
+ */
+const translate = async (texts, { sourceLanguage, targetLanguage, apiKey }) => {
+  sourceLanguage = normalizeLanguage(sourceLanguage) ?? '';
+  targetLanguage = normalizeLanguage(targetLanguage) ?? '';
+
+  if (!sourceLanguage) {
+    throw new Error('Source locale is not supported.');
+  }
+
+  if (!targetLanguage) {
+    throw new Error('Target locale is not supported.');
+  }
+
+  // Cloud Translation API v2 endpoint
+  const url = 'https://translation.googleapis.com/language/translate/v2';
+  /** @type {string[]} */
+  const results = [];
+
+  // Send the requests one after another rather than at once, not to burst the per-minute quota
+  // eslint-disable-next-line no-restricted-syntax
+  for (const chunk of chunkTexts(texts)) {
+    const requestBody = {
+      q: chunk,
+      source: sourceLanguage,
+      target: targetLanguage,
+      format: 'html',
+    };
+
+    const { data } = /** @type {{ data: { translations: { translatedText: string }[] } }} */ (
+      // eslint-disable-next-line no-await-in-loop
+      await postJSON({
+        endpoint: url,
+        headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
+        apiLabel: 'Google Translate',
+        body: requestBody,
+      })
+    );
+
+    // cspell:disable-next-line
+    // Decode apostrophes in translated text (e.g., "Aujourd&#39;hui" → "Aujourd'hui")
+    results.push(...data.translations.map((t) => t.translatedText.replace(/&#39;/g, "'")));
+  }
+
+  return results;
+};
+
+/**
+ * @type {TranslationService}
+ */
+export default {
+  serviceId,
+  serviceLabel,
+  apiLabel,
+  developerURL,
+  apiKeyURL,
+  apiKeyPattern,
+  markdownSupported: false,
+  availability,
+  translate,
+};

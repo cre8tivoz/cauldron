@@ -1,0 +1,13 @@
+node_modules
+.studio
+.git
+.env*
+dist
+test-results
+.wrangler
+cloudflare/test-results
+
+# Project-specific secrets and draft state.
+.dev.vars*
+.studio-state/
+.stacki/studio/

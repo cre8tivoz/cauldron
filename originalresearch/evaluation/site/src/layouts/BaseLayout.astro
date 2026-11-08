@@ -1,0 +1,8 @@
+---
+import '../styles/global.css';
+interface Props { title: string; }
+const { title } = Astro.props;
+---
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>{title}</title></head>
+<body><a class="skip" href="#main">Skip to content</a><header><a href="/">Workshop</a><nav aria-label="Main"><a href="/#services">Services</a><a href="/contact">Contact</a></nav></header><main id="main"><slot /></main><footer>Evaluation fixture · no real business data</footer></body></html>

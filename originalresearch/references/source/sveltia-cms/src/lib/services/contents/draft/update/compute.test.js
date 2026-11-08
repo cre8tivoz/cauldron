@@ -1,0 +1,512 @@
+/* eslint-disable jsdoc/require-jsdoc */
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import {
+  collectComponentComputeFields,
+  collectComputeFields,
+  updateComputedValues,
+} from '$lib/services/contents/draft/update/compute';
+import { indexListItems } from '$lib/services/contents/entry/content-index';
+import { getFieldDisplayValue } from '$lib/services/contents/entry/values';
+import { getComponentDef } from '$lib/services/contents/fields/rich-text/components/definitions';
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  // Look up a rich text editor component’s field in its definition; the entry’s fields aren’t
+  // needed, as no Number field is involved
+  getField: vi.fn(({ componentName, keyPath }) =>
+    componentName
+      ? getComponentDef(componentName)?.fields.find(
+          (/** @type {any} */ { name }) => name === keyPath,
+        )
+      : undefined,
+  ),
+}));
+vi.mock('$lib/services/contents/entry/values', () => ({
+  getFieldDisplayValue: vi.fn(({ valueMap, keyPath }) => valueMap[keyPath]),
+}));
+vi.mock('$lib/services/contents/fields/rich-text/components/definitions', () => ({
+  getComponentDef: vi.fn(),
+}));
+
+/** @type {any} */
+const SLUG_FIELD = { name: 'slug', widget: 'compute', value: '{{index}}' };
+
+/**
+ * Collect the Compute fields in the given fields and content.
+ * @param {any[]} fields Field list.
+ * @param {Record<string, any>} valueMap Flattened entry content.
+ * @returns {string[]} Key paths of the collected fields.
+ */
+const collect = (fields, valueMap) =>
+  collectComputeFields({ fields, valueMap, getIndex: () => indexListItems(valueMap) }).map(
+    ({ keyPath }) => keyPath,
+  );
+
+describe('collectComputeFields()', () => {
+  test('should collect a root-level field', () => {
+    expect(collect([{ name: 'title' }, SLUG_FIELD], {})).toEqual(['slug']);
+  });
+
+  test('should collect a field before it holds anything', () => {
+    expect(collect([{ name: 'author', widget: 'object', fields: [SLUG_FIELD] }], {})).toEqual([
+      'author.slug',
+    ]);
+  });
+
+  test('should skip a collapsed optional Object field', () => {
+    const fields = [{ name: 'author', widget: 'object', fields: [SLUG_FIELD] }];
+
+    expect(collect(fields, { author: null })).toEqual([]);
+  });
+
+  test('should resolve the variable type of an Object field', () => {
+    const fields = [
+      {
+        name: 'block',
+        widget: 'object',
+        types: [
+          { name: 'text', fields: [{ name: 'body' }] },
+          { name: 'card', fields: [SLUG_FIELD] },
+        ],
+      },
+    ];
+
+    expect(collect(fields, { 'block.type': 'card' })).toEqual(['block.slug']);
+    expect(collect(fields, { 'block.type': 'text' })).toEqual([]);
+    expect(collect(fields, {})).toEqual([]);
+  });
+
+  test('should collect one field per list item', () => {
+    const fields = [{ name: 'authors', widget: 'list', fields: [{ name: 'name' }, SLUG_FIELD] }];
+
+    const valueMap = {
+      'authors.0.name': 'A',
+      'authors.1.name': 'B',
+      'authors.2.name': 'C',
+    };
+
+    expect(collect(fields, valueMap)).toEqual([
+      'authors.0.slug',
+      'authors.1.slug',
+      'authors.2.slug',
+    ]);
+  });
+
+  test('should collect a list item’s single sub-field at the item key path', () => {
+    const fields = [{ name: 'slugs', widget: 'list', field: SLUG_FIELD }];
+
+    expect(collect(fields, { 'slugs.0': '', 'slugs.1': '' })).toEqual(['slugs.0', 'slugs.1']);
+  });
+
+  test('should skip a simple list', () => {
+    expect(collect([{ name: 'tags', widget: 'list' }], { 'tags.0': 'a' })).toEqual([]);
+  });
+
+  test('should resolve the variable type of each list item', () => {
+    const fields = [
+      {
+        name: 'blocks',
+        widget: 'list',
+        types: [
+          { name: 'text', fields: [{ name: 'body' }] },
+          { name: 'card', fields: [SLUG_FIELD] },
+        ],
+      },
+    ];
+
+    const valueMap = { 'blocks.0.type': 'text', 'blocks.1.type': 'card' };
+
+    expect(collect(fields, valueMap)).toEqual(['blocks.1.slug']);
+  });
+
+  test('should skip a list item of an unknown variable type', () => {
+    const fields = [
+      { name: 'blocks', widget: 'list', types: [{ name: 'card', fields: [SLUG_FIELD] }] },
+    ];
+
+    const valueMap = { 'blocks.0.type': 'gone', 'blocks.1.type': 'card' };
+
+    expect(collect(fields, valueMap)).toEqual(['blocks.1.slug']);
+  });
+
+  test('should descend into a nested list', () => {
+    const fields = [
+      {
+        name: 'sections',
+        widget: 'list',
+        fields: [{ name: 'authors', widget: 'list', fields: [SLUG_FIELD] }],
+      },
+    ];
+
+    const valueMap = { 'sections.0.authors.0.slug': '', 'sections.0.authors.1.slug': '' };
+
+    expect(collect(fields, valueMap)).toEqual([
+      'sections.0.authors.0.slug',
+      'sections.0.authors.1.slug',
+    ]);
+  });
+
+  test('should build the list item index only once a list is reached', () => {
+    const getIndex = vi.fn(() => new Map());
+
+    collectComputeFields({
+      fields: [
+        SLUG_FIELD,
+        { name: 'author', widget: 'object', fields: [SLUG_FIELD] },
+        { name: 'tags', widget: 'list', field: { name: 'tag' } },
+      ],
+      valueMap: {},
+      getIndex,
+    });
+
+    expect(getIndex).not.toHaveBeenCalled();
+
+    collectComputeFields({
+      fields: [{ name: 'authors', widget: 'list', fields: [SLUG_FIELD] }],
+      valueMap: {},
+      getIndex,
+    });
+
+    expect(getIndex).toHaveBeenCalledOnce();
+  });
+
+  test('should prepend the given key path prefix', () => {
+    const valueMap = { 'body:c1:items.0.slug': '' };
+
+    expect(
+      collectComputeFields({
+        fields: [SLUG_FIELD, { name: 'items', widget: 'list', fields: [SLUG_FIELD] }],
+        valueMap,
+        getIndex: () => indexListItems(valueMap),
+        keyPathPrefix: 'body:c1:',
+      }).map(({ keyPath }) => keyPath),
+    ).toEqual(['body:c1:slug', 'body:c1:items.0.slug']);
+  });
+});
+
+describe('collectComponentComputeFields()', () => {
+  test('should collect the fields of each component instance', () => {
+    vi.mocked(getComponentDef).mockImplementation((/** @type {any} */ name) =>
+      name === 'card'
+        ? /** @type {any} */ ({ fields: [{ name: 'title' }, SLUG_FIELD] })
+        : undefined,
+    );
+
+    const valueMap = {
+      'body:c1:__sc_component_name': 'card',
+      'body:c1:title': 'A',
+      'body:c2:__sc_component_name': 'image',
+      'body:c2:src': 'a.png',
+      title: 'Not a component',
+    };
+
+    expect(
+      collectComponentComputeFields(valueMap, () => indexListItems(valueMap)).map(
+        ({ keyPath }) => keyPath,
+      ),
+    ).toEqual(['body:c1:slug']);
+  });
+
+  test('should look up each component instance once', () => {
+    vi.mocked(getComponentDef).mockReturnValue(
+      /** @type {any} */ ({ fields: [{ name: 'items', widget: 'list', fields: [SLUG_FIELD] }] }),
+    );
+
+    const valueMap = {
+      'body:c1:__sc_component_name': 'gallery',
+      'body:c1:items.0.src': 'a.png',
+      'body:c1:items.1.src': 'b.png',
+      'body:c2:__sc_component_name': 'gallery',
+    };
+
+    expect(
+      collectComponentComputeFields(valueMap, () => indexListItems(valueMap)).map(
+        ({ keyPath }) => keyPath,
+      ),
+    ).toEqual(['body:c1:items.0.slug', 'body:c1:items.1.slug']);
+    expect(getComponentDef).toHaveBeenCalledTimes(2);
+    expect(getComponentDef).toHaveBeenNthCalledWith(1, 'gallery');
+  });
+});
+
+describe('updateComputedValues(draft)', () => {
+  /** @type {any} */
+  let draft;
+
+  beforeEach(() => {
+    vi.mocked(getComponentDef).mockReturnValue(undefined);
+
+    draft = {
+      collectionName: 'posts',
+      collection: { _i18n: { i18nEnabled: false, defaultLocale: 'en' } },
+      fields: [
+        { name: 'title' },
+        { name: 'slug', widget: 'compute', value: 'post-{{fields.title}}' },
+      ],
+      currentLocales: { en: true },
+      currentValues: { en: { title: 'Hello', slug: '' } },
+      extraValues: { en: {} },
+    };
+  });
+
+  test('should write the computed value and report the change', () => {
+    expect(updateComputedValues(draft)).toBe(true);
+    expect(draft.currentValues.en.slug).toBe('post-Hello');
+  });
+
+  test('should skip an entry configured without a Compute field', () => {
+    draft.fields = [
+      { name: 'title' },
+      { name: 'author', widget: 'object', fields: [{ name: 'name' }] },
+      { name: 'tags', widget: 'list' },
+      { name: 'slugs', widget: 'list', field: { name: 'slug' } },
+      { name: 'blocks', widget: 'list', types: [{ name: 'text', fields: [{ name: 'body' }] }] },
+    ];
+
+    expect(updateComputedValues(draft)).toBe(false);
+    expect(draft.currentValues.en.slug).toBe('');
+  });
+
+  test('should find a Compute field nested in an Object field', () => {
+    draft.fields = [{ name: 'author', widget: 'object', fields: [SLUG_FIELD] }];
+    draft.currentValues.en = { 'author.name': 'Kohei' };
+
+    expect(updateComputedValues(draft)).toBe(true);
+    expect(draft.currentValues.en['author.slug']).toBe('');
+  });
+
+  test('should settle on the second run', () => {
+    updateComputedValues(draft);
+
+    expect(updateComputedValues(draft)).toBe(false);
+  });
+
+  test('should skip a disabled locale', () => {
+    draft.currentLocales = { en: true, fr: false };
+    draft.currentValues.fr = { title: 'Bonjour', slug: '' };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.fr.slug).toBe('');
+  });
+
+  test('should skip a non-default locale when the field is not localized', () => {
+    draft.collection._i18n = { i18nEnabled: true, defaultLocale: 'en' };
+    draft.currentLocales = { en: true, fr: true };
+    draft.currentValues.fr = { title: 'Bonjour', slug: '' };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.en.slug).toBe('post-Hello');
+    expect(draft.currentValues.fr.slug).toBe('');
+  });
+
+  test('should compute a localized field in every locale', () => {
+    draft.collection._i18n = { i18nEnabled: true, defaultLocale: 'en' };
+    draft.fields[1].i18n = 'translate';
+    draft.currentLocales = { en: true, fr: true };
+    draft.currentValues.fr = { title: 'Bonjour', slug: '' };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.fr.slug).toBe('post-Bonjour');
+  });
+
+  test('should compute a synced field in the default locale only', () => {
+    // The value proxy copies the value to the other locales; computing it there as well would copy
+    // a different value back whenever the template reads a translatable field
+    draft.collection._i18n = { i18nEnabled: true, defaultLocale: 'en' };
+    draft.fields[1].i18n = 'sync';
+    draft.currentLocales = { en: true, fr: true };
+    draft.currentValues.fr = { title: 'Bonjour', slug: '' };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.en.slug).toBe('post-Hello');
+    expect(draft.currentValues.fr.slug).toBe('');
+  });
+
+  test('should read a field that isn’t localized from the default locale', () => {
+    draft.collection._i18n = { i18nEnabled: true, defaultLocale: 'en' };
+    draft.fields = [
+      { name: 'title', i18n: true },
+      { name: 'price' },
+      { name: 'slug', widget: 'compute', value: '{{fields.title}}-{{fields.price}}', i18n: true },
+    ];
+    draft.currentLocales = { en: true, fr: true };
+    // The price is only stored in the default locale
+    draft.currentValues = {
+      en: { title: 'Hello', price: 5, slug: '' },
+      fr: { title: 'Bonjour', slug: '' },
+    };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.en.slug).toBe('Hello-5');
+    expect(draft.currentValues.fr.slug).toBe('Bonjour-5');
+    expect(draft.currentValues.fr).not.toHaveProperty('price');
+  });
+
+  test('should use the collection file’s i18n config when there is one', () => {
+    draft.collectionFile = { _i18n: { i18nEnabled: true, defaultLocale: 'fr' } };
+    draft.currentLocales = { en: true, fr: true };
+    draft.currentValues.fr = { title: 'Bonjour', slug: '' };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.en.slug).toBe('');
+    expect(draft.currentValues.fr.slug).toBe('post-Bonjour');
+  });
+
+  test('should compute the fields of a rich text editor component in every locale', () => {
+    vi.mocked(getComponentDef).mockReturnValue(
+      /** @type {any} */ ({
+        fields: [{ name: 'caption' }, { name: 'slug', widget: 'compute', value: '{{index}}' }],
+      }),
+    );
+
+    draft.collection._i18n = { i18nEnabled: true, defaultLocale: 'en' };
+    draft.currentLocales = { en: true, fr: true };
+    draft.currentValues.fr = { title: 'Bonjour', slug: '' };
+    draft.extraValues.fr = { 'body:c1:__sc_component_name': 'image', 'body:c1:caption': 'A' };
+
+    updateComputedValues(draft);
+
+    expect(draft.extraValues.fr['body:c1:slug']).toBe('');
+  });
+
+  test('should leave a rich text editor component without a Compute field alone', () => {
+    vi.mocked(getComponentDef).mockReturnValue(
+      /** @type {any} */ ({ fields: [{ name: 'caption' }] }),
+    );
+
+    draft.extraValues.en = { 'body:c1:__sc_component_name': 'image', 'body:c1:caption': 'A' };
+
+    updateComputedValues(draft);
+
+    expect(draft.extraValues.en).toEqual({
+      'body:c1:__sc_component_name': 'image',
+      'body:c1:caption': 'A',
+    });
+  });
+
+  test('should let a rich text editor component read an untranslated entry field', () => {
+    vi.mocked(getComponentDef).mockReturnValue(
+      /** @type {any} */ ({
+        fields: [
+          { name: 'caption' },
+          { name: 'label', widget: 'compute', value: '{{fields.price}}' },
+        ],
+      }),
+    );
+
+    draft.collection._i18n = { i18nEnabled: true, defaultLocale: 'en' };
+    draft.currentLocales = { en: true, fr: true };
+    // The price is only stored in the default locale
+    draft.currentValues = { en: { title: 'Hello', price: 5 }, fr: { title: 'Bonjour' } };
+    draft.extraValues.fr = { 'body:c1:__sc_component_name': 'image', 'body:c1:caption': 'A' };
+
+    updateComputedValues(draft);
+
+    expect(draft.extraValues.fr['body:c1:label']).toBe('5');
+  });
+
+  test('should follow the items of a list the editor isn’t rendering', () => {
+    draft.fields = [{ name: 'items', widget: 'list', fields: [{ name: 'name' }, SLUG_FIELD] }];
+
+    draft.currentValues.en = {
+      'items.0.name': 'A',
+      'items.1.name': 'B',
+      'items.2.name': 'C',
+    };
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.en['items.0.slug']).toBe(0);
+    expect(draft.currentValues.en['items.1.slug']).toBe(1);
+    expect(draft.currentValues.en['items.2.slug']).toBe(2);
+
+    // Remove the first item the way the List field editor does, by shifting the rest down
+    draft.currentValues.en = {
+      'items.0.name': 'B',
+      'items.0.slug': 0,
+      'items.1.name': 'C',
+      'items.1.slug': 1,
+    };
+
+    expect(updateComputedValues(draft)).toBe(false);
+    expect(Object.keys(draft.currentValues.en)).not.toContain('items.2.slug');
+  });
+
+  test('should skip a locale without any content', () => {
+    draft.currentLocales = { en: true, fr: true };
+    draft.currentValues.fr = {};
+
+    updateComputedValues(draft);
+
+    expect(draft.currentValues.fr).toEqual({});
+  });
+
+  test('should compute a component’s fields even if the entry has no Compute field', () => {
+    vi.mocked(getComponentDef).mockReturnValue(/** @type {any} */ ({ fields: [SLUG_FIELD] }));
+    draft.fields = [{ name: 'title' }, { name: 'body', widget: 'richtext' }];
+    draft.extraValues.en = { 'body:c1:__sc_component_name': 'card' };
+
+    expect(updateComputedValues(draft)).toBe(true);
+    expect(draft.extraValues.en['body:c1:slug']).toBe('');
+    expect(draft.currentValues.en.slug).toBe('');
+  });
+
+  test('should resolve the field tags of a rich text editor component', () => {
+    vi.mocked(getComponentDef).mockImplementation((/** @type {any} */ name) =>
+      name === 'section'
+        ? /** @type {any} */ ({
+            fields: [
+              { name: 'heading' },
+              { name: 'anchor', widget: 'compute', value: '#{{fields.heading}}' },
+              { name: 'ref', widget: 'compute', value: '{{fields.title}}' },
+            ],
+          })
+        : undefined,
+    );
+
+    draft.extraValues.en = {
+      'body:c1:__sc_component_name': 'section',
+      'body:c1:heading': 'intro',
+      'body:c2:__sc_component_name': 'section',
+      'body:c2:heading': 'usage',
+    };
+
+    expect(updateComputedValues(draft)).toBe(true);
+
+    // The component’s own field
+    expect(draft.extraValues.en['body:c1:anchor']).toBe('#intro');
+    expect(draft.extraValues.en['body:c2:anchor']).toBe('#usage');
+    // The entry’s field
+    expect(draft.extraValues.en['body:c1:ref']).toBe('Hello');
+    expect(draft.extraValues.en['body:c2:ref']).toBe('Hello');
+  });
+
+  test('should prefer a component’s own field to the entry’s field of the same name', () => {
+    vi.mocked(getComponentDef).mockReturnValue(
+      /** @type {any} */ ({
+        fields: [{ name: 'title' }, { name: 'ref', widget: 'compute', value: '{{fields.title}}' }],
+      }),
+    );
+
+    draft.extraValues.en = {
+      'body:c1:__sc_component_name': 'card',
+      'body:c1:title': 'Card title',
+    };
+
+    updateComputedValues(draft);
+
+    expect(draft.extraValues.en['body:c1:ref']).toBe('Card title');
+  });
+
+  test('should resolve the values with the display value helper', () => {
+    updateComputedValues(draft);
+
+    expect(vi.mocked(getFieldDisplayValue)).toHaveBeenCalled();
+  });
+});

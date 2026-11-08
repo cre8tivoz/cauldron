@@ -1,0 +1,172 @@
+import { compare, stripSlashes } from '@sveltia/utils/string';
+
+import { getValidCollections } from '$lib/services/contents/collection';
+import {
+  getValidCollectionFiles,
+  isValidCollectionFile,
+} from '$lib/services/contents/collection/predicates';
+import { getLocalePath } from '$lib/services/contents/i18n';
+import { normalizeI18nConfig } from '$lib/services/contents/i18n/config';
+import { hasLocalePlaceholder } from '$lib/services/contents/i18n/placeholder';
+
+/**
+ * @import { EntryFolderInfo, InternalCmsConfig, InternalLocaleCode } from '$lib/types/private';
+ * @import { Collection, CollectionFile, EntryCollection, FileCollection } from '$lib/types/public';
+ */
+
+/**
+ * Get a map of file paths for the given collection and file.
+ * @param {object} args Arguments.
+ * @param {Collection} args.collection Collection.
+ * @param {CollectionFile} args.file Collection file.
+ * @returns {Record<InternalLocaleCode, string>} Map of file paths for each locale.
+ */
+export const getFilePathMap = ({ collection, file }) => {
+  const path = stripSlashes(file.file);
+
+  if (!path.includes('{{locale}}')) {
+    return { _default: path };
+  }
+
+  const _i18n = normalizeI18nConfig(collection, file);
+
+  return Object.fromEntries(
+    _i18n.allLocales.map((locale) => [locale, getLocalePath({ _i18n, locale, path })]),
+  );
+};
+
+/**
+ * Get a collection file folder information.
+ * @param {Collection} collection Collection.
+ * @param {CollectionFile} file Collection file.
+ * @returns {EntryFolderInfo | undefined} Collection file folder information.
+ */
+export const getCollectionFileFolder = (collection, file) => {
+  if (!isValidCollectionFile(file)) {
+    return undefined;
+  }
+
+  return {
+    collectionName: collection.name,
+    fileName: file.name,
+    filePathMap: getFilePathMap({ collection, file }),
+  };
+};
+
+/**
+ * Compare two entry folders by their file paths. This is used to sort entry folders.
+ * @param {EntryFolderInfo} a One entry folder.
+ * @param {EntryFolderInfo} b Another entry folder.
+ * @returns {number} Comparison result.
+ */
+export const compareFilePath = (a, b) =>
+  compare(Object.values(a.filePathMap ?? {})[0], Object.values(b.filePathMap ?? {})[0]);
+
+/**
+ * Get entry collection folders.
+ * @param {InternalCmsConfig} config CMS configuration.
+ * @returns {EntryFolderInfo[]} Entry folders.
+ */
+export const getEntryCollectionFolders = ({ collections }) =>
+  getValidCollections({ collections, type: 'entry' })
+    .map((collection) => {
+      const { name: collectionName, folder, file } = /** @type {EntryCollection} */ (collection);
+
+      // All the entries are stored in one file, which is matched by its path like a file
+      // collection’s file. A collection file name is not given, as the file is not one
+      if (typeof file === 'string') {
+        return { collectionName, filePathMap: { _default: stripSlashes(file) } };
+      }
+
+      const folderPath = stripSlashes(/** @type {string} */ (folder));
+      const _i18n = normalizeI18nConfig(collection);
+
+      const {
+        allLocales,
+        defaultLocale,
+        omitDefaultLocaleFromFilePath,
+        structureMap: { i18nMultiRootFolder },
+      } = _i18n;
+
+      /**
+       * Get the folder path for the given locale.
+       * @param {InternalLocaleCode} locale Locale code.
+       * @returns {string} Folder path.
+       */
+      const getFolderPath = (locale) => {
+        // The `{{locale}}` placeholder says where the locale folder goes
+        if (hasLocalePlaceholder(folderPath)) {
+          return getLocalePath({ _i18n, locale, path: folderPath });
+        }
+
+        if (i18nMultiRootFolder) {
+          return omitDefaultLocaleFromFilePath && locale === defaultLocale
+            ? folderPath
+            : `${locale}/${folderPath}`;
+        }
+
+        return folderPath;
+      };
+
+      return {
+        collectionName,
+        folderPath,
+        folderPathMap: Object.fromEntries(
+          allLocales.map((locale) => [locale, getFolderPath(locale)]),
+        ),
+      };
+    })
+    .sort((a, b) =>
+      // A collection storing all the entries in one file has a file path instead of a folder path
+      compare(
+        a.folderPath ?? /** @type {Record<string, string>} */ (a.filePathMap)._default,
+        b.folderPath ?? /** @type {Record<string, string>} */ (b.filePathMap)._default,
+      ),
+    );
+
+/**
+ * Get file collection folders.
+ * @param {InternalCmsConfig} config CMS configuration.
+ * @returns {EntryFolderInfo[]} Entry folders.
+ */
+export const getFileCollectionFolders = ({ collections }) =>
+  getValidCollections({ collections, type: 'file' })
+    .flatMap((collection) =>
+      // prettier-ignore
+      (/** @type {FileCollection} */ (collection).files ?? []).map((file) =>
+        getCollectionFileFolder(collection, file),
+      ),
+    )
+    .filter((file) => !!file)
+    .sort(compareFilePath);
+
+/**
+ * Get singleton collection folders.
+ * @param {InternalCmsConfig} config CMS configuration.
+ * @returns {EntryFolderInfo[]} Entry folders.
+ */
+export const getSingletonCollectionFolders = ({ singletons }) => {
+  const files = Array.isArray(singletons) ? getValidCollectionFiles(singletons) : [];
+
+  if (!files.length) {
+    return [];
+  }
+
+  const singletonCollection = { name: '_singletons', files };
+
+  return files
+    .map((file) => getCollectionFileFolder(singletonCollection, file))
+    .filter((file) => !!file)
+    .sort(compareFilePath);
+};
+
+/**
+ * Get all entry folders.
+ * @param {InternalCmsConfig} config CMS configuration.
+ * @returns {EntryFolderInfo[]} Entry folders.
+ */
+export const getAllEntryFolders = (config) => [
+  ...getEntryCollectionFolders(config),
+  ...getFileCollectionFolders(config),
+  ...getSingletonCollectionFolders(config),
+];

@@ -1,0 +1,302 @@
+import { _, locale as appLocale } from '@sveltia/i18n';
+import equal from 'fast-deep-equal';
+import { untrack } from 'svelte';
+
+import { isAssetInFolder } from '$lib/services/assets';
+import { selectedAssetFolder } from '$lib/services/assets/folders';
+import {
+  focusedAsset,
+  publishedAssets,
+  selectedAssets,
+  uploadingAssets,
+} from '$lib/services/assets/state';
+import {
+  browsedDirPath,
+  focusedSubfolder,
+  getAssetsInDir,
+  getSubfolders,
+  selectedSubfolderPath,
+} from '$lib/services/assets/subfolders';
+import { filterAssets } from '$lib/services/assets/view/filter';
+import { groupAssets } from '$lib/services/assets/view/group';
+import { assetListSettings, currentView, initSettings } from '$lib/services/assets/view/settings';
+import { sortAssets } from '$lib/services/assets/view/sort';
+import { backend } from '$lib/services/backends';
+import { getCollection, getCollectionLabel } from '$lib/services/contents/collection';
+import { getCollectionFile, getCollectionFileLabel } from '$lib/services/contents/collection/files';
+import { prefs } from '$lib/services/user/prefs.svelte';
+import {
+  createDerivedState,
+  createRawState,
+  createRootEffect,
+  createStableDerivedState,
+} from '$lib/services/utils/state.svelte';
+
+/**
+ * @import { Asset, AssetFolderInfo, AssetFolderSummary } from '$lib/types/private';
+ */
+
+/**
+ * Whether the asset details overlay is shown.
+ */
+export const showAssetOverlay = createRawState(false);
+
+/**
+ * Whether to show the Upload Assets dialog.
+ */
+export const showUploadAssetsDialog = createRawState(false);
+
+/**
+ * Whether to show the New Folder dialog.
+ */
+export const showNewSubfolderDialog = createRawState(false);
+
+/**
+ * Whether to show the Upload Assets confirmation dialog.
+ */
+export const showUploadAssetsConfirmDialog = createDerivedState(
+  () => !!uploadingAssets.current.files.length,
+);
+
+/**
+ * Get the label for the given collection. It can be a category name if the folder is a
+ * collection-specific asset folder.
+ * @param {AssetFolderInfo} folder Folder info.
+ * @returns {string} Human-readable label.
+ * @see https://decapcms.org/docs/collection-folder/#media-and-public-folder
+ * @see https://sveltiacms.app/en/docs/media/internal
+ */
+export const getFolderLabelByCollection = ({ label, collectionName, fileName, internalPath }) => {
+  if (label) {
+    return label;
+  }
+
+  if (collectionName === undefined) {
+    return _(internalPath === undefined ? 'all_assets' : 'global_assets');
+  }
+
+  const collection = getCollection(collectionName);
+  const collectionLabel = collection ? getCollectionLabel(collection) : collectionName;
+
+  if (!fileName) {
+    return collectionLabel;
+  }
+
+  const file = collection ? getCollectionFile(collection, fileName) : undefined;
+  const fileLabel = file ? getCollectionFileLabel(file) : fileName;
+
+  return `${collectionLabel} › ${fileLabel}`;
+};
+
+/**
+ * List of all the assets in the selected asset folder, including those in its subfolders.
+ */
+export const selectedFolderAssets = createDerivedState(() => {
+  const { current: _allAssets } = publishedAssets;
+  const { current: _selectedAssetFolder } = selectedAssetFolder;
+
+  if (_allAssets && _selectedAssetFolder && _selectedAssetFolder.internalPath !== undefined) {
+    // A folder restored from `window.history.state` is an equal but separate object, and the
+    // assets of another folder with the same path are listed as well
+    return _allAssets.filter((asset) => isAssetInFolder(asset, _selectedAssetFolder));
+  }
+
+  return _allAssets ? [..._allAssets] : [];
+});
+
+/**
+ * List of the assets shown for the selected asset folder: the assets right in the directory being
+ * browsed, the ones in its subfolders being reached through {@link listedSubfolders}. Every asset
+ * below the folder is listed at once when the folder can’t be browsed by subfolder.
+ */
+export const listedAssets = createDerivedState(() => {
+  const assets = selectedFolderAssets.current;
+  const dirPath = browsedDirPath.current;
+
+  if (dirPath === undefined) {
+    return assets;
+  }
+
+  return getAssetsInDir({ dirPath, assets });
+});
+
+/**
+ * Subfolders of the directory being browsed, listed ahead of the assets. Empty unless the selected
+ * asset folder is browsed by subfolder.
+ */
+export const listedSubfolders = createDerivedState(() => {
+  const dirPath = browsedDirPath.current;
+
+  return dirPath === undefined
+    ? []
+    : getSubfolders({ dirPath, assets: selectedFolderAssets.current });
+});
+
+/**
+ * What the folder info panel describes: the focused subfolder, or the folder being browsed — the
+ * subfolder being browsed if any, otherwise the selected folder itself.
+ * @type {{ readonly current: AssetFolderSummary | undefined }}
+ */
+export const folderSummary = createDerivedState(() => {
+  const subfolder = focusedSubfolder.current;
+
+  if (subfolder) {
+    const { name, path } = subfolder;
+    const assets = selectedFolderAssets.current;
+
+    return {
+      name,
+      path,
+      folderCount: getSubfolders({ dirPath: path, assets }).length,
+      assetCount: getAssetsInDir({ dirPath: path, assets }).length,
+    };
+  }
+
+  const folder = selectedAssetFolder.current;
+
+  // The panel is only shown with a folder selected
+  if (!folder) {
+    return undefined;
+  }
+
+  const dirPath = browsedDirPath.current;
+
+  return {
+    name:
+      selectedSubfolderPath.current.split('/').at(-1) ||
+      // `appLocale.current` is a key, because the label can be localized
+      (appLocale.current && getFolderLabelByCollection(folder)),
+    // The All Assets folder has no path
+    path: dirPath ?? folder.internalPath,
+    // A folder that isn’t browsed by subfolder lists every asset below it at once
+    folderCount: dirPath === undefined ? undefined : listedSubfolders.current.length,
+    assetCount: listedAssets.current.length,
+  };
+});
+
+/**
+ * Find the assets listed right before and after the given one, for the previous/next navigation in
+ * the details overlay. The list is the one the user sees, so the neighbors follow the current
+ * sorting, filtering and grouping.
+ * @template T
+ * @param {T[]} assets Listed assets.
+ * @param {(asset: T) => boolean} isCurrent Whether an asset is the one shown in the overlay.
+ * @returns {{ previous?: T, next?: T }} Neighbors, each omitted when the current asset is the first
+ * or last one, or when it isn’t listed at all.
+ */
+export const getAdjacentAssets = (assets, isCurrent) => {
+  const index = assets.findIndex(isCurrent);
+
+  if (index === -1) {
+    return {};
+  }
+
+  return { previous: assets[index - 1], next: assets[index + 1] };
+};
+
+/**
+ * Last computed value of {@link assetGroups}, reused when the new value is deeply equal, so that
+ * the list is not re-rendered needlessly.
+ * @type {Record<string, Asset[]>}
+ */
+let previousAssetGroups = {};
+/**
+ * Sorting conditions of the current view. This and the other view conditions below are picked out
+ * of {@link currentView} one by one, so replacing the view to switch between list and grid, or to
+ * collapse a group, doesn’t sort, filter and group the assets all over again: each step only
+ * reruns when the conditions it uses have actually changed.
+ */
+const sortConditions = createStableDerivedState(() => currentView.current.sort);
+/**
+ * Filtering conditions of the current view. See {@link sortConditions}.
+ */
+const filterConditions = createStableDerivedState(() => currentView.current.filter);
+/**
+ * Grouping conditions of the current view. See {@link sortConditions}.
+ */
+const groupConditions = createStableDerivedState(() => currentView.current.group);
+
+/**
+ * {@link listedAssets} sorted with the current view’s conditions. Sorting is the costliest step, so
+ * it comes first: changing a filter then only reruns the cheaper steps below.
+ * @type {{ readonly current: Asset[] }}
+ */
+const sortedAssets = createDerivedState(() =>
+  sortAssets(listedAssets.current, sortConditions.current),
+);
+
+/**
+ * {@link sortedAssets} filtered with the current view’s conditions.
+ * @type {{ readonly current: Asset[] }}
+ */
+const filteredAssets = createDerivedState(() =>
+  filterAssets(sortedAssets.current, filterConditions.current),
+);
+
+/**
+ * Sorted, filtered and grouped assets for the selected asset collection.
+ * @type {{ readonly current: Record<string, Asset[]> }}
+ */
+export const assetGroups = createDerivedState(() => {
+  const groups = groupAssets(filteredAssets.current, groupConditions.current);
+
+  if (!equal(previousAssetGroups, groups)) {
+    previousAssetGroups = groups;
+  }
+
+  return previousAssetGroups;
+});
+
+/**
+ * Map from asset path to the asset’s row index in the list, used by list rows to resolve their
+ * `aria-rowindex` in O(1). The index is counted across the groups rather than within each one, as
+ * the rows of every group make up one grid, and follows the current sorting and filtering. The
+ * subfolders come first, so they offset the index. Rows are appended by an infinite scroller and
+ * never unmounted, so once a large folder has been scrolled through, an `indexOf()` per row would
+ * make every subsequent list update O(n²).
+ */
+export const listedAssetIndexMap = createDerivedState(() => {
+  const offset = listedSubfolders.current.length;
+
+  return new Map(
+    Object.values(assetGroups.current)
+      .flat(1)
+      .map((asset, index) => [asset.path, index + offset]),
+  );
+});
+
+createRootEffect(() => {
+  const { current: _backend } = backend;
+
+  if (_backend && !untrack(() => assetListSettings.current)) {
+    initSettings(_backend);
+  }
+});
+
+// Clear the selection when the listed assets or the filter change, so it never includes an asset
+// the current view hides, which a bulk action like Delete would otherwise apply to. Likewise, drop
+// the focus from an asset the view no longer lists, e.g. an image once the list is filtered to
+// documents, as the toolbar actions and the info panel fall back to the focused asset. An updated
+// copy of the focused asset, e.g. after it’s replaced, has the same path, so the focus stays.
+createRootEffect(() => {
+  const assets = listedAssets.current;
+  const filter = filterConditions.current;
+  const asset = untrack(() => focusedAsset.current);
+
+  selectedAssets.current = [];
+
+  if (
+    asset &&
+    !filterAssets(
+      assets.filter(({ path }) => path === asset.path),
+      filter,
+    ).length
+  ) {
+    focusedAsset.current = undefined;
+  }
+
+  if (untrack(() => prefs.devModeEnabled)) {
+    // eslint-disable-next-line no-console
+    console.info('listedAssets', assets);
+  }
+});

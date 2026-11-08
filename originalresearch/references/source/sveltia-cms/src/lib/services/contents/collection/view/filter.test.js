@@ -1,0 +1,702 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { selectedCollection } from '$lib/services/contents/collection';
+
+import { filterEntries, parseFilterConfig, viewFilters } from './filter';
+
+/**
+ * @import { Entry, FilteringConditions, InternalCollection } from '$lib/types/private';
+ */
+
+// Mock dependencies
+vi.mock('$lib/services/contents/collection', () => ({
+  selectedCollection: { current: undefined },
+}));
+
+vi.mock('$lib/services/contents/collection/view/settings', () => ({
+  entryListSettings: { current: undefined },
+}));
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/values', () => ({
+  getPropertyValue: vi.fn(),
+}));
+
+vi.mock('$lib/services/utils/regex', () => ({
+  getRegex: vi.fn(),
+}));
+
+describe('Test filterEntries()', async () => {
+  const { getPropertyValue } = await import('$lib/services/contents/entry/values');
+  const { getRegex } = await import('$lib/services/utils/regex');
+
+  /** @type {InternalCollection} */
+  const mockCollection = {
+    name: 'posts',
+    _type: 'entry',
+    _i18n: {
+      i18nEnabled: false,
+      allLocales: ['en'],
+      initialLocales: ['en'],
+      defaultLocale: 'en',
+      structure: 'single_file',
+      structureMap: {
+        i18nSingleFile: false,
+        i18nSingleFileDefaultRoot: false,
+        i18nMultiFile: false,
+        i18nMultiFolder: false,
+        i18nMultiRootFolder: false,
+      },
+      canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    },
+    view_filters: [
+      { field: 'status', pattern: 'published', label: 'Published' },
+      { field: 'category', pattern: 'tech', label: 'Tech' },
+      { field: 'title', pattern: /^Test/, label: 'Test Title' },
+      { field: 'title', pattern: 'Test.*', label: 'Test Pattern' }, // Add the pattern for the test
+      { field: 'featured', pattern: true, label: 'Featured' },
+    ],
+    fields: [],
+    folder: 'content/posts',
+    _file: { extension: 'md', format: 'frontmatter' },
+    _thumbnailFieldNames: [],
+  };
+
+  /** @type {any[]} */
+  const mockEntries = [
+    {
+      id: 'entry1',
+      slug: 'entry-1',
+      locales: {
+        en: {
+          status: 'published',
+          category: 'tech',
+          title: 'Test Article',
+          featured: true,
+        },
+      },
+      sha: 'abc123',
+      path: 'content/posts/entry1.md',
+    },
+    {
+      id: 'entry2',
+      slug: 'entry-2',
+      locales: {
+        en: {
+          status: 'draft',
+          category: 'tech',
+          title: 'Draft Article',
+          featured: false,
+        },
+      },
+      sha: 'def456',
+      path: 'content/posts/entry2.md',
+    },
+    {
+      id: 'entry3',
+      slug: 'entry-3',
+      locales: {
+        en: {
+          status: 'published',
+          category: 'design',
+          title: 'Design Article',
+          featured: true,
+        },
+      },
+      sha: 'ghi789',
+      path: 'content/posts/entry3.md',
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Mock getPropertyValue to return the locale values
+    vi.mocked(getPropertyValue).mockImplementation(
+      ({ entry, key }) => /** @type {any} */ (entry).locales?.en?.[key],
+    );
+
+    // Mock getRegex
+    vi.mocked(getRegex).mockImplementation((pattern) => {
+      if (pattern instanceof RegExp) {
+        return pattern;
+      }
+
+      if (typeof pattern === 'string' && pattern.startsWith('/') && pattern.endsWith('/')) {
+        return new RegExp(pattern.slice(1, -1));
+      }
+
+      return undefined;
+    });
+  });
+
+  test('filters entries with exact string match', () => {
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'status', pattern: 'published' }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry3']);
+  });
+
+  test('filters entries with multiple conditions (AND logic)', () => {
+    /** @type {FilteringConditions[]} */
+    const filters = [
+      { field: 'status', pattern: 'published' },
+      { field: 'category', pattern: 'tech' },
+    ];
+
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('entry1');
+  });
+
+  test('filters entries with regex pattern', () => {
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'title', pattern: /^Test/ }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('entry1');
+  });
+
+  test('filters entries with boolean pattern', () => {
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'featured', pattern: true }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry3']);
+  });
+
+  test('returns all entries when no filters are provided', () => {
+    const result = filterEntries(mockEntries, mockCollection, []);
+
+    expect(result).toHaveLength(3);
+    expect(result).toEqual(mockEntries);
+  });
+
+  test('ignores invalid filters not in view_filters config', () => {
+    /** @type {FilteringConditions[]} */
+    const filters = [
+      { field: 'status', pattern: 'published' }, // Valid
+      { field: 'invalid_field', pattern: 'value' }, // Invalid - not in config
+      { field: 'category', pattern: 'invalid_pattern' }, // Invalid - pattern not in config
+    ];
+
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    // Should only apply the valid 'status' filter
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry3']);
+  });
+
+  test('ignores filters with undefined field or pattern', () => {
+    /** @type {FilteringConditions[]} */
+    const filters = [
+      { field: 'status', pattern: 'published' }, // Valid
+      /** @type {any} */ ({ field: undefined, pattern: 'value' }), // Invalid
+      /** @type {any} */ ({ field: 'category', pattern: undefined }), // Invalid
+    ];
+
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    // Should only apply the valid 'status' filter
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry3']);
+  });
+
+  test('handles entries with undefined property values', () => {
+    // Create custom mock for this test only
+    const customGetPropertyValue = vi.fn(({ entry, key }) => {
+      if (/** @type {any} */ (entry).id === 'entry2' && key === 'status') {
+        return undefined;
+      }
+
+      return /** @type {any} */ (entry).locales?.en?.[key];
+    });
+
+    vi.mocked(getPropertyValue).mockImplementation(customGetPropertyValue);
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'status', pattern: 'published' }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    // Only entry1 and entry3 have status 'published', but entry2 has undefined status
+    // so it should be filtered out, leaving entry1 and entry3
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry3']);
+  });
+
+  test('checks both raw and referenced values', () => {
+    // Mock getPropertyValue to return different values for raw vs referenced
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key, resolveRef = true }) => {
+      if (/** @type {any} */ (entry).id === 'entry1' && key === 'status') {
+        return resolveRef ? 'published' : 'ref:published';
+      }
+
+      return /** @type {any} */ (entry).locales?.en?.[key];
+    });
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'status', pattern: 'published' }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    // Should match because referenced value is 'published'
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry3']);
+  });
+
+  test('handles regex patterns from getRegex', () => {
+    // Clear all previous mocks and set fresh ones
+    vi.resetAllMocks();
+
+    // Mock getPropertyValue to return the locale values
+    vi.mocked(getPropertyValue).mockImplementation(
+      ({ entry, key }) => /** @type {any} */ (entry).locales?.en?.[key],
+    );
+
+    // Mock getRegex to return a regex ONLY for the specific test pattern
+    vi.mocked(getRegex).mockImplementation((pattern) => {
+      // Only return regex for our test pattern
+      if (pattern === 'Test.*') {
+        return /Test.*/;
+      }
+
+      // Return undefined for all other patterns (like the config patterns)
+      return undefined;
+    });
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'title', pattern: 'Test.*' }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('entry1');
+  });
+
+  test('handles collection without view_filters config', () => {
+    const collectionWithoutFilters = {
+      ...mockCollection,
+      view_filters: undefined,
+    };
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'status', pattern: 'published' }];
+    const result = filterEntries(mockEntries, collectionWithoutFilters, filters);
+
+    // Should return all entries since no filters are configured
+    expect(result).toHaveLength(3);
+    expect(result).toEqual(mockEntries);
+  });
+
+  test('handles empty view_filters config', () => {
+    const collectionWithEmptyFilters = {
+      ...mockCollection,
+      view_filters: [],
+    };
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'status', pattern: 'published' }];
+    const result = filterEntries(mockEntries, collectionWithEmptyFilters, filters);
+
+    // Should return all entries since no filters are configured
+    expect(result).toHaveLength(3);
+    expect(result).toEqual(mockEntries);
+  });
+
+  test('handles regex test against both raw and referenced values', () => {
+    // Mock getRegex to return a regex
+    vi.mocked(getRegex).mockReturnValue(/^Test/);
+
+    // Mock getPropertyValue to return different values for raw vs referenced
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key, resolveRef = true }) => {
+      if (/** @type {any} */ (entry).id === 'entry2' && key === 'title') {
+        return resolveRef ? 'Test Referenced Title' : 'Draft Article';
+      }
+
+      return /** @type {any} */ (entry).locales?.en?.[key];
+    });
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'title', pattern: /^Test/ }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    // Should match entry1 (raw value) and entry2 (referenced value)
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['entry1', 'entry2']);
+  });
+
+  test('handles string conversion for regex testing', () => {
+    // Mock getRegex to return a regex
+    vi.mocked(getRegex).mockReturnValue(/tech/i);
+
+    // Mock getPropertyValue to return non-string values
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'category') {
+        return { name: 'tech', id: 1 }; // Object value
+      }
+
+      return /** @type {any} */ (entry).locales?.en?.[key];
+    });
+
+    /** @type {FilteringConditions[]} */
+    const filters = [{ field: 'category', pattern: /tech/i }];
+    const result = filterEntries(mockEntries, mockCollection, filters);
+
+    // Should convert object to string and test regex
+    expect(result).toHaveLength(3);
+  });
+});
+
+describe('Test filterEntries() with a comparison', async () => {
+  const { getField } = await import('$lib/services/contents/entry/fields');
+  const { getPropertyValue } = await import('$lib/services/contents/entry/values');
+  const { getRegex } = await import('$lib/services/utils/regex');
+
+  /**
+   * Create an entry.
+   * @param {string} id Entry ID.
+   * @param {Record<string, any>} content Content.
+   * @returns {any} Entry.
+   */
+  const createEntry = (id, content) => ({
+    id,
+    slug: id,
+    sha: id,
+    path: `content/events/${id}.md`,
+    locales: { en: content },
+  });
+
+  const entries = [
+    createEntry('past', { date: '2026-09-15T18:00', priority: 1, category: 'concert' }),
+    createEntry('today', { date: '2026-09-16T18:00', priority: 5, category: 'festival' }),
+    createEntry('future', { date: '2026-09-17T18:00', priority: 10, category: 'concert' }),
+    createEntry('undated', { priority: 3 }),
+    createEntry('tagged', { priority: 3, tags: ['news', 'updates'] }),
+  ];
+
+  const fields = [
+    { name: 'date', widget: 'datetime' },
+    { name: 'priority', widget: 'number' },
+    { name: 'category', widget: 'relation', collection: 'categories' },
+    { name: 'tags', widget: 'relation', collection: 'tags', multiple: true },
+  ];
+
+  /** @type {any} */
+  const collection = {
+    name: 'events',
+    _type: 'entry',
+    _i18n: { defaultLocale: 'en' },
+    folder: 'content/events',
+    fields,
+    view_filters: [
+      { label: 'Upcoming', field: 'date', gte: '{{now}}' },
+      { label: 'Past', field: 'date', lt: '{{now}}' },
+      { label: 'Today', field: 'date', pattern: '^{{today}}' },
+      { label: 'This year', field: 'date', gte: '{{year}}-01-01', lt: '2027-01-01' },
+      { label: 'Important', field: 'priority', gte: 5 },
+      { label: 'Not important', field: 'priority', lt: 5 },
+      { label: 'Concerts', field: 'category', eq: 'Concert' },
+      { label: 'Other than concerts', field: 'category', ne: 'concert' },
+      { label: 'Some', field: 'category', in: ['festival', 'workshop'] },
+      { label: 'News', field: 'tags', pattern: 'news' },
+      { label: 'Updates', field: 'tags', eq: 'Updates' },
+      { label: 'Not news', field: 'tags', ne: 'news' },
+      { label: 'Dated', field: 'date', empty: false },
+      { label: 'Undated', field: 'date', empty: true },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 16, 14, 5, 9));
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key, resolveRef = true }) => {
+      const value = /** @type {any} */ (entry).locales?.en?.[key];
+      /**
+       * Resolve a category label.
+       * @param {string} slug Category slug.
+       * @returns {string} Label.
+       */
+      const getLabel = (slug) => slug.charAt(0).toUpperCase() + slug.slice(1);
+
+      if (key === 'category' && resolveRef && typeof value === 'string') {
+        return getLabel(value);
+      }
+
+      // A multiple relation field resolves to an array of labels
+      if (key === 'tags' && resolveRef && Array.isArray(value)) {
+        return value.map(getLabel);
+      }
+
+      return value;
+    });
+
+    vi.mocked(getField).mockImplementation(
+      ({ keyPath }) => /** @type {any} */ (fields.find(({ name }) => name === keyPath)),
+    );
+
+    vi.mocked(getRegex).mockImplementation((pattern) =>
+      typeof pattern === 'string' ? new RegExp(pattern) : undefined,
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * Filter the entries and get the IDs of the result.
+   * @param {FilteringConditions[]} filters Filters.
+   * @returns {string[]} Entry IDs.
+   */
+  const filter = (filters) => filterEntries(entries, collection, filters).map(({ id }) => id);
+
+  test('compares a DateTime field with the current date and time', () => {
+    expect(filter([{ field: 'date', gte: '{{now}}' }])).toEqual(['today', 'future']);
+    expect(filter([{ field: 'date', lt: '{{now}}' }])).toEqual(['past']);
+    expect(filter([{ field: 'date', pattern: '^{{today}}' }])).toEqual(['today']);
+    expect(filter([{ field: 'date', gte: '{{year}}-01-01', lt: '2027-01-01' }])).toEqual([
+      'past',
+      'today',
+      'future',
+    ]);
+  });
+
+  test('looks up the field configuration to parse a date', () => {
+    filter([{ field: 'date', gte: '{{now}}' }]);
+
+    expect(getField).toHaveBeenCalledWith({ collectionName: 'events', keyPath: 'date' });
+  });
+
+  test('compares a number field', () => {
+    expect(filter([{ field: 'priority', gte: 5 }])).toEqual(['today', 'future']);
+    expect(filter([{ field: 'priority', lt: 5 }])).toEqual(['past', 'undated', 'tagged']);
+  });
+
+  test('matches any item of a multiple relation field', () => {
+    // @see https://github.com/sveltia/sveltia-cms/issues/997
+    expect(filter([{ field: 'tags', pattern: 'news' }])).toEqual(['tagged']);
+    expect(filter([{ field: 'tags', eq: 'Updates' }])).toEqual(['tagged']);
+    expect(filter([{ field: 'tags', ne: 'news' }])).toEqual(['past', 'today', 'future', 'undated']);
+  });
+
+  test('compares the raw or referenced value for equality', () => {
+    expect(filter([{ field: 'category', eq: 'Concert' }])).toEqual(['past', 'future']);
+    expect(filter([{ field: 'category', ne: 'concert' }])).toEqual(['today', 'undated', 'tagged']);
+    expect(filter([{ field: 'category', in: ['festival', 'workshop'] }])).toEqual(['today']);
+  });
+
+  test('checks whether a field is empty', () => {
+    // @see https://github.com/sveltia/sveltia-cms/issues/1004
+    expect(filter([{ field: 'date', empty: false }])).toEqual(['past', 'today', 'future']);
+    expect(filter([{ field: 'date', empty: true }])).toEqual(['undated', 'tagged']);
+  });
+
+  test('combines the filters', () => {
+    expect(
+      filter([
+        { field: 'date', gte: '{{now}}' },
+        { field: 'category', eq: 'Concert' },
+      ]),
+    ).toEqual(['future']);
+  });
+
+  test('ignores a filter whose comparison is not configured', () => {
+    const all = ['past', 'today', 'future', 'undated', 'tagged'];
+
+    expect(filter([{ field: 'priority', gte: 6 }])).toEqual(all);
+    expect(filter([{ field: 'priority', gt: 5 }])).toEqual(all);
+    expect(filter([{ field: 'priority' }])).toEqual(all);
+  });
+});
+
+describe('Test parseFilterConfig()', () => {
+  test('returns empty options for undefined input', () => {
+    const result = parseFilterConfig(undefined);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for null input', () => {
+    const result = parseFilterConfig(/** @type {any} */ (null));
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for empty array', () => {
+    const result = parseFilterConfig([]);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('parses array format (Netlify/Decap CMS compatible)', () => {
+    const filters = [
+      { field: 'status', pattern: 'published', label: 'Published' },
+      { field: 'category', pattern: 'tech', label: 'Tech' },
+    ];
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({ options: filters });
+  });
+
+  test('parses object format without default (Static CMS compatible)', () => {
+    const filters = {
+      filters: [
+        { field: 'status', pattern: 'published', label: 'Published' },
+        { field: 'category', pattern: 'tech', label: 'Tech' },
+      ],
+    };
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({
+      options: filters.filters,
+      default: undefined,
+    });
+  });
+
+  test('parses object format with default (Static CMS compatible)', () => {
+    const filters = {
+      filters: [
+        { name: 'published', field: 'status', pattern: 'published', label: 'Published' },
+        { name: 'tech', field: 'category', pattern: 'tech', label: 'Tech' },
+      ],
+      default: 'published',
+    };
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({
+      options: filters.filters,
+      default: { field: 'status', pattern: 'published' },
+    });
+  });
+
+  test('handles object format with invalid default name', () => {
+    const filters = {
+      filters: [
+        { name: 'published', field: 'status', pattern: 'published', label: 'Published' },
+        { name: 'tech', field: 'category', pattern: 'tech', label: 'Tech' },
+      ],
+      default: 'nonexistent',
+    };
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({
+      options: filters.filters,
+      default: undefined,
+    });
+  });
+
+  test('returns empty options for object with empty filters array', () => {
+    const filters = {
+      filters: [],
+      default: 'published',
+    };
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for object with undefined filters', () => {
+    const filters = /** @type {any} */ ({
+      default: 'published',
+    });
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for object with non-array filters', () => {
+    const filters = /** @type {any} */ ({
+      filters: 'not an array',
+      default: 'published',
+    });
+
+    const result = parseFilterConfig(filters);
+
+    expect(result).toEqual({ options: [] });
+  });
+
+  test('returns empty options for non-object, non-array input', () => {
+    const result = parseFilterConfig(/** @type {any} */ ('invalid'));
+
+    expect(result).toEqual({ options: [] });
+  });
+});
+
+describe('viewFilters', () => {
+  beforeEach(() => {
+    selectedCollection.current = undefined;
+  });
+
+  test('is empty when no collection is selected', () => {
+    expect(viewFilters.current).toEqual([]);
+  });
+
+  test('is empty for a file collection', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'settings',
+      _type: 'file',
+      files: [],
+    });
+
+    expect(viewFilters.current).toEqual([]);
+  });
+
+  test('lists the filters of the selected entry collection', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'posts',
+      _type: 'entry',
+      folder: 'content/posts',
+      view_filters: [
+        { field: 'author', pattern: 'john', label: 'John' },
+        { field: 'status', pattern: 'draft', label: 'Draft' },
+      ],
+    });
+
+    expect(viewFilters.current).toEqual([
+      { field: 'author', pattern: 'john', label: 'John' },
+      { field: 'status', pattern: 'draft', label: 'Draft' },
+    ]);
+  });
+
+  test('is empty for an entry collection without view_filters', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'posts',
+      _type: 'entry',
+      folder: 'content/posts',
+    });
+
+    expect(viewFilters.current).toEqual([]);
+  });
+
+  test('supports the view_filters object format', () => {
+    selectedCollection.current = /** @type {any} */ ({
+      name: 'posts',
+      _type: 'entry',
+      folder: 'content/posts',
+      view_filters: {
+        default: 'drafts',
+        filters: [{ name: 'drafts', field: 'draft', pattern: true, label: 'Drafts' }],
+      },
+    });
+
+    expect(viewFilters.current).toEqual([
+      { name: 'drafts', field: 'draft', pattern: true, label: 'Drafts' },
+    ]);
+  });
+});

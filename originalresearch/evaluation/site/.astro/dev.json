@@ -1,0 +1,14 @@
+{
+	"pid": 21724,
+	"port": 49104,
+	"url": "http://127.0.0.1:49104",
+	"urls": {
+		"local": [
+			"http://127.0.0.1:49104/"
+		],
+		"network": [],
+		"networkInterfaceNames": []
+	},
+	"background": false,
+	"startedAt": "2026-11-06T10:22:06.962Z"
+}

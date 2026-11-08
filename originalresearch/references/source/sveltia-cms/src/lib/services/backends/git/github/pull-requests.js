@@ -1,0 +1,318 @@
+import { fetchBlobText } from '$lib/services/backends/git/github/files';
+import { getWorkflowRepository } from '$lib/services/backends/git/github/fork';
+import { fetchAliasedBatch } from '$lib/services/backends/git/github/graphql';
+import { repository } from '$lib/services/backends/git/github/repository';
+import { fetchAPI, fetchGraphQL } from '$lib/services/backends/git/shared/api';
+import { runConcurrently } from '$lib/services/backends/git/shared/concurrency';
+import {
+  parseRestFiles,
+  PULL_REQUEST_DESCRIPTION,
+} from '$lib/services/backends/git/shared/pull-requests';
+import {
+  getPullRequestPath,
+  getRepositoryPath,
+} from '$lib/services/backends/git/shared/repository';
+import { deleteRemoteBranch } from '$lib/services/backends/git/shared/workflow';
+import { encodePathSegments } from '$lib/services/utils/url';
+import { getStatusLabel, replaceStatusLabel } from '$lib/services/workflow/labels';
+import { forkedRepository } from '$lib/services/workflow/open-authoring';
+
+/**
+ * @import { WorkflowFile, WorkflowPullRequest, WorkflowStatus } from '$lib/types/private';
+ */
+
+/**
+ * Maximum numbers of items to retrieve from the GraphQL API: open pull requests, changed files per
+ * pull request, and labels per pull request. Editorial Workflow is not meant to hold a huge
+ * backlog, so a single page is enough in practice.
+ */
+export const MAX_ITEMS = {
+  pullRequests: 100,
+  files: 100,
+  labels: 100,
+  // Open Authoring branches in the contributor’s fork
+  branches: 100,
+  // Pull requests to look at for a single Open Authoring branch. Only the most recent match is
+  // used, and each candidate carries a file list of its own, so asking for more than a couple
+  // multiplies the size of a query that already has one of these per branch
+  branchPullRequests: 2,
+};
+
+/**
+ * Convert the changed files of a pull request, as listed by the GraphQL API, to workflow files.
+ * @param {{ path: string, changeType: string }[]} nodes File nodes.
+ * @returns {WorkflowFile[]} Files.
+ */
+export const parseFileNodes = (nodes) =>
+  nodes.map(({ path, changeType }) => ({
+    path,
+    sha: '',
+    size: 0,
+    deleted: changeType === 'DELETED',
+    // The previous path of a renamed file isn’t available here; it’s filled in by
+    // {@link fetchPullRequestFileList}
+    renamed: changeType === 'RENAMED',
+  }));
+
+/**
+ * Re-fetch the list of files changed in the given pull request with the REST API, which is the only
+ * one that reports the path a renamed file had before. The GraphQL API used by
+ * `fetchPullRequests()` has a `RENAMED` change type but no matching previous-path field, so
+ * this is called only for a pull request that contains a rename. The response is much larger,
+ * because it embeds a `patch` for every file and that can’t be turned off.
+ * @param {WorkflowPullRequest} pullRequest Pull request to complete.
+ * @see https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files
+ */
+export const fetchPullRequestFileList = async (pullRequest) => {
+  const files = /** @type {Record<string, any>[]} */ (
+    await fetchAPI(
+      `${getPullRequestPath(repository, pullRequest.number)}/files?per_page=${MAX_ITEMS.files}`,
+    )
+  );
+
+  pullRequest.files = parseRestFiles(files, { removedStatus: 'removed' });
+};
+
+/**
+ * Number of changed files whose content is requested per GraphQL query. With up to 100 files in
+ * each of up to 100 pull requests, asking for all of them at once could exceed the API’s limits.
+ */
+const FILES_CHUNK_SIZE = 100;
+
+/**
+ * Fetch the content of the files changed in the given pull requests, and populate the
+ * {@link WorkflowFile} objects in place. Binary files, such as images, are skipped; only their blob
+ * metadata is stored. The files are read at the pull request’s head commit rather than its branch,
+ * so the content shown is that of the commit a publish is pinned to, even if the branch moves on
+ * while the board loads.
+ * @param {WorkflowPullRequest[]} pullRequests Pull requests to complete.
+ */
+export const fetchPullRequestFiles = async (pullRequests) => {
+  /** @type {{ pullRequest: WorkflowPullRequest, file: WorkflowFile }[]} */
+  const targets = [];
+
+  pullRequests.forEach((pullRequest) => {
+    pullRequest.files.forEach((file) => {
+      if (!file.deleted) {
+        targets.push({ pullRequest, file });
+      }
+    });
+  });
+
+  if (!targets.length) {
+    return;
+  }
+
+  // A workflow branch lives in the contributor’s fork with Open Authoring, so that’s where the
+  // blobs have to be read from
+  const workflowRepository = getWorkflowRepository();
+
+  const blobs = await fetchAliasedBatch({
+    items: targets,
+    alias: 'file',
+    /**
+     * Build the field selection for a changed file on its pull request branch.
+     * @param {{ pullRequest: WorkflowPullRequest, file: WorkflowFile }} target Target.
+     * @returns {string} Field selection.
+     */
+    getFragment: ({ pullRequest: { headSHA, branch }, file }) => `
+      object(expression: ${JSON.stringify(`${headSHA ?? branch}:${file.path}`)}) {
+        ... on Blob {
+          oid
+          byteSize
+          isBinary
+          isTruncated
+          text
+        }
+      }
+    `,
+    chunkSize: FILES_CHUNK_SIZE,
+    variables: workflowRepository,
+  });
+
+  /** @type {WorkflowFile[]} */
+  const truncatedFiles = [];
+
+  targets.forEach(({ file }, index) => {
+    const blob = blobs[index];
+
+    if (blob) {
+      Object.assign(file, {
+        sha: blob.oid,
+        size: blob.byteSize,
+        text: blob.isBinary ? undefined : (blob.text ?? undefined),
+      });
+
+      if (!blob.isBinary && blob.isTruncated) {
+        truncatedFiles.push(file);
+      }
+    } else {
+      // The file may have been removed from the branch in the meantime
+      file.deleted = true;
+    }
+  });
+
+  // The GraphQL API cuts `Blob.text` off at 512 KB, so read any oversized blob again with the REST
+  // API, which returns it in full. @see https://github.com/sveltia/sveltia-cms/issues/950
+  await runConcurrently(truncatedFiles, async (file) => {
+    file.text = await fetchBlobText({ ...workflowRepository, sha: file.sha });
+  });
+};
+
+const FETCH_BRANCH_HEAD_QUERY = `
+  query($owner: String!, $repo: String!, $branch: String!) {
+    repository(owner: $owner, name: $repo) {
+      branchHead: ref(qualifiedName: $branch) {
+        target {
+          oid
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Fetch the commit the given workflow branch points at. Two editors working on the same entry
+ * share its branch, so this is how a save finds out that someone else has committed to it since
+ * the draft was opened. The branch is looked up in the repository it lives in, which is the
+ * contributor’s fork with Open Authoring.
+ * @param {string} branch Branch name.
+ * @returns {Promise<string | undefined>} Git object ID, or `undefined` if the branch is gone,
+ * which is what a merged or closed pull request leaves behind.
+ * @see https://docs.github.com/en/graphql/reference/objects#ref
+ */
+export const fetchBranchHead = async (branch) => {
+  const { owner, repo } = getWorkflowRepository();
+
+  const { repository: result } = /** @type {{ repository: Record<string, any> }} */ (
+    await fetchGraphQL(FETCH_BRANCH_HEAD_QUERY, { owner, repo, branch: `refs/heads/${branch}` })
+  );
+
+  return result?.branchHead?.target?.oid;
+};
+
+/**
+ * Delete the given branch. Failures are ignored, as the branch may already have been deleted by the
+ * repository’s automatic head branch deletion setting.
+ * @param {string} branch Branch name.
+ * @see https://docs.github.com/en/rest/git/refs#delete-a-reference
+ */
+export const deleteBranch = async (branch) => {
+  const repoPath = getRepositoryPath(getWorkflowRepository());
+
+  await deleteRemoteBranch({
+    branch,
+    path: `${repoPath}/git/refs/heads/${encodePathSegments(branch)}`,
+    // GitHub answers a missing reference with a 422 rather than a 404
+    goneStatuses: [404, 422],
+  });
+};
+
+/**
+ * Replace the CMS-managed status label on a pull request while preserving any other label.
+ * @param {WorkflowPullRequest} pullRequest Pull request.
+ * @param {WorkflowStatus} status New status.
+ * @see https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request
+ * @see https://docs.github.com/en/rest/issues/issues#update-an-issue
+ */
+export const updateLabels = async (pullRequest, status) => {
+  // Read the labels from the pulls endpoint: the issues endpoint's `GET` needs issue access, which
+  // a fine-grained token created from the token page doesn't have, while its `PATCH` also accepts
+  // pull request access. @see https://github.com/sveltia/sveltia-cms/issues/1014
+  const { labels = [] } = /** @type {{ labels?: { name: string }[] }} */ (
+    await fetchAPI(getPullRequestPath(repository, pullRequest.number))
+  );
+
+  const newLabels = replaceStatusLabel(
+    labels.map(({ name }) => name),
+    status,
+  );
+
+  await fetchAPI(`${getRepositoryPath(repository)}/issues/${pullRequest.number}`, {
+    method: 'PATCH',
+    body: { labels: newLabels },
+  });
+};
+
+/**
+ * Convert a pull request to a draft, or mark it ready for review. The REST API cannot toggle the
+ * draft state, so the GraphQL API is used here.
+ * @param {WorkflowPullRequest} pullRequest Pull request.
+ * @param {boolean} isDraft Whether the pull request should be a draft.
+ * @see https://docs.github.com/en/graphql/reference/mutations#convertpullrequesttodraft
+ * @see https://docs.github.com/en/graphql/reference/mutations#markpullrequestreadyforreview
+ */
+export const updateDraftState = async (pullRequest, isDraft) => {
+  const mutation = isDraft ? 'convertPullRequestToDraft' : 'markPullRequestReadyForReview';
+
+  await fetchGraphQL(
+    `
+      mutation($input: ${isDraft ? 'ConvertPullRequestToDraftInput' : 'MarkPullRequestReadyForReviewInput'}!) {
+        ${mutation}(input: $input) {
+          pullRequest {
+            isDraft
+          }
+        }
+      }
+    `,
+    { input: { pullRequestId: pullRequest.nodeId } },
+  );
+};
+
+/**
+ * Create a new pull request for the given workflow branch. The pull request is created as a draft,
+ * because a newly saved entry always starts with the `draft` status.
+ * @param {object} args Arguments.
+ * @param {string} args.branch Workflow branch name.
+ * @param {string} args.title Pull request title.
+ * @param {WorkflowStatus} args.status Status to open the pull request with.
+ * @returns {Promise<WorkflowPullRequest>} Created pull request.
+ * @see https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request
+ * @see https://docs.github.com/en/rest/issues/labels#add-labels-to-an-issue
+ */
+export const createPullRequest = async ({ branch, title, status }) => {
+  const { branch: baseBranch } = repository;
+  const fork = forkedRepository.current;
+  const isDraft = status === 'draft';
+
+  const result = /** @type {Record<string, any>} */ (
+    await fetchAPI(`${getRepositoryPath(repository)}/pulls`, {
+      method: 'POST',
+      body: {
+        title,
+        // A cross-repository pull request identifies its head branch by the fork’s owner
+        head: fork ? `${fork.owner}:${branch}` : branch,
+        base: baseBranch,
+        draft: isDraft,
+        body: PULL_REQUEST_DESCRIPTION,
+      },
+    })
+  );
+
+  /** @type {WorkflowPullRequest} */
+  const pullRequest = {
+    number: result.number,
+    nodeId: result.node_id,
+    title: result.title,
+    url: result.html_url,
+    branch,
+    headSHA: result.head?.sha,
+    status,
+    createdDate: new Date(result.created_at),
+    updatedDate: new Date(result.updated_at),
+    files: [],
+  };
+
+  // Labelling an issue requires write access to the repository, which an Open Authoring contributor
+  // doesn’t have. Their status is read from the pull request itself instead
+  if (!fork) {
+    // A brand-new pull request has no label to preserve, so add the status label outright rather
+    // than reading the current list first like {@link updateLabels} has to
+    await fetchAPI(`${getRepositoryPath(repository)}/issues/${result.number}/labels`, {
+      method: 'POST',
+      body: { labels: [getStatusLabel(status)] },
+    });
+  }
+
+  return pullRequest;
+};

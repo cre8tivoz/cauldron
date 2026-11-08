@@ -1,0 +1,3 @@
+# Shared actions run inside the app; outside agents need Cauldron open
+
+In version one, the shared actions (used by the visual controls, the agent panel and outside agents) run inside the Cauldron app itself, not in a separate background engine per site. Outside agents, such as Claude Code in a terminal, can therefore edit a site only while Cauldron is open. A background engine (Sitereal's approach) would let agents work with the app closed, but adds another process to build, secure and recover; Billy chose the simpler option for v1. The actions are built behind one interface so they can move into an engine later.

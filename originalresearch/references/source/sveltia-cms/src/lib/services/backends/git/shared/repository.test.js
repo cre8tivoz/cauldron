@@ -1,0 +1,499 @@
+// @ts-nocheck
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  applyDefaultBranch,
+  createBaseURLsGetter,
+  getInstanceURL,
+  getPullRequestPath,
+  getRepositoryPath,
+  getRepoURL,
+  initRepositoryInfo,
+  isSameRepository,
+  REPOSITORY_INFO_PLACEHOLDER,
+} from './repository';
+
+const mockPrefs = vi.hoisted(() => ({ devModeEnabled: false }));
+const mockGetRootDir = vi.hoisted(() => vi.fn(() => ''));
+
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ values: true }),
+);
+vi.mock('$lib/services/user/prefs.svelte', () => ({ prefs: mockPrefs }));
+vi.mock('$lib/services/backends/root-dir', () => ({ getRootDir: mockGetRootDir }));
+
+describe('git/shared/repository', () => {
+  describe('REPOSITORY_INFO_PLACEHOLDER', () => {
+    it('should have all required repository info properties', () => {
+      expect(REPOSITORY_INFO_PLACEHOLDER).toEqual({
+        service: '',
+        label: '',
+        owner: '',
+        repo: '',
+        branch: '',
+        repoURL: '',
+        treeBaseURL: '',
+        blobBaseURL: '',
+        isSelfHosted: false,
+        databaseName: '',
+      });
+    });
+
+    it('should have empty string values for string properties', () => {
+      const stringProperties = [
+        'service',
+        'label',
+        'owner',
+        'repo',
+        'branch',
+        'repoURL',
+        'treeBaseURL',
+        'blobBaseURL',
+        'databaseName',
+      ];
+
+      stringProperties.forEach((prop) => {
+        expect(REPOSITORY_INFO_PLACEHOLDER[prop]).toBe('');
+      });
+    });
+
+    it('should have false as default for isSelfHosted', () => {
+      expect(REPOSITORY_INFO_PLACEHOLDER.isSelfHosted).toBe(false);
+    });
+
+    it('should be immutable placeholder object', () => {
+      const original = { ...REPOSITORY_INFO_PLACEHOLDER };
+
+      // Try to modify the placeholder (this shouldn't affect the original)
+      REPOSITORY_INFO_PLACEHOLDER.service = 'github';
+
+      expect(REPOSITORY_INFO_PLACEHOLDER.service).toBe('github');
+      expect(original.service).toBe('');
+    });
+  });
+
+  describe('getInstanceURL', () => {
+    it.each([
+      ['https://api.github.com', 'https://github.com'],
+      ['https://github.example.com/api/v3', 'https://github.example.com'],
+      ['https://gitlab.com/api/v4', 'https://gitlab.com'],
+      // A self-hosted instance under a subpath keeps it
+      ['https://example.com/gitlab/api/v4', 'https://example.com/gitlab'],
+      ['https://example.com/gitea/api/v1', 'https://example.com/gitea'],
+    ])('should get the web interface URL from %s', (restApiRoot, expected) => {
+      expect(getInstanceURL(restApiRoot)).toBe(expected);
+    });
+  });
+
+  describe('createBaseURLsGetter', () => {
+    const getBaseURLs = createBaseURLsGetter({ tree: '/-/tree', blob: '/-/blob', commit: '/c' });
+
+    it('should append the path segments and the encoded branch to the repository URL', () => {
+      expect(getBaseURLs('https://example.com/owner/repo', 'cms/posts/c#')).toEqual({
+        treeBaseURL: 'https://example.com/owner/repo/-/tree/cms/posts/c%23',
+        blobBaseURL: 'https://example.com/owner/repo/-/blob/cms/posts/c%23',
+        commitBaseURL: 'https://example.com/owner/repo/c',
+      });
+    });
+
+    it('should point at the repository itself without a branch', () => {
+      expect(getBaseURLs('https://example.com/owner/repo')).toEqual({
+        treeBaseURL: 'https://example.com/owner/repo',
+        blobBaseURL: '',
+        commitBaseURL: 'https://example.com/owner/repo/c',
+      });
+    });
+  });
+
+  describe('getRepositoryPath', () => {
+    it('should return the REST API path of the repository', () => {
+      expect(getRepositoryPath({ owner: 'owner', repo: 'my.repo' })).toBe('/repos/owner/my.repo');
+    });
+
+    it('should encode the owner and repository names', () => {
+      expect(getRepositoryPath({ owner: 'a b', repo: 'c/d' })).toBe('/repos/a%20b/c%2Fd');
+    });
+  });
+
+  describe('isSameRepository', () => {
+    const repository = { owner: 'Owner', repo: 'Repo' };
+
+    it('should match the full name regardless of case', () => {
+      expect(isSameRepository('owner/repo', repository)).toBe(true);
+      expect(isSameRepository('OWNER/REPO', repository)).toBe(true);
+    });
+
+    it('should not match another repository or a missing name', () => {
+      expect(isSameRepository('owner/other', repository)).toBe(false);
+      expect(isSameRepository('other/repo', repository)).toBe(false);
+      expect(isSameRepository(undefined, repository)).toBe(false);
+    });
+
+    it('should match a GitLab project in a subgroup', () => {
+      expect(isSameRepository('Group/Sub/Project', { owner: 'group/sub', repo: 'project' })).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('getPullRequestPath', () => {
+    it('should return the REST API path of the pull request', () => {
+      expect(getPullRequestPath({ owner: 'owner', repo: 'repo' }, 42)).toBe(
+        '/repos/owner/repo/pulls/42',
+      );
+    });
+  });
+
+  describe('getRepoURL', () => {
+    const defaultRepoPath = 'owner/repo';
+
+    it('should handle GitHub.com API URL correctly', () => {
+      const restApiRoot = 'https://api.github.com';
+      const expected = 'https://github.com/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should extract base URL from GitHub Enterprise Server API URL', () => {
+      const restApiRoot = 'https://github.example.com/api/v3';
+      const expected = 'https://github.example.com/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should extract base URL from GitLab API URL', () => {
+      const restApiRoot = 'https://gitlab.example.com/api/v4';
+      const expected = 'https://gitlab.example.com/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should extract base URL from Gitea API URL', () => {
+      const restApiRoot = 'https://example.com/gitea/api/v1';
+      const expected = 'https://example.com/gitea/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should extract base URL from custom self-hosted API URL', () => {
+      const restApiRoot = 'https://git.company.com/api/v3';
+      const repoPath = 'team/project';
+      const expected = 'https://git.company.com/team/project';
+
+      expect(getRepoURL(restApiRoot, repoPath)).toBe(expected);
+    });
+
+    it('should handle API URL with nested path', () => {
+      const restApiRoot = 'https://example.com/git/api/v3/extra';
+      const expected = 'https://example.com/git/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should return URL with repo path if no /api path is found', () => {
+      const restApiRoot = 'https://example.com/git';
+      const expected = 'https://example.com/git/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should handle URL with /api at the end', () => {
+      const restApiRoot = 'https://example.com/api';
+      const expected = 'https://example.com/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should handle empty string inputs', () => {
+      const expected = '/';
+
+      expect(getRepoURL('', '')).toBe(expected);
+    });
+
+    it('should handle URL with multiple /api segments (first occurrence)', () => {
+      const restApiRoot = 'https://example.com/some/api/path/api/v1';
+      const expected = 'https://example.com/some/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should handle URL with port number', () => {
+      const restApiRoot = 'https://gitlab.local:8080/api/v4';
+      const repoPath = 'group/project';
+      const expected = 'https://gitlab.local:8080/group/project';
+
+      expect(getRepoURL(restApiRoot, repoPath)).toBe(expected);
+    });
+
+    it('should handle URL with subdirectory and API path', () => {
+      const restApiRoot = 'https://example.com/git/server/api/v1';
+      const expected = 'https://example.com/git/server/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should handle complex repository paths', () => {
+      const restApiRoot = 'https://gitlab.example.com/api/v4';
+      const repoPath = 'group/subgroup/project';
+      const expected = 'https://gitlab.example.com/group/subgroup/project';
+
+      expect(getRepoURL(restApiRoot, repoPath)).toBe(expected);
+    });
+
+    it.each([
+      ['https://apigit.example.com/api/v4', 'https://apigit.example.com/owner/repo'],
+      ['https://api.example.com/api/v1', 'https://api.example.com/owner/repo'],
+      ['https://api.example.com', 'https://api.example.com/owner/repo'],
+      [
+        'https://git.example.com/apis/gitea/api/v1',
+        'https://git.example.com/apis/gitea/owner/repo',
+      ],
+      [
+        'https://example.com/api-gateway/gitea/api/v1',
+        'https://example.com/api-gateway/gitea/owner/repo',
+      ],
+    ])('should only strip a whole `/api` path segment from %s', (restApiRoot, expected) => {
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+
+    it('should handle API URL with version numbers correctly', () => {
+      const restApiRoot = 'https://github.example.com/api/v3';
+      const expected = 'https://github.example.com/owner/repo';
+
+      expect(getRepoURL(restApiRoot, defaultRepoPath)).toBe(expected);
+    });
+  });
+
+  describe('initRepositoryInfo', () => {
+    const getTokenPageURL = vi.fn((instanceURL) => `${instanceURL}/tokens`);
+
+    const getBaseURLs = vi.fn((repoURL, branch) => ({
+      treeBaseURL: `${repoURL}/tree/${branch}`,
+      blobBaseURL: `${repoURL}/blob/${branch}`,
+      commitBaseURL: `${repoURL}/commit`,
+    }));
+
+    const args = {
+      service: 'github',
+      label: 'GitHub',
+      owner: 'owner',
+      repo: 'repo',
+      branch: 'main',
+      restApiRoot: 'https://api.github.com',
+      defaultApiRoot: 'https://api.github.com',
+      getTokenPageURL,
+      getBaseURLs,
+    };
+
+    beforeEach(() => {
+      mockPrefs.devModeEnabled = false;
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should fill in the repository info in place and return it', () => {
+      const repository = { ...REPOSITORY_INFO_PLACEHOLDER };
+      const result = initRepositoryInfo(repository, args);
+
+      expect(result).toBe(repository);
+      expect(repository).toEqual({
+        service: 'github',
+        label: 'GitHub',
+        owner: 'owner',
+        repo: 'repo',
+        branch: 'main',
+        repoURL: 'https://github.com/owner/repo',
+        tokenPageURL: 'https://github.com/tokens',
+        databaseName: 'github:owner/repo',
+        isSelfHosted: false,
+        treeBaseURL: 'https://github.com/owner/repo/tree/main',
+        blobBaseURL: 'https://github.com/owner/repo/blob/main',
+        commitBaseURL: 'https://github.com/owner/repo/commit',
+      });
+      // The token page belongs to the instance, not the repository
+      expect(getTokenPageURL).toHaveBeenCalledWith('https://github.com');
+      expect(getBaseURLs).toHaveBeenCalledWith('https://github.com/owner/repo', 'main');
+    });
+
+    it('should ignore a trailing slash in the REST API root URL', () => {
+      const github = initRepositoryInfo(
+        { ...REPOSITORY_INFO_PLACEHOLDER },
+        { ...args, restApiRoot: 'https://api.github.com/' },
+      );
+
+      expect(github).toMatchObject({
+        repoURL: 'https://github.com/owner/repo',
+        tokenPageURL: 'https://github.com/tokens',
+        isSelfHosted: false,
+      });
+
+      const gitlab = initRepositoryInfo(
+        { ...REPOSITORY_INFO_PLACEHOLDER },
+        {
+          ...args,
+          service: 'gitlab',
+          label: 'GitLab',
+          restApiRoot: 'https://gitlab.com/api/v4//',
+          defaultApiRoot: 'https://gitlab.com/api/v4',
+        },
+      );
+
+      expect(gitlab).toMatchObject({
+        repoURL: 'https://gitlab.com/owner/repo',
+        isSelfHosted: false,
+      });
+    });
+
+    it('should scope the database and the base URLs to the root directory', () => {
+      mockGetRootDir.mockReturnValue('apps/site');
+
+      const repository = initRepositoryInfo({ ...REPOSITORY_INFO_PLACEHOLDER }, args);
+
+      mockGetRootDir.mockReturnValue('');
+
+      expect(repository).toMatchObject({
+        databaseName: 'github:owner/repo:apps/site',
+        treeBaseURL: 'https://github.com/owner/repo/tree/main/apps/site',
+        blobBaseURL: 'https://github.com/owner/repo/blob/main/apps/site',
+        commitBaseURL: 'https://github.com/owner/repo/commit',
+      });
+    });
+
+    it('should encode the root directory in the base URLs', () => {
+      mockGetRootDir.mockReturnValue('apps/c#');
+
+      const repository = initRepositoryInfo({ ...REPOSITORY_INFO_PLACEHOLDER }, args);
+
+      mockGetRootDir.mockReturnValue('');
+
+      expect(repository.treeBaseURL).toBe('https://github.com/owner/repo/tree/main/apps/c%23');
+      expect(repository.blobBaseURL).toBe('https://github.com/owner/repo/blob/main/apps/c%23');
+    });
+
+    it('should leave the base URLs alone when the branch is unknown', () => {
+      mockGetRootDir.mockReturnValue('apps/site');
+
+      const repository = initRepositoryInfo(
+        { ...REPOSITORY_INFO_PLACEHOLDER },
+        { ...args, branch: undefined },
+      );
+
+      mockGetRootDir.mockReturnValue('');
+
+      expect(repository.databaseName).toBe('github:owner/repo:apps/site');
+      expect(repository.treeBaseURL).not.toContain('apps/site');
+      expect(repository.blobBaseURL).not.toContain('apps/site');
+    });
+
+    it('should mark a non-default API root as self-hosted', () => {
+      const repository = initRepositoryInfo(
+        { ...REPOSITORY_INFO_PLACEHOLDER },
+        { ...args, restApiRoot: 'https://github.example.com/api/v3', branch: undefined },
+      );
+
+      expect(repository.isSelfHosted).toBe(true);
+      expect(repository.repoURL).toBe('https://github.example.com/owner/repo');
+      expect(getBaseURLs).toHaveBeenCalledWith('https://github.example.com/owner/repo', undefined);
+    });
+
+    it('should log the repository info in dev mode', () => {
+      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      mockPrefs.devModeEnabled = true;
+
+      const repository = initRepositoryInfo({ ...REPOSITORY_INFO_PLACEHOLDER }, args);
+
+      expect(consoleInfoSpy).toHaveBeenCalledWith('repositoryInfo', repository);
+    });
+
+    it('should not log the repository info when dev mode is off', () => {
+      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      initRepositoryInfo({ ...REPOSITORY_INFO_PLACEHOLDER }, args);
+
+      expect(consoleInfoSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('applyDefaultBranch', () => {
+    const getBaseURLs = vi.fn((repoURL, branch) => ({
+      treeBaseURL: `${repoURL}/tree/${branch}`,
+      blobBaseURL: `${repoURL}/blob/${branch}`,
+    }));
+
+    /**
+     * Create a repository info object to be updated.
+     * @returns {object} Repository info.
+     */
+    const createRepository = () => ({
+      ...REPOSITORY_INFO_PLACEHOLDER,
+      repo: 'repo',
+      repoURL: 'https://github.com/owner/repo',
+    });
+
+    it('should apply the branch and base URLs to the repository info', () => {
+      const repository = createRepository();
+      const result = applyDefaultBranch(repository, { found: true, branch: 'main', getBaseURLs });
+
+      expect(result).toBe('main');
+      expect(repository).toMatchObject({
+        branch: 'main',
+        treeBaseURL: 'https://github.com/owner/repo/tree/main',
+        blobBaseURL: 'https://github.com/owner/repo/blob/main',
+      });
+      expect(getBaseURLs).toHaveBeenCalledWith('https://github.com/owner/repo', 'main');
+    });
+
+    it('should point the base URLs at the root directory', () => {
+      mockGetRootDir.mockReturnValue('apps/site');
+
+      const repository = createRepository();
+
+      applyDefaultBranch(repository, { found: true, branch: 'main', getBaseURLs });
+      mockGetRootDir.mockReturnValue('');
+
+      expect(repository).toMatchObject({
+        treeBaseURL: 'https://github.com/owner/repo/tree/main/apps/site',
+        blobBaseURL: 'https://github.com/owner/repo/blob/main/apps/site',
+      });
+    });
+
+    it('should throw when the repository was not found', () => {
+      const repository = createRepository();
+
+      expect(() =>
+        applyDefaultBranch(repository, { found: false, branch: undefined, getBaseURLs }),
+      ).toThrow(
+        expect.objectContaining({
+          message: 'Failed to retrieve the default branch name.',
+          cause: expect.objectContaining({ message: 'repository_not_found:{"repo":"repo"}' }),
+        }),
+      );
+      expect(repository.branch).toBe('');
+    });
+
+    it('should throw when the repository is empty', () => {
+      const repository = createRepository();
+
+      expect(() =>
+        applyDefaultBranch(repository, { found: true, branch: undefined, getBaseURLs }),
+      ).toThrow(
+        expect.objectContaining({
+          message: 'Failed to retrieve the default branch name.',
+          cause: expect.objectContaining({ message: 'repository_empty:{"repo":"repo"}' }),
+        }),
+      );
+      expect(repository.branch).toBe('');
+    });
+
+    it('should tolerate a missing `repoURL`', () => {
+      const repository = { ...createRepository(), repoURL: undefined };
+
+      applyDefaultBranch(repository, { found: true, branch: 'main', getBaseURLs });
+
+      expect(getBaseURLs).toHaveBeenCalledWith('', 'main');
+    });
+  });
+});

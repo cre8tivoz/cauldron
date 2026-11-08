@@ -1,0 +1,1890 @@
+// @ts-nocheck
+
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { getEntrySortKeyGetter, getSortKeyGetter, MARKDOWN_FIELD_KEYS, sortEntries } from './sort';
+
+/**
+ * @import { Entry, InternalCollection } from '$lib/types/private';
+ */
+
+// Mock external dependencies
+vi.mock('$lib/services/contents/collection/entries/index-file', () => ({
+  getIndexFile: vi.fn(),
+  isCollectionIndexFile: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/collection/view/sort-keys', () => ({
+  getSortKeyType: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/values', () => ({
+  getPropertyValue: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/summary', () => ({
+  getEntrySummary: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/fields/date-time/parse', () => ({
+  getDate: vi.fn(),
+}));
+
+vi.mock('$lib/services/utils/markdown', () => ({
+  removeMarkdownSyntax: vi.fn(),
+}));
+
+const { getIndexFile, isCollectionIndexFile } =
+  await import('$lib/services/contents/collection/entries/index-file');
+
+const { getSortKeyType } = await import('$lib/services/contents/collection/view/sort-keys');
+const { getField } = await import('$lib/services/contents/entry/fields');
+const { getPropertyValue } = await import('$lib/services/contents/entry/values');
+const { getEntrySummary } = await import('$lib/services/contents/entry/summary');
+const { getDate } = await import('$lib/services/contents/fields/date-time/parse');
+const { removeMarkdownSyntax } = await import('$lib/services/utils/markdown');
+
+describe('MARKDOWN_FIELD_KEYS', () => {
+  test('should export markdown field keys', () => {
+    expect(MARKDOWN_FIELD_KEYS).toEqual(['title', 'summary', 'description']);
+  });
+});
+
+/**
+ * Give the entries the order values 10, 2 and 100, in that order.
+ * @param {Entry[]} entries Entries.
+ * @param {string} [key] Order field key.
+ * @returns {Entry[]} Entries with the order values.
+ */
+const withOrders = (entries, key = 'order') =>
+  entries.map((entry, index) => ({
+    ...entry,
+    locales: {
+      en: {
+        ...entry.locales.en,
+        content: { ...entry.locales.en?.content, [key]: [10, 2, 100][index] },
+      },
+    },
+  }));
+
+describe('sortEntries', () => {
+  /** @type {InternalCollection} */
+  const mockCollection = {
+    _file: {
+      format: 'frontmatter',
+      extension: 'md',
+      formatOptions: {},
+    },
+    _i18n: {
+      i18nEnabled: false,
+      structure: 'single_file',
+      allLocales: ['en'],
+      initialLocales: ['en'],
+      defaultLocale: 'en',
+      locales: ['en'],
+      canonicalSlug: {},
+    },
+    name: 'posts',
+    label: 'Posts',
+    folder: 'content/posts',
+  };
+
+  /** @type {Entry[]} */
+  const mockEntries = [
+    {
+      id: 'entry-1',
+      sha: 'sha1',
+      slug: 'entry-1',
+      subPath: '',
+      locales: {
+        en: {
+          path: 'path1',
+          slug: 'entry-1',
+          content: { title: 'B Title', date: '2023-01-01' },
+        },
+      },
+    },
+    {
+      id: 'entry-2',
+      sha: 'sha2',
+      slug: 'entry-2',
+      subPath: '',
+      locales: {
+        en: {
+          path: 'path2',
+          slug: 'entry-2',
+          content: { title: 'A Title', date: '2023-01-02' },
+        },
+      },
+    },
+    {
+      id: 'entry-3',
+      sha: 'sha3',
+      slug: 'entry-3',
+      subPath: '',
+      locales: {
+        en: {
+          path: 'path3',
+          slug: 'entry-3',
+          content: { title: 'C Title', date: '2023-01-03' },
+        },
+      },
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Default mock for getIndexFile - no index file
+    vi.mocked(getIndexFile).mockReturnValue(null);
+    // Tell the index file by its slug unless a test says otherwise
+    vi.mocked(isCollectionIndexFile).mockImplementation(
+      (collection, entry) => entry.slug === getIndexFile(collection)?.name,
+    );
+  });
+
+  test('should not sort entries when no key provided', () => {
+    const result = sortEntries(mockEntries, mockCollection);
+
+    // getEntrySummary should not be called when no key is provided
+    expect(vi.mocked(getEntrySummary)).not.toHaveBeenCalled();
+
+    // Should return entries in original order
+    expect(result.map((e) => e.slug)).toEqual(['entry-1', 'entry-2', 'entry-3']);
+  });
+
+  test('should sort by string field in ascending order', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-1', 'entry-2', 'entry-3']); // Original order since compare logic isn't mocked
+  });
+
+  test('should sort entries sharing a slug by their own values', () => {
+    const conditions = { key: 'order', order: 'ascending' };
+
+    vi.mocked(getField).mockReturnValue({ name: 'order', widget: 'number', label: 'Order' });
+    vi.mocked(getSortKeyType).mockReturnValue(Number);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) =>
+      key === 'order' ? entry.locales.en.content.order : undefined,
+    );
+
+    // A published entry and its unpublished revision, or two nested entries in different
+    // folders, can carry the same slug; the sort must not conflate their keys
+    const entries = /** @type {any[]} */ ([
+      { id: 'a', slug: 'same', locales: { en: { content: { order: 3 } } } },
+      { id: 'b', slug: 'same', locales: { en: { content: { order: 1 } } } },
+      { id: 'c', slug: 'other', locales: { en: { content: { order: 2 } } } },
+    ]);
+
+    const result = sortEntries(entries, mockCollection, conditions);
+
+    expect(result.map((e) => e.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  test('should sort by string field in descending order', () => {
+    const conditions = { key: 'title', order: 'descending' };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value);
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // C Title, B Title, A Title
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-1', 'entry-2']);
+  });
+
+  test('should sort by numeric field', () => {
+    const conditions = { key: 'score', order: 'ascending' };
+
+    const entriesWithScores = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            score: [30, 10, 20][index], // entry-1: 30, entry-2: 10, entry-3: 20
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'score',
+      widget: 'number',
+      label: 'Score',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(Number);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'score') {
+        return entry.locales.en.content.score;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(entriesWithScores, mockCollection, conditions);
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-3', 'entry-1']); // 10, 20, 30
+  });
+
+  test.each([
+    ['ascending', ['entry-3', 'entry-1', 'entry-2']],
+    ['descending', ['entry-1', 'entry-3', 'entry-2']],
+  ])('should put entries without a numeric value last in %s order', (order, expected) => {
+    const conditions = { key: 'score', order };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'score',
+      widget: 'number',
+      label: 'Score',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(Number);
+
+    // entry-2 has no score, which used to be read as `0` and sort among the negative numbers
+    vi.mocked(getPropertyValue).mockImplementation(
+      ({ entry, key }) => key === 'score' && { 'entry-1': 50, 'entry-3': -10 }[entry.slug],
+    );
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    expect(result.map((e) => e.slug)).toEqual(expected);
+  });
+
+  test.each([undefined, null, '', 'abc'])(
+    'should treat the numeric value %j as missing in both orders',
+    (value) => {
+      vi.mocked(getField).mockReturnValue({ name: 'score', widget: 'number', label: 'Score' });
+      vi.mocked(getSortKeyType).mockReturnValue(Number);
+      vi.mocked(getPropertyValue).mockImplementation(({ entry }) =>
+        entry.slug === 'entry-1' ? value : { 'entry-2': 2, 'entry-3': -3 }[entry.slug],
+      );
+
+      /**
+       * Sort the entries and get their slugs.
+       * @param {string} order Sort order.
+       * @returns {string[]} Slugs.
+       */
+      const sort = (order) =>
+        sortEntries(mockEntries, mockCollection, { key: 'score', order }).map((e) => e.slug);
+
+      expect(sort('ascending')).toEqual(['entry-3', 'entry-2', 'entry-1']);
+      expect(sort('descending')).toEqual(['entry-2', 'entry-3', 'entry-1']);
+    },
+  );
+
+  test('should keep entries without a value in their original order in either order', () => {
+    vi.mocked(getField).mockReturnValue({ name: 'score', widget: 'number', label: 'Score' });
+    vi.mocked(getSortKeyType).mockReturnValue(Number);
+    vi.mocked(getPropertyValue).mockImplementation(({ entry }) =>
+      entry.slug === 'entry-2' ? 1 : undefined,
+    );
+
+    /**
+     * Sort the entries and get their slugs.
+     * @param {string} order Sort order.
+     * @returns {string[]} Slugs.
+     */
+    const sort = (order) =>
+      sortEntries(mockEntries, mockCollection, { key: 'score', order }).map((e) => e.slug);
+
+    expect(sort('ascending')).toEqual(['entry-2', 'entry-1', 'entry-3']);
+    expect(sort('descending')).toEqual(['entry-2', 'entry-1', 'entry-3']);
+  });
+
+  test.each(['ascending', 'descending'])(
+    'should keep the index file at the top over entries without a value in %s order',
+    (order) => {
+      vi.mocked(isCollectionIndexFile).mockImplementation(
+        (_collection, entry) => entry.slug === 'entry-3',
+      );
+      vi.mocked(getField).mockReturnValue({ name: 'score', widget: 'number', label: 'Score' });
+      vi.mocked(getSortKeyType).mockReturnValue(Number);
+      vi.mocked(getPropertyValue).mockImplementation(
+        ({ entry }) => ({ 'entry-1': 1, 'entry-2': 2 })[entry.slug],
+      );
+
+      const result = sortEntries(mockEntries, mockCollection, { key: 'score', order });
+
+      expect(result.map((e) => e.slug)).toEqual(
+        order === 'ascending'
+          ? ['entry-3', 'entry-1', 'entry-2']
+          : ['entry-3', 'entry-2', 'entry-1'],
+      );
+    },
+  );
+
+  test.each([
+    ['ascending', ['entry-2', 'entry-3', 'entry-1']],
+    ['descending', ['entry-1', 'entry-3', 'entry-2']],
+  ])('should sort a missing Boolean value as false in %s order', (order, expected) => {
+    vi.mocked(getField).mockReturnValue({ name: 'draft', widget: 'boolean', label: 'Draft' });
+    vi.mocked(getSortKeyType).mockReturnValue(Boolean);
+    vi.mocked(getPropertyValue).mockImplementation(
+      ({ entry }) => ({ 'entry-1': true, 'entry-2': false })[entry.slug],
+    );
+
+    const result = sortEntries(mockEntries, mockCollection, { key: 'draft', order });
+
+    expect(result.map((e) => e.slug)).toEqual(expected);
+  });
+
+  test('should sort by date field', () => {
+    const conditions = { key: 'date', order: 'ascending' };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'date',
+      widget: 'datetime',
+      label: 'Date',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'date') {
+        return entry.locales.en.content.date;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(getDate).mockImplementation((value) => {
+      const dates = {
+        '2023-01-01': new Date('2023-01-01'),
+        '2023-01-02': new Date('2023-01-02'),
+        '2023-01-03': new Date('2023-01-03'),
+      };
+
+      return dates[value];
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-1', 'entry-2', 'entry-3']);
+  });
+
+  test.each([
+    ['ascending', ['entry-3', 'entry-1', 'entry-2']],
+    ['descending', ['entry-1', 'entry-3', 'entry-2']],
+  ])('should put entries without a date last in %s order', (order, expected) => {
+    const conditions = { key: 'date', order };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'date',
+      widget: 'datetime',
+      label: 'Date',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    // entry-2 has no date, which used to be read as the epoch, before any other date
+    vi.mocked(getPropertyValue).mockImplementation(
+      ({ entry, key }) =>
+        key === 'date' && { 'entry-1': '2023-01-02', 'entry-3': '1960-01-01' }[entry.slug],
+    );
+
+    vi.mocked(getDate).mockImplementation((value) => (value ? new Date(value) : undefined));
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    expect(result.map((e) => e.slug)).toEqual(expected);
+  });
+
+  test.each(['ascending', 'descending'])(
+    'should put an entry with an unparseable date last in %s order',
+    (order) => {
+      vi.mocked(getField).mockReturnValue({ name: 'date', widget: 'datetime', label: 'Date' });
+      vi.mocked(getSortKeyType).mockReturnValue(String);
+      vi.mocked(getPropertyValue).mockImplementation(
+        ({ entry }) =>
+          ({ 'entry-1': 'not a date', 'entry-2': '2023-01-02', 'entry-3': '2023-01-03' })[
+            entry.slug
+          ],
+      );
+      vi.mocked(getDate).mockImplementation((value) => new Date(value));
+
+      const result = sortEntries(mockEntries, mockCollection, { key: 'date', order });
+
+      expect(result.map((e) => e.slug)).toEqual(
+        order === 'ascending'
+          ? ['entry-2', 'entry-3', 'entry-1']
+          : ['entry-3', 'entry-2', 'entry-1'],
+      );
+    },
+  );
+
+  test('should treat entries as missing when getDate returns null for a date field', () => {
+    const conditions = { key: 'date', order: 'ascending' };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'date',
+      widget: 'datetime',
+      label: 'Date',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'date') {
+        return entry.locales.en.content.date;
+      }
+
+      return undefined;
+    });
+
+    // getDate returning null for unparseable dates leaves the entries without a sort key
+    vi.mocked(getDate).mockReturnValue(null);
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // All sort keys are missing when getDate returns null → order is stable
+    expect(result).toHaveLength(mockEntries.length);
+  });
+
+  test('should handle markdown fields by removing markdown syntax', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    const entriesWithMarkdown = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            title: ['**Bold B**', '**Bold A**', '**Bold C**'][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'markdown',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation(
+      (value) => value.replace(/\*\*/g, ''), // Remove bold markdown
+    );
+
+    const result = sortEntries(entriesWithMarkdown, mockCollection, conditions);
+
+    expect(vi.mocked(removeMarkdownSyntax)).toHaveBeenCalled();
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-1', 'entry-3']); // A, B, C
+  });
+
+  test('should strip markdown syntax when sorting description field', () => {
+    const conditions = { key: 'description', order: 'ascending' };
+
+    // Create entries where markdown syntax would affect alphabetical ordering
+    // **C text** vs **A text** - without stripping would sort differently than C vs A
+    const entriesWithMarkdownDesc = [
+      {
+        ...mockEntries[0],
+        locales: {
+          en: {
+            ...mockEntries[0].locales.en,
+            content: {
+              ...mockEntries[0].locales.en.content,
+              description: '**C is for cat**',
+            },
+          },
+        },
+      },
+      {
+        ...mockEntries[1],
+        locales: {
+          en: {
+            ...mockEntries[1].locales.en,
+            content: {
+              ...mockEntries[1].locales.en.content,
+              description: '**A is for apple**',
+            },
+          },
+        },
+      },
+      {
+        ...mockEntries[2],
+        locales: {
+          en: {
+            ...mockEntries[2].locales.en,
+            content: {
+              ...mockEntries[2].locales.en.content,
+              description: '**B is for ball**',
+            },
+          },
+        },
+      },
+    ];
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'description',
+      widget: 'text',
+      label: 'Description',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'description') {
+        return entry.locales.en.content.description;
+      }
+
+      return undefined;
+    });
+
+    let callCount = 0;
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => {
+      callCount += 1;
+      // Remove markdown bold (**text**)
+      return value.replace(/\*\*/g, '');
+    });
+
+    const result = sortEntries(entriesWithMarkdownDesc, mockCollection, conditions);
+
+    // Verify removeMarkdownSyntax was called during sorting (for markdown field)
+    expect(callCount).toBeGreaterThan(0);
+    // After stripping ** **, should be sorted as: A, B, C
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-3', 'entry-1']);
+  });
+
+  test('should strip markdown syntax when sorting markdown fields', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    // Use simple markdown values that sort differently with vs without **
+    const entries = [
+      {
+        id: '1',
+        sha: 'sha1',
+        slug: 'c-entry',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path1',
+            slug: 'c-entry',
+            content: { title: '**C Title**' },
+          },
+        },
+      },
+      {
+        id: '2',
+        sha: 'sha2',
+        slug: 'a-entry',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path2',
+            slug: 'a-entry',
+            content: { title: '**A Title**' },
+          },
+        },
+      },
+      {
+        id: '3',
+        sha: 'sha3',
+        slug: 'b-entry',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path3',
+            slug: 'b-entry',
+            content: { title: '**B Title**' },
+          },
+        },
+      },
+    ];
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'markdown',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    let stripCallCount = 0;
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => {
+      stripCallCount += 1;
+      // Remove the ** markdown syntax
+      return value.replace(/\*\*/g, '');
+    });
+
+    const result = sortEntries(entries, mockCollection, conditions);
+
+    // Confirm that removeMarkdownSyntax was called (meaning lines 75-76 were executed)
+    expect(stripCallCount).toBeGreaterThan(0);
+
+    // After stripping **, should be sorted as A, B, C
+    expect(result.map((e) => e.slug)).toEqual(['a-entry', 'b-entry', 'c-entry']);
+  });
+
+  test('should only strip the markdown syntax of the beginning of a long value', () => {
+    const longTitle = `**A Title**${'x'.repeat(5000)}`;
+
+    const entries = [
+      {
+        id: '1',
+        sha: 'sha1',
+        slug: 'long-entry',
+        subPath: '',
+        locales: { en: { path: 'path1', slug: 'long-entry', content: { title: longTitle } } },
+      },
+    ];
+
+    vi.mocked(getField).mockReturnValue({ name: 'title', widget: 'markdown', label: 'Title' });
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+    vi.mocked(getPropertyValue).mockImplementation(({ entry }) => entry.locales.en.content.title);
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value);
+
+    sortEntries(entries, mockCollection, { key: 'title', order: 'ascending' });
+
+    // Stripping a value crafted to be nested deeply takes time growing faster than its length, so
+    // a sort key is cut short first
+    expect(removeMarkdownSyntax).toHaveBeenCalledWith(longTitle.slice(0, 1000));
+  });
+
+  test('should strip markdown syntax when sorting richtext fields', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    // Use simple markdown values that sort differently with vs without **
+    const entries = [
+      {
+        id: '1',
+        sha: 'sha1',
+        slug: 'c-entry',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path1',
+            slug: 'c-entry',
+            content: { title: '**C Title**' },
+          },
+        },
+      },
+      {
+        id: '2',
+        sha: 'sha2',
+        slug: 'a-entry',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path2',
+            slug: 'a-entry',
+            content: { title: '**A Title**' },
+          },
+        },
+      },
+      {
+        id: '3',
+        sha: 'sha3',
+        slug: 'b-entry',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path3',
+            slug: 'b-entry',
+            content: { title: '**B Title**' },
+          },
+        },
+      },
+    ];
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'richtext',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    let stripCallCount = 0;
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => {
+      stripCallCount += 1;
+      // Remove the ** markdown syntax
+      return value.replace(/\*\*/g, '');
+    });
+
+    const result = sortEntries(entries, mockCollection, conditions);
+
+    // Confirm that removeMarkdownSyntax was called (meaning lines 73-76 were executed)
+    expect(stripCallCount).toBeGreaterThan(0);
+
+    // After stripping **, should be sorted as A, B, C
+    expect(result.map((e) => e.slug)).toEqual(['a-entry', 'b-entry', 'c-entry']);
+  });
+
+  test('should handle entries with undefined values', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    const entriesWithUndefined = [
+      {
+        ...mockEntries[0],
+        locales: {
+          en: {
+            ...mockEntries[0].locales.en,
+            content: { title: 'B Title' },
+          },
+        },
+      },
+      {
+        ...mockEntries[1],
+        locales: {
+          en: {
+            ...mockEntries[1].locales.en,
+            content: {}, // No title
+          },
+        },
+      },
+    ];
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value);
+
+    const result = sortEntries(entriesWithUndefined, mockCollection, conditions);
+
+    // The entry without a title goes last, rather than first with an empty string
+    expect(result.map((e) => e.slug)).toEqual(['entry-1', 'entry-2']);
+    expect(vi.mocked(removeMarkdownSyntax)).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([undefined, null, ''])(
+    'should put an entry whose string value is %j last in both orders',
+    (value) => {
+      vi.mocked(getField).mockReturnValue({ name: 'author', widget: 'string', label: 'Author' });
+      vi.mocked(getSortKeyType).mockReturnValue(String);
+      vi.mocked(getPropertyValue).mockImplementation(
+        ({ entry }) => ({ 'entry-1': 'Bob', 'entry-2': value, 'entry-3': 'Alice' })[entry.slug],
+      );
+
+      /**
+       * Sort the entries and get their slugs.
+       * @param {string} order Sort order.
+       * @returns {string[]} Slugs.
+       */
+      const sort = (order) =>
+        sortEntries(mockEntries, mockCollection, { key: 'author', order }).map((e) => e.slug);
+
+      expect(sort('ascending')).toEqual(['entry-3', 'entry-1', 'entry-2']);
+      expect(sort('descending')).toEqual(['entry-1', 'entry-3', 'entry-2']);
+    },
+  );
+
+  test('should move index file to top when present', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    vi.mocked(getIndexFile).mockReturnValue({ name: 'entry-3' });
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // entry-3 should be first (index file), then sorted A, B
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-2', 'entry-1']);
+  });
+
+  test('should move the index file of this collection to top, not another one with its slug', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    // The inner collection’s index file carries the `_index` slug into the outer collection, and
+    // its title sorts first
+    const innerIndex = {
+      id: 'inner-index',
+      slug: '_index',
+      subPath: 'posts/_index',
+      locales: {
+        en: { path: 'content/posts/_index.md', slug: '_index', content: { title: 'A Posts' } },
+      },
+    };
+
+    const ownIndex = {
+      id: 'own-index',
+      slug: '_index',
+      subPath: '_index',
+      locales: {
+        en: { path: 'content/_index.md', slug: '_index', content: { title: 'Z Home' } },
+      },
+    };
+
+    vi.mocked(getIndexFile).mockReturnValue({ name: '_index' });
+    vi.mocked(isCollectionIndexFile).mockImplementation(
+      (_collection, entry) => entry.locales.en.path === 'content/_index.md',
+    );
+    vi.mocked(getField).mockReturnValue({ name: 'title', widget: 'string', label: 'Title' });
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+    vi.mocked(getPropertyValue).mockImplementation(({ entry }) => entry.locales.en.content.title);
+
+    const result = sortEntries([ownIndex, innerIndex, ...mockEntries], mockCollection, conditions);
+
+    expect(result.map((e) => e.id)).toEqual([
+      'own-index',
+      'inner-index',
+      'entry-2',
+      'entry-1',
+      'entry-3',
+    ]);
+  });
+
+  test('should handle empty entries array', () => {
+    const result = sortEntries([], mockCollection);
+
+    expect(result).toEqual([]);
+  });
+
+  test('should not mutate original entries array', () => {
+    const originalEntries = [...mockEntries];
+
+    vi.mocked(getEntrySummary).mockImplementation((collection, entry) => {
+      const summaries = {
+        'entry-1': 'B Summary',
+        'entry-2': 'A Summary',
+        'entry-3': 'C Summary',
+      };
+
+      return summaries[entry.slug] || '';
+    });
+
+    sortEntries(mockEntries, mockCollection);
+
+    expect(mockEntries).toEqual(originalEntries);
+  });
+
+  test('should place index file at top when index file exists at middle position', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    vi.mocked(getIndexFile).mockReturnValue(
+      /** @type {any} */ ({
+        name: 'entry-2',
+      }),
+    );
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // entry-2 should be moved to the top
+    expect(result[0].slug).toBe('entry-2');
+    // Rest should be sorted normally
+    expect(result.map((e) => e.slug)[0]).toBe('entry-2');
+  });
+
+  test('should place index file at top when index file exists at end position', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    vi.mocked(getIndexFile).mockReturnValue(
+      /** @type {any} */ ({
+        name: 'entry-3',
+      }),
+    );
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // entry-3 should be moved to the top
+    expect(result[0].slug).toBe('entry-3');
+  });
+
+  test('should not move index file if it is already at top position', () => {
+    const topEntry = mockEntries[0];
+    const conditions = { key: 'title', order: 'ascending' };
+
+    vi.mocked(getIndexFile).mockReturnValue(
+      /** @type {any} */ ({
+        name: topEntry.slug,
+      }),
+    );
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // Index file should remain at top
+    expect(result[0].slug).toBe(topEntry.slug);
+  });
+
+  test('should handle sorting with index file not found', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    // getIndexFile returns a file that doesn't exist in the entries
+    vi.mocked(getIndexFile).mockReturnValue(
+      /** @type {any} */ ({
+        name: 'nonexistent-file',
+      }),
+    );
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // Should return entries without error
+    expect(result).toHaveLength(mockEntries.length);
+  });
+
+  test('should sort by numeric field in descending order', () => {
+    const conditions = { key: 'count', order: 'descending' };
+
+    const entriesWithCounts = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            count: [100, 50, 75][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'count',
+      widget: 'number',
+      label: 'Count',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(Number);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'count') {
+        return entry.locales.en.content.count;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(entriesWithCounts, mockCollection, conditions);
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-1', 'entry-3', 'entry-2']); // 100, 75, 50
+  });
+
+  test('should handle sorting when field config is undefined', () => {
+    const conditions = { key: 'unknown_field', order: 'ascending' };
+
+    vi.mocked(getField).mockReturnValue(undefined);
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(() => 'value');
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // Should still return entries
+    expect(result).toHaveLength(mockEntries.length);
+  });
+
+  test('should strip markdown syntax for richtext fields', () => {
+    const conditions = { key: 'content', order: 'ascending' };
+
+    const entriesWithRichtext = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            content: ['**B content**', '**A content**', '**C content**'][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'content',
+      widget: 'richtext',
+      label: 'Content',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'content') {
+        return entry.locales.en.content.content;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value.replace(/\*\*/g, ''));
+
+    const result = sortEntries(entriesWithRichtext, mockCollection, conditions);
+
+    // Should call removeMarkdownSyntax for richtext field
+    expect(vi.mocked(removeMarkdownSyntax)).toHaveBeenCalled();
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-1', 'entry-3']); // A, B, C
+  });
+
+  test('should not call removeMarkdownSyntax for non-markdown string fields', () => {
+    const conditions = { key: 'author', order: 'ascending' };
+
+    const entriesWithAuthors = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            author: ['Bob', 'Alice', 'Charlie'][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'author',
+      widget: 'string',
+      label: 'Author',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'author') {
+        return entry.locales.en.content.author;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(entriesWithAuthors, mockCollection, conditions);
+
+    // Should NOT call removeMarkdownSyntax for non-markdown field
+    expect(vi.mocked(removeMarkdownSyntax)).not.toHaveBeenCalled();
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-1', 'entry-3']); // Alice, Bob, Charlie
+  });
+
+  test('should detect richtext widget via fieldConfig.widget === richtext', () => {
+    const conditions = { key: 'custom_content', order: 'ascending' };
+
+    const entriesWithRichtext = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            custom_content: ['<p>**B**</p>', '<p>**A**</p>', '<p>**C**</p>'][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'custom_content',
+      widget: 'richtext',
+      label: 'Custom Content',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'custom_content') {
+        return entry.locales.en.content.custom_content;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value.replace(/<[^>]*>/g, ''));
+
+    sortEntries(entriesWithRichtext, mockCollection, conditions);
+
+    // Should call removeMarkdownSyntax because widget is 'richtext'
+    expect(vi.mocked(removeMarkdownSyntax)).toHaveBeenCalled();
+  });
+
+  test('should sort richtext field in descending order', () => {
+    const conditions = { key: 'content', order: 'descending' };
+
+    const entriesWithRichtext = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            content: ['<p>**B content**</p>', '<p>**A content**</p>', '<p>**C content**</p>'][
+              index
+            ],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'content',
+      widget: 'richtext',
+      label: 'Content',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'content') {
+        return entry.locales.en.content.content;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value.replace(/<[^>]*>/g, ''));
+
+    const result = sortEntries(entriesWithRichtext, mockCollection, conditions);
+
+    // Should be in descending order: C, B, A
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-1', 'entry-2']);
+  });
+
+  test('should apply index file positioning with descending sort order', () => {
+    const conditions = { key: 'title', order: 'descending' };
+
+    vi.mocked(getIndexFile).mockReturnValue({ name: '_index' });
+
+    const entriesWithIndex = [
+      ...mockEntries,
+      {
+        id: 'index-entry',
+        sha: 'sha-idx',
+        slug: '_index',
+        subPath: '',
+        locales: {
+          en: {
+            path: 'path_idx',
+            slug: '_index',
+            content: { title: 'Index Page' },
+          },
+        },
+      },
+    ];
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'string',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(entriesWithIndex, mockCollection, conditions);
+
+    // Index file should be at top despite descending sort
+    expect(result[0].slug).toBe('_index');
+  });
+
+  test('should properly reverse entries for descending numeric sort', () => {
+    const conditions = { key: 'priority', order: 'descending' };
+
+    const entriesWithPriority = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            priority: [1, 2, 3][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'priority',
+      widget: 'number',
+      label: 'Priority',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(Number);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'priority') {
+        return entry.locales.en.content.priority;
+      }
+
+      return undefined;
+    });
+
+    const result = sortEntries(entriesWithPriority, mockCollection, conditions);
+
+    // Should be in descending order: 3, 2, 1
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-2', 'entry-1']);
+  });
+
+  test('should handle empty string values in markdown fields', () => {
+    const conditions = { key: 'title', order: 'ascending' };
+
+    const entriesWithEmptyMarkdown = mockEntries.map((entry, index) => ({
+      ...entry,
+      locales: {
+        ...entry.locales,
+        en: {
+          ...entry.locales.en,
+          content: {
+            ...entry.locales.en.content,
+            title: ['**B**', '', '**A**'][index],
+          },
+        },
+      },
+    }));
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'title',
+      widget: 'markdown',
+      label: 'Title',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'title') {
+        return entry.locales.en.content.title;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((value) => value.replace(/\*\*/g, ''));
+
+    sortEntries(entriesWithEmptyMarkdown, mockCollection, conditions);
+
+    // removeMarkdownSyntax should still be called
+    expect(vi.mocked(removeMarkdownSyntax)).toHaveBeenCalled();
+  });
+
+  test('should sort by non-markdown string field (isMarkdownField=false path)', () => {
+    const conditions = { key: 'slug', order: 'ascending' };
+
+    vi.mocked(getField).mockReturnValue({
+      name: 'slug',
+      widget: 'string',
+      label: 'Slug',
+    });
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getPropertyValue).mockImplementation(({ entry, key }) => {
+      if (key === 'slug') {
+        return entry.slug;
+      }
+
+      return undefined;
+    });
+
+    vi.mocked(removeMarkdownSyntax).mockImplementation((s) => s);
+
+    const result = sortEntries(mockEntries, mockCollection, conditions);
+
+    // 'slug' is not in MARKDOWN_FIELD_KEYS and widget is not richtext/markdown,
+    // so the plain String(str) branch is used (isMarkdownField=false)
+    expect(result.map((e) => e.slug)).toEqual(['entry-1', 'entry-2', 'entry-3']);
+    expect(vi.mocked(removeMarkdownSyntax)).not.toHaveBeenCalled();
+  });
+
+  test('should sort by _summary field using generated summary values', () => {
+    const locale = 'en';
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    // Mock getEntrySummary to return different summary values for each entry
+    vi.mocked(getEntrySummary).mockImplementation((collection, entry) => {
+      const summaries = {
+        'entry-1': 'B Summary',
+        'entry-2': 'A Summary',
+        'entry-3': 'C Summary',
+      };
+
+      return summaries[entry.slug] || '';
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, {
+      key: '_summary',
+      order: 'ascending',
+      locale,
+    });
+
+    // Entries should be sorted by their generated summary values
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-1', 'entry-3']); // A, B, C
+    expect(vi.mocked(getEntrySummary)).toHaveBeenCalledTimes(3);
+  });
+
+  test('should sort by _summary field in descending order', () => {
+    const locale = 'en';
+
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+
+    vi.mocked(getEntrySummary).mockImplementation((collection, entry) => {
+      const summaries = {
+        'entry-1': 'B Summary',
+        'entry-2': 'A Summary',
+        'entry-3': 'C Summary',
+      };
+
+      return summaries[entry.slug] || '';
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, {
+      key: '_summary',
+      order: 'descending',
+      locale,
+    });
+
+    // Entries should be sorted by their generated summary values in reverse
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-1', 'entry-2']); // C, B, A
+    expect(vi.mocked(getEntrySummary)).toHaveBeenCalledTimes(3);
+  });
+
+  test('should sort numerically when the key matches the reorder field', () => {
+    const locale = 'en';
+    const reorderableCollection = { ...mockCollection, reorder: true };
+
+    const result = sortEntries(withOrders(mockEntries), reorderableCollection, {
+      key: 'order',
+      order: 'ascending',
+      locale,
+    });
+
+    // Numeric sort: 2, 10, 100 (string sort would yield 10, 100, 2).
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-1', 'entry-3']);
+    // `getSortKeyType` should be skipped for the reorder field.
+    expect(vi.mocked(getSortKeyType)).not.toHaveBeenCalled();
+  });
+
+  test('should sort numerically when the key is the special _manual key', () => {
+    const locale = 'en';
+    // The resolved key should be the actual order field, not `_manual`.
+    const reorderableCollection = { ...mockCollection, reorder: { key: 'weight' } };
+
+    const result = sortEntries(withOrders(mockEntries, 'weight'), reorderableCollection, {
+      key: '_manual',
+      order: 'ascending',
+      locale,
+    });
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-2', 'entry-1', 'entry-3']);
+    expect(vi.mocked(getSortKeyType)).not.toHaveBeenCalled();
+  });
+
+  test('should sort by the position in the array for the _manual key of an array file collection', () => {
+    const arrayFileCollection = {
+      ...mockCollection,
+      _type: 'entry',
+      _file: { ...mockCollection._file, format: 'json', arrayFile: true },
+    };
+
+    const result = sortEntries(
+      mockEntries.map((entry, index) => ({ ...entry, arrayIndex: 2 - index })),
+      arrayFileCollection,
+      { key: '_manual', order: 'ascending' },
+    );
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-2', 'entry-1']);
+    expect(vi.mocked(getPropertyValue)).not.toHaveBeenCalled();
+  });
+
+  test('should keep the index file at the top when sorting by the order field', () => {
+    vi.mocked(isCollectionIndexFile).mockImplementation(
+      (_collection, entry) => entry.slug === 'entry-3',
+    );
+
+    const result = sortEntries(
+      withOrders(mockEntries),
+      { ...mockCollection, reorder: true },
+      {
+        key: '_manual',
+        order: 'ascending',
+      },
+    );
+
+    expect(result.map((e) => e.slug)).toEqual(['entry-3', 'entry-2', 'entry-1']);
+  });
+
+  test('should put an entry without a valid order value last in either order, like the reorder UI', () => {
+    const reorderableCollection = { ...mockCollection, reorder: true };
+
+    /**
+     * Create an entry with the given order value.
+     * @param {string} slug Slug.
+     * @param {any} order Order value, or `undefined` to leave it out.
+     * @returns {Entry} Entry.
+     */
+    const entry = (slug, order) => ({
+      id: slug,
+      slug,
+      subPath: slug,
+      locales: { en: { slug, path: `${slug}.md`, content: order === undefined ? {} : { order } } },
+    });
+
+    const entries = [entry('a', undefined), entry('b', 2), entry('c', 'x'), entry('d', 1)];
+
+    expect(
+      sortEntries(entries, reorderableCollection, { key: '_manual', order: 'ascending' }).map(
+        (e) => e.slug,
+      ),
+    ).toEqual(['d', 'b', 'a', 'c']);
+    // Sorting by the order field itself does the same
+    expect(
+      sortEntries(entries, reorderableCollection, { key: 'order', order: 'ascending' }).map(
+        (e) => e.slug,
+      ),
+    ).toEqual(['d', 'b', 'a', 'c']);
+    expect(
+      sortEntries(entries, reorderableCollection, { key: '_manual', order: 'descending' }).map(
+        (e) => e.slug,
+      ),
+    ).toEqual(['b', 'd', 'a', 'c']);
+  });
+
+  test('should fall back to the _manual key when the collection has no reorder configuration', () => {
+    const locale = 'en';
+
+    // No `reorder` set → `getOrderFieldKey` returns undefined → resolvedKey stays `_manual`.
+    vi.mocked(getPropertyValue).mockImplementation(({ key }) => {
+      expect(key).toBe('_manual');
+
+      return undefined;
+    });
+
+    const result = sortEntries(mockEntries, mockCollection, {
+      key: '_manual',
+      order: 'ascending',
+      locale,
+    });
+
+    expect(result).toHaveLength(3);
+  });
+});
+
+describe('getSortKeyGetter', () => {
+  /** @type {InternalCollection} */
+  const mockCollection = {
+    _file: { format: 'frontmatter', extension: 'md', formatOptions: {} },
+    _i18n: {
+      i18nEnabled: false,
+      structure: 'single_file',
+      allLocales: ['en'],
+      initialLocales: ['en'],
+      defaultLocale: 'en',
+      locales: ['en'],
+      canonicalSlug: {},
+    },
+    name: 'posts',
+    label: 'Posts',
+    folder: 'content/posts',
+  };
+
+  /** @type {any} */
+  const mockEntry = {
+    id: 'entry-1',
+    sha: 'sha1',
+    slug: 'entry-1',
+    subPath: '',
+    locales: { en: { path: 'path1', slug: 'entry-1', content: { title: 'Hello' } } },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('should return getEntrySummary result for _summary key', () => {
+    vi.mocked(getEntrySummary).mockReturnValue('Generated Summary');
+
+    const getter = getSortKeyGetter({
+      key: '_summary',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig: undefined,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBe('Generated Summary');
+    expect(vi.mocked(getEntrySummary)).toHaveBeenCalledWith(mockCollection, mockEntry, {
+      locale: 'en',
+      useTemplate: true,
+    });
+  });
+
+  test('should return a numeric timestamp for a datetime field', () => {
+    const mockDate = new Date('2023-06-15');
+
+    vi.mocked(getPropertyValue).mockReturnValue('2023-06-15');
+    vi.mocked(getDate).mockReturnValue(mockDate);
+
+    /** @type {any} */
+    const dateFieldConfig = { widget: 'datetime', name: 'published' };
+
+    const getter = getSortKeyGetter({
+      key: 'published',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBe(Number(mockDate));
+  });
+
+  test('should return undefined when datetime field value is falsy', () => {
+    vi.mocked(getPropertyValue).mockReturnValue(undefined);
+    // Like the real function, which returns nothing for an empty value
+    vi.mocked(getDate).mockReturnValue(undefined);
+
+    /** @type {any} */
+    const dateFieldConfig = { widget: 'datetime', name: 'published' };
+
+    const getter = getSortKeyGetter({
+      key: 'published',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('should return undefined when getDate returns null', () => {
+    vi.mocked(getPropertyValue).mockReturnValue('bad-date');
+    vi.mocked(getDate).mockReturnValue(null);
+
+    /** @type {any} */
+    const dateFieldConfig = { widget: 'datetime', name: 'published' };
+
+    const getter = getSortKeyGetter({
+      key: 'published',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('should return plain string for a String-type field', () => {
+    vi.mocked(getPropertyValue).mockReturnValue('Hello World');
+
+    const getter = getSortKeyGetter({
+      key: 'title',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig: undefined,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBe('Hello World');
+    expect(vi.mocked(removeMarkdownSyntax)).not.toHaveBeenCalled();
+  });
+
+  test('should strip markdown for a String-type isMarkdownField', () => {
+    vi.mocked(getPropertyValue).mockReturnValue('**Bold Title**');
+    vi.mocked(removeMarkdownSyntax).mockReturnValue('Bold Title');
+
+    const getter = getSortKeyGetter({
+      key: 'title',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig: undefined,
+      isMarkdownField: true,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBe('Bold Title');
+    expect(vi.mocked(removeMarkdownSyntax)).toHaveBeenCalledWith('**Bold Title**');
+  });
+
+  test('should return undefined when String-type field value is falsy', () => {
+    vi.mocked(getPropertyValue).mockReturnValue(undefined);
+
+    const getter = getSortKeyGetter({
+      key: 'title',
+      type: String,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig: undefined,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('should return numeric value for a Number-type field', () => {
+    vi.mocked(getPropertyValue).mockReturnValue(42);
+
+    const getter = getSortKeyGetter({
+      key: 'score',
+      type: Number,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig: undefined,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBe(42);
+  });
+
+  test('should return undefined for Number-type field when value is nullish', () => {
+    vi.mocked(getPropertyValue).mockReturnValue(null);
+
+    const getter = getSortKeyGetter({
+      key: 'score',
+      type: Number,
+      collection: mockCollection,
+      locale: 'en',
+      collectionName: 'posts',
+      dateFieldConfig: undefined,
+      isMarkdownField: false,
+    });
+
+    const result = getter(mockEntry);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('getEntrySortKeyGetter', () => {
+  /** @type {InternalCollection} */
+  const collection = /** @type {any} */ ({
+    name: 'posts',
+    _i18n: { defaultLocale: 'en' },
+  });
+
+  /** @type {Entry} */
+  const entry = /** @type {any} */ ({ slug: 'a', locales: { fr: { content: {} } } });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('should read the value in the given locale and compare strings as strings', () => {
+    vi.mocked(getField).mockReturnValue(undefined);
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+    vi.mocked(getPropertyValue).mockReturnValue('Nom');
+
+    const { getSortKey, isStringType } = getEntrySortKeyGetter({
+      collection,
+      key: 'name',
+      locale: 'fr',
+    });
+
+    expect(isStringType).toBe(true);
+    expect(getSortKey(entry)).toBe('Nom');
+    expect(getField).toHaveBeenCalledWith({ collectionName: 'posts', keyPath: 'name' });
+    expect(getPropertyValue).toHaveBeenCalledWith(
+      expect.objectContaining({ entry, locale: 'fr', collectionName: 'posts', key: 'name' }),
+    );
+  });
+
+  test('should compare dates as numbers', () => {
+    vi.mocked(getField).mockReturnValue(/** @type {any} */ ({ name: 'date', widget: 'datetime' }));
+    vi.mocked(getSortKeyType).mockReturnValue(String);
+    vi.mocked(getPropertyValue).mockReturnValue('2026-01-01');
+    vi.mocked(getDate).mockReturnValue(new Date(1000));
+
+    const { getSortKey, isStringType } = getEntrySortKeyGetter({
+      collection,
+      key: 'date',
+      locale: 'fr',
+    });
+
+    expect(isStringType).toBe(false);
+    expect(getSortKey(entry)).toBe(1000);
+  });
+});

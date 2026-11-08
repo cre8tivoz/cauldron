@@ -1,0 +1,3715 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import {
+  createPublicURL,
+  getAssetFolderPaths,
+  getAssetSavingInfo,
+  getEntryAssetFolderPath,
+  getOwnedEntryFolderPath,
+  replaceBlobURL,
+  resolveAssetFolderPaths,
+} from '$lib/services/contents/draft/save/assets';
+import { createEntryPath } from '$lib/services/contents/draft/save/entry-path';
+import { getFillSlugOptions } from '$lib/services/contents/draft/slugs';
+import { createMockAssetFolder } from '$lib/test/factories';
+
+vi.mock('$lib/services/assets', () => {
+  const getAssetsByDirName = vi.fn((/** @type {string} */ _dirPath) => /** @type {any[]} */ ([]));
+
+  return {
+    getAssetsByDirName,
+    getAssetFolder: vi.fn(() => ({})),
+    // Like the real one, the names of the assets, along with those of any other files and folders
+    getTakenNamesInDir: vi.fn((/** @type {string} */ dirPath) =>
+      getAssetsByDirName(dirPath).map((a) => a.name.normalize()),
+    ),
+  };
+});
+vi.mock('$lib/services/utils/file', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getGitHash: vi.fn(),
+  encodeFilePath: vi.fn((path) => encodeURIComponent(path)),
+  createPath: vi.fn((parts) => parts.filter(Boolean).join('/')),
+  resolvePath: vi.fn((path) => path),
+  getDirName: vi.fn((path) => path.split('/').slice(0, -1).join('/')),
+  sanitizePath: vi.fn((path) =>
+    path
+      .split('/')
+      .filter((/** @type {string} */ segment) => segment !== '.' && segment !== '..')
+      .join('/'),
+  ),
+}));
+
+vi.mock('$lib/services/assets/file-name', () => ({
+  formatFileName: vi.fn((name) => name.toLowerCase()),
+  isSameFileName: vi.fn((name1, name2) => name1.toLowerCase() === name2.toLowerCase()),
+}));
+vi.mock('$lib/services/contents/draft/slugs', () => ({
+  getFillSlugOptions: vi.fn(() => ({ content: {}, collection: {} })),
+}));
+vi.mock('$lib/services/contents/draft/save/entry-path', () => ({
+  createEntryPath: vi.fn(() => 'path/to/entry'),
+}));
+vi.mock('$lib/services/assets/kinds', () => ({
+  getAssetKind: vi.fn(() => 'image'),
+}));
+
+/**
+ * @import {
+ * AssetFolderInfo,
+ * InternalCollection,
+ * InternalI18nOptions,
+ * } from '$lib/types/private';
+ * @import { FileFormat } from '$lib/types/public';
+ */
+
+describe('Test resolveAssetFolderPaths()', () => {
+  const currentSlug = 'foo';
+
+  const collectionBase = {
+    name: 'blog',
+    folder: 'src/content/blog',
+    fields: [],
+    _type: /** @type {'entry'} */ ('entry'),
+    _thumbnailFieldNames: [],
+  };
+
+  const i18nBaseConfig = {
+    i18nEnabled: true,
+    allLocales: ['en'],
+    initialLocales: ['en'],
+    defaultLocale: 'en',
+    canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+    omitDefaultLocaleFromFilePath: false,
+    omitDefaultLocaleFromPreviewPath: false,
+  };
+
+  /** @type {InternalI18nOptions} */
+  const i18nMultiFolder = {
+    ...i18nBaseConfig,
+    structure: 'multiple_folders',
+    structureMap: {
+      i18nSingleFile: false,
+      i18nSingleFileDefaultRoot: false,
+      i18nMultiFile: false,
+      i18nMultiFolder: true,
+      i18nMultiRootFolder: false,
+    },
+  };
+
+  /** @type {InternalI18nOptions} */
+  const i18nMultiRootFolder = {
+    ...i18nBaseConfig,
+    structure: 'multiple_folders_i18n_root',
+    structureMap: {
+      i18nSingleFile: false,
+      i18nSingleFileDefaultRoot: false,
+      i18nMultiFile: false,
+      i18nMultiFolder: false,
+      i18nMultiRootFolder: true,
+    },
+  };
+
+  /** @type {InternalI18nOptions} */
+  const i18nRootMultiFolders = {
+    ...i18nBaseConfig,
+    structure: 'multiple_root_folders',
+    structureMap: {
+      i18nSingleFile: false,
+      i18nSingleFileDefaultRoot: false,
+      i18nMultiFile: false,
+      i18nMultiFolder: false,
+      i18nMultiRootFolder: true,
+    },
+  };
+
+  /** @type {InternalI18nOptions} */
+  const i18nMultiFile = {
+    ...i18nBaseConfig,
+    structure: 'multiple_files',
+    structureMap: {
+      i18nSingleFile: false,
+      i18nSingleFileDefaultRoot: false,
+      i18nMultiFile: true,
+      i18nMultiFolder: false,
+      i18nMultiRootFolder: false,
+    },
+  };
+
+  /** @type {InternalI18nOptions} */
+  const i18nSingleFile = {
+    ...i18nBaseConfig,
+    structure: 'single_file',
+    structureMap: {
+      i18nSingleFile: true,
+      i18nSingleFileDefaultRoot: false,
+      i18nMultiFile: false,
+      i18nMultiFolder: false,
+      i18nMultiRootFolder: false,
+    },
+  };
+
+  const _file = {
+    extension: 'md',
+    format: /** @type {FileFormat} */ ('yaml-frontmatter'),
+    basePath: 'src/content/blog',
+  };
+
+  const relativeAssetFolder = {
+    collectionName: 'blog',
+    entryRelative: true,
+    hasTemplateTags: false,
+    internalPath: 'src/content/blog',
+    internalSubPath: 'images',
+    publicPath: '',
+  };
+
+  const absoluteAssetFolder = {
+    collectionName: 'blog',
+    entryRelative: false,
+    hasTemplateTags: false,
+    internalPath: 'static/uploads/blog',
+    internalSubPath: undefined,
+    publicPath: '/uploads/blog',
+  };
+
+  const templateTagAssetFolder = {
+    collectionName: 'blog',
+    entryRelative: false,
+    hasTemplateTags: true,
+    internalPath: 'static/uploads/blog/{{slug}}',
+    internalSubPath: undefined,
+    publicPath: '/uploads/blog/{{slug}}',
+  };
+
+  /**
+   * Mock `getAssetFolder()`.
+   * @param {AssetFolderInfo} folder Asset folder info.
+   */
+  const setupAssetFolder = async (folder) => {
+    // @ts-ignore
+    // eslint-disable-next-line jsdoc/require-jsdoc
+    (await import('$lib/services/assets')).getAssetFolder = () => folder;
+  };
+
+  test('simple path, multiple folders, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/en/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/en/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested entries, absolute media and public folders with the entry’s folder', async () => {
+    // @see https://github.com/decaporg/decap-cms/issues/7752
+    /** @type {any} */
+    const collection = {
+      ...collectionBase,
+      folder: 'src/dokument',
+      nested: { depth: 10 },
+      meta: { path: { widget: 'string', index_file: '_index' } },
+      _file: { ..._file, basePath: 'src/dokument', subPath: undefined },
+    };
+
+    /** @type {AssetFolderInfo} */
+    const dirNameAssetFolder = {
+      collectionName: 'documents',
+      internalPath: '/src/dokument/{{dirname}}',
+      publicPath: '/dokument/{{dirname}}',
+      entryRelative: false,
+      hasTemplateTags: true,
+    };
+
+    await setupAssetFolder(dirNameAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: dirNameAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          type: 'media_folder',
+          currentSlug: 'nested/deeper/_index',
+          entryFilePath: 'src/dokument/nested/deeper/_index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: '/src/dokument/nested/deeper',
+      resolvedPublicPath: '/dokument/nested/deeper',
+    });
+  });
+
+  test('nested path, multiple folders, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/en/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/en/foo/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path with _index filename, multiple folders, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/_index' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/en/foo/_index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/en/foo/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path with custom filename, single file i18n, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/article' },
+      _i18n: i18nSingleFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: '',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo/article.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/foo',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('simple path, multiple folders at root, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiRootFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'en/src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'en/src/content/blog/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('simple path, multiple root folders (new), entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nRootMultiFolders,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'en/src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'en/src/content/blog/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path, multiple folders at root, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiRootFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'en/src/content/blog/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'en/src/content/blog/foo/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path, multiple root folders (new), entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nRootMultiFolders,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'en/src/content/blog/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'en/src/content/blog/foo/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('simple path, multiple files, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path, multiple files, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFile,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/foo/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('simple path, single file, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path, single file, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nSingleFile,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/foo/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('simple path, multiple folders, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('nested path, multiple folders, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('simple path, multiple folders at root, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiRootFolder,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('simple path, multiple root folders (new), entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nRootMultiFolders,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('nested path, multiple folders at root, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiRootFolder,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('nested path, multiple root folders (new), entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nRootMultiFolders,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('simple path, multiple files, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('nested path, multiple files, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFile,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('simple path, single file, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('nested path, single file, entry absolute', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nSingleFile,
+    };
+
+    await setupAssetFolder(absoluteAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: absoluteAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog',
+      resolvedPublicPath: '/uploads/blog',
+    });
+  });
+
+  test('asset folder with template tags', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: undefined },
+      _i18n: i18nSingleFile,
+    };
+
+    await setupAssetFolder(templateTagAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: templateTagAssetFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'static/uploads/blog/foo',
+      resolvedPublicPath: '/uploads/blog/foo',
+    });
+  });
+
+  test('collection with media_folder, multiple folders, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: 'images',
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: relativeAssetFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/en/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/en/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('collection with media_folder, nested path, multiple folders, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: 'assets/media',
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFolder,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'assets/media',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/en/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/en/foo/assets/media',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('collection with media_folder, multiple files, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: 'uploads',
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'uploads',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/uploads',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('collection with media_folder, nested path, multiple files, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: 'media/files',
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'media/files',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/foo/media/files',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('collection with media_folder, single file, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: 'static',
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'static',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/static',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('collection with empty media_folder, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: '',
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: '',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('collection with undefined media_folder, entry relative', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      media_folder: undefined,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('handles undefined internal path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file,
+      _i18n: i18nMultiFile,
+    };
+
+    /** @type {AssetFolderInfo} */
+    const folderWithUndefinedInternalPath = {
+      collectionName: 'blog',
+      entryRelative: false,
+      hasTemplateTags: false,
+      internalPath: undefined,
+      internalSubPath: undefined,
+      publicPath: '/uploads',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: folderWithUndefinedInternalPath,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: '',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('handles undefined public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file,
+      _i18n: i18nMultiFile,
+    };
+
+    /** @type {AssetFolderInfo} */
+    const folderWithUndefinedPublicPath = {
+      collectionName: 'blog',
+      entryRelative: false,
+      hasTemplateTags: false,
+      internalPath: 'static/uploads',
+      internalSubPath: undefined,
+      publicPath: undefined,
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: folderWithUndefinedPublicPath,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: '',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('handles both internal and public paths undefined', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file,
+      _i18n: i18nMultiFile,
+    };
+
+    /** @type {AssetFolderInfo} */
+    const folderWithBothUndefined = {
+      collectionName: 'blog',
+      entryRelative: false,
+      hasTemplateTags: false,
+      internalPath: undefined,
+      internalSubPath: undefined,
+      publicPath: undefined,
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: folderWithBothUndefined,
+        fillSlugOptions: { collection, content: {}, currentSlug },
+      }),
+    ).toEqual({
+      resolvedInternalPath: '',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('entry relative with non-multi-folders and empty public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('entry relative with non-multi-folders and dot public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '.',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '.',
+    });
+  });
+
+  test('entry relative with non-multi-folders and regular public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '/images',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '/images',
+    });
+  });
+
+  test('entry relative with nested path, non-multi-folders and regular public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}/index' },
+      _i18n: i18nMultiFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '/images',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo/index.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog/foo',
+      resolvedPublicPath: '/images',
+    });
+  });
+
+  test('entry relative with single file i18n and empty public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('entry relative with single file i18n and dot public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '.',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '.',
+    });
+  });
+
+  test('entry relative with single file i18n and root public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '.',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '.',
+    });
+  });
+
+  test('entry relative with single file i18n and root public path', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: undefined,
+      publicPath: '/',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'src/content/blog',
+      resolvedPublicPath: '/',
+    });
+  });
+
+  test('file collection type with entry relative and regular public path', () => {
+    /** @type {any} */
+    const fileCollection = {
+      name: 'settings',
+      files: [],
+      _type: 'file',
+      _i18n: i18nSingleFile,
+      _thumbnailFieldNames: [],
+      _fileMap: {},
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'settings',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'data',
+      internalSubPath: undefined,
+      publicPath: '/data',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection: fileCollection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'data/foo',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'data',
+      resolvedPublicPath: '/data',
+    });
+  });
+
+  test('file collection type with entry relative and empty public path', () => {
+    /** @type {any} */
+    const fileCollection = {
+      name: 'settings',
+      files: [],
+      _type: 'file',
+      _i18n: i18nSingleFile,
+      _thumbnailFieldNames: [],
+      _fileMap: {},
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'settings',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'data',
+      internalSubPath: undefined,
+      publicPath: '',
+    };
+
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection: fileCollection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'data/foo',
+        },
+      }),
+    ).toEqual({
+      resolvedInternalPath: 'data',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('nested path with date template tags uses entryFilePath to preserve date context', () => {
+    // This test demonstrates the critical issue where date-related template tags
+    // (e.g., {{year}}-{{month}}-{{day}}-{{slug}}/index) should use the already-resolved
+    // entryFilePath rather than reconstructing from templates to avoid saving assets
+    // in a different folder if the entry is updated at a later date.
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      // subPath with date template tags - if reconstructed later with new dates,
+      // would create incorrect paths like: 2026-02-14-my-post/images
+      // instead of: 2024-01-01-my-post/images (where entry was created)
+      _file: { ..._file, subPath: '{{year}}-{{month}}-{{day}}-{{slug}}/index' },
+      _i18n: i18nMultiFile,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'images',
+      publicPath: '',
+    };
+
+    // entryFilePath has dates already filled in from when entry was created
+    // (2024-01-01-my-post/index.md)
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug: 'my-post',
+          // Entry created 2024-01-01, stored in this path with dates already filled
+          entryFilePath: 'src/content/blog/2024-01-01-my-post/index.md',
+        },
+      }),
+    ).toEqual({
+      // Assets should use same folder path with original dates, not reconstructed dates
+      resolvedInternalPath: 'src/content/blog/2024-01-01-my-post/images',
+      resolvedPublicPath: '',
+    });
+  });
+
+  test('simple path with date template tags preserves original entry folder', () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{year}}/{{month}}/{{slug}}' },
+      _i18n: i18nMultiFolder,
+    };
+
+    const entryRelativeFolder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'assets',
+      publicPath: '',
+    };
+
+    // Entry created 2024-01-15, stored with dates from creation time
+    // The critical part: internal path uses entryFilePath to preserve original dates
+    expect(
+      resolveAssetFolderPaths({
+        folder: entryRelativeFolder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug: 'my-post',
+          entryFilePath: 'src/content/blog/2024/01/my-post.md',
+        },
+      }),
+    ).toEqual({
+      // Assets stay in same dated folder (2024/01) not reconstructed with current date (2026/02)
+      resolvedInternalPath: 'src/content/blog/2024/01/my-post/assets',
+      // Note: publicPath will be recalculated based on current template context,
+      // but the internal storage location is what matters for asset preservation
+      resolvedPublicPath: expect.any(String),
+    });
+  });
+
+  test('fills template tags in an entry-relative media folder', async () => {
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nSingleFile,
+    };
+
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      hasTemplateTags: true,
+      internalPath: 'src/content/blog',
+      internalSubPath: 'images/{{slug}}',
+      publicPath: '',
+    };
+
+    await setupAssetFolder(folder);
+
+    expect(
+      resolveAssetFolderPaths({
+        folder,
+        fillSlugOptions: {
+          collection,
+          content: {},
+          currentSlug,
+          entryFilePath: 'src/content/blog/foo.md',
+        },
+      }).resolvedInternalPath,
+    ).toBe('src/content/blog/images/foo');
+  });
+
+  describe('multi-folder i18n', () => {
+    // The entry’s assets sit in the locale’s own folder, beside the entry file, so the value stored
+    // in the field resolves the same way it does without i18n
+    const cases = [
+      {
+        name: 'a plain file keeps its assets in the locale folder',
+        // eslint-disable-next-line jsdoc/require-jsdoc
+        i18n: () => i18nMultiFolder,
+        subPath: '{{slug}}',
+        entryFilePath: 'src/content/blog/de/foo.md',
+        internalPath: 'src/content/blog/de/images',
+      },
+      {
+        name: 'an entry with a folder of its own keeps them in that folder',
+        // eslint-disable-next-line jsdoc/require-jsdoc
+        i18n: () => i18nMultiFolder,
+        subPath: '{{slug}}/index',
+        entryFilePath: 'src/content/blog/de/foo/index.md',
+        internalPath: 'src/content/blog/de/foo/images',
+      },
+      {
+        name: 'a locale root folder works the same way',
+        // eslint-disable-next-line jsdoc/require-jsdoc
+        i18n: () => i18nRootMultiFolders,
+        subPath: '{{slug}}',
+        entryFilePath: 'de/src/content/blog/foo.md',
+        internalPath: 'de/src/content/blog/images',
+      },
+    ];
+
+    cases.forEach(({ name, i18n, subPath, entryFilePath, internalPath }) => {
+      test(name, async () => {
+        /** @type {InternalCollection} */
+        const collection = { ...collectionBase, _file: { ..._file, subPath }, _i18n: i18n() };
+
+        await setupAssetFolder(relativeAssetFolder);
+
+        expect(
+          resolveAssetFolderPaths({
+            folder: relativeAssetFolder,
+            fillSlugOptions: { collection, content: {}, currentSlug, entryFilePath },
+          }),
+        ).toEqual({
+          resolvedInternalPath: internalPath,
+          // Relative to the entry file, so no `..` hops out of the locale folder
+          resolvedPublicPath: '',
+        });
+      });
+    });
+  });
+
+  test('uses empty string fallback when entryFilePath is undefined (new entry, line 213)', async () => {
+    // When entryFilePath is undefined (new entry not yet saved), `??` converts it to ''.
+    // getEntryFolderPath('', subPath) is called with an empty folder path.
+    // Inside getEntryFolderPath, the regex does NOT match '' → `?? folderPath` fallback (line 101)
+    // returns the original empty string.
+    /** @type {InternalCollection} */
+    const collection = {
+      ...collectionBase,
+      _file: { ..._file, subPath: '{{slug}}' },
+      _i18n: i18nMultiFolder,
+    };
+
+    await setupAssetFolder(relativeAssetFolder);
+
+    const result = resolveAssetFolderPaths({
+      folder: relativeAssetFolder,
+      fillSlugOptions: {
+        collection,
+        content: {},
+        currentSlug,
+        entryFilePath: undefined, // New entry: no file path yet
+      },
+    });
+
+    expect(result).toBeDefined();
+    expect(result.resolvedInternalPath).toBeDefined();
+  });
+
+  describe('nested entries without a `path` option', () => {
+    const pagesFolder = {
+      collectionName: 'pages',
+      entryRelative: true,
+      hasTemplateTags: false,
+      internalPath: 'content/pages',
+      internalSubPath: '',
+      publicPath: '',
+    };
+
+    /**
+     * Create a collection with nested entries that stores every entry as an index file.
+     * @param {object} [options] Options.
+     * @param {boolean} [options.subfolders] Whether the collection uses the `subfolders` mode.
+     * @param {InternalI18nOptions} [options.i18n] I18n options.
+     * @returns {InternalCollection} Collection.
+     */
+    const createCollection = ({ subfolders = true, i18n = i18nSingleFile } = {}) => ({
+      ...collectionBase,
+      name: 'pages',
+      folder: 'content/pages',
+      nested: { depth: 100, subfolders },
+      meta: { path: { index_file: '_index' } },
+      _file: { ..._file, basePath: 'content/pages', subPath: undefined },
+      _i18n: i18n,
+    });
+
+    /**
+     * Resolve the paths for the given collection and entry file.
+     * @param {InternalCollection} collection Collection.
+     * @param {string} entryFilePath Entry file path.
+     * @returns {string} Resolved internal path.
+     */
+    const resolveInternal = (collection, entryFilePath) =>
+      resolveAssetFolderPaths({
+        folder: pagesFolder,
+        fillSlugOptions: { collection, content: {}, currentSlug: 'about', entryFilePath },
+      }).resolvedInternalPath;
+
+    test('stores the assets next to the entry’s index file', async () => {
+      await setupAssetFolder(pagesFolder);
+
+      expect(resolveInternal(createCollection(), 'content/pages/about/_index.md')).toBe(
+        'content/pages/about',
+      );
+    });
+
+    test('stores the assets of a deeper entry in its own folder', async () => {
+      await setupAssetFolder(pagesFolder);
+
+      expect(resolveInternal(createCollection(), 'content/pages/about/team/_index.md')).toBe(
+        'content/pages/about/team',
+      );
+    });
+
+    test('keeps the locale suffix out of the folder name', async () => {
+      await setupAssetFolder(pagesFolder);
+
+      expect(
+        resolveInternal(
+          createCollection({ i18n: i18nMultiFile }),
+          'content/pages/about/_index.en.md',
+        ),
+      ).toBe('content/pages/about');
+    });
+
+    test('shares the folder with an entry that isn’t an index file', async () => {
+      await setupAssetFolder(pagesFolder);
+
+      // The folder belongs to the entry stored as its index file, so this one doesn’t own it and
+      // its assets are shared with the folder rather than travelling with the entry
+      expect(resolveInternal(createCollection(), 'content/pages/about/notes.md')).toBe(
+        'content/pages/about',
+      );
+    });
+
+    test('shares the folder without the `subfolders` mode', async () => {
+      await setupAssetFolder(pagesFolder);
+
+      // Entries keep their own file names here, so no folder belongs to one alone
+      expect(
+        resolveInternal(createCollection({ subfolders: false }), 'content/pages/about/_index.md'),
+      ).toBe('content/pages/about');
+    });
+  });
+});
+
+describe('Test replaceBlobURL()', () => {
+  /**
+   * Create the draft of a new post, whose files are saved to the global `static/images` folder.
+   * @returns {any} Draft.
+   */
+  const createPostDraft = () => ({
+    collection: {
+      _type: 'entry',
+      _i18n: { defaultLocale: 'en' },
+      _file: { basePath: 'posts' },
+      _assetFolder: { fields: [] },
+    },
+    collectionName: 'posts',
+    fileName: undefined,
+    collectionFile: undefined,
+    isIndexFile: false,
+    currentValues: { en: { title: 'Test' } },
+    currentSlugs: { en: 'test-post' },
+  });
+
+  /**
+   * Create the global `static/images` asset folder of the posts.
+   * @returns {any} Asset folder.
+   */
+  const createImagesFolder = () =>
+    createMockAssetFolder({
+      collectionName: 'posts',
+      internalPath: 'static/images',
+      publicPath: '/images',
+    });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const { getGitHash } = await import('$lib/services/utils/file');
+
+    vi.mocked(getGitHash).mockResolvedValue('sha123');
+  });
+
+  test('should replace blob URL with public URL for new file', async () => {
+    const mockFile = new File(['test content'], 'test-image.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/abc-123';
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.image).toBe('/images/test-image.jpg');
+    expect(changes).toHaveLength(1);
+    expect(savingAssets).toHaveLength(1);
+  });
+
+  test('should count the file as prepared', async () => {
+    const { saveProgress, startPreparing, clearSaveProgress } =
+      await import('$lib/services/backends/commit-progress');
+
+    const blobURL = 'blob:http://localhost:5173/abc-123';
+
+    startPreparing(2);
+
+    await replaceBlobURL(
+      /** @type {any} */ ({
+        file: new File(['test content'], 'photo.jpg', { type: 'image/jpeg' }),
+        folder: createMockAssetFolder({
+          collectionName: 'posts',
+          internalPath: 'static/images',
+          publicPath: '/images',
+        }),
+        replace: false,
+        blobURL,
+        draft: {
+          collection: {
+            _type: 'entry',
+            _i18n: { defaultLocale: 'en' },
+            _file: { basePath: 'posts' },
+            _assetFolder: { fields: [] },
+          },
+          collectionName: 'posts',
+          isIndexFile: false,
+          currentValues: { en: { title: 'Test' } },
+          currentSlugs: { en: 'test-post' },
+        },
+        defaultLocaleSlug: 'test-post',
+        keyPath: 'image',
+        content: { image: blobURL },
+        changes: [],
+        savingAssets: [],
+        encodingEnabled: false,
+      }),
+    );
+
+    expect(saveProgress.current).toMatchObject({ phase: 'preparing', done: 1, total: 2 });
+    clearSaveProgress();
+  });
+
+  test('should insert a public URL containing `$` patterns verbatim', async () => {
+    const blobURL = 'blob:http://localhost:5173/abc-123';
+    const content = { body: `![](${blobURL})` };
+
+    await replaceBlobURL(
+      /** @type {any} */ ({
+        file: new File(['test content'], 'save-$$-$&.jpg', { type: 'image/jpeg' }),
+        folder: createMockAssetFolder({
+          collectionName: 'posts',
+          internalPath: 'static/images',
+          publicPath: '/images',
+        }),
+        replace: false,
+        blobURL,
+        draft: {
+          collection: {
+            _type: 'entry',
+            _i18n: { defaultLocale: 'en' },
+            _file: { basePath: 'posts' },
+            _assetFolder: { fields: [] },
+          },
+          collectionName: 'posts',
+          isIndexFile: false,
+          currentValues: { en: { title: 'Test' } },
+          currentSlugs: { en: 'test-post' },
+        },
+        defaultLocaleSlug: 'test-post',
+        keyPath: 'body',
+        content,
+        changes: [],
+        savingAssets: [],
+        encodingEnabled: false,
+      }),
+    );
+
+    expect(content.body).toBe('![](/images/save-$$-$&.jpg)');
+  });
+
+  test('refuses a file headed for a folder the CMS is served from', async () => {
+    // The picker can browse to any subfolder, but the files in such a folder are read-only
+    /** @type {any[]} */
+    const changes = [];
+
+    await expect(
+      replaceBlobURL(
+        /** @type {any} */ ({
+          file: new File(['<html></html>'], 'index.html', { type: 'text/html' }),
+          folder: createMockAssetFolder({
+            collectionName: 'posts',
+            internalPath: 'static',
+            publicPath: '/',
+          }),
+          subfolderPath: 'admin',
+          replace: true,
+          blobURL: 'blob:http://localhost:5173/abc-123',
+          draft: {
+            collection: {
+              _type: 'entry',
+              _i18n: { defaultLocale: 'en' },
+              _file: { basePath: 'posts' },
+              _assetFolder: { fields: [] },
+            },
+            collectionName: 'posts',
+            isIndexFile: false,
+            currentValues: { en: { title: 'Test' } },
+            currentSlugs: { en: 'test-post' },
+          },
+          defaultLocaleSlug: 'test-post',
+          keyPath: 'file',
+          content: { file: 'blob:http://localhost:5173/abc-123' },
+          changes,
+          savingAssets: [],
+          encodingEnabled: false,
+        }),
+      ),
+    ).rejects.toThrow('Cannot change a file in a folder the CMS is served from');
+    expect(changes).toHaveLength(0);
+  });
+
+  describe('with a file name template', () => {
+    const blobURL = 'blob:http://localhost:5173/tpl-123';
+
+    /** @type {any} */
+    const folder = {
+      internalPath: 'static/images',
+      publicPath: '/images',
+      entryRelative: false,
+      collectionName: 'posts',
+    };
+
+    /**
+     * Create an entry draft with content in two locales.
+     * @returns {any} Draft.
+     */
+    const createDraft = () => ({
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'posts' },
+      },
+      collectionName: 'posts',
+      fileName: undefined,
+      isIndexFile: false,
+      defaultLocale: 'en',
+      currentValues: { en: { title: 'Summer' }, fr: { title: 'Été' } },
+    });
+
+    /**
+     * Create a file name template.
+     * @returns {any} Template.
+     */
+    const createNameTemplate = () => ({
+      template: '{{slug}}-{{fields.title}}-{{filename}}',
+      randomValues: new Map(),
+      dateTimeParts: {},
+    });
+
+    test('names the file with the default locale’s slug and content', async () => {
+      const file = new File(['a'], 'IMG 1.JPG', { type: 'image/jpeg' });
+      const content = { image: blobURL };
+      /** @type {any[]} */
+      const changes = [];
+      /** @type {any[]} */
+      const savingAssets = [];
+
+      await replaceBlobURL({
+        file,
+        folder,
+        replace: false,
+        nameTemplate: createNameTemplate(),
+        blobURL,
+        draft: createDraft(),
+        locale: 'fr',
+        slug: 'ete',
+        defaultLocaleSlug: 'summer',
+        keyPath: 'image',
+        content,
+        changes,
+        savingAssets,
+        encodingEnabled: false,
+      });
+
+      expect(changes).toEqual([
+        { action: 'create', path: 'static/images/summer-summer-img-1.jpg', data: file },
+      ]);
+      expect(content.image).toBe('/images/summer-summer-img-1.jpg');
+    });
+
+    test('saves a file used in several locales once, under one name', async () => {
+      const file = new File(['a'], 'photo.jpg', { type: 'image/jpeg' });
+      const draft = createDraft();
+      const nameTemplate = createNameTemplate();
+      /** @type {Record<string, { image: string }>} */
+      const contents = { en: { image: blobURL }, fr: { image: blobURL } };
+      /** @type {any[]} */
+      const changes = [];
+      /** @type {any[]} */
+      const savingAssets = [];
+
+      await Promise.all(
+        [
+          ['fr', 'ete'],
+          ['en', 'summer'],
+        ].map(([locale, slug]) =>
+          replaceBlobURL({
+            file,
+            folder,
+            replace: false,
+            nameTemplate,
+            blobURL,
+            draft,
+            locale,
+            slug,
+            defaultLocaleSlug: 'summer',
+            keyPath: 'image',
+            content: contents[locale],
+            changes,
+            savingAssets,
+            encodingEnabled: false,
+          }),
+        ),
+      );
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].path).toBe('static/images/summer-summer-photo.jpg');
+      expect(contents.en.image).toBe('/images/summer-summer-photo.jpg');
+      expect(contents.fr.image).toBe('/images/summer-summer-photo.jpg');
+    });
+  });
+
+  test('should reuse existing file when duplicate detected', async () => {
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const mockFile = new File(['test content'], 'duplicate.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/def-456';
+
+    vi.mocked(getGitHash).mockResolvedValue('sha-duplicate');
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+
+    /** @type {any[]} */
+    const savingAssets = [
+      {
+        collectionName: 'posts',
+        name: 'existing-file.jpg',
+        path: 'static/images/existing-file.jpg',
+        sha: 'sha-duplicate',
+        size: 1024,
+        kind: 'image',
+      },
+    ];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.image).toBe('/images/existing-file.jpg');
+    expect(changes).toHaveLength(0); // No new change added
+    expect(savingAssets).toHaveLength(1); // No new asset added
+  });
+
+  test('should reuse an existing file at the repository root', async () => {
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const mockFile = new File(['test content'], 'duplicate.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/def-456';
+
+    vi.mocked(getGitHash).mockResolvedValue('sha-duplicate');
+
+    const draft = createPostDraft();
+
+    /** @type {any} */
+    const folder = createMockAssetFolder({
+      collectionName: 'posts',
+      internalPath: '',
+      publicPath: '/',
+    });
+
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+
+    /** @type {any[]} */
+    const savingAssets = [
+      {
+        collectionName: 'posts',
+        name: 'existing-file.jpg',
+        path: 'existing-file.jpg',
+        sha: 'sha-duplicate',
+        size: 1024,
+        kind: 'image',
+      },
+    ];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.image).toBe('/existing-file.jpg');
+    expect(changes).toHaveLength(0);
+  });
+
+  test('should save the same file again when it goes to another subfolder', async () => {
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const mockFile = new File(['test content'], 'duplicate.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/def-456';
+
+    vi.mocked(getGitHash).mockResolvedValue('sha-duplicate');
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+
+    /** @type {any[]} */
+    const savingAssets = [
+      {
+        collectionName: 'posts',
+        name: 'existing-file.jpg',
+        path: 'static/images/existing-file.jpg',
+        sha: 'sha-duplicate',
+        size: 1024,
+        kind: 'image',
+      },
+    ];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      subfolderPath: '2024',
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    // The file at the folder root is another asset, so this one is saved in the subfolder
+    expect(content.image).toBe('/images/2024/duplicate.jpg');
+    expect(changes).toEqual([
+      { action: 'create', path: 'static/images/2024/duplicate.jpg', data: mockFile },
+    ]);
+    expect(savingAssets).toHaveLength(2);
+  });
+
+  test('should handle root public path correctly', async () => {
+    const mockFile = new File(['content'], 'root-image.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/ghi-789';
+    const draft = createPostDraft();
+
+    /** @type {any} */
+    const folder = createMockAssetFolder({
+      collectionName: 'posts',
+      internalPath: 'static',
+      publicPath: '/',
+    });
+
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.image).toBe('/root-image.jpg'); // Root path should not have double slash
+  });
+
+  test('should encode file path when encoding is enabled', async () => {
+    const { encodeFilePath } = await import('$lib/services/utils/file');
+
+    vi.mocked(encodeFilePath).mockReturnValue('/images/test%20file%20with%20spaces.jpg');
+
+    const mockFile = new File(['content'], 'test file with spaces.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/jkl-012';
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: true,
+    });
+
+    expect(content.image).toContain('%20'); // Spaces should be encoded
+  });
+
+  test('should handle empty internal path', async () => {
+    const mockFile = new File(['content'], 'no-path.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/mno-345';
+    const draft = createPostDraft();
+
+    /** @type {any} */
+    const folder = createMockAssetFolder({
+      collectionName: 'posts',
+      internalPath: '',
+      publicPath: '',
+    });
+
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.image).toBe('no-path.jpg');
+  });
+
+  test('should replace multiple occurrences of blob URL', async () => {
+    const mockFile = new File(['content'], 'multi-use.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/stu-901';
+    const draft = createPostDraft();
+
+    /** @type {any} */
+    const folder = createMockAssetFolder({
+      collectionName: 'posts',
+      internalPath: 'static',
+      publicPath: '/static',
+    });
+
+    const content = {
+      body: `![Image](${blobURL}) and another reference ${blobURL}`,
+    };
+
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'body',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.body).not.toContain(blobURL);
+  });
+
+  test('should handle dot-only public path correctly', async () => {
+    const mockFile = new File(['content'], 'relative-image.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/vwx-234';
+
+    /** @type {InternalCollection} */
+    const mockCollection = {
+      _type: /** @type {'entry'} */ ('entry'),
+      name: 'posts',
+      folder: 'posts',
+      fields: [],
+      _i18n: {
+        i18nEnabled: true,
+        defaultLocale: 'en',
+        structure: 'single_file',
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        canonicalSlug: { key: '', value: '' },
+        omitDefaultLocaleFromFilePath: false,
+        omitDefaultLocaleFromPreviewPath: false,
+        structureMap: {
+          i18nSingleFile: true,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+      },
+      _file: {
+        basePath: 'posts',
+        subPath: 'test-post',
+        extension: 'md',
+        format: 'yaml-frontmatter',
+      },
+      _thumbnailFieldNames: [],
+    };
+
+    vi.mocked(getFillSlugOptions).mockReturnValue({
+      collection: mockCollection,
+      content: {},
+    });
+
+    /** @type {any} */
+    const draft = {
+      collection: mockCollection,
+      collectionName: 'posts',
+      fileName: undefined,
+      collectionFile: undefined,
+      isIndexFile: false,
+      currentValues: { en: { title: 'Test' } },
+      currentSlugs: { en: 'test-post' },
+    };
+
+    /** @type {any} */
+    const folder = {
+      internalPath: 'content/posts',
+      publicPath: '.',
+      entryRelative: true,
+      collectionName: 'posts',
+      hasTemplateTags: false,
+    };
+
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(content.image).toBe('./relative-image.jpg');
+  });
+
+  test('should not deduplicate files across different entry-relative folders', async () => {
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const mockFile = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/entry-rel-456';
+
+    vi.mocked(getGitHash).mockResolvedValue('sha-same');
+
+    /** @type {any} */
+    const draft = {
+      collection: {
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/blog' },
+        _assetFolder: { fields: [] },
+      },
+      collectionName: 'blog',
+      fileName: undefined,
+      collectionFile: undefined,
+      isIndexFile: false,
+      currentValues: { en: { title: 'Test' } },
+      currentSlugs: { en: 'test-post' },
+    };
+
+    /** @type {any} */
+    const folder2 = {
+      internalPath: 'content/blog',
+      internalSubPath: 'images2',
+      publicPath: 'images2',
+      entryRelative: true,
+      collectionName: 'blog',
+      hasTemplateTags: false,
+    };
+
+    const content = { image2: blobURL };
+    /** @type {any[]} */
+    const changes = [{ action: 'create', path: 'images1/photo.jpg', data: mockFile }];
+
+    /** @type {any[]} */
+    const savingAssets = [
+      {
+        collectionName: 'blog',
+        folder: {
+          internalPath: 'content/blog',
+          internalSubPath: 'images1',
+          publicPath: 'images1',
+          entryRelative: true,
+          collectionName: 'blog',
+          hasTemplateTags: false,
+        },
+        blobURL: 'blob:http://localhost:5173/entry-rel-123',
+        name: 'photo.jpg',
+        path: 'images1/photo.jpg',
+        sha: 'sha-same',
+        size: 1024,
+        kind: 'image',
+      },
+    ];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder: folder2,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image2',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    // File should be added separately to the images2/ sub-folder even though SHA matches
+    expect(changes).toHaveLength(2);
+    expect(changes[1]).toEqual({
+      action: 'create',
+      path: 'path/to/images2/photo.jpg',
+      data: mockFile,
+    });
+    expect(savingAssets).toHaveLength(2);
+    expect(content.image2).toBe('images2/photo.jpg');
+  });
+
+  test('should not overwrite a file saved to the same place through another entry-relative folder', async () => {
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const mockFile = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/entry-rel-789';
+
+    vi.mocked(getGitHash).mockResolvedValue('sha-same');
+    vi.mocked(formatFileName).mockImplementation((name, { assetNamesInSameFolder = [] } = {}) =>
+      assetNamesInSameFolder.includes(name) ? name.replace('.', '-1.') : name,
+    );
+
+    /** @type {any} */
+    const draft = {
+      collection: {
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/blog' },
+        _assetFolder: { fields: [] },
+      },
+      collectionName: 'blog',
+      fileName: undefined,
+      collectionFile: undefined,
+      isIndexFile: false,
+      currentValues: { en: { title: 'Test' } },
+      currentSlugs: { en: 'test-post' },
+    };
+
+    /** @type {any} */
+    const folder = {
+      internalPath: 'content/blog',
+      internalSubPath: 'images2',
+      publicPath: 'images2',
+      entryRelative: true,
+      collectionName: 'blog',
+      hasTemplateTags: false,
+    };
+
+    const content = { image2: blobURL };
+    /** @type {any[]} */
+    const changes = [{ action: 'create', path: 'path/to/images2/photo.jpg', data: mockFile }];
+
+    /** @type {any[]} */
+    const savingAssets = [
+      {
+        collectionName: 'blog',
+        // Another folder configuration that resolves to the same place
+        folder: { ...folder, publicPath: '/images2' },
+        blobURL: 'blob:http://localhost:5173/entry-rel-000',
+        name: 'photo.jpg',
+        path: 'path/to/images2/photo.jpg',
+        sha: 'sha-same',
+        size: 1024,
+        kind: 'image',
+      },
+    ];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: false,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image2',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(changes[1].path).toBe('path/to/images2/photo-1.jpg');
+    expect(content.image2).toBe('images2/photo-1.jpg');
+
+    vi.mocked(formatFileName).mockImplementation((name) => name.toLowerCase());
+  });
+
+  test('should use action "update" when replace is true and file exists in same folder', async () => {
+    const { getAssetsByDirName } = await import('$lib/services/assets');
+    const mockFile = new File(['test content'], 'photo.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/replace-123';
+
+    vi.mocked(getAssetsByDirName).mockReturnValue(/** @type {any} */ ([{ name: 'photo.jpg' }]));
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: true,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0].action).toBe('update');
+    expect(changes[0].path).toBe('static/images/photo.jpg');
+    expect(content.image).toBe('/images/photo.jpg');
+  });
+
+  test('should not replace or take the name of a file that is not an asset', async () => {
+    const { getTakenNamesInDir } = await import('$lib/services/assets');
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const mockFile = new File(['test content'], 'index.md', { type: 'text/markdown' });
+    const blobURL = 'blob:http://localhost:5173/entry-file-123';
+
+    // An entry file is next to the asset, which isn’t an asset itself
+    vi.mocked(getTakenNamesInDir).mockReturnValueOnce(['index.md']);
+    vi.mocked(formatFileName).mockImplementation((name, { assetNamesInSameFolder = [] } = {}) =>
+      assetNamesInSameFolder.includes(name) ? name.replace('.', '-1.') : name,
+    );
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { file: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+
+    try {
+      await replaceBlobURL({
+        file: mockFile,
+        folder,
+        replace: true,
+        blobURL,
+        draft,
+        defaultLocaleSlug: 'test-post',
+        keyPath: 'file',
+        content,
+        changes,
+        savingAssets: [],
+        encodingEnabled: false,
+      });
+    } finally {
+      vi.mocked(formatFileName).mockImplementation((name) => name.toLowerCase());
+    }
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual(
+      expect.objectContaining({ action: 'create', path: 'static/images/index-1.md' }),
+    );
+  });
+
+  test('should overwrite an existing file whose name only differs in case when replace is true', async () => {
+    const { getAssetsByDirName } = await import('$lib/services/assets');
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const mockFile = new File(['test content'], 'Photo.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/replace-case-123';
+
+    vi.mocked(getAssetsByDirName).mockReturnValue(/** @type {any} */ ([{ name: 'photo.jpg' }]));
+    vi.mocked(formatFileName).mockImplementation((name) => name);
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: true,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    // `Photo.jpg` would clash with `photo.jpg` on a case-insensitive file system
+    expect(changes).toHaveLength(1);
+    expect(changes[0].action).toBe('update');
+    expect(changes[0].path).toBe('static/images/photo.jpg');
+    expect(savingAssets[0].name).toBe('photo.jpg');
+    expect(content.image).toBe('/images/photo.jpg');
+
+    vi.mocked(formatFileName).mockImplementation((name) => name.toLowerCase());
+  });
+
+  test('should give a different name to another file with the same name in the same save', async () => {
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const firstFile = new File(['first'], 'image.png', { type: 'image/png' });
+    const secondFile = new File(['second'], 'image.png', { type: 'image/png' });
+    const firstBlobURL = 'blob:http://localhost:5173/pasted-1';
+    const secondBlobURL = 'blob:http://localhost:5173/pasted-2';
+
+    // Two different files, e.g. two screenshots pasted from the clipboard
+    vi.mocked(getGitHash).mockImplementation(async (file) =>
+      file === firstFile ? 'sha-first' : 'sha-second',
+    );
+    // Same as the actual implementation: add a suffix to a name that’s taken
+    vi.mocked(formatFileName).mockImplementation((name, { assetNamesInSameFolder = [] } = {}) =>
+      assetNamesInSameFolder.includes(name) ? name.replace('.', '-1.') : name,
+    );
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { body: `![](${firstBlobURL}) ![](${secondBlobURL})` };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    const args = {
+      folder,
+      replace: false,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'body',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    };
+
+    // The blob URLs in a field are replaced concurrently
+    await Promise.all([
+      replaceBlobURL({ ...args, file: firstFile, blobURL: firstBlobURL }),
+      replaceBlobURL({ ...args, file: secondFile, blobURL: secondBlobURL }),
+    ]);
+
+    expect(changes.map(({ path }) => path)).toEqual([
+      'static/images/image.png',
+      'static/images/image-1.png',
+    ]);
+    expect(savingAssets.map(({ name }) => name)).toEqual(['image.png', 'image-1.png']);
+    expect(content.body).toBe('![](/images/image.png) ![](/images/image-1.png)');
+
+    vi.mocked(formatFileName).mockImplementation((name) => name.toLowerCase());
+  });
+
+  test('should not save a replacing file under the name of an identical file in the same save', async () => {
+    const { getAssetsByDirName } = await import('$lib/services/assets');
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const tinyFile = new File(['same'], 'tiny.webp', { type: 'image/webp' });
+    const thumbFile = new File(['same'], 'thumb.webp', { type: 'image/webp' });
+
+    vi.mocked(getAssetsByDirName).mockReturnValue(/** @type {any} */ ([{ name: 'thumb.webp' }]));
+    vi.mocked(getGitHash).mockResolvedValue('sha-same');
+
+    /** @type {any} */
+    const draft = {
+      collection: {
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'posts' },
+        _assetFolder: { fields: [] },
+      },
+      collectionName: 'posts',
+      isIndexFile: false,
+      currentValues: { en: { title: 'Test' } },
+      currentSlugs: { en: 'test-post' },
+    };
+
+    const content = { tiny: 'blob:tiny', thumb: 'blob:thumb' };
+    /** @type {any[]} */
+    const changes = [];
+
+    const args = {
+      folder: createMockAssetFolder({
+        collectionName: 'posts',
+        internalPath: 'static/images',
+        publicPath: '/images',
+      }),
+      replace: true,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      content,
+      changes,
+      savingAssets: [],
+      encodingEnabled: false,
+    };
+
+    await replaceBlobURL({ ...args, file: tinyFile, blobURL: 'blob:tiny', keyPath: 'tiny' });
+    await replaceBlobURL({ ...args, file: thumbFile, blobURL: 'blob:thumb', keyPath: 'thumb' });
+
+    // Each file keeps the fixed name it was given, even though the contents are the same
+    expect(changes.map(({ action, path }) => ({ action, path }))).toEqual([
+      { action: 'create', path: 'static/images/tiny.webp' },
+      { action: 'update', path: 'static/images/thumb.webp' },
+    ]);
+    expect(content).toEqual({ tiny: '/images/tiny.webp', thumb: '/images/thumb.webp' });
+  });
+
+  test('should only replace an existing file with the first of the same-named files in the same save', async () => {
+    const { getAssetsByDirName } = await import('$lib/services/assets');
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const firstFile = new File(['first'], 'image.png', { type: 'image/png' });
+    const secondFile = new File(['second'], 'image.png', { type: 'image/png' });
+    const firstBlobURL = 'blob:http://localhost:5173/replacing-1';
+    const secondBlobURL = 'blob:http://localhost:5173/replacing-2';
+
+    vi.mocked(getAssetsByDirName).mockReturnValue(/** @type {any} */ ([{ name: 'image.png' }]));
+    vi.mocked(getGitHash).mockImplementation(async (file) =>
+      file === firstFile ? 'sha-first' : 'sha-second',
+    );
+    // Same as the actual implementation: add a suffix to a name that’s taken
+    vi.mocked(formatFileName).mockImplementation((name, { assetNamesInSameFolder = [] } = {}) =>
+      assetNamesInSameFolder.includes(name) ? name.replace('.', '-1.') : name,
+    );
+
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image1: firstBlobURL, image2: secondBlobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    const args = {
+      folder,
+      replace: true,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    };
+
+    await replaceBlobURL({ ...args, file: firstFile, blobURL: firstBlobURL, keyPath: 'image1' });
+    await replaceBlobURL({ ...args, file: secondFile, blobURL: secondBlobURL, keyPath: 'image2' });
+
+    // The second file would otherwise overwrite the first one
+    expect(changes.map(({ action, path }) => ({ action, path }))).toEqual([
+      { action: 'update', path: 'static/images/image.png' },
+      { action: 'create', path: 'static/images/image-1.png' },
+    ]);
+    expect(content).toEqual({ image1: '/images/image.png', image2: '/images/image-1.png' });
+
+    vi.mocked(formatFileName).mockImplementation((name) => name.toLowerCase());
+  });
+
+  test('should use action "create" when replace is true but file does not exist in folder', async () => {
+    const mockFile = new File(['test content'], 'new-photo.jpg', { type: 'image/jpeg' });
+    const blobURL = 'blob:http://localhost:5173/replace-new-456';
+    // getAssetsByDirName returns [] by default (file does not exist)
+    const draft = createPostDraft();
+    const folder = createImagesFolder();
+    const content = { image: blobURL };
+    /** @type {any[]} */
+    const changes = [];
+    /** @type {any[]} */
+    const savingAssets = [];
+
+    await replaceBlobURL({
+      file: mockFile,
+      folder,
+      replace: true,
+      blobURL,
+      draft,
+      defaultLocaleSlug: 'test-post',
+      keyPath: 'image',
+      content,
+      changes,
+      savingAssets,
+      encodingEnabled: false,
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0].action).toBe('create');
+    expect(changes[0].path).toBe('static/images/new-photo.jpg');
+  });
+});
+
+describe('Test getAssetSavingInfo()', () => {
+  /** @type {any} */
+  let mockGetAssetsByDirName;
+  /** @type {any} */
+  let mockGetFillSlugOptions;
+  /** @type {any} */
+  let mockCreateEntryPath;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const assetsModule = await import('$lib/services/assets');
+    const slugsModule = await import('$lib/services/contents/draft/slugs');
+    const entryPathModule = await import('$lib/services/contents/draft/save/entry-path');
+
+    mockGetAssetsByDirName = assetsModule.getAssetsByDirName;
+    mockGetFillSlugOptions = slugsModule.getFillSlugOptions;
+    mockCreateEntryPath = entryPathModule.createEntryPath;
+  });
+
+  test('should return asset saving info for non-entry-relative folder', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/posts' },
+      },
+      collectionName: 'posts',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'posts',
+      entryRelative: false,
+      internalPath: 'static/uploads',
+      publicPath: '/uploads',
+    };
+
+    const defaultLocaleSlug = 'my-post';
+
+    mockGetAssetsByDirName.mockReturnValue([{ name: 'existing1.jpg' }, { name: 'existing2.png' }]);
+
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+    });
+
+    mockCreateEntryPath.mockReturnValue('content/posts/my-post.md');
+
+    const result = getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    expect(result.assetFolderPaths).toEqual({
+      resolvedInternalPath: 'static/uploads',
+      resolvedPublicPath: '/uploads',
+    });
+
+    expect(result.assetNamesInSameFolder).toEqual(['existing1.jpg', 'existing2.png']);
+
+    expect(result.savingAssetProps).toEqual({
+      collectionName: 'posts',
+      folder,
+    });
+
+    expect(mockGetAssetsByDirName).toHaveBeenCalledWith('static/uploads');
+  });
+
+  test('should put the asset in the subfolder picked in the asset picker', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/posts' },
+      },
+      collectionName: 'posts',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'posts',
+      entryRelative: false,
+      internalPath: 'static/uploads',
+      publicPath: '/uploads',
+    };
+
+    mockGetAssetsByDirName.mockReturnValue([{ name: 'spring.jpg' }]);
+    mockGetFillSlugOptions.mockReturnValue({ collection: draft.collection, content: {} });
+    mockCreateEntryPath.mockReturnValue('content/posts/my-post.md');
+
+    const result = getAssetSavingInfo({
+      draft,
+      defaultLocaleSlug: 'my-post',
+      folder,
+      subfolderPath: '2024/summer',
+    });
+
+    expect(result.assetFolderPaths).toEqual({
+      resolvedInternalPath: 'static/uploads/2024/summer',
+      resolvedPublicPath: '/uploads/2024/summer',
+    });
+    // The names taken are those in the subfolder
+    expect(mockGetAssetsByDirName).toHaveBeenCalledWith('static/uploads/2024/summer');
+    expect(result.assetNamesInSameFolder).toEqual(['spring.jpg']);
+
+    // A public path at the root, or an empty one, is joined without a double slash
+    mockGetAssetsByDirName.mockReturnValue([]);
+    expect(
+      getAssetSavingInfo({
+        draft,
+        defaultLocaleSlug: 'my-post',
+        folder: { ...folder, publicPath: '/' },
+        subfolderPath: '2024',
+      }).assetFolderPaths.resolvedPublicPath,
+    ).toBe('/2024');
+    expect(
+      getAssetSavingInfo({
+        draft,
+        defaultLocaleSlug: 'my-post',
+        folder: { ...folder, publicPath: '' },
+        subfolderPath: '2024',
+      }).assetFolderPaths.resolvedPublicPath,
+    ).toBe('2024');
+  });
+
+  test('should return asset saving info for entry-relative folder with multiple_folders', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'blog',
+        _type: 'entry',
+        _i18n: {
+          defaultLocale: 'en',
+          structure: 'multiple_folders',
+        },
+        _file: {
+          basePath: 'src/content/blog',
+          subPath: '{{slug}}',
+        },
+        media_folder: 'images',
+      },
+      collectionName: 'blog',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      internalPath: 'src/content/blog',
+      publicPath: '',
+    };
+
+    const defaultLocaleSlug = 'hello-world';
+
+    mockGetAssetsByDirName.mockReturnValue([]);
+
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+      currentSlug: defaultLocaleSlug,
+      entryFilePath: 'src/content/blog/en/hello-world.md',
+    });
+
+    mockCreateEntryPath.mockReturnValue('src/content/blog/en/hello-world.md');
+
+    const result = getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    // The entry is a plain file, so its assets sit beside it in the locale’s folder
+    expect(result.assetFolderPaths.resolvedInternalPath).toBe('src/content/blog/en');
+    expect(result.assetNamesInSameFolder).toEqual([]);
+    expect(result.savingAssetProps.collectionName).toBe('blog');
+  });
+
+  test('resolves the folder against the locale the file is added to', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'blog',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en', structure: 'multiple_folders' },
+        _file: { basePath: 'src/content/blog', subPath: '{{slug}}' },
+      },
+      collectionName: 'blog',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'blog',
+      entryRelative: true,
+      internalPath: 'src/content/blog',
+      publicPath: '',
+    };
+
+    mockGetAssetsByDirName.mockReturnValue([]);
+
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+      currentSlug: 'hello-world',
+    });
+
+    mockCreateEntryPath.mockImplementation(
+      (/** @type {any} */ { locale }) => `src/content/blog/${locale}/hello-world.md`,
+    );
+
+    // The German pane’s upload belongs beside the German entry, not the default locale’s
+    expect(
+      getAssetSavingInfo({
+        draft,
+        locale: 'de',
+        slug: 'hello-world',
+        defaultLocaleSlug: 'hello-world',
+        folder,
+      }).assetFolderPaths.resolvedInternalPath,
+    ).toBe('src/content/blog/de');
+
+    // Without a locale, the default one stands in, which is all the public path needs
+    expect(
+      getAssetSavingInfo({ draft, defaultLocaleSlug: 'hello-world', folder }).assetFolderPaths
+        .resolvedInternalPath,
+    ).toBe('src/content/blog/en');
+  });
+
+  test('should normalize asset names', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/posts' },
+      },
+      collectionName: 'posts',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'posts',
+      entryRelative: false,
+      internalPath: 'static/uploads',
+      publicPath: '/uploads',
+    };
+
+    const defaultLocaleSlug = 'test';
+
+    // Asset names with different normalizations (e.g., composed vs decomposed Unicode)
+    mockGetAssetsByDirName.mockReturnValue([
+      { name: 'café.jpg' }, // May have different Unicode representations
+      { name: 'naïve.png' },
+    ]);
+
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+    });
+
+    mockCreateEntryPath.mockReturnValue('content/posts/test.md');
+
+    const result = getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    // Names should be normalized
+    expect(result.assetNamesInSameFolder).toHaveLength(2);
+    expect(result.assetNamesInSameFolder[0]).toBe('café.jpg'.normalize());
+    expect(result.assetNamesInSameFolder[1]).toBe('naïve.png'.normalize());
+  });
+
+  test('should handle collection file i18n configuration', async () => {
+    const collectionFile = {
+      name: 'about',
+      _i18n: { defaultLocale: 'fr' },
+    };
+
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'pages',
+        _type: 'file',
+        _i18n: { defaultLocale: 'en' },
+      },
+      collectionName: 'pages',
+      collectionFile,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'pages',
+      entryRelative: false,
+      internalPath: 'static/pages',
+      publicPath: '/pages',
+    };
+
+    const defaultLocaleSlug = 'about';
+
+    mockGetAssetsByDirName.mockReturnValue([]);
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+    });
+    mockCreateEntryPath.mockReturnValue('content/pages/about.md');
+
+    const result = getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    expect(mockCreateEntryPath).toHaveBeenCalledWith({
+      draft,
+      locale: 'fr', // Should use collection file's default locale
+      slug: 'about',
+    });
+
+    expect(result.savingAssetProps.collectionName).toBe('pages');
+  });
+
+  test('should pass correct parameters to getFillSlugOptions', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/posts' },
+      },
+      collectionName: 'posts',
+      collectionFile: undefined,
+      isIndexFile: true,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'posts',
+      entryRelative: false,
+      internalPath: 'static/uploads',
+      publicPath: '/uploads',
+    };
+
+    const defaultLocaleSlug = 'my-post';
+
+    mockGetAssetsByDirName.mockReturnValue([]);
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+    });
+    mockCreateEntryPath.mockReturnValue('content/posts/my-post/index.md');
+
+    getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    expect(mockGetFillSlugOptions).toHaveBeenCalledWith({ draft });
+  });
+
+  test('should handle empty asset directory', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/posts' },
+      },
+      collectionName: 'posts',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'posts',
+      entryRelative: false,
+      internalPath: 'static/new-folder',
+      publicPath: '/new-folder',
+    };
+
+    const defaultLocaleSlug = 'first-post';
+
+    mockGetAssetsByDirName.mockReturnValue([]);
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+    });
+    mockCreateEntryPath.mockReturnValue('content/posts/first-post.md');
+
+    const result = getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    expect(result.assetNamesInSameFolder).toEqual([]);
+    expect(result.assetFolderPaths.resolvedInternalPath).toBe('static/new-folder');
+  });
+
+  test('should use resolveAssetFolderPaths with correct parameters', async () => {
+    /** @type {any} */
+    const draft = {
+      collection: {
+        name: 'posts',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/posts' },
+      },
+      collectionName: 'posts',
+      collectionFile: undefined,
+      isIndexFile: false,
+    };
+
+    /** @type {any} */
+    const folder = {
+      collectionName: 'posts',
+      entryRelative: false,
+      internalPath: 'static/uploads/{{slug}}',
+      publicPath: '/uploads/{{slug}}',
+    };
+
+    const defaultLocaleSlug = 'template-test';
+
+    mockGetAssetsByDirName.mockReturnValue([]);
+    mockGetFillSlugOptions.mockReturnValue({
+      collection: draft.collection,
+      content: {},
+      currentSlug: defaultLocaleSlug,
+    });
+    mockCreateEntryPath.mockReturnValue('content/posts/template-test.md');
+
+    const result = getAssetSavingInfo({ draft, defaultLocaleSlug, folder });
+
+    // The resolved paths should have the template tags replaced
+    expect(result.assetFolderPaths.resolvedInternalPath).toBe('static/uploads/template-test');
+    expect(result.assetFolderPaths.resolvedPublicPath).toBe('/uploads/template-test');
+  });
+});
+
+describe('Test getAssetSavingInfo() for an entry moving to another folder', () => {
+  /**
+   * Create the draft of a page bundle entry, which keeps its assets in a folder of its own.
+   * @param {object} [props] Draft properties to override.
+   * @returns {any} Draft.
+   */
+  const createDraft = (props = {}) => ({
+    collection: {
+      name: 'blog',
+      _type: 'entry',
+      _i18n: { defaultLocale: 'en' },
+      _file: { basePath: 'content/blog', subPath: '{{slug}}/index' },
+    },
+    collectionName: 'blog',
+    collectionFile: undefined,
+    isIndexFile: false,
+    isNew: false,
+    originalEntry: { locales: { en: { path: 'content/blog/old/index.md' } } },
+    ...props,
+  });
+
+  /** @type {any} */
+  const folder = {
+    collectionName: 'blog',
+    entryRelative: true,
+    internalPath: 'content/blog',
+    publicPath: '',
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const { getAssetsByDirName } = await import('$lib/services/assets');
+
+    vi.mocked(getAssetsByDirName).mockImplementation(
+      (/** @type {string} */ dirName) =>
+        /** @type {any} */ (dirName === 'content/blog/old' ? [{ name: 'photo.jpg' }] : []),
+    );
+    vi.mocked(getFillSlugOptions).mockReturnValue(
+      /** @type {any} */ ({ collection: createDraft().collection, content: {} }),
+    );
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/new/index.md');
+  });
+
+  test('lists the names of the assets moving to the new folder in the same save', () => {
+    const result = getAssetSavingInfo({ draft: createDraft(), defaultLocaleSlug: 'new', folder });
+
+    expect(result.assetFolderPaths.resolvedInternalPath).toBe('content/blog/new');
+    // The folder is empty until the save, but the assets of the old one are on their way there
+    expect(result.assetNamesInSameFolder).toEqual([]);
+    expect(result.assetNamesMovingIn).toEqual(['photo.jpg']);
+  });
+
+  test('maps a subfolder of the new folder to the same subfolder of the old one', async () => {
+    const { getAssetsByDirName } = await import('$lib/services/assets');
+
+    vi.mocked(getAssetsByDirName).mockImplementation(
+      (/** @type {string} */ dirName) =>
+        /** @type {any} */ (dirName === 'content/blog/old/images' ? [{ name: 'photo.jpg' }] : []),
+    );
+
+    const result = getAssetSavingInfo({
+      draft: createDraft(),
+      defaultLocaleSlug: 'new',
+      folder,
+      subfolderPath: 'images',
+    });
+
+    expect(result.assetFolderPaths.resolvedInternalPath).toBe('content/blog/new/images');
+    expect(result.assetNamesMovingIn).toEqual(['photo.jpg']);
+  });
+
+  test('lists nothing when the entry stays in its folder', () => {
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/old/index.md');
+
+    const result = getAssetSavingInfo({ draft: createDraft(), defaultLocaleSlug: 'old', folder });
+
+    expect(result.assetNamesInSameFolder).toEqual(['photo.jpg']);
+    expect(result.assetNamesMovingIn).toEqual([]);
+  });
+
+  test('lists nothing for a new entry, or one without a file in the locale', () => {
+    expect(
+      getAssetSavingInfo({ draft: createDraft({ isNew: true }), defaultLocaleSlug: 'new', folder })
+        .assetNamesMovingIn,
+    ).toEqual([]);
+    expect(
+      getAssetSavingInfo({
+        draft: createDraft({ originalEntry: { locales: {} } }),
+        defaultLocaleSlug: 'new',
+        folder,
+      }).assetNamesMovingIn,
+    ).toEqual([]);
+  });
+
+  test('lists nothing when the entry has no folder of its own', () => {
+    const draft = createDraft({
+      collection: {
+        name: 'blog',
+        _type: 'entry',
+        _i18n: { defaultLocale: 'en' },
+        _file: { basePath: 'content/blog', subPath: '{{slug}}' },
+      },
+      originalEntry: { locales: { en: { path: 'content/blog/old.md' } } },
+    });
+
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/new.md');
+
+    // The assets are shared with the rest of the collection, so none of them moves
+    expect(
+      getAssetSavingInfo({ draft, defaultLocaleSlug: 'new', folder }).assetNamesMovingIn,
+    ).toEqual([]);
+  });
+
+  test('lists nothing for a folder outside the entry’s own', () => {
+    // A file collection or a global folder isn’t moved along with the entry
+    expect(
+      getAssetSavingInfo({
+        draft: createDraft(),
+        defaultLocaleSlug: 'new',
+        folder: { ...folder, entryRelative: false, internalPath: 'static/uploads' },
+      }).assetNamesMovingIn,
+    ).toEqual([]);
+  });
+
+  test('avoids the name of an asset moving in for a new file that doesn’t replace it', async () => {
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const blobURL = 'blob:http://localhost:5173/abc-123';
+    /** @type {any[]} */
+    const changes = [];
+
+    vi.mocked(getGitHash).mockResolvedValue('sha123');
+
+    await replaceBlobURL(
+      /** @type {any} */ ({
+        file: new File(['other image'], 'photo.jpg', { type: 'image/jpeg' }),
+        folder,
+        replace: false,
+        blobURL,
+        draft: createDraft({ currentValues: { en: {} }, currentSlugs: { en: 'new' } }),
+        defaultLocaleSlug: 'new',
+        keyPath: 'image',
+        content: { image: blobURL },
+        changes,
+        savingAssets: [],
+        encodingEnabled: false,
+      }),
+    );
+
+    // Otherwise the file would take the place of the existing `photo.jpg` once it has moved, and
+    // the move would drop the existing file as replaced
+    expect(vi.mocked(formatFileName)).toHaveBeenCalledWith('photo.jpg', {
+      assetNamesInSameFolder: ['photo.jpg'],
+    });
+  });
+
+  test('replaces an asset moving in only when the file is meant to replace it', async () => {
+    const { formatFileName } = await import('$lib/services/assets/file-name');
+    const { getGitHash } = await import('$lib/services/utils/file');
+    const blobURL = 'blob:http://localhost:5173/abc-123';
+    /** @type {any[]} */
+    const changes = [];
+
+    vi.mocked(getGitHash).mockResolvedValue('sha123');
+
+    await replaceBlobURL(
+      /** @type {any} */ ({
+        file: new File(['new image'], 'photo.jpg', { type: 'image/jpeg' }),
+        folder,
+        replace: true,
+        blobURL,
+        draft: createDraft({ currentValues: { en: {} }, currentSlugs: { en: 'new' } }),
+        defaultLocaleSlug: 'new',
+        keyPath: 'image',
+        content: { image: blobURL },
+        changes,
+        savingAssets: [],
+        encodingEnabled: false,
+      }),
+    );
+
+    // The file is created in the new folder, which has nothing to update yet; the move then drops
+    // the old copy it replaces
+    expect(vi.mocked(formatFileName)).toHaveBeenCalledWith('photo.jpg');
+    expect(changes).toEqual([
+      { action: 'create', path: 'content/blog/new/photo.jpg', data: expect.any(File) },
+    ]);
+  });
+});
+
+describe('Test createPublicURL()', () => {
+  test('should join the public path and file name', () => {
+    expect(createPublicURL('/uploads', 'image.png')).toBe('/uploads/image.png');
+  });
+
+  test('should avoid duplicating the slash when the public path is a single slash', () => {
+    expect(createPublicURL('/', 'image.png')).toBe('/image.png');
+  });
+
+  test('should return the file name only when the public path is empty', () => {
+    expect(createPublicURL('', 'image.png')).toBe('image.png');
+  });
+
+  test('should keep the dot prefix for an entry-relative public path', () => {
+    expect(createPublicURL('.', 'image.png')).toBe('./image.png');
+  });
+});
+
+describe('Test getOwnedEntryFolderPath()', () => {
+  /**
+   * Create an entry collection.
+   * @param {Record<string, any>} [props] Properties to override.
+   * @returns {any} Collection.
+   */
+  const createCollection = (props = {}) => ({
+    name: 'blog',
+    folder: 'content/blog',
+    fields: [],
+    _type: 'entry',
+    _file: { basePath: 'content/blog', subPath: undefined },
+    ...props,
+  });
+
+  test('returns the folder holding an entry file with a fixed name', () => {
+    const collection = createCollection({
+      _file: { basePath: 'content/blog', subPath: '{{slug}}/index' },
+    });
+
+    expect(getOwnedEntryFolderPath(collection, 'content/blog/hello-world/index.md')).toBe(
+      'content/blog/hello-world',
+    );
+  });
+
+  test('returns the folder named after an entry file whose name is the slug', () => {
+    const collection = createCollection({
+      _file: { basePath: 'content/blog', subPath: '{{year}}/{{month}}/{{slug}}' },
+    });
+
+    expect(getOwnedEntryFolderPath(collection, 'content/blog/2025/06/hello-world.md')).toBe(
+      'content/blog/2025/06/hello-world',
+    );
+  });
+
+  test('returns the folder holding the index file of a collection with nested entries', () => {
+    const collection = createCollection({
+      nested: { depth: 100 },
+      meta: { path: { index_file: '_index' } },
+    });
+
+    expect(getOwnedEntryFolderPath(collection, 'content/pages/about/_index.md')).toBe(
+      'content/pages/about',
+    );
+    expect(getOwnedEntryFolderPath(collection, 'content/pages/about/_index.fr.md')).toBe(
+      'content/pages/about',
+    );
+    expect(getOwnedEntryFolderPath(collection, 'content/pages/about/notes.md')).toBeUndefined();
+  });
+
+  test('returns nothing for an entry sharing the collection folder', () => {
+    expect(
+      getOwnedEntryFolderPath(createCollection(), 'content/blog/hello-world.md'),
+    ).toBeUndefined();
+    expect(
+      getOwnedEntryFolderPath(
+        createCollection({ _file: { basePath: 'content/blog', subPath: '{{slug}}' } }),
+        'content/blog/hello-world.md',
+      ),
+    ).toBeUndefined();
+  });
+
+  test('returns nothing for a file collection', () => {
+    expect(
+      getOwnedEntryFolderPath(/** @type {any} */ ({ _type: 'file' }), 'data/settings.json'),
+    ).toBeUndefined();
+  });
+});
+
+describe('Test getEntryAssetFolderPath()', () => {
+  const ownFolderCollection = /** @type {any} */ ({
+    name: 'blog',
+    _type: 'entry',
+    _file: { basePath: 'content/blog', subPath: '{{slug}}/index' },
+  });
+
+  const sharedFolderCollection = /** @type {any} */ ({
+    name: 'blog',
+    _type: 'entry',
+    _file: { basePath: 'content/blog', subPath: undefined },
+  });
+
+  test('returns the folder the entry occupies', () => {
+    expect(
+      getEntryAssetFolderPath({
+        collection: ownFolderCollection,
+        entryFilePath: 'content/blog/hello/index.md',
+        internalPath: 'content/blog',
+      }),
+    ).toBe('content/blog/hello');
+  });
+
+  test('returns the folder the entry file is stored in', () => {
+    expect(
+      getEntryAssetFolderPath({
+        collection: sharedFolderCollection,
+        entryFilePath: 'content/blog/en/hello.md',
+        internalPath: 'content/blog',
+      }),
+    ).toBe('content/blog/en');
+  });
+
+  test('falls back to the internal path for a file at the repository root', () => {
+    expect(
+      getEntryAssetFolderPath({
+        collection: sharedFolderCollection,
+        entryFilePath: 'hello.md',
+        internalPath: 'content/blog',
+      }),
+    ).toBe('content/blog');
+  });
+
+  test('returns the internal path for a file collection', () => {
+    expect(
+      getEntryAssetFolderPath({
+        collection: /** @type {any} */ ({ name: 'data', _type: 'file' }),
+        entryFilePath: 'data/settings.json',
+        internalPath: 'static/uploads',
+      }),
+    ).toBe('static/uploads');
+  });
+});
+
+describe('Test getAssetFolderPaths()', () => {
+  const collection = /** @type {any} */ ({
+    name: 'blog',
+    _type: 'entry',
+    _file: { basePath: 'content/blog', subPath: '{{slug}}/index' },
+    _i18n: { defaultLocale: 'en' },
+  });
+
+  /** @type {any} */
+  const folder = {
+    collectionName: 'blog',
+    entryRelative: true,
+    hasTemplateTags: false,
+    internalPath: 'content/blog',
+    internalSubPath: 'images',
+    publicPath: 'images',
+  };
+
+  beforeEach(() => {
+    vi.mocked(getFillSlugOptions).mockReturnValue(/** @type {any} */ ({ collection, content: {} }));
+  });
+
+  test('resolves the paths against the default locale’s entry by default', () => {
+    const draft = /** @type {any} */ ({ collection, isIndexFile: false });
+
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/hello/index.md');
+
+    expect(getAssetFolderPaths({ draft, defaultLocaleSlug: 'hello', folder })).toEqual({
+      resolvedInternalPath: 'content/blog/hello/images',
+      resolvedPublicPath: 'images',
+    });
+    expect(createEntryPath).toHaveBeenCalledWith({ draft, locale: 'en', slug: 'hello' });
+  });
+
+  test('resolves the paths against the given locale’s entry', () => {
+    const draft = /** @type {any} */ ({ collection, isIndexFile: false });
+
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/fr/bonjour/index.md');
+
+    expect(
+      getAssetFolderPaths({
+        draft,
+        locale: 'fr',
+        slug: 'bonjour',
+        defaultLocaleSlug: 'hello',
+        folder,
+      }).resolvedInternalPath,
+    ).toBe('content/blog/fr/bonjour/images');
+    expect(createEntryPath).toHaveBeenCalledWith({ draft, locale: 'fr', slug: 'bonjour' });
+  });
+
+  test('uses the default locale of the collection file', () => {
+    const draft = /** @type {any} */ ({
+      collection: { ...collection, _i18n: { defaultLocale: 'en' } },
+      collectionFile: { name: 'about', _i18n: { defaultLocale: 'de' } },
+      isIndexFile: false,
+    });
+
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/about/index.md');
+    getAssetFolderPaths({ draft, defaultLocaleSlug: 'about', folder });
+
+    expect(createEntryPath).toHaveBeenCalledWith({ draft, locale: 'de', slug: 'about' });
+  });
+
+  test('fills date/time tags with the time of the save rather than the entry’s date', () => {
+    const draft = /** @type {any} */ ({ collection, isIndexFile: false });
+
+    vi.mocked(getFillSlugOptions).mockReturnValue(
+      /** @type {any} */ ({ collection, content: {}, dateTimeParts: { year: '2000' } }),
+    );
+    vi.mocked(createEntryPath).mockReturnValue('content/blog/hello/index.md');
+
+    expect(
+      getAssetFolderPaths({
+        draft,
+        defaultLocaleSlug: 'hello',
+        folder: { ...folder, entryRelative: false, internalPath: 'static/{{year}}' },
+      }).resolvedInternalPath,
+    ).toBe(`static/${new Date().getUTCFullYear()}`);
+  });
+});

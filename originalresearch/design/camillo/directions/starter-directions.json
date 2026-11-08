@@ -1,0 +1,356 @@
+{
+ "source": "Open Design nexu-io/open-design commit 87a4f91 (Apache-2.0)",
+ "contrast_method": "WCAG 2 relative luminance, computed from each package's tokens.css",
+ "directions": [
+  {
+   "slug": "warm-editorial",
+   "display_name_proposal": "Warm Editorial",
+   "suits": "Caf\u00e9s, restaurants, florists, writers, small food brands",
+   "why": "Serif-led magazine look: terracotta on warm paper. Reads as crafted, not corporate.",
+   "warnings": "Body font swapped from Inter. Terracotta stays an accent, never a background.",
+   "source_path": "references/open-design/design-systems/warm-editorial/",
+   "colours": {
+    "bg": "#fbf6ee",
+    "text": "#201914",
+    "accent": "#9b5b32",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 16.12,
+    "accent_on_bg": 4.96,
+    "button_text_on_accent": 5.34
+   },
+   "fonts": {
+    "display": "Georgia, \"Times New Roman\", serif",
+    "body": "Inter, system-ui, sans-serif"
+   },
+   "passes_readability": true,
+   "cauldron_fix": {
+    "button_accent": "#9b5b32",
+    "button_text": "#ffffff",
+    "button_contrast": 5.34,
+    "accent_text_on_bg": 4.96,
+    "display_font": "Fraunces",
+    "body_font": "Source Sans 3",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Body font swapped from Inter. Terracotta stays an accent, never a background."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "kami",
+   "display_name_proposal": "Ink & Paper",
+   "suits": "Consultants, architects, solo professionals, portfolios, CVs",
+   "why": "Print-quality paper system: ink-blue on parchment, serif hierarchy. The richest package in the set (22 KB of guidance).",
+   "warnings": "Japanese fonts swapped for a Latin serif pairing for English sites.",
+   "source_path": "references/open-design/design-systems/kami/",
+   "colours": {
+    "bg": "#f5f4ed",
+    "text": "#141413",
+    "accent": "#1b365d",
+    "button_text": "#faf9f5"
+   },
+   "contrast": {
+    "text_on_bg": 16.72,
+    "accent_on_bg": 10.99,
+    "button_text_on_accent": 11.51
+   },
+   "fonts": {
+    "display": "\"YuMincho\", \"Yu Mincho\", \"Hiragino Mincho ProN\",\n    \"Noto Serif CJK JP\", \"Source Han Serif JP\",\n    \"TsangerJinKai02\", Georgia, serif",
+    "body": "\"YuMincho\", \"Yu Mincho\", \"Hiragino Mincho ProN\",\n    \"Noto Serif CJK JP\", \"Source Han Serif JP\",\n    \"TsangerJinKai02\", Georgia, serif"
+   },
+   "passes_readability": true,
+   "cauldron_fix": {
+    "button_accent": "#1b365d",
+    "button_text": "#faf9f5",
+    "button_contrast": 11.51,
+    "accent_text_on_bg": 10.99,
+    "display_font": "EB Garamond",
+    "body_font": "Source Serif 4",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Japanese fonts swapped for a Latin serif pairing for English sites."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "publication",
+   "display_name_proposal": "Gallery Press",
+   "suits": "Galleries, arts organisations, festivals, magazines, theatres",
+   "why": "Print-editorial grid with a confident red and Franklin Gothic/Georgia pairing.",
+   "warnings": "Franklin Gothic (not free to bundle) swapped for Archivo. Text #0b0b0b is near-black, not pure black, so it's allowed.",
+   "source_path": "references/open-design/design-systems/publication/",
+   "colours": {
+    "bg": "#ffffff",
+    "text": "#0b0b0b",
+    "accent": "#c1121f",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 19.68,
+    "accent_on_bg": 6.22,
+    "button_text_on_accent": 6.22
+   },
+   "fonts": {
+    "display": "\"Franklin Gothic\", Arial, sans-serif",
+    "body": "Georgia, \"Times New Roman\", serif"
+   },
+   "passes_readability": true,
+   "cauldron_fix": {
+    "button_accent": "#c1121f",
+    "button_text": "#ffffff",
+    "button_contrast": 6.22,
+    "accent_text_on_bg": 6.22,
+    "display_font": "Archivo",
+    "body_font": "Source Serif 4",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Franklin Gothic (not free to bundle) swapped for Archivo. Text #0b0b0b is near-black, not pure black, so it's allowed."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "tom-modern",
+   "display_name_proposal": "Workshop Modern",
+   "suits": "Builders, trades, architects, joiners, design studios",
+   "why": "Neutral canvas, one vermillion accent, sharp corners, hard shadows: practical and confident.",
+   "warnings": "Button accent darkened so white button text passes; the bright orange stays for large decorative use only.",
+   "source_path": "references/open-design/design-systems/tom-modern/",
+   "colours": {
+    "bg": "#fafafa",
+    "text": "#27272a",
+    "accent": "#ff5a00",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 14.27,
+    "accent_on_bg": 3.0,
+    "button_text_on_accent": 3.13
+   },
+   "fonts": {
+    "display": "'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif",
+    "body": "'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif"
+   },
+   "passes_readability": false,
+   "cauldron_fix": {
+    "button_accent": "#cf4900",
+    "button_text": "#ffffff",
+    "button_contrast": 4.56,
+    "accent_text_on_bg": 4.37,
+    "display_font": "Geist",
+    "body_font": "Geist",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Button accent darkened so white button text passes; the bright orange stays for large decorative use only."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "atelier-zero",
+   "display_name_proposal": "Studio Collage",
+   "suits": "Photographers, artists, creative studios, fashion",
+   "why": "Magazine-grade, collage-driven monochrome system: lets imagery carry the colour.",
+   "warnings": "Accent matches the text colour, so each site sets its own accent. Helvetica Neue (not web-licensed) swapped.",
+   "source_path": "references/open-design/design-systems/atelier-zero/",
+   "colours": {
+    "bg": "#ffffff",
+    "text": "#111111",
+    "accent": "#111111",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 18.88,
+    "accent_on_bg": 18.88,
+    "button_text_on_accent": 18.88
+   },
+   "fonts": {
+    "display": "\"Helvetica Neue\", Arial, sans-serif",
+    "body": "\"Helvetica Neue\", Arial, sans-serif"
+   },
+   "passes_readability": true,
+   "cauldron_fix": {
+    "button_accent": "#111111",
+    "button_text": "#ffffff",
+    "button_contrast": 18.88,
+    "accent_text_on_bg": 18.88,
+    "display_font": "Instrument Serif",
+    "body_font": "Instrument Sans",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Accent matches the text colour, so each site sets its own accent. Helvetica Neue (not web-licensed) swapped."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "luxury",
+   "display_name_proposal": "Midnight Gold",
+   "suits": "Wine bars, salons, jewellers, boutique hotels, premium hospitality",
+   "why": "Dark, monochrome, gold-accented premium look with high-contrast display type.",
+   "warnings": "Didot and Avenir Next (Apple system fonts, not licensed for websites) swapped for free equivalents. Background is near-black, not pure black, so it's allowed.",
+   "source_path": "references/open-design/design-systems/luxury/",
+   "colours": {
+    "bg": "#080706",
+    "text": "#fff8ea",
+    "accent": "#c6a15b",
+    "button_text": "#080706"
+   },
+   "contrast": {
+    "text_on_bg": 19.04,
+    "accent_on_bg": 8.29,
+    "button_text_on_accent": 8.29
+   },
+   "fonts": {
+    "display": "\"Didot\", \"Bodoni 72\", Georgia, serif",
+    "body": "\"Avenir Next\", Inter, sans-serif"
+   },
+   "passes_readability": true,
+   "cauldron_fix": {
+    "button_accent": "#c6a15b",
+    "button_text": "#080706",
+    "button_contrast": 8.29,
+    "accent_text_on_bg": 8.29,
+    "display_font": "Bodoni Moda",
+    "body_font": "Jost",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Didot and Avenir Next (Apple system fonts, not licensed for websites) swapped for free equivalents. Background is near-black, not pure black, so it's allowed."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "levels",
+   "display_name_proposal": "Garden Green",
+   "suits": "Physios, wellness, landscapers, nurseries, health clinics",
+   "why": "Calm green on warm off-white; the one genuinely 'calm health' palette in the set.",
+   "warnings": "Green darkened so button text passes. Inter swapped.",
+   "source_path": "references/open-design/design-systems/levels/",
+   "colours": {
+    "bg": "#fbf7ef",
+    "text": "#1f2a24",
+    "accent": "#2f8f46",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 13.89,
+    "accent_on_bg": 3.82,
+    "button_text_on_accent": 4.09
+   },
+   "fonts": {
+    "display": "Inter, system-ui, sans-serif",
+    "body": "Inter, system-ui, sans-serif"
+   },
+   "passes_readability": false,
+   "cauldron_fix": {
+    "button_accent": "#2c8742",
+    "button_text": "#ffffff",
+    "button_contrast": 4.51,
+    "accent_text_on_bg": 4.23,
+    "display_font": "Young Serif",
+    "body_font": "Figtree",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Green darkened so button text passes. Inter swapped."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "neobrutalism",
+   "display_name_proposal": "Loud & Raw",
+   "suits": "Streetwear, music, bars, indie brands, events",
+   "why": "Bold borders, vivid rust accent on warm yellow, heavy display type.",
+   "warnings": "Accent darkened a touch so button text passes. Arial Black swapped for Archivo Black.",
+   "source_path": "references/open-design/design-systems/neobrutalism/",
+   "colours": {
+    "bg": "#fff4cf",
+    "text": "#2a1810",
+    "accent": "#d24b1f",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 15.44,
+    "accent_on_bg": 4.01,
+    "button_text_on_accent": 4.41
+   },
+   "fonts": {
+    "display": "Arial Black, Impact, sans-serif",
+    "body": "Inter, system-ui, sans-serif"
+   },
+   "passes_readability": false,
+   "cauldron_fix": {
+    "button_accent": "#ce491e",
+    "button_text": "#ffffff",
+    "button_contrast": 4.57,
+    "accent_text_on_bg": 4.15,
+    "display_font": "Archivo Black",
+    "body_font": "Space Grotesk",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Accent darkened a touch so button text passes. Arial Black swapped for Archivo Black."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "vibrant",
+   "display_name_proposal": "Sunny Play",
+   "suits": "Childcare, kids' activities, community groups, family caf\u00e9s",
+   "why": "Lively orange on lemon; playful energy without going childish.",
+   "warnings": "Orange darkened for buttons and any text. The bright orange stays for large shapes only. Inter swapped.",
+   "source_path": "references/open-design/design-systems/vibrant/",
+   "colours": {
+    "bg": "#fff8d7",
+    "text": "#1d1836",
+    "accent": "#ff6b00",
+    "button_text": "#ffffff"
+   },
+   "contrast": {
+    "text_on_bg": 15.9,
+    "accent_on_bg": 2.67,
+    "button_text_on_accent": 2.86
+   },
+   "fonts": {
+    "display": "Inter, system-ui, sans-serif",
+    "body": "Inter, system-ui, sans-serif"
+   },
+   "passes_readability": false,
+   "cauldron_fix": {
+    "button_accent": "#c75300",
+    "button_text": "#ffffff",
+    "button_contrast": 4.5,
+    "accent_text_on_bg": 4.21,
+    "display_font": "Bricolage Grotesque",
+    "body_font": "Nunito",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Orange darkened for buttons and any text. The bright orange stays for large shapes only. Inter swapped."
+   },
+   "passes_after_fix": true
+  },
+  {
+   "slug": "totality-festival",
+   "display_name_proposal": "Night Festival",
+   "suits": "Music venues, nightlife, festivals, gig posters",
+   "why": "Deep night canvas with violet glow; the most atmospheric dark option.",
+   "warnings": "Inter swapped. Keep it to night and music sites: violet sits close to the purple 'AI look'.",
+   "source_path": "references/open-design/design-systems/totality-festival/",
+   "colours": {
+    "bg": "#070711",
+    "text": "#f8f7ff",
+    "accent": "#c084fc",
+    "button_text": "#13051f"
+   },
+   "contrast": {
+    "text_on_bg": 18.84,
+    "accent_on_bg": 7.59,
+    "button_text_on_accent": 7.43
+   },
+   "fonts": {
+    "display": "Inter, system-ui, sans-serif",
+    "body": "Inter, system-ui, sans-serif"
+   },
+   "passes_readability": true,
+   "cauldron_fix": {
+    "button_accent": "#c084fc",
+    "button_text": "#13051f",
+    "button_contrast": 7.43,
+    "accent_text_on_bg": 7.59,
+    "display_font": "Syne",
+    "body_font": "Manrope",
+    "fonts_licence": "SIL OFL 1.1, verified in github.com/google/fonts/ofl/ on 7 Nov 2026",
+    "notes": "Inter swapped. Keep it to night and music sites: violet sits close to the purple 'AI look'."
+   },
+   "passes_after_fix": true
+  }
+ ]
+}

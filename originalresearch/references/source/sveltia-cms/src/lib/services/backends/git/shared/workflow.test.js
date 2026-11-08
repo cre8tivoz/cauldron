@@ -1,0 +1,796 @@
+// @ts-nocheck
+import { sleep } from '@sveltia/utils/misc';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { fetchAPI } from '$lib/services/backends/git/shared/api';
+import { cmsConfig } from '$lib/services/config';
+import { user } from '$lib/services/user/account.svelte';
+import { forkedRepository } from '$lib/services/workflow/open-authoring';
+
+import {
+  applyForkPullRequestStatus,
+  approvePullRequest,
+  assertBranchAtHead,
+  AUTO_MERGE_POLL,
+  commitToNewWorkflowBranch,
+  deleteRemoteBranch,
+  discardPullRequest,
+  findOwnApprovals,
+  getMovedHeadMergeState,
+  getParentDirs,
+  isPermanentClientError,
+  isPullRequestMerged,
+  isSquashMergeEnabled,
+  openWorkflowPullRequest,
+  reopenPullRequest,
+  saveWorkflowBranch,
+  toChangedFilesWithModes,
+  updateLabelledStatus,
+  waitForMerge,
+} from './workflow';
+
+vi.mock('@sveltia/utils/misc', async (importOriginal) => ({
+  .../** @type {any} */ (await importOriginal()),
+  sleep: vi.fn(),
+}));
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ values: true }),
+);
+vi.mock('$lib/services/backends/git/shared/api');
+vi.mock('$lib/services/config', () => ({ cmsConfig: { current: undefined } }));
+
+const FORK = { owner: 'contributor', repo: 'fork' };
+
+beforeEach(() => {
+  forkedRepository.current = undefined;
+});
+
+describe('isSquashMergeEnabled()', () => {
+  beforeEach(() => {
+    cmsConfig.current = undefined;
+  });
+
+  test('returns false without a config', () => {
+    expect(isSquashMergeEnabled()).toBe(false);
+  });
+
+  test('returns false when the option is not set', () => {
+    cmsConfig.current = { backend: { name: 'github' } };
+    expect(isSquashMergeEnabled()).toBe(false);
+  });
+
+  test('returns the option value', () => {
+    cmsConfig.current = { backend: { name: 'github', squash_merges: true } };
+    expect(isSquashMergeEnabled()).toBe(true);
+
+    cmsConfig.current = { backend: { name: 'gitlab', squash_merges: false } };
+    expect(isSquashMergeEnabled()).toBe(false);
+  });
+});
+
+describe('deleteRemoteBranch()', () => {
+  const args = {
+    branch: 'cms/posts/hello',
+    path: '/branches/cms%2Fposts%2Fhello',
+    goneStatuses: [404],
+  };
+
+  test('sends a DELETE request to the given path', async () => {
+    vi.mocked(fetchAPI).mockResolvedValue('');
+    await expect(deleteRemoteBranch(args)).resolves.toBeUndefined();
+    expect(fetchAPI).toHaveBeenCalledWith('/branches/cms%2Fposts%2Fhello', {
+      method: 'DELETE',
+      responseType: 'text',
+    });
+  });
+
+  test('ignores a branch that is already gone without logging it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    vi.mocked(fetchAPI).mockRejectedValue(new Error('Error', { cause: { status: 404 } }));
+    await expect(deleteRemoteBranch(args)).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test('ignores any other failure, but logs it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = new Error('Error', { cause: { status: 422 } });
+
+    vi.mocked(fetchAPI).mockRejectedValue(error);
+    await expect(deleteRemoteBranch(args)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith('Failed to delete the cms/posts/hello branch.', error);
+    warn.mockRestore();
+  });
+
+  test('ignores an error without a status, but logs it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    vi.mocked(fetchAPI).mockRejectedValue(new Error('Network error'));
+    await expect(deleteRemoteBranch(args)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+});
+
+describe('openWorkflowPullRequest()', () => {
+  const commit = { sha: 'abc', date: new Date('2026-01-01'), files: {} };
+  const created = { number: 1, branch: 'cms/posts/hello', status: 'draft' };
+
+  test('opens a pull request on the service', async () => {
+    const createPullRequest = vi.fn().mockResolvedValue(created);
+    const args = { branch: 'cms/posts/hello', title: 'Hello', status: 'draft' };
+
+    await expect(openWorkflowPullRequest({ commit, ...args, createPullRequest })).resolves.toBe(
+      created,
+    );
+    expect(createPullRequest).toHaveBeenCalledWith(args);
+  });
+
+  test('keeps an Open Authoring draft as a branch without a pull request', async () => {
+    const createPullRequest = vi.fn();
+
+    forkedRepository.current = FORK;
+
+    await expect(
+      openWorkflowPullRequest({
+        commit,
+        branch: 'cms/posts/hello',
+        title: 'Hello',
+        status: 'draft',
+        createPullRequest,
+      }),
+    ).resolves.toEqual({
+      title: 'Hello',
+      branch: 'cms/posts/hello',
+      status: 'draft',
+      createdDate: commit.date,
+      updatedDate: commit.date,
+      files: [],
+      canMerge: false,
+    });
+    expect(createPullRequest).not.toHaveBeenCalled();
+  });
+
+  test('opens the pull request of an Open Authoring removal right away', async () => {
+    const createPullRequest = vi.fn().mockResolvedValue(created);
+
+    forkedRepository.current = FORK;
+
+    await expect(
+      openWorkflowPullRequest({
+        commit,
+        branch: 'cms/posts/hello',
+        title: 'Hello',
+        status: 'pending_deletion',
+        createPullRequest,
+      }),
+    ).resolves.toBe(created);
+    expect(createPullRequest).toHaveBeenCalledOnce();
+  });
+});
+
+describe('saveWorkflowBranch()', () => {
+  const commit = { sha: 'abc', date: new Date('2026-01-01'), files: {} };
+  const changes = [{ action: 'create', path: 'a.md', data: 'a' }];
+  const options = { commitType: 'create', collection: undefined };
+
+  /**
+   * Create the service-specific functions.
+   * @returns {any} Functions.
+   */
+  const createService = () => ({
+    commitToNewBranch: vi.fn().mockResolvedValue(commit),
+    commitToExistingBranch: vi.fn().mockResolvedValue(commit),
+    createPullRequest: vi.fn().mockResolvedValue({ number: 2 }),
+  });
+
+  test('commits onto the branch of an existing pull request', async () => {
+    const service = createService();
+    const pullRequest = { number: 1, headSHA: 'head' };
+
+    await expect(
+      saveWorkflowBranch(
+        { changes, options, branch: 'cms/a', title: 'A', status: 'draft', pullRequest },
+        service,
+      ),
+    ).resolves.toEqual({ commit, pullRequest });
+    expect(service.commitToExistingBranch).toHaveBeenCalledWith(
+      changes,
+      { ...options, branch: 'cms/a' },
+      pullRequest,
+    );
+    expect(service.commitToNewBranch).not.toHaveBeenCalled();
+    expect(service.createPullRequest).not.toHaveBeenCalled();
+  });
+
+  test('commits on a new branch and opens a pull request for it', async () => {
+    const service = createService();
+
+    await expect(
+      saveWorkflowBranch(
+        { changes, options, branch: 'cms/a', title: 'A', status: 'draft' },
+        service,
+      ),
+    ).resolves.toEqual({ commit, pullRequest: { number: 2 } });
+    expect(service.commitToNewBranch).toHaveBeenCalledWith(changes, {
+      ...options,
+      branch: 'cms/a',
+    });
+    expect(service.createPullRequest).toHaveBeenCalledWith({
+      branch: 'cms/a',
+      title: 'A',
+      status: 'draft',
+    });
+  });
+});
+
+describe('commitToNewWorkflowBranch()', () => {
+  const commit = { sha: 'abc', files: {} };
+  const branchExists = new Error('Exists', { cause: { status: 422 } });
+
+  /**
+   * Create the arguments.
+   * @returns {any} Arguments.
+   */
+  const createArgs = () => ({
+    branch: 'cms/a',
+    branchExistsStatus: 422,
+    commitFromStart: vi.fn().mockResolvedValue(commit),
+    commitOnBranch: vi.fn().mockResolvedValue(commit),
+    findOpenPullRequest: vi.fn().mockResolvedValue(undefined),
+    inUseMessage: 'The workflow branch is in use by another pull request.',
+    deleteBranch: vi.fn().mockResolvedValue(undefined),
+  });
+
+  test('commits on a branch created from the configured one', async () => {
+    const args = createArgs();
+
+    await expect(commitToNewWorkflowBranch(args)).resolves.toBe(commit);
+    expect(args.commitFromStart).toHaveBeenCalledOnce();
+    expect(args.findOpenPullRequest).not.toHaveBeenCalled();
+    expect(args.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  test('passes on any failure other than the branch existing', async () => {
+    const args = createArgs();
+    const failure = new Error('Failed', { cause: { status: 400 } });
+
+    args.commitFromStart.mockRejectedValue(failure);
+    await expect(commitToNewWorkflowBranch(args)).rejects.toBe(failure);
+    expect(args.findOpenPullRequest).not.toHaveBeenCalled();
+  });
+
+  test('passes on a failure without a status', async () => {
+    const args = createArgs();
+    const failure = new Error('Network error');
+
+    args.commitFromStart.mockRejectedValue(failure);
+    await expect(commitToNewWorkflowBranch(args)).rejects.toBe(failure);
+  });
+
+  test('commits onto an existing branch with Open Authoring', async () => {
+    const args = createArgs();
+
+    forkedRepository.current = FORK;
+    args.commitFromStart.mockRejectedValueOnce(branchExists);
+    await expect(commitToNewWorkflowBranch(args)).resolves.toBe(commit);
+    expect(args.commitOnBranch).toHaveBeenCalledOnce();
+    expect(args.findOpenPullRequest).not.toHaveBeenCalled();
+    expect(args.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  test('refuses a branch a pull request is open from', async () => {
+    const args = createArgs();
+
+    args.commitFromStart.mockRejectedValueOnce(branchExists);
+    args.findOpenPullRequest.mockResolvedValue('#5');
+
+    const promise = commitToNewWorkflowBranch(args);
+
+    await expect(promise).rejects.toThrow('The workflow branch is in use by another pull request.');
+    await promise.catch((ex) => {
+      expect(ex.cause.message).toBe('workflow.branch_in_use:{"number":"#5"}');
+    });
+    expect(args.commitFromStart).toHaveBeenCalledOnce();
+    expect(args.deleteBranch).not.toHaveBeenCalled();
+    expect(args.commitOnBranch).not.toHaveBeenCalled();
+  });
+
+  test('deletes a leftover branch and creates it afresh', async () => {
+    const args = createArgs();
+
+    args.commitFromStart.mockRejectedValueOnce(branchExists);
+    await expect(commitToNewWorkflowBranch(args)).resolves.toBe(commit);
+    expect(args.deleteBranch).toHaveBeenCalledWith('cms/a');
+    expect(args.commitFromStart).toHaveBeenCalledTimes(2);
+    expect(args.commitOnBranch).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertBranchAtHead()', () => {
+  /**
+   * Get the repository the branch lives in.
+   * @returns {{ owner: string, repo: string }} Repository.
+   */
+  const getWorkflowRepository = () => ({ owner: 'owner', repo: 'repo' });
+
+  test('returns the head on record when the branch points at it', async () => {
+    const fetchBranchHead = vi.fn().mockResolvedValue('head');
+
+    await expect(
+      assertBranchAtHead({
+        branch: 'cms/a',
+        headSHA: 'head',
+        fetchBranchHead,
+        getWorkflowRepository,
+      }),
+    ).resolves.toBe('head');
+    expect(fetchBranchHead).toHaveBeenCalledWith('cms/a');
+  });
+
+  test('refuses a branch that is gone', async () => {
+    const promise = assertBranchAtHead({
+      branch: 'cms/a',
+      headSHA: 'head',
+      fetchBranchHead: vi.fn().mockResolvedValue(undefined),
+      getWorkflowRepository,
+    });
+
+    await expect(promise).rejects.toThrow('Failed to save the changes.');
+    await promise.catch((ex) => {
+      expect(ex.cause.message).toBe('branch_not_found:{"repo":"repo","branch":"cms/a"}');
+    });
+  });
+
+  test('refuses a branch that has moved', async () => {
+    const promise = assertBranchAtHead({
+      branch: 'cms/a',
+      headSHA: 'head',
+      fetchBranchHead: vi.fn().mockResolvedValue('other'),
+      getWorkflowRepository,
+    });
+
+    await expect(promise).rejects.toThrow(
+      'The workflow branch has moved since the entry was loaded.',
+    );
+    await promise.catch((ex) => {
+      expect(ex.cause.message).toBe('save_conflict.branch_moved');
+    });
+  });
+
+  test('refuses a save without a head on record', async () => {
+    await expect(
+      assertBranchAtHead({
+        branch: 'cms/a',
+        headSHA: undefined,
+        fetchBranchHead: vi.fn().mockResolvedValue('head'),
+        getWorkflowRepository,
+      }),
+    ).rejects.toThrow('The workflow branch has moved since the entry was loaded.');
+  });
+});
+
+describe('updateLabelledStatus()', () => {
+  const pullRequest = { number: 1, title: 'Hello', status: 'draft' };
+
+  /**
+   * Create the mocked service-specific functions.
+   * @returns {any} Functions.
+   */
+  const createService = () => ({
+    updateForkStatus: vi.fn().mockResolvedValue({ ...pullRequest, status: 'pending_review' }),
+    updateLabels: vi.fn().mockResolvedValue(undefined),
+    updateDraftState: vi.fn().mockResolvedValue(undefined),
+  });
+
+  test('replaces the label and marks the pull request ready when leaving the draft status', async () => {
+    const service = createService();
+    const result = await updateLabelledStatus(pullRequest, 'pending_review', service);
+
+    expect(service.updateLabels).toHaveBeenCalledWith(pullRequest, 'pending_review');
+    expect(service.updateDraftState).toHaveBeenCalledWith(pullRequest, false);
+    expect(service.updateForkStatus).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ...pullRequest,
+      status: 'pending_review',
+      updatedDate: expect.any(Date),
+    });
+  });
+
+  test('marks the pull request as a draft when going back to the draft status', async () => {
+    const service = createService();
+
+    await updateLabelledStatus({ ...pullRequest, status: 'pending_review' }, 'draft', service);
+
+    expect(service.updateDraftState).toHaveBeenCalledWith(
+      { ...pullRequest, status: 'pending_review' },
+      true,
+    );
+  });
+
+  test('leaves the draft state alone between the review and ready stages', async () => {
+    const service = createService();
+    const current = { ...pullRequest, status: 'pending_review' };
+    const result = await updateLabelledStatus(current, 'pending_publish', service);
+
+    expect(service.updateLabels).toHaveBeenCalledWith(current, 'pending_publish');
+    expect(service.updateDraftState).not.toHaveBeenCalled();
+    expect(result.status).toBe('pending_publish');
+  });
+
+  test('takes the fork flow with Open Authoring', async () => {
+    const service = createService();
+
+    forkedRepository.current = FORK;
+
+    await expect(updateLabelledStatus(pullRequest, 'pending_review', service)).resolves.toEqual({
+      ...pullRequest,
+      status: 'pending_review',
+    });
+    expect(service.updateForkStatus).toHaveBeenCalledWith(pullRequest, 'pending_review');
+    expect(service.updateLabels).not.toHaveBeenCalled();
+    expect(service.updateDraftState).not.toHaveBeenCalled();
+  });
+});
+
+describe('getParentDirs()', () => {
+  test('lists each folder holding the files once, the root as an empty string', () => {
+    expect(getParentDirs(['a.md', 'posts/b.md', 'posts/c.md', 'posts/2026/d.md', 'e.md'])).toEqual([
+      '',
+      'posts',
+      'posts/2026',
+    ]);
+  });
+
+  test('returns an empty list for no files', () => {
+    expect(getParentDirs([])).toEqual([]);
+  });
+});
+
+describe('toChangedFilesWithModes()', () => {
+  const statusMap = { added: 'added', deleted: 'removed', renamed: 'renamed' };
+
+  test('converts the files and attaches the modes of all but the removed ones', async () => {
+    const fetchFileModes = vi.fn().mockResolvedValue(
+      new Map([
+        ['a.md', '100644'],
+        ['link', '120000'],
+        ['c.md', '100644'],
+      ]),
+    );
+
+    await expect(
+      toChangedFilesWithModes(
+        [
+          { filename: 'a.md', status: 'added' },
+          { filename: 'b.md', status: 'deleted' },
+          { filename: 'link', status: 'changed', previous_filename: '' },
+          { filename: 'c.md', status: 'renamed', previous_filename: 'old/c.md' },
+        ],
+        { statusMap, headSHA: 'head', fetchFileModes },
+      ),
+    ).resolves.toStrictEqual([
+      { path: 'a.md', status: 'added', previousPath: undefined, mode: '100644' },
+      { path: 'b.md', status: 'removed', previousPath: undefined, mode: undefined },
+      { path: 'link', status: 'modified', previousPath: undefined, mode: '120000' },
+      { path: 'c.md', status: 'renamed', previousPath: 'old/c.md', mode: '100644' },
+    ]);
+    expect(fetchFileModes).toHaveBeenCalledWith({
+      headSHA: 'head',
+      paths: ['a.md', 'link', 'c.md'],
+    });
+  });
+});
+
+describe('getMovedHeadMergeState()', () => {
+  test('returns nothing while the branch is at the commit on record', () => {
+    expect(getMovedHeadMergeState({ headSHA: 'abc' }, 'abc')).toBeUndefined();
+  });
+
+  test('reports a complete, empty list once the branch has moved on', () => {
+    expect(getMovedHeadMergeState({ headSHA: 'abc' }, 'def')).toEqual({
+      headSHA: 'def',
+      onConfiguredBranches: true,
+      files: [],
+      complete: true,
+    });
+    expect(getMovedHeadMergeState({}, 'def')).toMatchObject({ complete: true });
+  });
+});
+
+describe('isPullRequestMerged()', () => {
+  test('tells a merged pull request by the status of the check', async () => {
+    vi.mocked(fetchAPI).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(isPullRequestMerged({ owner: 'owner', repo: 'repo' }, 1)).resolves.toBe(true);
+    expect(fetchAPI).toHaveBeenLastCalledWith('/repos/owner/repo/pulls/1/merge', {
+      responseType: 'raw',
+    });
+
+    vi.mocked(fetchAPI).mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await expect(isPullRequestMerged({ owner: 'owner', repo: 'repo' }, 1)).resolves.toBe(false);
+  });
+});
+
+describe('reopenPullRequest()', () => {
+  beforeEach(() => {
+    vi.mocked(fetchAPI).mockResolvedValue({});
+  });
+
+  test('reopens the pull request on the given repository', async () => {
+    await reopenPullRequest({ owner: 'owner', repo: 'repo' }, 7);
+
+    expect(fetchAPI).toHaveBeenCalledWith('/repos/owner/repo/pulls/7', {
+      method: 'PATCH',
+      body: { state: 'open' },
+    });
+  });
+});
+
+describe('approvePullRequest()', () => {
+  beforeEach(() => {
+    vi.mocked(fetchAPI).mockResolvedValue({});
+  });
+
+  test('approves the pull request with the given event, pinned to its head commit', async () => {
+    await approvePullRequest({ owner: 'owner', repo: 'repo' }, { number: 1, headSHA: 'abc' }, 'X');
+
+    expect(fetchAPI).toHaveBeenCalledWith('/repos/owner/repo/pulls/1/reviews', {
+      method: 'POST',
+      body: { event: 'X', commit_id: 'abc' },
+    });
+  });
+});
+
+describe('findOwnApprovals()', () => {
+  beforeEach(() => {
+    user.account = /** @type {any} */ ({ login: 'me' });
+  });
+
+  afterEach(() => {
+    user.account = undefined;
+  });
+
+  test('picks the user’s approvals that haven’t been dismissed', () => {
+    const reviews = [
+      { id: 1, state: 'APPROVED', user: { login: 'me' } },
+      { id: 2, state: 'APPROVED', user: { login: 'alex' } },
+      { id: 3, state: 'COMMENTED', user: { login: 'me' } },
+      { id: 4, state: 'DISMISSED', user: { login: 'me' } },
+      { id: 5, state: 'APPROVED', dismissed: true, user: { login: 'me' } },
+      { id: 6, state: 'APPROVED', user: null },
+      { id: 7, state: 'APPROVED', dismissed: false, user: { login: 'me' } },
+    ];
+
+    expect(findOwnApprovals(reviews).map(({ id }) => id)).toEqual([1, 7]);
+  });
+});
+
+describe('discardPullRequest()', () => {
+  const repository = { owner: 'owner', repo: 'repo' };
+  /**
+   * Create the error `fetchAPI` throws on a refused request.
+   * @param {number} status HTTP status code.
+   * @returns {Error} Error.
+   */
+  const refusal = (status) => new Error('Server responded with an error', { cause: { status } });
+
+  test('closes the pull request and deletes the branch', async () => {
+    const deleteBranch = vi.fn();
+
+    vi.mocked(fetchAPI).mockResolvedValue({});
+    await discardPullRequest(repository, { number: 1, branch: 'b' }, { deleteBranch });
+
+    expect(fetchAPI).toHaveBeenCalledWith('/repos/owner/repo/pulls/1', {
+      method: 'PATCH',
+      body: { state: 'closed' },
+    });
+    expect(deleteBranch).toHaveBeenCalledWith('b');
+  });
+
+  test('only deletes the branch of a draft without a pull request', async () => {
+    const deleteBranch = vi.fn();
+
+    await discardPullRequest(repository, { branch: 'b' }, { deleteBranch });
+
+    expect(fetchAPI).not.toHaveBeenCalled();
+    expect(deleteBranch).toHaveBeenCalledWith('b');
+  });
+
+  test('carries on when the refusal comes with one of the given statuses', async () => {
+    const deleteBranch = vi.fn();
+
+    vi.mocked(fetchAPI).mockRejectedValue(refusal(412));
+    await discardPullRequest(
+      repository,
+      { number: 1, branch: 'b' },
+      { deleteBranch, closedStatuses: [412] },
+    );
+
+    expect(deleteBranch).toHaveBeenCalledWith('b');
+  });
+
+  test('reports any other refusal, leaving the branch alone', async () => {
+    const deleteBranch = vi.fn();
+
+    vi.mocked(fetchAPI).mockRejectedValue(refusal(412));
+    await expect(
+      discardPullRequest(repository, { number: 1, branch: 'b' }, { deleteBranch }),
+    ).rejects.toThrow('Server responded with an error');
+
+    expect(deleteBranch).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyForkPullRequestStatus()', () => {
+  beforeEach(() => {
+    vi.mocked(fetchAPI).mockResolvedValue({});
+  });
+
+  const pullRequest = { number: 7, branch: 'cms/posts/hello', title: 'Hello' };
+  const repository = { owner: 'owner', repo: 'repo' };
+
+  /**
+   * Bring the pull request in line with the given status and state.
+   * @param {string} status New status.
+   * @param {object} request Pull request state and draft flag.
+   * @returns {Promise<any>} Mocked `updateDraftState`.
+   */
+  const apply = async (status, request) => {
+    const updateDraftState = vi.fn().mockResolvedValue(undefined);
+
+    await applyForkPullRequestStatus(
+      { pullRequest, status, ...request },
+      { repository, updateDraftState },
+    );
+
+    return updateDraftState;
+  };
+
+  test.each(['open', 'OPEN'])('makes an %s pull request a draft', async (state) => {
+    const updateDraftState = await apply('draft', { state, draft: false });
+
+    expect(updateDraftState).toHaveBeenCalledWith(pullRequest, true);
+    expect(fetchAPI).not.toHaveBeenCalled();
+  });
+
+  test('leaves a closed or already draft pull request as is when taken back to draft', async () => {
+    expect(await apply('draft', { state: 'closed', draft: false })).not.toHaveBeenCalled();
+    expect(await apply('draft', { state: 'open', draft: true })).not.toHaveBeenCalled();
+    expect(await apply('draft', {})).not.toHaveBeenCalled();
+  });
+
+  test.each(['closed', 'CLOSED'])(
+    'reopens a %s draft sent for review and marks it ready',
+    async (state) => {
+      const updateDraftState = await apply('pending_review', { state, draft: true });
+
+      expect(fetchAPI).toHaveBeenCalledWith('/repos/owner/repo/pulls/7', {
+        method: 'PATCH',
+        body: { state: 'open' },
+      });
+      expect(updateDraftState).toHaveBeenCalledWith(pullRequest, false);
+    },
+  );
+
+  test('leaves an open, ready pull request sent for review as is', async () => {
+    const updateDraftState = await apply('pending_review', { state: 'OPEN', draft: false });
+
+    expect(fetchAPI).not.toHaveBeenCalled();
+    expect(updateDraftState).not.toHaveBeenCalled();
+  });
+});
+
+describe('AUTO_MERGE_POLL', () => {
+  test('reads every 10 seconds for an hour at most', () => {
+    expect(AUTO_MERGE_POLL).toEqual({ interval: 10000, maxDuration: 60 * 60 * 1000 });
+  });
+});
+
+describe('isPermanentClientError()', () => {
+  /**
+   * Create an error with the given HTTP status, as `fetchAPI` throws it.
+   * @param {any} status Status.
+   * @returns {Error} Error.
+   */
+  const createError = (status) => new Error('Failed', { cause: { status } });
+
+  test.each([400, 401, 403, 404, 422, 499])('takes a %i for a permanent error', (status) => {
+    expect(isPermanentClientError(createError(status))).toBe(true);
+  });
+
+  test.each([429, 399, 500, 502, '404', undefined])('doesn’t take a %s for one', (status) => {
+    expect(isPermanentClientError(createError(status))).toBe(false);
+  });
+
+  test('doesn’t take an error without a cause, or no error at all, for one', () => {
+    expect(isPermanentClientError(new Error('Failed to fetch'))).toBe(false);
+    expect(isPermanentClientError(undefined)).toBe(false);
+  });
+});
+
+describe('waitForMerge()', () => {
+  const read = vi.fn();
+  const evaluate = vi.fn();
+  const cancel = vi.fn();
+  const label = 'pull request #1';
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    cancel.mockResolvedValue(undefined);
+  });
+
+  test('waits until the item read is reported merged', async () => {
+    read.mockResolvedValueOnce('open').mockResolvedValueOnce('merged');
+    evaluate.mockImplementation(async (item) => item === 'merged');
+
+    await expect(waitForMerge({ read, evaluate, cancel, label })).resolves.toBeUndefined();
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(10000);
+    expect(evaluate).toHaveBeenNthCalledWith(1, 'open');
+    expect(evaluate).toHaveBeenNthCalledWith(2, 'merged');
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  test('passes on an error thrown by the evaluation', async () => {
+    read.mockResolvedValueOnce('closed');
+    evaluate.mockRejectedValueOnce(new Error('Not merged'));
+
+    await expect(waitForMerge({ read, evaluate, cancel, label })).rejects.toThrow('Not merged');
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  test('keeps waiting through a read that fails for a reason that can pass', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = new Error('Failed', { cause: { status: 503 } });
+
+    read.mockRejectedValueOnce(error).mockResolvedValueOnce('merged');
+    evaluate.mockResolvedValue(true);
+
+    await waitForMerge({ read, evaluate, cancel, label });
+
+    expect(warn).toHaveBeenCalledWith('Failed to read pull request #1, still waiting.', error);
+    // A failed read isn’t evaluated
+    expect(evaluate).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  test('gives up on a client error', async () => {
+    const error = new Error('Failed', { cause: { status: 401 } });
+
+    read.mockRejectedValueOnce(error);
+
+    await expect(waitForMerge({ read, evaluate, cancel, label })).rejects.toBe(error);
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  test('cancels the auto-merge and gives up once the wait runs out', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0);
+
+    read.mockImplementationOnce(async () => {
+      now.mockReturnValue(AUTO_MERGE_POLL.maxDuration);
+
+      return 'open';
+    });
+    evaluate.mockResolvedValue(false);
+
+    await expect(waitForMerge({ read, evaluate, cancel, label })).rejects.toThrow(
+      'Timed out waiting for pull request #1 to be merged',
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledOnce();
+    now.mockRestore();
+  });
+
+  test('gives up right away past the given deadline', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+
+    await expect(waitForMerge({ read, evaluate, cancel, label, deadline: 1000 })).rejects.toThrow(
+      'Timed out waiting for pull request #1 to be merged',
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+    now.mockRestore();
+  });
+});

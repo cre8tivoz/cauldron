@@ -1,0 +1,59 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import { Icon, MenuButton } from '@sveltia/ui';
+
+  import AccountMenu from '$lib/components/global/toolbar/items/account-menu.svelte';
+  import { backendName } from '$lib/services/backends';
+  import { user } from '$lib/services/user/account.svelte';
+
+  /** @type {MenuButton | undefined} */
+  let menuButton = $state();
+
+  const isLocalRepo = $derived(backendName.current === 'local');
+  const hasAvatar = $derived(!!user.account?.avatarURL);
+</script>
+
+<div role="none" class="wrapper">
+  <MenuButton
+    variant="ghost"
+    iconic={!isLocalRepo}
+    label={isLocalRepo ? _('local_workflow.indicator') : undefined}
+    class={hasAvatar ? 'avatar' : ''}
+    popupPosition="bottom-right"
+    aria-label={_('show_account_menu')}
+    bind:this={menuButton}
+  >
+    {#snippet endIcon()}
+      {#if isLocalRepo}
+        <Icon name="arrow_drop_down" class="small-arrow" />
+      {:else if hasAvatar}
+        <img class="avatar" loading="lazy" src={user.account?.avatarURL} alt="" />
+      {:else}
+        <Icon name="account_circle" />
+      {/if}
+    {/snippet}
+    {#snippet popup()}
+      <AccountMenu {menuButton} />
+    {/snippet}
+  </MenuButton>
+</div>
+
+<style>
+  .wrapper {
+    display: contents;
+
+    :global {
+      button.avatar {
+        border-width: 0;
+        background-color: transparent;
+      }
+    }
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 32px;
+    object-fit: cover;
+  }
+</style>

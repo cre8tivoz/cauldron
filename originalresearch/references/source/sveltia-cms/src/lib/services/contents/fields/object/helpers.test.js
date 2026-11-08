@@ -1,0 +1,671 @@
+import { describe, expect, test, vi } from 'vitest';
+
+import {
+  formatSummary,
+  getTypedKeyPath,
+  getTypedSubKeyPath,
+  getUnknownTypeMessage,
+  resolveVariableType,
+  warnUnknownType,
+} from '$lib/services/contents/fields/object/helpers';
+
+vi.mock('$lib/services/config');
+
+describe('Test formatSummary() — comprehensive tests', async () => {
+  // @ts-ignore
+  (await import('$lib/services/config')).cmsConfig = {
+    current: {
+      backend: { name: 'github' },
+      media_folder: 'static/uploads',
+      collections: [
+        {
+          name: 'posts',
+          folder: 'content/posts',
+          fields: [
+            {
+              name: 'metadata',
+              widget: 'object',
+              fields: [
+                { name: 'title', widget: 'string' },
+                { name: 'name', widget: 'string' },
+                { name: 'description', widget: 'text' },
+                { name: 'author', widget: 'string' },
+                { name: 'featured', widget: 'boolean' },
+                { name: 'date', widget: 'date', picker_utc: true, time_format: false },
+                { name: 'hidden_field', widget: 'hidden' },
+                { name: 'tags', widget: 'list', field: { name: 'tag', widget: 'string' } },
+                { name: 'rating', widget: 'number' },
+                { name: 'body', widget: 'richtext' },
+              ],
+            },
+            {
+              name: 'section',
+              widget: 'object',
+              types: [
+                {
+                  name: 'text',
+                  summary: '{{body}}',
+                  fields: [{ name: 'body', widget: 'richtext' }],
+                },
+              ],
+            },
+            {
+              name: 'content_blocks',
+              widget: 'list',
+              types: [
+                {
+                  name: 'text',
+                  summary: '{{body}}',
+                  fields: [{ name: 'body', widget: 'richtext' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const baseArgs = {
+    collectionName: 'posts',
+    keyPath: 'metadata',
+    locale: 'en',
+  };
+
+  const basicValueMap = {
+    'metadata.description': 'A comprehensive test description',
+    'metadata.author': 'Test Author',
+    'metadata.featured': true,
+    'metadata.date': '2024-01-01',
+    'metadata.hidden_field': 'should_not_appear',
+    'metadata.rating': 4.5,
+  };
+
+  describe('without template', () => {
+    test('should prioritize title field', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { 'metadata.title': 'Main Title', ...basicValueMap },
+        }),
+      ).toEqual('Main Title');
+    });
+
+    test('should fall back to name field when title is empty', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { 'metadata.title': '', 'metadata.name': 'Object Name', ...basicValueMap },
+        }),
+      ).toEqual('Object Name');
+    });
+
+    test('should use first visible string field when title and name are empty', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { 'metadata.title': '', 'metadata.name': '', ...basicValueMap },
+        }),
+      ).toEqual('A comprehensive test description');
+    });
+
+    test('should skip hidden fields', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.title': '',
+            'metadata.name': '',
+            'metadata.description': '',
+            'metadata.author': '',
+            'metadata.hidden_field': 'hidden_value',
+          },
+        }),
+      ).toEqual('');
+    });
+
+    test('should handle empty object', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {},
+        }),
+      ).toEqual('');
+    });
+
+    test('should handle whitespace-only values', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.title': '   ',
+            'metadata.name': '\t\n',
+            'metadata.description': '',
+            'metadata.author': 'Valid Author',
+          },
+        }),
+      ).toEqual('Valid Author');
+    });
+
+    test('should ignore non-string, non-numeric values for fallback', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.title': '',
+            'metadata.name': '',
+            'metadata.featured': true,
+            'metadata.rating': 5,
+            'metadata.author': 'String Value',
+          },
+        }),
+      ).toEqual('5');
+    });
+
+    test('should return empty string for nested key paths without field configuration', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          keyPath: 'content.metadata',
+          valueMap: {
+            'content.metadata.title': 'Nested Title',
+            'content.metadata.description': 'Nested Description',
+          },
+        }),
+      ).toEqual('');
+    });
+  });
+
+  describe('with template', () => {
+    test('should use single template field', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { 'metadata.title': 'Title', ...basicValueMap },
+          summaryTemplate: '{{fields.author}}',
+        }),
+      ).toEqual('Test Author');
+    });
+
+    test('should handle multiple placeholders', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.author}} - {{fields.description}}',
+        }),
+      ).toEqual('Test Author - A comprehensive test description');
+    });
+
+    test('should return empty string for non-existent fields', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.nonexistent}}',
+        }),
+      ).toEqual('');
+    });
+
+    test('should handle fields. prefix properly', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{author}}',
+        }),
+      ).toEqual('Test Author');
+    });
+
+    test('should handle complex template patterns', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: 'By {{fields.author}}: {{fields.description}}',
+        }),
+      ).toEqual('By Test Author: A comprehensive test description');
+    });
+
+    test('should handle boolean values in templates', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.featured}}',
+        }),
+      ).toEqual('true');
+    });
+
+    test('should handle numeric values in templates', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.rating}}',
+        }),
+      ).toEqual('4.5');
+    });
+
+    test('should handle empty template string', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '',
+        }),
+      ).toEqual('A comprehensive test description');
+    });
+  });
+
+  describe('with template and transformations', () => {
+    test('should apply single transformation', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.author | upper}}',
+        }),
+      ).toEqual('TEST AUTHOR');
+    });
+
+    test('should apply multiple transformations', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.author | upper | truncate(4)}}',
+        }),
+      ).toEqual('TEST…');
+    });
+
+    test('should handle ternary transformation with boolean', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: "{{fields.featured | ternary('Featured','Not Featured')}}",
+        }),
+      ).toEqual('Featured');
+    });
+
+    test('should handle date transformation', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: "{{fields.date | date('MMM YYYY')}}",
+        }),
+      ).toEqual('Jan 2024');
+    });
+
+    test('should handle transformation on non-existent field', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.nonexistent | upper}}',
+        }),
+      ).toEqual('');
+    });
+
+    test('should handle complex transformation chains', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { ...basicValueMap, 'metadata.description': 'hello world test description' },
+          summaryTemplate: '{{fields.description | upper | truncate(15)}}',
+        }),
+      ).toEqual('HELLO WORLD TES…');
+    });
+
+    test('should handle number transformations', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.rating}}',
+        }),
+      ).toEqual('4.5');
+    });
+
+    test('should handle nested templates in default transformation', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.description': '', // Empty value to trigger default
+            'metadata.title': 'Main Title',
+            'metadata.name': 'Object Name',
+          },
+          summaryTemplate: "{{fields.description | default('{{fields.title}}')}}",
+        }),
+      ).toEqual('Main Title');
+    });
+
+    test('should handle nested templates in ternary transformation', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.title': 'Main Title',
+            'metadata.name': 'Fallback Name',
+            'metadata.featured': true,
+          },
+          summaryTemplate: "{{fields.featured | ternary('{{fields.title}}', '{{fields.name}}')}}",
+        }),
+      ).toEqual('Main Title');
+    });
+
+    test('should resolve several nested templates in a transformation argument', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.description': '',
+            'metadata.title': 'Main Title',
+            'metadata.name': 'Jane',
+          },
+          summaryTemplate:
+            "{{fields.description | default('{{fields.title}} by {{fields.name}}')}}",
+        }),
+      ).toEqual('Main Title by Jane');
+    });
+
+    test('should handle nested templates with missing inner field', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { 'metadata.name': 'Name Value' },
+          summaryTemplate: "{{fields.description | default('{{fields.title}}')}}",
+        }),
+      ).toEqual('');
+    });
+  });
+
+  describe('edge cases and error handling', () => {
+    test('should return empty string when collection configuration is missing', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          collectionName: 'nonexistent',
+          valueMap: basicValueMap,
+        }),
+      ).toEqual('');
+    });
+
+    test('should handle file collections', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          fileName: 'config.yml',
+          valueMap: basicValueMap,
+        }),
+      ).toEqual('A comprehensive test description');
+    });
+
+    test('should handle index files', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          isIndexFile: true,
+          valueMap: basicValueMap,
+        }),
+      ).toEqual('A comprehensive test description');
+    });
+
+    test('should handle malformed template patterns', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: '{{fields.author',
+        }),
+      ).toEqual('{{fields.author');
+    });
+
+    test('should handle templates with no placeholders', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: basicValueMap,
+          summaryTemplate: 'Static Text',
+        }),
+      ).toEqual('Static Text');
+    });
+
+    test('should handle deeply nested objects', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          keyPath: 'content.section.metadata',
+          valueMap: {
+            'content.section.metadata.title': 'Deep Title',
+            'content.section.metadata.author': 'Deep Author',
+          },
+          summaryTemplate: '{{fields.title}} by {{fields.author}}',
+        }),
+      ).toEqual('Deep Title by Deep Author');
+    });
+
+    test('should handle special characters in field values', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: {
+            'metadata.title': 'Title with "quotes" & <tags>',
+            'metadata.author': 'Author with €uro signs',
+          },
+          summaryTemplate: '{{fields.title}} - {{fields.author}}',
+        }),
+      ).toEqual('Title with "quotes" & <tags> - Author with €uro signs');
+    });
+
+    test('should handle very long field values', () => {
+      const longValue = 'A'.repeat(1000);
+
+      expect(
+        formatSummary({
+          ...baseArgs,
+          valueMap: { 'metadata.title': longValue },
+        }),
+      ).toEqual(longValue);
+    });
+
+    test('should handle different locale contexts', () => {
+      expect(
+        formatSummary({
+          ...baseArgs,
+          locale: 'ja',
+          valueMap: { 'metadata.title': 'Japanese Title', ...basicValueMap },
+        }),
+      ).toEqual('Japanese Title');
+    });
+
+    test('should reuse cached regex when formatSummary is called twice with the same keyPath', () => {
+      // Exercises the objectSummaryRegexCache hit path introduced by the perf optimisation.
+      const result1 = formatSummary({ ...baseArgs, valueMap: basicValueMap });
+      const result2 = formatSummary({ ...baseArgs, valueMap: basicValueMap });
+
+      expect(result1).toEqual(result2);
+    });
+  });
+
+  describe('Rich Text field values', () => {
+    const markdown =
+      'A **richtext** _widget_ as summary\n\nshows [raw](https://example.com) markdown';
+
+    const html = '<p>A <strong>richtext</strong> <em>widget</em> as summary shows raw markdown</p>';
+    const plainText = 'A richtext widget as summary shows raw markdown';
+
+    test('should strip Markdown syntax and HTML tags in an Object field summary', () => {
+      [markdown, html].forEach((body) => {
+        expect(formatSummary({ ...baseArgs, valueMap: { 'metadata.body': body } })).toEqual(
+          plainText,
+        );
+
+        expect(
+          formatSummary({
+            ...baseArgs,
+            valueMap: { 'metadata.body': body },
+            summaryTemplate: '{{fields.body}}',
+          }),
+        ).toEqual(plainText);
+      });
+    });
+
+    test('should strip Markdown syntax and HTML tags in a typed Object field summary', () => {
+      [markdown, html].forEach((body) => {
+        expect(
+          formatSummary({
+            ...baseArgs,
+            keyPath: 'section',
+            valueMap: { 'section.type': 'text', 'section.body': body },
+            summaryTemplate: '{{body}}',
+          }),
+        ).toEqual(plainText);
+      });
+    });
+
+    test('should strip Markdown syntax and HTML tags in a typed List field item summary', () => {
+      [markdown, html].forEach((body) => {
+        expect(
+          formatSummary({
+            ...baseArgs,
+            keyPath: 'content_blocks',
+            itemKeyPath: 'content_blocks.0',
+            valueMap: { 'content_blocks.0.type': 'text', 'content_blocks.0.body': body },
+            summaryTemplate: '{{body}}',
+          }),
+        ).toEqual(plainText);
+      });
+    });
+  });
+});
+
+describe('getUnknownTypeMessage()', () => {
+  const types = [{ name: 'image' }, { name: 'text' }];
+
+  test('names a type the field doesn’t define', () => {
+    expect(
+      getUnknownTypeMessage({ fieldType: 'object', type: 'video', typeKey: 'type', types }),
+    ).toBe('The “video” type is not defined for the object field.');
+    expect(
+      getUnknownTypeMessage({ fieldType: 'list', type: 'video', typeKey: 'type', types }),
+    ).toBe('The “video” type is not defined for the list field.');
+  });
+
+  test('explains a missing type key', () => {
+    expect(
+      getUnknownTypeMessage({ fieldType: 'object', type: undefined, typeKey: 'kind', types }),
+    ).toBe(
+      'The type key is not found in the object. The item must include the “kind” property with ' +
+        'one of the defined types: image, text',
+    );
+    expect(
+      getUnknownTypeMessage({ fieldType: 'list', type: undefined, typeKey: 'kind', types }),
+    ).toBe(
+      'The type key is not found in the list item. The item must include the “kind” property ' +
+        'with one of the defined types: image, text',
+    );
+  });
+});
+
+describe('warnUnknownType()', () => {
+  const types = [{ name: 'image' }];
+
+  test('logs the message with the field or item key path', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    warnUnknownType({
+      fieldType: 'object',
+      keyPath: 'hero',
+      type: 'video',
+      typeKey: 'type',
+      types,
+    });
+    warnUnknownType({
+      fieldType: 'list',
+      keyPath: 'blocks.1',
+      type: 'video',
+      typeKey: 'type',
+      types,
+    });
+
+    expect(warn.mock.calls).toEqual([
+      ['Object field hero: The “video” type is not defined for the object field.'],
+      ['List item blocks.1: The “video” type is not defined for the list field.'],
+    ]);
+
+    warn.mockRestore();
+  });
+});
+
+describe('resolveVariableType()', () => {
+  const fields = [{ name: 'title' }];
+
+  const types = [
+    { name: 'image', fields: [{ name: 'src' }], summary: '{{fields.src}}' },
+    { name: 'text' },
+  ];
+
+  test('returns the subfields of a field without variable types', () => {
+    expect(resolveVariableType({ fields, summary: '{{fields.title}}', type: 'image' })).toEqual({
+      typeConfig: undefined,
+      unknownType: false,
+      subFields: fields,
+      summaryTemplate: '{{fields.title}}',
+    });
+    expect(resolveVariableType({})).toEqual({
+      typeConfig: undefined,
+      unknownType: false,
+      subFields: [],
+      summaryTemplate: undefined,
+    });
+  });
+
+  test('returns the subfields and summary of a known type', () => {
+    expect(resolveVariableType({ types, fields, summary: 'default', type: 'image' })).toEqual({
+      typeConfig: types[0],
+      unknownType: false,
+      subFields: types[0].fields,
+      summaryTemplate: '{{fields.src}}',
+    });
+    expect(resolveVariableType({ types, summary: 'default', type: 'text' })).toEqual({
+      typeConfig: types[1],
+      unknownType: false,
+      subFields: [],
+      summaryTemplate: 'default',
+    });
+  });
+
+  test('flags a missing or unknown type', () => {
+    const expected = {
+      typeConfig: undefined,
+      unknownType: true,
+      subFields: [],
+      summaryTemplate: 'default',
+    };
+
+    expect(resolveVariableType({ types, fields, summary: 'default', type: 'video' })).toEqual(
+      expected,
+    );
+    expect(resolveVariableType({ types, fields, summary: 'default' })).toEqual(expected);
+  });
+});
+
+describe('getTypedKeyPath()', () => {
+  test('adds the type, if any', () => {
+    expect(getTypedKeyPath('sections.*', 'banner')).toBe('sections.*<banner>');
+    expect(getTypedKeyPath('hero', undefined)).toBe('hero');
+  });
+});
+
+describe('getTypedSubKeyPath()', () => {
+  test('appends the subfield name to the typed key path', () => {
+    expect(
+      getTypedSubKeyPath({ typedKeyPath: 'sections.*', type: 'banner', subFieldName: 'title' }),
+    ).toBe('sections.*<banner>.title');
+    expect(getTypedSubKeyPath({ typedKeyPath: 'hero', subFieldName: 'title' })).toBe('hero.title');
+  });
+});

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' 'sha256-BHQEtKm1UdiW6Z1mCiaVkHNUFgFD1VMBwO9gNf4QyLk=' 'sha256-lzZ6KEN7vi4KpdbylWwHutz+i2id/7G4zI31yjavMwg='; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:* https:; media-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; connect-src http://127.0.0.1:* http://localhost:*; frame-src 'self' blob: data: http://127.0.0.1:* http://localhost:*" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sitereal</title>
+    <script type="module" crossorigin src="./assets/index-DtT88AMK.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-C2c2ssGp.css">
+  </head>
+  <body>
+    <!--
+      The boot screen.
+
+      A window that has been created but whose app has not started yet is a
+      rectangle of nothing, and switching projects makes one every time: the
+      shell hands over a new window while the old one is still on the screen,
+      so the gap between them is the flicker. This is what stands in it — the
+      mark, and a bar that says the wait is going somewhere.
+
+      Inline, above the module that loads the app, for the same reason the
+      error trap below is: it has to be on the screen in precisely the moment
+      the app is not. The one asset is a plain `<video>` in `public/`, black
+      and blended with `screen` so its own square disappears into the page,
+      decorative and `aria-hidden`; if it cannot play (or the reader asked for
+      less motion) the flat mark stands in its place and nothing else changes.
+    -->
+    <style>
+      #boot {
+        position: fixed; inset: 0; z-index: 2147483000;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 26px; background: #0c0c0d;
+        transition: opacity .3s ease;
+        /* The backstop for the script below never running at all — a policy
+           that refuses it, a parse error: the screen still gets out of the way,
+           because a cover with no way past it is worse than no cover. The
+           script takes it down long before this fires. */
+        animation: boot-out .3s ease 4s forwards;
+      }
+      @keyframes boot-out { to { opacity: 0; visibility: hidden; pointer-events: none } }
+      #boot.boot-gone { opacity: 0; pointer-events: none }
+      .boot-mark { width: 148px; height: 148px; display: grid; place-items: center }
+      .boot-mark video { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: screen }
+      .boot-still { width: 54px; height: 54px; color: #c50041; display: none }
+      .boot-bar {
+        inline-size: 220px; block-size: 2px; border-radius: 2px;
+        background: rgba(255, 255, 255, .10); overflow: hidden;
+      }
+      .boot-bar i {
+        display: block; block-size: 100%; inline-size: 0; border-radius: inherit;
+        background: #c50041; transition: inline-size .35s cubic-bezier(.22, 1, .36, 1);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-mark video { display: none }
+        .boot-still { display: block }
+        .boot-bar i { transition: none }
+      }
+    </style>
+    <div id="boot" role="status" aria-label="Starting sitereal">
+      <div class="boot-mark">
+        <video id="boot-loop" autoplay muted loop playsinline preload="auto" aria-hidden="true">
+          <source src="./sitereal-logo-loop.mp4" type="video/mp4" />
+        </video>
+        <!-- The same mark as components/Logo.tsx, for when the loop cannot play. -->
+        <svg class="boot-still" viewBox="0 0 193 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <g transform="matrix(1,0,0,1,-1282.311206,-1909.676926)" fill="currentColor">
+            <g transform="matrix(-0.930001,0.2279,-0.227876,-0.929906,2572.427732,3469.27643)"><path d="M791.015,1773.232C813.965,1773.232 832.57,1791.839 832.57,1814.791C832.57,1815.991 832.57,1817.192 832.57,1818.391C832.57,1841.344 813.965,1859.951 791.015,1859.951L787.407,1859.951C764.456,1859.951 745.851,1841.344 745.851,1818.391C745.851,1817.192 745.851,1815.991 745.851,1814.791C745.851,1791.839 764.456,1773.232 787.407,1773.232C788.609,1773.232 789.813,1773.232 791.015,1773.232Z"/></g>
+            <g transform="matrix(-0.93012,0.227929,-0.227876,-0.929906,2482.502559,3568.262013)"><path d="M791.015,1773.232C813.965,1773.232 832.57,1791.839 832.57,1814.791C832.57,1815.991 832.57,1817.192 832.57,1818.391C832.57,1841.344 813.965,1859.951 791.015,1859.951L787.407,1859.951C764.456,1859.951 745.851,1841.344 745.851,1818.391C745.851,1817.192 745.851,1815.991 745.851,1814.791C745.851,1791.839 764.456,1773.232 787.407,1773.232C788.609,1773.232 789.813,1773.232 791.015,1773.232Z"/></g>
+            <g transform="matrix(-0.93012,0.227929,-0.227876,-0.929906,2480.539872,3475.773969)"><path d="M791.015,1773.232C813.965,1773.232 832.57,1791.839 832.57,1814.791C832.57,1815.991 832.57,1817.192 832.57,1818.391C832.57,1841.344 813.965,1859.951 791.015,1859.951L787.407,1859.951C764.456,1859.951 745.851,1841.344 745.851,1818.391C745.851,1817.192 745.851,1815.991 745.851,1814.791C745.851,1791.839 764.456,1773.232 787.407,1773.232C788.609,1773.232 789.813,1773.232 791.015,1773.232Z"/></g>
+            <g transform="matrix(1.296243,-7.982939,7.982939,1.296243,1307.043316,2128.525388)"><path d="M15.708,8.331C16.651,9.265 15.142,16.863 13.594,16.997C12.296,17.109 11.891,14.548 11.617,13.736C11.348,12.935 11.047,12.646 10.253,12.384C8.234,11.716 7.225,11.382 7.025,10.853C6.496,9.453 14.504,7.137 15.708,8.331Z" fill-rule="nonzero"/></g>
+          </g>
+        </svg>
+      </div>
+      <div class="boot-bar"><i id="boot-fill"></i></div>
+    </div>
+
+    <script>
+      /* The bar creeps toward 90% and gets there more slowly the closer it is
+         — an honest shape for a wait nobody can measure: it never claims to be
+         finished, and `done()` is what fills it.
+
+         A second for a project, and as little as possible for the list.
+         Opening or switching a project is the wait people actually have — an
+         engine starting, a document arriving — and a screen that flashes past
+         in a fifth of a second reads as a glitch rather than as the app
+         opening, so that one is held for the whole second. The manager is the
+         app already being here: anything held back there is time taken from
+         somebody.
+
+         And it is over inside a second either way. This is a cover for a
+         gap, not a gate in front of the app: if the app is slower than that, a
+         canvas coming to life is a better thing to be looking at than a bar
+         that has stopped meaning anything — and a mark with no way past it is
+         worse than the empty window this replaced. */
+      (function () {
+        var boot = document.getElementById('boot');
+        var fill = document.getElementById('boot-fill');
+        var at = 0, over = false;
+        // A window with no config at all is a builder (`npm run builder`),
+        // which is the same wait as a project and reads the same way.
+        var project = (window.strata || {}).mode !== 'launcher';
+        var HOLD = project ? 1000 : 0;      // shown at least this long
+        var CAP = project ? 1000 : 1500;    // and never longer
+        var since = Date.now();
+        var set = function (v) { fill.style.inlineSize = (v * 100).toFixed(1) + '%'; };
+        var creep = setInterval(function () { at += (0.9 - at) * 0.12; set(at); }, 140);
+        setTimeout(function () { set(at = 0.06); }, 30);
+
+        function done() {
+          if (over) return;
+          var left = HOLD - (Date.now() - since);
+          if (left > 0) { setTimeout(done, left); return; }
+          over = true;
+          clearInterval(creep);
+          set(1);
+          setTimeout(function () {
+            boot.classList.add('boot-gone');
+            setTimeout(function () { boot.remove(); }, 320);
+          }, 120);
+        }
+        window.__siterealBoot = { done: done };
+        setTimeout(done, CAP);
+
+        var loop = document.getElementById('boot-loop');
+        if (loop) {
+          loop.addEventListener('error', function () {
+            loop.style.display = 'none';
+            document.querySelector('.boot-still').style.display = 'block';
+          }, true);
+          // Autoplay is refused in some contexts; asking again costs nothing.
+          var playing = loop.play && loop.play();
+          if (playing && playing.catch) playing.catch(function () { /* the still stands in */ });
+        }
+      })();
+    </script>
+
+    <div id="root"></div>
+
+    <!--
+      What a white window says instead of nothing.
+
+      If anything throws before React mounts — a module that fails to evaluate,
+      a bundle that did not load, a preload that never ran — the page stays
+      exactly as the browser found it: an empty div. That is the failure that
+      cannot describe itself, and it is what a Windows user reported twice with
+      nothing anybody could act on.
+
+      So: the earliest script on the page, before the module below, writing
+      whatever went wrong into the document. Deliberately no imports, no build
+      step and no dependency on anything the app ships — this has to work in
+      precisely the situation where the app does not.
+    -->
+    <script>
+      (function () {
+        var painted = false;
+        function paint(what, detail) {
+          if (painted) return;
+          painted = true;
+          var pre = detail ? String(detail) : '';
+          document.body.innerHTML =
+            '<div style="font:14px/1.6 ui-sans-serif,system-ui,sans-serif;' +
+            'color:#e5e7eb;background:#0b0b0d;min-height:100vh;padding:12vh 8vw;' +
+            'box-sizing:border-box">' +
+            '<h1 style="font:600 20px/1.3 inherit;margin:0 0 8px">sitereal could not start</h1>' +
+            '<p style="color:#9ca3af;margin:0 0 16px;max-width:46em">' + what + '</p>' +
+            (pre ? '<pre style="white-space:pre-wrap;word-break:break-word;font:12px/1.6 ' +
+              'ui-monospace,monospace;color:#fca5a5;background:#141417;border:1px solid #26262b;' +
+              'border-radius:8px;padding:12px 14px;max-width:70em;overflow:auto">' +
+              pre.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>' : '') +
+            '</div>';
+        }
+
+        window.addEventListener('error', function (e) {
+          paint('Something in the app failed to load.', (e && e.error && e.error.stack) || (e && e.message));
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          paint('Something in the app failed to load.', e && e.reason && (e.reason.stack || e.reason.message || e.reason));
+        });
+
+        /* Nothing threw, and nothing rendered either — a bundle that never
+           arrived produces no error event at all, which is the case that had us
+           guessing. Checked once, late enough that a slow machine is not
+           accused of it. */
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            var root = document.getElementById('root');
+            if (root && !root.firstChild) {
+              paint('The app’s own code did not load. Reinstalling usually fixes it.',
+                'window.strata: ' + (typeof window.strata) +
+                '\nwindow.strataShell: ' + (typeof window.strataShell) +
+                '\nlocation: ' + location.href);
+            }
+          }, 4000);
+        });
+      })();
+    </script>
+  </body>
+</html>

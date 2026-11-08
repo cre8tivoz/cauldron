@@ -1,0 +1,37 @@
+
+> stacki@1.0.12 test
+> npm run build:scripts && node dist/scripts/gate/runTests.js documentActors styleWrites selection roundtripCorpus astroSaveRace pageSender --jobs=2
+
+
+> stacki@1.0.12 build:scripts
+> tsc -p scripts/tsconfig.build.json
+
+[gate] Named suites only: skipping the clean, tsc, ESLint, Prettier, the policy scan, adapter-surface, the renderer bundle. `npm test` with no suite runs the full gate.
+
+[gate] build:contracts done in 1.6s
+
+[gate] build:electron done in 4.2s
+
+[gate] build:morph done in 0.7s
+
+[gate] build:morph (bundle) done in 0.1s
+
+[gate] build:preload done in 1.5s
+
+[gate] build:preload (bundle) done in 0.1s
+
+[gate] stage:runtime done in 0.0s
+
+[gate] builds done in 8.1s
+
+[gate] 6 test suites, 2 at a time
+[1/6] ok   electron/documents/documentActors (0.5s)
+[2/6] ok   electron/parse/roundtripCorpus (0.3s)
+[3/6] ok   electron/parse/selection (0.3s)
+[4/6] ok   electron/documents/astroSaveRace (1.2s)
+[5/6] ok   renderer/editor/pageSender (0.3s)
+[6/6] ok   renderer/style/styleWrites (10.8s)
+
+Test suites took 12.0s. Slowest: renderer/style/styleWrites 10.8s, electron/documents/astroSaveRace 1.2s, electron/documents/documentActors 0.5s, electron/parse/roundtripCorpus 0.3s, renderer/editor/pageSender 0.3s
+
+6/6 test suites passed in 20.2s.

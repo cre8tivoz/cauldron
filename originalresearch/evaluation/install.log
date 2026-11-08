@@ -1,0 +1,95 @@
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated eslint@9.39.5: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+
+> stacki@1.0.12 postinstall
+> npm run fix:install && npm run build:runtime && npm run hooks:install
+
+
+> stacki@1.0.12 fix:install
+> install-electron && npm run fix:pty && npm run fix:signing
+
+
+> stacki@1.0.12 fix:pty
+> npm run build:scripts && node dist/scripts/install/fixNodePtyPermissions.js
+
+
+> stacki@1.0.12 build:scripts
+> tsc -p scripts/tsconfig.build.json
+
+  • node-pty: made node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper executable
+  • node-pty: made node_modules/node-pty/prebuilds/darwin-x64/spawn-helper executable
+
+> stacki@1.0.12 fix:signing
+> npm run build:scripts && node dist/scripts/install/fixBuilderSigning.js
+
+
+> stacki@1.0.12 build:scripts
+> tsc -p scripts/tsconfig.build.json
+
+  • electron-builder signing: patched
+
+> stacki@1.0.12 build:runtime
+> npm run build:clean && npm run build:base && npm run build:electron
+
+
+> stacki@1.0.12 build:clean
+> node scripts/build/cleanBuild.mts
+
+
+> stacki@1.0.12 build:base
+> npm run build:scripts && npm run build:contracts
+
+
+> stacki@1.0.12 build:scripts
+> tsc -p scripts/tsconfig.build.json
+
+
+> stacki@1.0.12 build:contracts
+> tsc -p shared/tsconfig.json
+
+
+> stacki@1.0.12 build:electron
+> tsc -p electron/tsconfig.json && npm run build:renderer
+
+
+> stacki@1.0.12 build:renderer
+> npm run build:morph && npm run build:preload && npm run build:assets
+
+
+> stacki@1.0.12 build:morph
+> npm run typecheck:morph && npm run bundle:morph
+
+
+> stacki@1.0.12 typecheck:morph
+> tsc -p electron/tsconfig.morph.json --noEmit
+
+
+> stacki@1.0.12 bundle:morph
+> node dist/scripts/build/bundleClients.js morph
+
+
+> stacki@1.0.12 build:preload
+> npm run typecheck:preload && npm run bundle:preload
+
+
+> stacki@1.0.12 typecheck:preload
+> tsc -p electron/tsconfig.preload.json --noEmit
+
+
+> stacki@1.0.12 bundle:preload
+> node dist/scripts/build/bundleClients.js preload
+
+
+> stacki@1.0.12 build:assets
+> node dist/scripts/build/stageRuntime.js
+
+
+> stacki@1.0.12 hooks:install
+> node scripts/policy/installGitHooks.mts
+
+hooks:install: git hooks run from .githooks/.
+
+added 590 packages in 26s

@@ -1,0 +1,1174 @@
+// @ts-nocheck
+import { _ as translate } from '@sveltia/i18n';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  assertBranchNotMoved,
+  createBaseCommitMessage,
+  createCommitMessage,
+  createLastCommitError,
+  dedupeFileCommits,
+  fetchPerPathCommits,
+  hasSkipCIMarker,
+  signOffCommitMessage,
+} from './commits';
+import { MAX_CONCURRENT_REQUESTS } from './concurrency';
+
+const mockCmsConfig = vi.hoisted(() => ({
+  backend: {
+    commit_messages: {},
+    skip_ci: false,
+  },
+}));
+
+const mockUser = vi.hoisted(() => ({
+  login: 'test-user',
+  name: 'Test User',
+  email: '',
+}));
+
+// The signed-in user, whose account can be swapped for one of its own
+const mockAccount = vi.hoisted(() => ({ account: /** @type {any} */ (undefined) }));
+
+mockAccount.account = mockUser;
+
+// Whether the commit is being made by an Open Authoring contributor
+const mockState = vi.hoisted(() => ({ openAuthoring: false }));
+
+vi.mock('$lib/services/config', () => ({
+  cmsConfig: { current: mockCmsConfig },
+}));
+
+vi.mock('$lib/services/workflow/open-authoring', () => ({
+  openAuthoring: {
+    /**
+     * Get the current mock value.
+     * @returns {boolean} Value.
+     */
+    get current() {
+      return mockState.openAuthoring;
+    },
+  },
+}));
+
+vi.mock('$lib/services/contents/collection', () => ({
+  getCollectionLabel: vi.fn(() => 'Blog Post'),
+}));
+
+vi.mock('$lib/services/user/account.svelte', () => ({
+  user: mockAccount,
+}));
+
+describe('git/shared/commits', () => {
+  afterEach(() => {
+    mockState.openAuthoring = false;
+    vi.clearAllMocks();
+    // Reset mock data
+    mockCmsConfig.backend = {
+      commit_messages: {},
+      skip_ci: false,
+      automatic_deployments: undefined,
+    };
+    mockUser.login = 'test-user';
+    mockUser.name = 'Test User';
+    mockUser.email = '';
+  });
+
+  describe('createCommitMessage', () => {
+    const mockChanges = [
+      {
+        path: 'content/blog/my-post.md',
+        slug: 'my-post',
+      },
+    ];
+
+    const mockCollection = {
+      name: 'blog',
+      label: 'Blog',
+    };
+
+    it('should create default create message', () => {
+      const changes = [{ slug: 'my-post', path: 'content/posts/my-post.md' }];
+      const options = { commitType: 'create', collection: mockCollection };
+      const message = createCommitMessage(changes, options);
+
+      expect(message).toBe('Create Blog Post “my-post”');
+    });
+
+    it('should insert values containing replacement patterns as they are', () => {
+      // `String.prototype.replaceAll()` would read `$&` as the matched text, `$'` as what follows
+      // it, and `$$` as a single `$`
+      const message = createCommitMessage([{ slug: "$&-$'-$$", path: 'content/posts/$&.md' }], {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe("Create Blog Post “$&-$'-$$”");
+
+      mockCmsConfig.backend.commit_messages = { uploadMedia: 'Upload {{path}}' };
+
+      expect(createCommitMessage([{ path: 'static/$`.jpg' }], { commitType: 'uploadMedia' })).toBe(
+        'Upload static/$`.jpg',
+      );
+    });
+
+    it('should not expand a placeholder found in an inserted value', () => {
+      mockCmsConfig.backend.commit_messages = { create: 'Create {{slug}} by {{author-login}}' };
+
+      const message = createCommitMessage(
+        [{ slug: '{{author-email}}', path: 'content/posts/a.md' }],
+        { commitType: 'create', collection: mockCollection },
+      );
+
+      expect(message).toBe('Create {{author-email}} by test-user');
+    });
+
+    it('should leave a placeholder without a value as it is', () => {
+      mockCmsConfig.backend.commit_messages = { uploadMedia: 'Upload {{path}} for {{slug}}' };
+
+      expect(createCommitMessage([{ path: 'static/a.jpg' }], { commitType: 'uploadMedia' })).toBe(
+        'Upload static/a.jpg for {{slug}}',
+      );
+    });
+
+    it('should insert values containing replacement patterns in the openAuthoring template', () => {
+      mockState.openAuthoring = true;
+      mockUser.login = '$&';
+      mockCmsConfig.backend.commit_messages = {
+        openAuthoring: '{{message}} (by {{author-login}})',
+      };
+
+      const message = createCommitMessage([{ slug: '$`', path: 'content/posts/a.md' }], {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post “$`” (by $&)');
+    });
+
+    it('should create default update message', () => {
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Update Blog Post “my-post”');
+    });
+
+    it('should create default delete message', () => {
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'delete',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Delete Blog Post “my-post”');
+    });
+
+    it('should create default uploadMedia message', () => {
+      const mediaChanges = [
+        {
+          path: 'static/images/photo.jpg',
+        },
+      ];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'uploadMedia',
+      });
+
+      expect(message).toBe('Upload “static/images/photo.jpg”');
+    });
+
+    it('should create uploadMedia message with multiple files', () => {
+      const mediaChanges = [
+        { path: 'static/images/photo1.jpg' },
+        { path: 'static/images/photo2.jpg' },
+        { path: 'static/images/photo3.jpg' },
+      ];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'uploadMedia',
+      });
+
+      expect(message).toBe('Upload “static/images/photo1.jpg” +2');
+    });
+
+    it('should add [skip ci] prefix when automatic deployments are disabled', () => {
+      mockCmsConfig.backend.skip_ci = true;
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('[skip ci] Create Blog Post “my-post”');
+    });
+
+    it('should not add [skip ci] prefix for delete operations', () => {
+      mockCmsConfig.backend.skip_ci = true;
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'delete',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Delete Blog Post “my-post”');
+    });
+
+    it('should handle empty user data gracefully', () => {
+      mockUser.login = '';
+      mockUser.name = '';
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post “my-post”');
+    });
+
+    it('should leave the message alone for open authoring by default', () => {
+      mockState.openAuthoring = true;
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post “my-post”');
+    });
+
+    it('should wrap the message with the custom openAuthoring template', () => {
+      mockState.openAuthoring = true;
+      mockCmsConfig.backend.commit_messages = {
+        openAuthoring: '{{message}} (by {{author-login}})',
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post “my-post” (by test-user)');
+    });
+
+    it('should not wrap the message when open authoring is off', () => {
+      mockCmsConfig.backend.commit_messages = {
+        openAuthoring: '{{message}} (by {{author-login}})',
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post “my-post”');
+    });
+
+    it('should add [skip ci] prefix outside the openAuthoring wrapper', () => {
+      mockState.openAuthoring = true;
+      mockCmsConfig.backend.skip_ci = true;
+      mockCmsConfig.backend.commit_messages = {
+        openAuthoring: '{{message}} (by {{author-name}} <{{author-email}}>)',
+      };
+      mockUser.email = 'me@example.com';
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('[skip ci] Create Blog Post “my-post” (by Test User <me@example.com>)');
+    });
+
+    it('should not add [skip ci] prefix for deleteMedia operations', () => {
+      mockCmsConfig.backend.skip_ci = true;
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'deleteMedia',
+      });
+
+      expect(message).toBe('Delete “static/images/photo.jpg”');
+    });
+
+    it('should add [skip ci] prefix for deleteMedia when skipCI param is true', () => {
+      mockCmsConfig.backend.skip_ci = false;
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'deleteMedia',
+        skipCI: true,
+      });
+
+      expect(message).toBe('Delete “static/images/photo.jpg”');
+    });
+
+    it('should use custom commit messages when provided', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {
+          create: 'New {{collection}}: {{slug}}',
+          update: 'Modified {{collection}}: {{slug}}',
+          delete: 'Removed {{collection}}: {{slug}}',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('New Blog Post: my-post');
+    });
+
+    it('should use custom uploadMedia message when provided', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {
+          uploadMedia: 'Uploaded: {{path}}',
+        },
+        skip_ci: false,
+      };
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'uploadMedia',
+      });
+
+      expect(message).toBe('Uploaded: static/images/photo.jpg');
+    });
+
+    it('should use custom deleteMedia message when provided', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {
+          deleteMedia: 'Removed: {{path}}',
+        },
+        skip_ci: false,
+      };
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'deleteMedia',
+      });
+
+      expect(message).toBe('Removed: static/images/photo.jpg');
+    });
+
+    it('should handle automatic_deployments config option', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: undefined,
+        automatic_deployments: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('[skip ci] Update Blog Post “my-post”');
+    });
+
+    it('should use skipCI parameter to override config', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: false,
+        automatic_deployments: true,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+        skipCI: true,
+      });
+
+      expect(message).toBe('[skip ci] Update Blog Post “my-post”');
+    });
+
+    it('should handle changes with no slug', () => {
+      const changes = [{ path: 'content/posts/post.md', slug: '' }];
+
+      const message = createCommitMessage(changes, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Update Blog Post “”');
+    });
+
+    it('should use first slug from multiple changes', () => {
+      const changes = [
+        { path: 'content/posts/first.md', slug: 'first-post' },
+        { path: 'content/posts/second.md', slug: 'second-post' },
+      ];
+
+      const message = createCommitMessage(changes, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Update Blog Post “first-post” +1');
+    });
+
+    it('should handle deleteMedia with multiple files', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: true,
+      };
+
+      const mediaChanges = [
+        { path: 'static/images/photo1.jpg' },
+        { path: 'static/images/photo2.jpg' },
+        { path: 'static/images/photo3.jpg' },
+      ];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'deleteMedia',
+      });
+
+      expect(message).toBe('Delete “static/images/photo1.jpg” +2');
+    });
+
+    it('should wrap the message after the +N suffix for open authoring', () => {
+      mockState.openAuthoring = true;
+      mockCmsConfig.backend.commit_messages = {
+        openAuthoring: '{{message}} (by {{author-login}})',
+      };
+
+      const multiChanges = [
+        { path: 'content/posts/a.md', slug: 'a' },
+        { path: 'content/posts/b.md', slug: 'b' },
+        { path: 'content/posts/c.md', slug: 'c' },
+      ];
+
+      const message = createCommitMessage(multiChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post “a” +2 (by test-user)');
+    });
+
+    it('should not apply [skip ci] when skipCI is explicitly false', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: true,
+        automatic_deployments: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+        skipCI: false,
+      });
+
+      expect(message).toBe('Update Blog Post “my-post”');
+    });
+
+    it('should not apply [skip ci] when automatic_deployments is true and skip_ci is undefined', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: undefined,
+        automatic_deployments: true,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Update Blog Post “my-post”');
+    });
+
+    it('should not apply [skip ci] to deleteMedia even if skip_ci is true', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: true,
+      };
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'deleteMedia',
+      });
+
+      expect(message).toBe('Delete “static/images/photo.jpg”');
+    });
+
+    it('should not apply [skip ci] to delete even if skip_ci is true', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: true,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'delete',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Delete Blog Post “my-post”');
+    });
+
+    it('should not add skip ci when skipCI is explicitly false', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: true,
+        automatic_deployments: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+        skipCI: false,
+      });
+
+      expect(message).toBe('Update Blog Post “my-post”');
+    });
+
+    it('should not add skip ci when autoDeploy is true', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: false,
+        automatic_deployments: true,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Update Blog Post “my-post”');
+    });
+
+    it('should handle null collection gracefully', () => {
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: null,
+      });
+
+      expect(message).toBe('Create  “my-post”');
+    });
+
+    it('should handle undefined collection gracefully', () => {
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        // collection is undefined
+      });
+
+      expect(message).toBe('Update  “my-post”');
+    });
+
+    it('should handle unknown commit type gracefully', () => {
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'unknownType',
+      });
+
+      expect(message).toBe('');
+    });
+
+    it('should handle custom commit message for unknown type', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {
+          unknownType: 'Custom message',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'unknownType',
+      });
+
+      expect(message).toBe('Custom message');
+    });
+
+    it('should add [skip ci] when autoDeploy is false and skipCIEnabled is undefined', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {},
+        skip_ci: undefined,
+        automatic_deployments: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('[skip ci] Create Blog Post “my-post”');
+    });
+
+    it('should replace {{author-login}} placeholder in create message', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {
+          create: 'Create {{collection}} "{{slug}}" by {{author-login}}',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post "my-post" by test-user');
+    });
+
+    it('should replace {{author-name}} placeholder in update message', () => {
+      mockCmsConfig.backend = {
+        commit_messages: {
+          update: 'Update {{collection}} "{{slug}}" by {{author-name}}',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'update',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Update Blog Post "my-post" by Test User');
+    });
+
+    it('should replace {{author-email}} placeholder in delete message', () => {
+      mockUser.email = 'test@example.com';
+
+      mockCmsConfig.backend = {
+        commit_messages: {
+          delete: 'Delete {{collection}} "{{slug}}" ({{author-email}})',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'delete',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Delete Blog Post "my-post" (test@example.com)');
+    });
+
+    it('should replace multiple author placeholders in one message', () => {
+      mockUser.email = 'test@example.com';
+
+      mockCmsConfig.backend = {
+        commit_messages: {
+          create:
+            'Create {{collection}} "{{slug}}" by {{author-name}} ({{author-login}}) <{{author-email}}>',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe(
+        'Create Blog Post "my-post" by Test User (test-user) <test@example.com>',
+      );
+    });
+
+    it('should replace author placeholders in uploadMedia message', () => {
+      mockUser.email = 'test@example.com';
+
+      mockCmsConfig.backend = {
+        commit_messages: {
+          uploadMedia: 'Upload "{{path}}" by {{author-name}} ({{author-email}})',
+        },
+        skip_ci: false,
+      };
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'uploadMedia',
+      });
+
+      expect(message).toBe('Upload "static/images/photo.jpg" by Test User (test@example.com)');
+    });
+
+    it('should replace author placeholders in deleteMedia message', () => {
+      mockUser.email = 'test@example.com';
+
+      mockCmsConfig.backend = {
+        commit_messages: {
+          deleteMedia: 'Delete "{{path}}" by {{author-login}}',
+        },
+        skip_ci: false,
+      };
+
+      const mediaChanges = [{ path: 'static/images/photo.jpg' }];
+
+      const message = createCommitMessage(mediaChanges, {
+        commitType: 'deleteMedia',
+      });
+
+      expect(message).toBe('Delete "static/images/photo.jpg" by test-user');
+    });
+
+    it('should handle missing author properties gracefully', () => {
+      mockUser.login = '';
+      mockUser.name = '';
+      mockUser.email = '';
+
+      mockCmsConfig.backend = {
+        commit_messages: {
+          create:
+            'Create {{collection}} "{{slug}}" by {{author-name}} ({{author-login}}) <{{author-email}}>',
+        },
+        skip_ci: false,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('Create Blog Post "my-post" by  () <>');
+    });
+
+    it('should replace author placeholders with [skip ci] prefix', () => {
+      mockUser.email = 'test@example.com';
+
+      mockCmsConfig.backend = {
+        commit_messages: {
+          create: 'Create {{collection}} "{{slug}}" by {{author-email}}',
+        },
+        skip_ci: true,
+      };
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      expect(message).toBe('[skip ci] Create Blog Post "my-post" by test@example.com');
+    });
+
+    it('should use empty defaults when backend is undefined (line 40 ?? {} branch)', () => {
+      // Setting backend to undefined causes `get(cmsConfig)?.backend ?? {}` to fire
+      mockCmsConfig.backend = undefined;
+
+      const message = createCommitMessage(mockChanges, {
+        commitType: 'create',
+        collection: mockCollection,
+      });
+
+      // With no backend config, uses default commit message with no skip_ci
+      expect(typeof message).toBe('string');
+      expect(message).not.toBe('');
+    });
+  });
+
+  describe('createCommitMessage with a user message', () => {
+    const changes = [{ slug: 'my-post', path: 'content/posts/my-post.md' }];
+    const collection = { name: 'blog', label: 'Blog' };
+
+    it('should replace the message with the user’s in the `true` mode', () => {
+      mockCmsConfig.backend.prompt_commit_messages = true;
+
+      expect(
+        createCommitMessage([...changes, { path: 'static/a.jpg' }], {
+          commitType: 'update',
+          collection,
+          userMessage: '  Fix the typo in the title  ',
+        }),
+      ).toBe('Fix the typo in the title');
+    });
+
+    it('should add the user’s text before the message in the `prefix` mode', () => {
+      mockCmsConfig.backend.prompt_commit_messages = 'prefix';
+
+      expect(
+        createCommitMessage([...changes, { path: 'static/a.jpg' }], {
+          commitType: 'update',
+          collection,
+          userMessage: 'JIRA-123:',
+        }),
+      ).toBe('JIRA-123: Update Blog Post “my-post” +1');
+    });
+
+    it('should add the user’s text after the message in the `suffix` mode', () => {
+      mockCmsConfig.backend.prompt_commit_messages = 'suffix';
+
+      expect(
+        createCommitMessage(changes, { commitType: 'create', collection, userMessage: '(#42)' }),
+      ).toBe('Create Blog Post “my-post” (#42)');
+    });
+
+    it('should use the message made from the template when the user’s text is empty', () => {
+      mockCmsConfig.backend.prompt_commit_messages = true;
+
+      expect(
+        createCommitMessage(changes, { commitType: 'create', collection, userMessage: ' ' }),
+      ).toBe('Create Blog Post “my-post”');
+    });
+
+    it('should ignore the user’s text when prompting is not configured', () => {
+      expect(
+        createCommitMessage(changes, { commitType: 'create', collection, userMessage: 'Note' }),
+      ).toBe('Create Blog Post “my-post”');
+
+      mockCmsConfig.backend = undefined;
+
+      expect(
+        createCommitMessage(changes, { commitType: 'create', collection, userMessage: 'Note' }),
+      ).toBe('Create Blog Post “my-post”');
+    });
+
+    it('should wrap the user’s message for Open Authoring and add the [skip ci] prefix', () => {
+      mockState.openAuthoring = true;
+      mockCmsConfig.backend = {
+        commit_messages: { openAuthoring: '{{message}} (by {{author-login}})' },
+        skip_ci: true,
+        prompt_commit_messages: 'prefix',
+      };
+
+      expect(
+        createCommitMessage(changes, { commitType: 'update', collection, userMessage: 'ABC-1' }),
+      ).toBe('[skip ci] ABC-1 Update Blog Post “my-post” (by test-user)');
+    });
+  });
+
+  describe('createBaseCommitMessage', () => {
+    it('should create the message from the template without the prefixes or wrapping', () => {
+      mockState.openAuthoring = true;
+      mockCmsConfig.backend = {
+        commit_messages: { openAuthoring: 'From {{author-login}}: {{message}}' },
+        skip_ci: true,
+        prompt_commit_messages: 'prefix',
+      };
+
+      expect(
+        createBaseCommitMessage(
+          [
+            { slug: 'my-post', path: 'content/posts/my-post.md' },
+            { path: 'static/a.jpg' },
+            { path: 'static/b.jpg' },
+          ],
+          { commitType: 'update', collection: { name: 'blog' }, userMessage: 'Ignored' },
+        ),
+      ).toBe('Update Blog Post “my-post” +2');
+    });
+
+    it('should default to the update type', () => {
+      expect(createBaseCommitMessage([{ slug: 'a', path: 'a.md' }], {})).toBe('Update  “a”');
+    });
+  });
+
+  describe('hasSkipCIMarker', () => {
+    it('should match the marker this CMS writes', () => {
+      expect(hasSkipCIMarker('[skip ci] Update Post “hello”')).toBe(true);
+    });
+
+    it('should match the other markers the Git services honour', () => {
+      [
+        '[ci skip] Update',
+        '[no ci] Update',
+        '[skip actions] Update',
+        '[actions skip] Update',
+        '[skip-ci] Update',
+        '[cf-pages-skip] Update',
+      ].forEach((message) => {
+        expect(hasSkipCIMarker(message)).toBe(true);
+      });
+    });
+
+    it('should ignore the case, as the services do', () => {
+      expect(hasSkipCIMarker('[Skip CI] Update')).toBe(true);
+    });
+
+    it('should match a marker anywhere in the message', () => {
+      expect(hasSkipCIMarker('Merge pull request #1\n\nUpdate posts [ci skip]')).toBe(true);
+    });
+
+    it('should not match an ordinary message', () => {
+      ['Update Post “hello”', 'Fix the skip ci docs', 'Mention [ci] in the guide'].forEach(
+        (message) => {
+          expect(hasSkipCIMarker(message)).toBe(false);
+        },
+      );
+    });
+  });
+
+  describe('signOffCommitMessage', () => {
+    /**
+     * Enable the option for a user with an email.
+     */
+    const enableSignOff = () => {
+      mockCmsConfig.backend = { ...mockCmsConfig.backend, signoff_commits: true };
+      mockUser.email = 'test@example.com';
+    };
+
+    it('should leave the message as it is when the option is not enabled', () => {
+      mockUser.email = 'test@example.com';
+
+      expect(signOffCommitMessage('Update Post “hello”')).toBe('Update Post “hello”');
+
+      mockCmsConfig.backend = { ...mockCmsConfig.backend, signoff_commits: false };
+
+      expect(signOffCommitMessage('Update Post “hello”')).toBe('Update Post “hello”');
+    });
+
+    it('should leave the message as it is when there is no configuration', () => {
+      const { backend } = mockCmsConfig;
+
+      mockCmsConfig.backend = undefined;
+
+      expect(signOffCommitMessage('Update Post “hello”')).toBe('Update Post “hello”');
+
+      mockCmsConfig.backend = backend;
+    });
+
+    it('should add the trailer after a blank line', () => {
+      enableSignOff();
+
+      expect(signOffCommitMessage('[skip ci] Update Post “hello” +2')).toBe(
+        '[skip ci] Update Post “hello” +2\n\nSigned-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should drop trailing white space before adding the trailer', () => {
+      enableSignOff();
+
+      expect(signOffCommitMessage('Update Post “hello”\n\n')).toBe(
+        'Update Post “hello”\n\nSigned-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should add the trailer after a blank line to a one-paragraph message like a trailer', () => {
+      enableSignOff();
+
+      expect(signOffCommitMessage('Fix: typo')).toBe(
+        'Fix: typo\n\nSigned-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should add the trailer to the trailer block the message ends with', () => {
+      enableSignOff();
+
+      expect(
+        signOffCommitMessage('Update Post “hello”\r\n\r\nCo-authored-by: Jane <jane@example.com>'),
+      ).toBe(
+        'Update Post “hello”\r\n\r\nCo-authored-by: Jane <jane@example.com>\n' +
+          'Signed-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should add the trailer after a blank line when the last paragraph is not trailers', () => {
+      enableSignOff();
+
+      expect(signOffCommitMessage('Update Post “hello”\n\nSee: the guide\nfor details')).toBe(
+        'Update Post “hello”\n\nSee: the guide\nfor details\n\n' +
+          'Signed-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should not duplicate a trailer the message already has', () => {
+      enableSignOff();
+
+      const message = 'Update Post “hello”\n\nsigned-off-by: Test User <TEST@example.com>  ';
+
+      expect(signOffCommitMessage(message)).toBe(message);
+    });
+
+    it('should fill a template with the same trailer only once', () => {
+      enableSignOff();
+      mockCmsConfig.backend.commit_messages = {
+        update: 'Update {{slug}}\n\nSigned-off-by: {{author-name}} <{{author-email}}>',
+      };
+
+      const message = createCommitMessage([{ path: 'a.md', slug: 'hello' }], {
+        commitType: 'update',
+      });
+
+      expect(signOffCommitMessage(message)).toBe(
+        'Update hello\n\nSigned-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should not add a trailer when the message has a sign-off with the same email', () => {
+      enableSignOff();
+
+      const message = 'Update hello\n\nSigned-off-by: test-user <test@example.com>';
+
+      expect(signOffCommitMessage(message)).toBe(message);
+    });
+
+    it('should add the trailer to a message with a different sign-off', () => {
+      enableSignOff();
+
+      expect(signOffCommitMessage('Update\n\nSigned-off-by: Bot <bot@example.com>')).toBe(
+        'Update\n\nSigned-off-by: Bot <bot@example.com>\n' +
+          'Signed-off-by: Test User <test@example.com>',
+      );
+    });
+
+    it('should fall back to the login name, then to the email', () => {
+      enableSignOff();
+      mockUser.name = null;
+
+      expect(signOffCommitMessage('Update')).toBe(
+        'Update\n\nSigned-off-by: test-user <test@example.com>',
+      );
+
+      mockUser.login = '';
+
+      expect(signOffCommitMessage('Update')).toBe(
+        'Update\n\nSigned-off-by: test@example.com <test@example.com>',
+      );
+    });
+
+    it('should strip line breaks and angle brackets from the profile values', () => {
+      enableSignOff();
+      mockUser.name = 'Test\nUser <admin>';
+      mockUser.email = ' <test@example.com>\n';
+
+      expect(signOffCommitMessage('Update')).toBe(
+        'Update\n\nSigned-off-by: Test User admin <test@example.com>',
+      );
+    });
+
+    it.each([[''], [null], [undefined], [' <> ']])(
+      'should leave the trailer out with a warning when the email is %j',
+      (email) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        enableSignOff();
+        // Each case signs in with an account of its own, as the warning is shown once per account
+        mockAccount.account = { ...mockUser, email };
+
+        try {
+          expect(signOffCommitMessage('Update')).toBe('Update');
+          expect(warn).toHaveBeenCalledOnce();
+          expect(warn.mock.calls[0][0]).toContain('signoff_commits');
+
+          // Another commit by the same user isn’t warned about again
+          expect(signOffCommitMessage('Update again')).toBe('Update again');
+          expect(warn).toHaveBeenCalledOnce();
+        } finally {
+          mockAccount.account = mockUser;
+          warn.mockRestore();
+        }
+      },
+    );
+  });
+});
+
+describe('createLastCommitError()', () => {
+  it.each([
+    ['repository_not_found', { repo: 'repo' }],
+    ['branch_not_found', { repo: 'repo', branch: 'main' }],
+  ])('creates an error with the localized %s message', (key, values) => {
+    const error = createLastCommitError(key, values);
+
+    expect(error.message).toBe('Failed to retrieve the last commit hash.');
+    expect(error.cause.message).toBe(translate(key, { values }));
+  });
+});
+
+describe('assertBranchNotMoved()', () => {
+  it('throws if the head has moved', async () => {
+    await expect(
+      assertBranchNotMoved('abc', vi.fn().mockResolvedValue({ hash: 'def' })),
+    ).rejects.toThrow('The branch has moved since the site data was loaded.');
+  });
+
+  it('returns if the head is where it was expected', async () => {
+    await expect(
+      assertBranchNotMoved('abc', vi.fn().mockResolvedValue({ hash: 'abc' })),
+    ).resolves.toBeUndefined();
+  });
+
+  it('returns if the head can’t be looked up', async () => {
+    await expect(
+      assertBranchNotMoved('abc', vi.fn().mockRejectedValue(new Error('Network error'))),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('dedupeFileCommits()', () => {
+  it('keeps the first occurrence of each commit and sorts them newest first', () => {
+    const older = { sha: 'a', authorName: 'A', date: new Date('2026-01-01') };
+    const newer = { sha: 'b', authorName: 'B', date: new Date('2026-02-01') };
+    const duplicate = { ...older, authorName: 'Duplicate' };
+
+    expect(dedupeFileCommits([older, newer, duplicate])).toEqual([newer, older]);
+  });
+});
+
+describe('fetchPerPathCommits()', () => {
+  /**
+   * Convert a raw commit to a file commit.
+   * @param {{ id: string, date: string }} commit Raw commit.
+   * @returns {import('$lib/types/private').FileCommit} File commit.
+   */
+  const parseCommit = (commit) => ({
+    sha: commit.id,
+    authorName: 'Alice',
+    date: new Date(commit.date),
+  });
+
+  it('merges the histories of all paths, keeping the first occurrence of each commit', async () => {
+    /** @type {Record<string, { id: string, date: string, from: string }[]>} */
+    const histories = {
+      'a.md': [
+        { id: 'shared', date: '2024-01-02T00:00:00Z', from: 'a.md' },
+        { id: 'a1', date: '2024-01-01T00:00:00Z', from: 'a.md' },
+      ],
+      'b.md': [
+        { id: 'b1', date: '2024-01-03T00:00:00Z', from: 'b.md' },
+        { id: 'shared', date: '2024-01-02T00:00:00Z', from: 'b.md' },
+      ],
+    };
+
+    // Resolve the first path last to make sure results are still ordered by path
+    const fetchHistory = vi.fn(
+      (path) =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(histories[path]), path === 'a.md' ? 10 : 0);
+        }),
+    );
+
+    const result = await fetchPerPathCommits(['a.md', 'b.md'], fetchHistory, (commit) => ({
+      ...parseCommit(commit),
+      authorLogin: commit.from,
+    }));
+
+    expect(fetchHistory).toHaveBeenCalledTimes(2);
+    expect(result.map(({ sha }) => sha)).toEqual(['b1', 'shared', 'a1']);
+    expect(result.find(({ sha }) => sha === 'shared')?.authorLogin).toBe('a.md');
+  });
+
+  it('returns an empty list when there are no paths', async () => {
+    const fetchHistory = vi.fn();
+
+    expect(await fetchPerPathCommits([], fetchHistory, parseCommit)).toEqual([]);
+    expect(fetchHistory).not.toHaveBeenCalled();
+  });
+
+  it('limits the number of requests in flight', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const paths = Array.from({ length: MAX_CONCURRENT_REQUESTS * 2 }, (_, i) => `${i}.md`);
+
+    const fetchHistory = vi.fn(async (path) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      inFlight -= 1;
+
+      return [{ id: path, date: '2024-01-01T00:00:00Z' }];
+    });
+
+    const result = await fetchPerPathCommits(paths, fetchHistory, parseCommit);
+
+    expect(fetchHistory).toHaveBeenCalledTimes(paths.length);
+    expect(maxInFlight).toBe(MAX_CONCURRENT_REQUESTS);
+    expect(result).toHaveLength(paths.length);
+  });
+});

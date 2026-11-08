@@ -1,0 +1,1179 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createCollectors } from '$lib/test/config-parser';
+
+// Mock @sveltia/i18n
+/** @type {Record<string, string>} */
+const mockI18nStrings = {
+  'config.error.missing_backend': 'Missing backend configuration',
+  'config.error.missing_backend_name': 'Backend name is required',
+  'config.error.unsupported_known_backend': 'Unsupported backend: {name}',
+  'config.error.unsupported_deprecated_backend': 'Deprecated backend: {name}',
+  'config.error.unsupported_custom_backend': 'Unsupported backend: {name}',
+  'config.error.unsupported_backend_suggestion': 'Please check the supported backends.',
+  'config.error.missing_repository': 'Missing repository',
+  'config.error.invalid_repository': 'Invalid repository format',
+  'config.error.missing_api_root': 'Missing API root',
+  'config.error.invalid_root_dir': 'Invalid root directory',
+  'config.error.invalid_root_dir_branch': 'Root directory not usable in branch names',
+  'config.error.oauth_implicit_flow': 'OAuth implicit flow is not supported',
+  'config.error.github_pkce_unsupported': 'GitHub does not support PKCE authentication',
+  'config.error.oauth_no_app_id': 'OAuth app ID is required',
+  'config.warning.oauth_no_app_id':
+    'OAuth application ID is not defined. Users are required to provide an access token to sign in.',
+  'config.error.open_authoring_no_workflow':
+    'The `open_authoring` option requires the `editorial_workflow` publish mode.',
+  'config.error.auth_scope_no_repo':
+    'The `auth_scope` option must include `repo` or `public_repo`.',
+};
+
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ strings: mockI18nStrings, locale: 'en-US' }),
+);
+
+const mockIsObject = vi.fn();
+
+vi.mock('@sveltia/utils/object', () => ({
+  isObject: mockIsObject,
+}));
+
+const mockWarnDeprecation = vi.fn();
+
+vi.mock('$lib/services/config/deprecations', () => ({
+  warnDeprecation: mockWarnDeprecation,
+}));
+
+vi.mock('$lib/services/backends', () => ({
+  validBackendNames: ['github', 'gitlab', 'gitea', 'forgejo', 'local', 'test-repo'],
+  unsupportedBackends: {
+    azure: { label: 'Azure DevOps' },
+    bitbucket: { label: 'Bitbucket' },
+    'git-gateway': { label: 'Git Gateway', deprecated: true },
+  },
+}));
+
+vi.mock('$lib/services/backends/git/services', () => ({
+  gitBackendServices: {
+    github: { name: 'github' },
+    gitlab: { name: 'gitlab' },
+    gitea: { name: 'gitea' },
+    forgejo: { name: 'forgejo' },
+  },
+}));
+
+const mockCheckUnsupportedOptions = vi.fn();
+const mockAddMessage = vi.fn();
+
+vi.mock('$lib/services/config/parser/utils/validator', () => ({
+  addMessage: mockAddMessage,
+  checkUnsupportedOptions: mockCheckUnsupportedOptions,
+}));
+
+describe('parseBackendConfig', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockIsObject.mockImplementation(
+      /**
+       * Is object check.
+       * @param {any} val Value.
+       * @returns {boolean} Result.
+       */
+      (val) => val !== null && typeof val === 'object',
+    );
+  });
+
+  describe('missing or invalid backend', () => {
+    it('should error when backend is missing', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = {};
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Missing backend configuration');
+    });
+
+    it('should error when backend is null', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: null };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Missing backend configuration');
+    });
+
+    it('should error when backend is not an object', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: 'github' };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Missing backend configuration');
+    });
+
+    it('should error when backend name is missing', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: {} };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Backend name is required');
+    });
+
+    it('should error when backend name is unsupported', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'bitbucket' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toContain('Unsupported backend: Bitbucket');
+      expect(error).toContain('Please check the supported backends');
+    });
+
+    it('should use "custom" message branch for completely unknown backend name', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'my-custom-backend' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      // 'my-custom-backend' is not in unsupportedBackends, so it uses the
+      // 'unsupported_custom_backend' message key (custom backend branch at line 51)
+      expect(error).toContain('Unsupported backend');
+      expect(error).toContain('Please check the supported backends');
+    });
+
+    it('should use "deprecated" message branch for deprecated backend', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'git-gateway' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      // 'git-gateway' is in unsupportedBackends with deprecated: true, so it uses the
+      // 'unsupported_deprecated_backend' message key
+      expect(error).toContain('Deprecated backend: Git Gateway');
+      expect(error).toContain('Please check the supported backends');
+    });
+
+    it('should use "known" message branch for non-deprecated unsupported backend', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'azure' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      // 'azure' is in unsupportedBackends without deprecated flag, so it uses the
+      // 'unsupported_known_backend' message key
+      expect(error).toContain('Unsupported backend: Azure DevOps');
+      expect(error).toContain('Please check the supported backends');
+    });
+  });
+
+  describe('local backend', () => {
+    it('should accept local backend without repository', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'local' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      expect(mockCheckUnsupportedOptions).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('git backend - repository validation', () => {
+    it('should accept valid GitHub backend with repository', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should accept valid GitLab backend with repository', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitlab',
+          repo: 'owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should warn when Gitea backend has no app_id and auth_type is not set', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitea',
+          repo: 'owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // Token auth is allowed by default; a warning is issued and the Sign In button is disabled
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(1);
+
+      const [warning] = [...collectors.warnings];
+
+      expect(warning).toContain('OAuth application ID is not defined');
+    });
+
+    it('should error when repository is undefined for GitHub', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // A missing repository is reported once, not also as a malformed one
+      expect([...collectors.errors]).toEqual(['Missing repository']);
+    });
+
+    it('should error when repository is not a string', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 123,
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Invalid repository format');
+    });
+
+    it('should error when repository format is invalid (missing slash)', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner-without-slash',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Invalid repository format');
+    });
+
+    it('should accept repository format with multiple slashes (GitLab nested groups)', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitlab',
+          repo: 'owner/group/subgroup/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // The regex ^[^/:]+(?:\/[^/:]+)+$ allows multiple slash-separated segments
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should reject full repository URL (contains colon)', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'https://github.com/owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Invalid repository format');
+    });
+
+    it('should reject repository starting with slash', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: '/owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Invalid repository format');
+    });
+
+    it('should reject repository ending with slash', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo/',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('Invalid repository format');
+    });
+  });
+
+  describe('Forgejo backend', () => {
+    it('should accept a Forgejo backend with the API root', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'forgejo',
+          repo: 'owner/repo',
+          app_id: 'app',
+          api_root: 'https://codeberg.org/api/v1',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should error when the Forgejo backend has no API root', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'forgejo', repo: 'owner/repo', app_id: 'app' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect([...collectors.errors]).toEqual(['Missing API root']);
+    });
+
+    it('should not require the API root with the Gitea backend', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'gitea', repo: 'owner/repo', app_id: 'app' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should warn when the Forgejo backend has no app_id', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: { name: 'forgejo', repo: 'owner/repo', api_root: 'https://codeberg.org/api/v1' },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      expect([...collectors.warnings][0]).toContain('OAuth application ID is not defined');
+    });
+
+    it('should link to the Gitea/Forgejo documentation', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      const original = mockI18nStrings['config.error.oauth_implicit_flow'];
+
+      mockI18nStrings['config.error.oauth_implicit_flow'] = 'Not supported. <a>Learn more</a>';
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'forgejo',
+          repo: 'owner/repo',
+          app_id: 'app',
+          api_root: 'https://codeberg.org/api/v1',
+          auth_type: 'implicit',
+        },
+      };
+
+      try {
+        parseBackendConfig(config, collectors);
+      } finally {
+        mockI18nStrings['config.error.oauth_implicit_flow'] = original;
+      }
+
+      expect([...collectors.errors][0]).toContain(
+        'href="https://sveltiacms.app/en/docs/backends/gitea-forgejo#authentication"',
+      );
+    });
+  });
+
+  describe('URL options', () => {
+    it('should accept absolute URLs', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          api_root: 'https://github.example.com/api/v3',
+          graphql_api_root: 'https://github.example.com/api/graphql',
+          base_url: 'https://auth.example.com',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockAddMessage).not.toHaveBeenCalled();
+    });
+
+    it('should report URLs without a scheme and empty ones', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          api_root: 'github.example.com/api/v3',
+          graphql_api_root: 'localhost:8080/api/graphql',
+          base_url: ' ',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockAddMessage.mock.calls.map(([{ strKey, values }]) => [strKey, values])).toEqual([
+        ['invalid_url_option', { option: 'api_root', url: 'github.example.com/api/v3' }],
+        ['invalid_url_option', { option: 'graphql_api_root', url: 'localhost:8080/api/graphql' }],
+        ['invalid_url_option', { option: 'base_url', url: ' ' }],
+      ]);
+    });
+
+    it('should leave values of another type to the JSON schema', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'gitlab', repo: 'owner/repo', api_root: 42 } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockAddMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('root directory', () => {
+    it.each(['apps/site', '/apps/site/', './apps/site', '.', ''])(
+      'should accept `%s`',
+      async (rootDir) => {
+        const { parseBackendConfig } = await import('./backend.js');
+        const collectors = createCollectors();
+
+        parseBackendConfig(
+          { backend: { name: 'github', repo: 'owner/repo', root_dir: rootDir } },
+          collectors,
+        );
+
+        expect(collectors.errors.size).toBe(0);
+      },
+    );
+
+    it.each(['..', '../site', 'apps/../../site'])('should reject `%s`', async (rootDir) => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      parseBackendConfig(
+        { backend: { name: 'github', repo: 'owner/repo', root_dir: rootDir } },
+        collectors,
+      );
+
+      expect([...collectors.errors]).toEqual(['Invalid root directory']);
+    });
+
+    it.each([
+      '.site',
+      'apps/.site',
+      'site.lock',
+      'My Site',
+      'a:b',
+      'a~1',
+      'a^b',
+      'a?',
+      'a*',
+      'a[1]',
+      'a\\b',
+      'a@{b',
+      'a\tb',
+    ])('should reject `%s`, which can’t be in a workflow branch name', async (rootDir) => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      parseBackendConfig(
+        {
+          backend: { name: 'github', repo: 'owner/repo', root_dir: rootDir },
+          publish_mode: 'editorial_workflow',
+        },
+        collectors,
+      );
+
+      expect([...collectors.errors]).toEqual(['Root directory not usable in branch names']);
+    });
+
+    it('should check the branch name when a collection uses Editorial Workflow', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      parseBackendConfig(
+        {
+          backend: { name: 'github', repo: 'owner/repo', root_dir: 'My Site' },
+          collections: [
+            { name: 'posts', folder: 'posts', fields: [], publish_mode: 'editorial_workflow' },
+          ],
+        },
+        collectors,
+      );
+
+      expect([...collectors.errors]).toEqual(['Root directory not usable in branch names']);
+    });
+
+    it.each(['apps/my-site', 'apps/site.v2', 'apps/a@b', '/apps/site/', './apps/site'])(
+      'should accept `%s` with Editorial Workflow',
+      async (rootDir) => {
+        const { parseBackendConfig } = await import('./backend.js');
+        const collectors = createCollectors();
+
+        parseBackendConfig(
+          {
+            backend: { name: 'github', repo: 'owner/repo', root_dir: rootDir },
+            publish_mode: 'editorial_workflow',
+          },
+          collectors,
+        );
+
+        expect(collectors.errors.size).toBe(0);
+      },
+    );
+
+    it('should accept a directory name with a space without Editorial Workflow', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      parseBackendConfig(
+        { backend: { name: 'github', repo: 'owner/repo', root_dir: 'My Site' } },
+        collectors,
+      );
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should check the option of the test backend as well', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      parseBackendConfig({ backend: { name: 'test-repo', root_dir: '../site' } }, collectors);
+
+      expect([...collectors.errors]).toEqual(['Invalid root directory']);
+    });
+
+    it('should leave a value that isn’t a string to the schema', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      parseBackendConfig(
+        // @ts-ignore Invalid value
+        { backend: { name: 'github', repo: 'owner/repo', root_dir: 42 } },
+        collectors,
+      );
+
+      expect(collectors.errors.size).toBe(0);
+    });
+  });
+
+  describe('OAuth authentication', () => {
+    it('should error when auth_type is implicit', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          auth_type: 'implicit',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('OAuth implicit flow is not supported');
+    });
+
+    it('should link to the Gitea/Forgejo documentation page for the Gitea backend', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      const original = mockI18nStrings['config.error.oauth_implicit_flow'];
+
+      mockI18nStrings['config.error.oauth_implicit_flow'] = 'Not supported. <a>Learn more</a>';
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitea',
+          repo: 'owner/repo',
+          auth_type: 'implicit',
+        },
+      };
+
+      try {
+        parseBackendConfig(config, collectors);
+      } finally {
+        mockI18nStrings['config.error.oauth_implicit_flow'] = original;
+      }
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toContain(
+        'href="https://sveltiacms.app/en/docs/backends/gitea-forgejo#authentication"',
+      );
+    });
+
+    it('should warn when Gitea backend has no app_id and auth_type is not set', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitea',
+          repo: 'owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // Token auth is allowed by default; a warning is issued and the Sign In button is disabled
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(1);
+
+      const [warning] = [...collectors.warnings];
+
+      expect(warning).toContain('OAuth application ID is not defined');
+    });
+
+    it('should warn when Gitea backend has no app_id with PKCE auth_type (token auth allowed)', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitea',
+          repo: 'owner/repo',
+          auth_type: 'pkce',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // Token auth is still allowed; warning issued, not an error
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(1);
+
+      const [warning] = [...collectors.warnings];
+
+      expect(warning).toContain('OAuth application ID is not defined');
+    });
+
+    it('should error when Gitea backend has no app_id and auth_methods excludes token', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitea',
+          repo: 'owner/repo',
+          auth_methods: ['oauth'],
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+      expect(collectors.warnings.size).toBe(0);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('OAuth app ID is required');
+    });
+
+    it('should error when auth_methods is an empty array', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          auth_methods: [],
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+      expect(collectors.warnings.size).toBe(0);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toContain('auth_methods');
+    });
+
+    it('should accept Gitea backend with app_id', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitea',
+          repo: 'owner/repo',
+          app_id: 'my-app-id',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+    });
+
+    it('should require app_id for PKCE auth_type', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'gitlab',
+          repo: 'owner/repo',
+          auth_type: 'pkce',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('OAuth app ID is required');
+    });
+
+    it('should error when GitHub uses PKCE authentication', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          auth_type: 'pkce',
+          app_id: 'my-app-id',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('GitHub does not support PKCE authentication');
+    });
+
+    it('should error when GitHub uses PKCE without app_id', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          auth_type: 'pkce',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // Only the GitHub PKCE error; oauth_no_app_id is skipped because name === 'github'
+      expect(collectors.errors.size).toBe(1);
+
+      const [error] = [...collectors.errors];
+
+      expect(error).toBe('GitHub does not support PKCE authentication');
+    });
+  });
+
+  describe('deprecated options', () => {
+    it('should warn when automatic_deployments is present', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          automatic_deployments: true,
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockWarnDeprecation).toHaveBeenCalledWith('automatic_deployments');
+    });
+
+    it('should not warn when automatic_deployments is undefined', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockWarnDeprecation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('unsupported options', () => {
+    it('should call checkUnsupportedOptions for git backends', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockCheckUnsupportedOptions).toHaveBeenCalled();
+
+      const callArgs = mockCheckUnsupportedOptions.mock.calls[0][0];
+
+      expect(callArgs.config).toBe(config.backend);
+      expect(callArgs.context).toEqual({ cmsConfig: config });
+      expect(callArgs.collectors).toBe(collectors);
+    });
+
+    it('should not call checkUnsupportedOptions for local backend', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'local',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(mockCheckUnsupportedOptions).not.toHaveBeenCalled();
+    });
+  });
+  describe('open authoring', () => {
+    it('should accept the option with the editorial workflow publish mode', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          open_authoring: true,
+          auth_scope: 'public_repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should warn when the authentication scope is left at the broad default', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: { name: 'github', repo: 'owner/repo', open_authoring: true },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      // A console warning is hardcoded English with a plain URL, not a localized string
+      expect([...collectors.warnings]).toEqual([
+        expect.stringContaining('`auth_scope: public_repo` if your repository is public'),
+      ]);
+    });
+
+    it('should stay quiet when the broader scope is chosen deliberately', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: { name: 'github', repo: 'owner/repo', open_authoring: true, auth_scope: 'repo' },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should accept a list of scopes that adds `workflow`', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          open_authoring: true,
+          auth_scope: ['public_repo', 'workflow'],
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should error when a list of scopes has no repository scope', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          open_authoring: true,
+          auth_scope: ['workflow'],
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect([...collectors.errors]).toEqual([
+        'The `auth_scope` option must include `repo` or `public_repo`.',
+      ]);
+    });
+
+    it('should error without the editorial workflow publish mode', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        backend: {
+          name: 'github',
+          repo: 'owner/repo',
+          open_authoring: true,
+          auth_scope: 'public_repo',
+        },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect([...collectors.errors]).toEqual([
+        'The `open_authoring` option requires the `editorial_workflow` publish mode.',
+      ]);
+    });
+
+    it('should accept the option with the GitLab backend', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: { name: 'gitlab', repo: 'group/project', open_authoring: true },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      // GitLab has no `auth_scope` option, so the scope warning doesn’t apply to it
+      expect(collectors.warnings.size).toBe(0);
+    });
+
+    it('should accept the option with the Gitea backend without asking for a scope', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+
+      /** @type {any} */
+      const config = {
+        publish_mode: 'editorial_workflow',
+        backend: { name: 'gitea', repo: 'owner/repo', app_id: 'app', open_authoring: true },
+      };
+
+      parseBackendConfig(config, collectors);
+
+      // The `auth_scope` warning is about GitHub’s broad default scope; Gitea/Forgejo scopes are
+      // already limited to what the CMS uses
+      expect([...collectors.warnings]).toEqual([]);
+      expect([...collectors.errors]).toEqual([]);
+    });
+
+    it('should stay quiet when the option is off', async () => {
+      const { parseBackendConfig } = await import('./backend.js');
+      const collectors = createCollectors();
+      /** @type {any} */
+      const config = { backend: { name: 'github', repo: 'owner/repo' } };
+
+      parseBackendConfig(config, collectors);
+
+      expect(collectors.errors.size).toBe(0);
+      expect(collectors.warnings.size).toBe(0);
+    });
+  });
+});

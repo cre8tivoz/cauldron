@@ -1,0 +1,46 @@
+Strata — Endnutzer-Lizenzvereinbarung
+Copyright (c) 2026 Julian Rosebrock. Alle Rechte vorbehalten.
+
+Strata ist kostenlose, aber KEINE Open-Source-Software.
+
+1. Nutzungsrecht
+   Dir wird ein nicht-exklusives, widerrufliches, weltweites Recht eingeräumt,
+   die Software kostenlos zu installieren und zu nutzen — privat wie
+   kommerziell, ohne Begrenzung der Anzahl der damit erstellten Projekte.
+
+2. Deine Inhalte gehören dir
+   Alle Dateien, die Strata in deinen Projektordner schreibt (Astro-Komponenten,
+   Seiten, Inhalte, CSS), gehören dir und unterliegen dieser Lizenz nicht. Du
+   darfst sie uneingeschränkt nutzen, verändern und veröffentlichen.
+
+3. Einschränkungen
+   Ohne vorherige schriftliche Zustimmung ist es nicht gestattet, die Software
+   oder Teile davon
+   a) weiterzuverbreiten, zu verkaufen, zu vermieten oder zu unterlizenzieren,
+   b) zurückzuentwickeln, zu dekompilieren oder zu disassemblieren, soweit dies
+      nicht durch zwingendes Recht erlaubt ist,
+   c) als eigenen oder konkurrierenden Dienst anzubieten,
+   d) von Urheber- oder Lizenzhinweisen zu befreien.
+
+4. Keine Datenerhebung, keine Aktivierung
+   Die Software benötigt keinen Lizenzschlüssel und keine Registrierung. Sie
+   läuft lokal auf deinem Rechner. Netzwerkverbindungen entstehen nur, wenn du
+   sie auslöst (z. B. Push zu GitHub oder Update-Prüfung).
+
+5. Gewährleistung und Haftung
+   Die Software wird "wie besehen" bereitgestellt, ohne jede ausdrückliche oder
+   stillschweigende Gewährleistung. Die Haftung ist auf Vorsatz und grobe
+   Fahrlässigkeit beschränkt; im Übrigen wird keine Haftung für Schäden
+   übernommen, insbesondere nicht für Datenverlust. Erstelle Backups deiner
+   Projekte — Strata schreibt direkt in dein Dateisystem.
+
+6. Beendigung
+   Die Lizenz endet automatisch bei einem Verstoß gegen Abschnitt 3. Danach ist
+   die Nutzung einzustellen und die Software zu deinstallieren.
+
+7. Drittkomponenten
+   Die Software enthält Open-Source-Komponenten unter ihren jeweiligen Lizenzen
+   (u. a. Electron, Node.js, React, Astro). Diese Lizenzen bleiben unberührt.
+
+8. Anwendbares Recht
+   Es gilt deutsches Recht unter Ausschluss des UN-Kaufrechts.

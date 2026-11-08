@@ -1,0 +1,92 @@
+<script>
+  import { _ } from '@sveltia/i18n';
+  import { Button } from '@sveltia/ui';
+
+  import PanelContainer from '$lib/components/contents/details/sidebar/panels/panel-container.svelte';
+  import { goto } from '$lib/services/app/navigation';
+  import { getEntryDraftContext } from '$lib/services/contents/draft/state.svelte';
+  import { getBacklinks } from '$lib/services/contents/entry/relations/backlinks';
+  import { encodePathSegments } from '$lib/services/utils/url';
+
+  /**
+   * @import { EntryBacklink } from '$lib/types/private';
+   */
+
+  const entryDraft = getEntryDraftContext();
+  const id = $props.id();
+
+  /** @type {EntryBacklink[]} */
+  const backlinks = $derived.by(() => {
+    const draft = entryDraft.current;
+
+    if (!draft?.originalEntry) {
+      return [];
+    }
+
+    return getBacklinks({
+      collectionName: draft.collectionName,
+      fileName: draft.fileName,
+      entry: draft.originalEntry,
+    });
+  });
+
+  /**
+   * @typedef {{ collectionLabel: string, items: EntryBacklink[] }} EntryBacklinkGroup
+   */
+
+  /** @type {EntryBacklinkGroup[]} */
+  const groupedEntries = $derived.by(() => {
+    /** @type {EntryBacklinkGroup[]} */
+    const groups = [];
+
+    backlinks.forEach((ref) => {
+      const existing = groups.find((g) => g.collectionLabel === ref.collectionLabel);
+
+      if (existing) {
+        existing.items.push(ref);
+      } else {
+        groups.push({ collectionLabel: ref.collectionLabel, items: [ref] });
+      }
+    });
+
+    return groups;
+  });
+</script>
+
+<PanelContainer title={_('entry_sidebar.backlinks.title')}>
+  {#if backlinks.length > 0}
+    {#each groupedEntries as { collectionLabel, items }, index (collectionLabel)}
+      <section class="collection" role="group" aria-labelledby="{id}-{index}-label">
+        <h4 id="{id}-{index}-label">{collectionLabel}</h4>
+        {#each items as ref (ref.entry.id)}
+          <Button
+            class="ref"
+            variant="ghost"
+            onclick={() => {
+              goto(
+                encodePathSegments(
+                  `/collections/${ref.collectionName}/entries/${ref.fileName ?? ref.entry.subPath}`,
+                ),
+                { transitionType: 'forwards' },
+              );
+            }}
+          >
+            <span class="summary"><bdi>{ref.summary}</bdi></span>
+          </Button>
+        {/each}
+      </section>
+    {/each}
+  {:else}
+    <div class="empty">{_('entry_sidebar.backlinks.no_entries')}</div>
+  {/if}
+</PanelContainer>
+
+<style>
+  .collection {
+    padding: 4px;
+
+    &:not(:first-child) {
+      border-top: 2px solid var(--sui-secondary-background-color);
+    }
+  }
+</style>

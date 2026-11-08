@@ -1,0 +1,684 @@
+import { describe, expect, test, vi } from 'vitest';
+
+import { ESCAPED_PLACEHOLDER_REGEX } from '$lib/services/common/template/constants';
+import {
+  createPath,
+  createPathRegEx,
+  encodeFilePath,
+  getBlob,
+  getByteSize,
+  getDirName,
+  getGitHash,
+  isEquivalentFileExtension,
+  renameIfNeeded,
+  resolvePath,
+  sanitizeFileName,
+  sanitizePath,
+  stripPathPrefix,
+} from '$lib/services/utils/file';
+
+// Mock i18n dependencies
+vi.mock('@sveltia/i18n', () => ({
+  locale: { current: 'en', set: vi.fn() },
+  _: vi.fn((key, options) => `${key}(${options?.values?.size || ''})`),
+}));
+
+describe('Test encodeFilePath()', () => {
+  test('Encode', () => {
+    expect(encodeFilePath('/public/uploads/French Hotdog(1).jpg')).toEqual(
+      '/public/uploads/French%20Hotdog%281%29.jpg',
+    );
+    expect(encodeFilePath('@assets/images/私の画像.jpg')).toEqual(
+      '@assets/images/%E7%A7%81%E3%81%AE%E7%94%BB%E5%83%8F.jpg',
+    );
+  });
+});
+
+describe('Test sanitizeFileName()', () => {
+  test('should normalize, collapse whitespace and drop unsafe characters', () => {
+    // A decomposed “é” is composed
+    expect(sanitizeFileName('cafe\u0301.jpg')).toEqual('café.jpg');
+    expect(sanitizeFileName('a\u00A0b\t\n  c.jpg')).toEqual('a b c.jpg');
+    expect(sanitizeFileName('a/b\\c:d?.jpg')).toEqual('abcd.jpg');
+  });
+});
+
+describe('Test renameIfNeeded()', () => {
+  test('should take the highest number already used, whatever order the names come in', () => {
+    expect(renameIfNeeded('photo.png', ['photo-1.png', 'photo.png', 'photo-0.png'])).toEqual(
+      'photo-2.png',
+    );
+    expect(renameIfNeeded('photo.png', ['photo-10.png', 'photo-9.png', 'photo.png'])).toEqual(
+      'photo-11.png',
+    );
+    expect(renameIfNeeded('photo.png', ['photo.png', 'photo-0.png'])).toEqual('photo-1.png');
+    // A slug has no extension
+    expect(renameIfNeeded('my-post', ['my-post-1', 'my-post'])).toEqual('my-post-2');
+  });
+
+  test('should number a name without an extension at the end', () => {
+    expect(
+      renameIfNeeded('release-2.0', ['release-2.0', 'release-2.0-1'], { hasExtension: false }),
+    ).toEqual('release-2.0-2');
+    expect(renameIfNeeded('example.com', ['Example.com'], { hasExtension: false })).toEqual(
+      'example.com-1',
+    );
+    // A file name keeps its extension by default
+    expect(renameIfNeeded('example.com', ['example.com'])).toEqual('example-1.com');
+  });
+
+  test('should keep a name that isn’t taken, even if numbered variants of it are', () => {
+    expect(renameIfNeeded('summer.jpg', ['summer-2023.jpg'])).toEqual('summer.jpg');
+    expect(renameIfNeeded('photo.jpg', ['photo-1.jpg', 'photo-2.jpg'])).toEqual('photo.jpg');
+    expect(renameIfNeeded('my-post', ['my-post-1', 'other'])).toEqual('my-post');
+    // A different extension doesn’t clash
+    expect(renameIfNeeded('photo.jpg', ['photo.png', 'photo-1.png'])).toEqual('photo.jpg');
+  });
+
+  test('should treat names that only differ in case as taken', () => {
+    // They clash on a case-insensitive file system like macOS’s or Windows’s
+    expect(renameIfNeeded('Photo.jpg', ['photo.jpg'])).toEqual('Photo-1.jpg');
+    expect(renameIfNeeded('photo.jpg', ['PHOTO.JPG', 'Photo-1.jpg'])).toEqual('photo-2.jpg');
+  });
+
+  test('should not be fooled by a dot in the base name', () => {
+    // The base name is everything before the last dot, so these candidates all share the `x.y.z`
+    // prefix. Picking anything but the highest number would hand back a name that is already taken
+    expect(renameIfNeeded('x.y.z.png', ['x.y.z.png', 'x.y.z-1.png', 'x.y.z-0.png'])).toEqual(
+      'x.y.z-2.png',
+    );
+    expect(
+      renameIfNeeded('my.photo.jpg', ['my.photo-8.jpg', 'my.photo.jpg', 'my.photo-3.jpg']),
+    ).toEqual('my.photo-9.jpg');
+  });
+
+  test('should leave the given list of other names alone', () => {
+    const otherNames = ['photo-2.png', 'photo.png', 'photo-1.png'];
+
+    renameIfNeeded('photo.png', otherNames);
+    // The caller reuses this list for the next file, so its order must survive the call
+    expect(otherNames).toEqual(['photo-2.png', 'photo.png', 'photo-1.png']);
+  });
+});
+
+describe('Test getBlob()', () => {
+  test('Convert string to Blob', () => {
+    // Test with a simple string
+    const content = 'hello world';
+    const result = getBlob(content);
+
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.size).toBe(11); // "hello world" is 11 bytes
+    expect(result.type).toBe('text/plain');
+  });
+
+  test('Convert empty string to Blob', () => {
+    // Test with empty string
+    const result = getBlob('');
+
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.size).toBe(0);
+    expect(result.type).toBe('text/plain');
+  });
+
+  test('Convert UTF-8 string to Blob', () => {
+    // Test with Unicode characters
+    const content = '私の画像'; // Japanese characters
+    const result = getBlob(content);
+
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.type).toBe('text/plain');
+    expect(result.size).toBeGreaterThan(content.length); // More bytes than characters
+  });
+
+  test('Return File object unchanged', () => {
+    // Test with a File object - should return it unchanged
+    const content = 'hello world\n';
+    const file = new File([content], 'test.txt', { type: 'text/plain' });
+    const result = getBlob(file);
+
+    expect(result).toBe(file); // Should return the same File object
+    expect(result).toBeInstanceOf(File);
+    expect(result.size).toBe(12);
+    expect(result.type).toBe('text/plain');
+  });
+
+  test('Return Blob object unchanged', () => {
+    // Test with a Blob object - should return it unchanged
+    const content = 'test content';
+    const blob = new Blob([content], { type: 'application/json' });
+    const result = getBlob(blob);
+
+    expect(result).toBe(blob); // Should return the same Blob object
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.size).toBe(12);
+    expect(result.type).toBe('application/json');
+  });
+
+  test('Convert JSON string to Blob', () => {
+    // Test with JSON content
+    const jsonContent = JSON.stringify({ name: 'test', value: 123 });
+    const result = getBlob(jsonContent);
+
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.type).toBe('text/plain');
+    expect(result.size).toBe(jsonContent.length);
+  });
+
+  test('Convert large string to Blob', () => {
+    // Test with larger content
+    const largeContent = 'a'.repeat(10000);
+    const result = getBlob(largeContent);
+
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.type).toBe('text/plain');
+    expect(result.size).toBe(10000);
+  });
+
+  test('Convert string with newlines to Blob', () => {
+    // Test with various newline characters
+    const content1 = 'line1\nline2'; // Unix newline
+    const content2 = 'line1\r\nline2'; // Windows newline
+    const content3 = 'line1\rline2'; // Old Mac newline
+    const result1 = getBlob(content1);
+    const result2 = getBlob(content2);
+    const result3 = getBlob(content3);
+
+    expect(result1.size).toBe(11); // 11 bytes
+    expect(result2.size).toBe(12); // 12 bytes (extra \r)
+    expect(result3.size).toBe(11); // 11 bytes
+    expect(result1.type).toBe('text/plain');
+    expect(result2.type).toBe('text/plain');
+    expect(result3.type).toBe('text/plain');
+  });
+
+  test('Blob can be read back as text', async () => {
+    // Test that the created Blob can be read back as text
+    const originalContent = 'hello world test';
+    const blob = getBlob(originalContent);
+    const readBackContent = await blob.text();
+
+    expect(readBackContent).toBe(originalContent);
+  });
+
+  test('Binary Blob remains unchanged', () => {
+    // Test with binary content in a Blob
+    const binaryData = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0xff]);
+    const binaryBlob = new Blob([binaryData], { type: 'application/octet-stream' });
+    const result = getBlob(binaryBlob);
+
+    expect(result).toBe(binaryBlob); // Should return the same Blob object
+    expect(result.size).toBe(5);
+    expect(result.type).toBe('application/octet-stream');
+  });
+});
+
+describe('Test getByteSize()', () => {
+  test('Measure a string as UTF-8, like a Blob created from it', () => {
+    ['', 'Hello, World!', 'Café 日本語 🎉', 'Lone \uD800 surrogate'].forEach((content) => {
+      expect(getByteSize(content)).toBe(new Blob([content]).size);
+    });
+
+    expect(getByteSize('Café')).toBe(5);
+  });
+
+  test('Return the size of a Blob or File', () => {
+    const blob = new Blob([new Uint8Array([0x00, 0x01, 0x02])]);
+    const file = new File(['日本語'], 'test.txt', { type: 'text/plain' });
+
+    expect(getByteSize(blob)).toBe(3);
+    expect(getByteSize(file)).toBe(9);
+  });
+});
+
+describe('Test getGitHash()', () => {
+  test('Hash string content', async () => {
+    // Test with a simple string - Git hash for "hello world\n"
+    const result = await getGitHash('hello world\n');
+
+    expect(result).toBe('3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+  });
+
+  test('Hash empty string', async () => {
+    // Test with empty string
+    const result = await getGitHash('');
+
+    expect(result).toBe('e69de29bb2d1d6434b8b29ae775ad8c2e48c5391');
+  });
+
+  test('Hash File object', async () => {
+    // Test with a File object
+    const file = new File(['hello world\n'], 'test.txt', { type: 'text/plain' });
+    const result = await getGitHash(file);
+
+    expect(result).toBe('3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+  });
+
+  test('Hash Blob object', async () => {
+    // Test with a Blob object
+    const blob = new Blob(['hello world\n'], { type: 'text/plain' });
+    const result = await getGitHash(blob);
+
+    expect(result).toBe('3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+  });
+
+  test('Hash binary content', async () => {
+    // Test with binary content (a simple byte sequence)
+    const binaryData = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
+    const blob = new Blob([binaryData]);
+    const result = await getGitHash(blob);
+
+    expect(typeof result).toBe('string');
+    expect(result).toHaveLength(40); // SHA-1 hashes are 40 characters long
+  });
+
+  test('Hash larger content', async () => {
+    // Test with larger content to ensure no call stack issues
+    const largeContent = 'a'.repeat(10000);
+    const result = await getGitHash(largeContent);
+
+    expect(typeof result).toBe('string');
+    expect(result).toHaveLength(40);
+  });
+
+  test('Different content produces different hashes', async () => {
+    // Ensure different content produces different hashes
+    const hash1 = await getGitHash('content1');
+    const hash2 = await getGitHash('content2');
+
+    expect(hash1).not.toBe(hash2);
+  });
+
+  test('Same content produces the same hash', async () => {
+    // Ensure same content always produces the same hash
+    const content = 'test content';
+    const hash1 = await getGitHash(content);
+    const hash2 = await getGitHash(content);
+
+    expect(hash1).toBe(hash2);
+  });
+
+  test('Hash image file', async () => {
+    // Test with a simple 1x1 pixel PNG image (base64 encoded)
+    // This is a minimal valid PNG file
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+    const imageBytes = Uint8Array.from(atob(pngBase64), (c) => c.charCodeAt(0));
+    const imageBlob = new Blob([imageBytes], { type: 'image/png' });
+    const result = await getGitHash(imageBlob);
+
+    expect(typeof result).toBe('string');
+    expect(result).toHaveLength(40);
+    // This specific 1x1 transparent PNG should always produce the same hash
+    expect(result).toBe('613754cfaf74a7a2d86984231479d5671731f18a');
+  });
+
+  test('Read a blob only once, however many times it is hashed', async () => {
+    const file = new File(['hello world\n'], 'test.txt', { type: 'text/plain' });
+    const arrayBuffer = vi.spyOn(file, 'arrayBuffer');
+    // Concurrent callers share the one read, and a later caller gets the cached result
+    const [hash1, hash2] = await Promise.all([getGitHash(file), getGitHash(file)]);
+    const hash3 = await getGitHash(file);
+
+    expect(hash1).toBe('3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+    expect(hash2).toBe(hash1);
+    expect(hash3).toBe(hash1);
+    expect(arrayBuffer).toHaveBeenCalledOnce();
+  });
+
+  test('Hash each blob object on its own', async () => {
+    const file1 = new File(['hello world\n'], 'test.txt', { type: 'text/plain' });
+    const file2 = new File(['hello world\n'], 'test.txt', { type: 'text/plain' });
+    const arrayBuffer1 = vi.spyOn(file1, 'arrayBuffer');
+    const arrayBuffer2 = vi.spyOn(file2, 'arrayBuffer');
+
+    expect(await getGitHash(file1)).toBe(await getGitHash(file2));
+    expect(arrayBuffer1).toHaveBeenCalledOnce();
+    expect(arrayBuffer2).toHaveBeenCalledOnce();
+  });
+
+  test('Retry a blob that could not be read', async () => {
+    const file = new File(['hello world\n'], 'test.txt', { type: 'text/plain' });
+    const error = new DOMException('The requested file could not be read', 'NotReadableError');
+    const arrayBuffer = vi.spyOn(file, 'arrayBuffer').mockRejectedValueOnce(error);
+
+    await expect(getGitHash(file)).rejects.toBe(error);
+    // The failure is not cached, so the next call reads the file again
+    await expect(getGitHash(file)).resolves.toBe('3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+    expect(arrayBuffer).toHaveBeenCalledTimes(2);
+  });
+
+  test('Hash image File object', async () => {
+    // Test with the same image as a File object
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+    const imageBytes = Uint8Array.from(atob(pngBase64), (c) => c.charCodeAt(0));
+    const imageFile = new File([imageBytes], 'test.png', { type: 'image/png' });
+    const result = await getGitHash(imageFile);
+
+    expect(typeof result).toBe('string');
+    expect(result).toHaveLength(40);
+    // Should produce the same hash as the Blob version
+    expect(result).toBe('613754cfaf74a7a2d86984231479d5671731f18a');
+  });
+});
+
+describe('Test resolvePath()', () => {
+  test('should resolve basic paths without dots', () => {
+    expect(resolvePath('folder/file.txt')).toBe('folder/file.txt');
+    expect(resolvePath('a/b/c/file.txt')).toBe('a/b/c/file.txt');
+  });
+
+  test('should resolve paths with current directory dots', () => {
+    expect(resolvePath('folder/./file.txt')).toBe('folder/file.txt');
+    expect(resolvePath('./folder/file.txt')).toBe('./folder/file.txt');
+    expect(resolvePath('a/./b/./c/file.txt')).toBe('a/b/c/file.txt');
+  });
+
+  test('should resolve paths with parent directory dots', () => {
+    expect(resolvePath('folder/../file.txt')).toBe('file.txt');
+    expect(resolvePath('a/b/../c/file.txt')).toBe('a/c/file.txt');
+    expect(resolvePath('a/b/c/../../file.txt')).toBe('a/file.txt');
+  });
+
+  test('should handle complex path resolution', () => {
+    expect(resolvePath('a/b/../c/./d/../file.txt')).toBe('a/c/file.txt');
+    expect(resolvePath('folder/subfolder/../../other/file.txt')).toBe('other/file.txt');
+  });
+
+  test('should handle leading dots', () => {
+    expect(resolvePath('../file.txt')).toBe('../file.txt');
+    expect(resolvePath('./file.txt')).toBe('./file.txt');
+    expect(resolvePath('../folder/file.txt')).toBe('../folder/file.txt');
+  });
+
+  test('should handle empty segments', () => {
+    // createPath filters out empty segments, so // becomes single /
+    expect(resolvePath('folder//file.txt')).toBe('folder/file.txt');
+    expect(resolvePath('//folder/file.txt')).toBe('folder/file.txt'); // Leading empty segments are filtered
+  });
+
+  test('should keep a `..` that goes up past the named segments', () => {
+    // The path points outside the starting folder, so the excess `..` can’t be dropped
+    expect(resolvePath('file.txt/../..')).toBe('..');
+    expect(resolvePath('a/file.txt/../../..')).toBe('..');
+    expect(resolvePath('a/../../b')).toBe('../b');
+    // A leading `..` isn’t cancelled out by a later one
+    expect(resolvePath('../a/../../b')).toBe('../../b');
+    expect(resolvePath('./a/../../b')).toBe('./../b');
+    expect(resolvePath('a/b/file.txt/../..')).toBe('a'); // Going back twice: removes file.txt then b, a remains
+    // Case where segment exists after going back
+    expect(resolvePath('a/b/c/../../file.txt')).toBe('a/file.txt'); // Go back twice, then file.txt at same level
+  });
+});
+
+describe('Test sanitizePath()', () => {
+  test('should leave normal paths unchanged', () => {
+    expect(sanitizePath('folder/file.txt')).toBe('folder/file.txt');
+    expect(sanitizePath('a/b/c/file.txt')).toBe('a/b/c/file.txt');
+    expect(sanitizePath('images/photos/summer.jpg')).toBe('images/photos/summer.jpg');
+  });
+
+  test('should remove single parent directory reference', () => {
+    expect(sanitizePath('../secret')).toBe('secret');
+    expect(sanitizePath('folder/../file.txt')).toBe('folder/file.txt');
+    expect(sanitizePath('../admin/config')).toBe('admin/config');
+  });
+
+  test('should remove multiple parent directory references', () => {
+    expect(sanitizePath('../../../../.github/workflows')).toBe('.github/workflows');
+    expect(sanitizePath('../../config/secrets')).toBe('config/secrets');
+    expect(sanitizePath('../../../etc/passwd')).toBe('etc/passwd');
+  });
+
+  test('should remove current directory references', () => {
+    expect(sanitizePath('./images/./photos')).toBe('images/photos');
+    expect(sanitizePath('folder/./file.txt')).toBe('folder/file.txt');
+    expect(sanitizePath('./././folder')).toBe('folder');
+  });
+
+  test('should handle mixed traversal attempts', () => {
+    expect(sanitizePath('images/../../../config')).toBe('images/config');
+    expect(sanitizePath('./folder/../file.txt')).toBe('folder/file.txt');
+    expect(sanitizePath('../folder/./subfolder/../file.txt')).toBe('folder/subfolder/file.txt');
+  });
+
+  test('should preserve empty segments and multi-slashes', () => {
+    // Unlike resolvePath, sanitizePath doesn't collapse multiple slashes
+    expect(sanitizePath('images//photos')).toBe('images//photos');
+    expect(sanitizePath('folder///file.txt')).toBe('folder///file.txt');
+  });
+
+  test('should handle paths with only dangerous segments', () => {
+    expect(sanitizePath('../..')).toBe('');
+    expect(sanitizePath('./.')).toBe('');
+    expect(sanitizePath('../../..')).toBe('');
+  });
+
+  test('should preserve legitimate path separators', () => {
+    expect(sanitizePath('photography/nature')).toBe('photography/nature');
+    expect(sanitizePath('2024/07/images')).toBe('2024/07/images');
+  });
+
+  test('should handle edge cases', () => {
+    expect(sanitizePath('')).toBe('');
+    expect(sanitizePath('file.txt')).toBe('file.txt');
+    expect(sanitizePath('/')).toBe('/');
+  });
+
+  test('should handle paths with special characters in segment names', () => {
+    // Segments named '.' or '..' are removed, but segments containing them are kept
+    expect(sanitizePath('.github/workflows')).toBe('.github/workflows');
+    expect(sanitizePath('folder/..gitignore')).toBe('folder/..gitignore');
+    expect(sanitizePath('my..folder/file.txt')).toBe('my..folder/file.txt');
+  });
+});
+
+describe('Test createPath()', () => {
+  test('should join valid path segments', () => {
+    expect(createPath(['folder', 'subfolder', 'file.txt'])).toBe('folder/subfolder/file.txt');
+    expect(createPath(['a', 'b', 'c'])).toBe('a/b/c');
+  });
+
+  test('should filter out null and undefined values', () => {
+    expect(createPath(['folder', null, 'file.txt'])).toBe('folder/file.txt');
+    expect(createPath(['folder', undefined, 'file.txt'])).toBe('folder/file.txt');
+    expect(createPath([null, 'folder', undefined, 'file.txt'])).toBe('folder/file.txt');
+  });
+
+  test('should filter out empty strings', () => {
+    expect(createPath(['folder', '', 'file.txt'])).toBe('folder/file.txt');
+    expect(createPath(['', 'folder', '', 'file.txt', ''])).toBe('folder/file.txt');
+  });
+
+  test('should handle all falsy values', () => {
+    expect(createPath([null, undefined, '', 'folder', 'file.txt'])).toBe('folder/file.txt');
+  });
+
+  test('should handle empty array', () => {
+    expect(createPath([])).toBe('');
+  });
+
+  test('should handle array with only falsy values', () => {
+    expect(createPath([null, undefined, ''])).toBe('');
+  });
+});
+
+describe('Test getDirName()', () => {
+  test('should return the directory of a file path', () => {
+    expect(getDirName('static/images/photo.jpg')).toBe('static/images');
+    expect(getDirName('static/photo.jpg')).toBe('static');
+  });
+
+  test('should return an empty string for a file at the root', () => {
+    expect(getDirName('photo.jpg')).toBe('');
+  });
+});
+
+describe('Test stripPathPrefix()', () => {
+  test('removes the directory from a path below it', () => {
+    expect(stripPathPrefix('images/photo.jpg', 'images')).toBe('photo.jpg');
+    expect(stripPathPrefix('images/2024/photo.jpg', 'images')).toBe('2024/photo.jpg');
+  });
+
+  test('leaves a path that is not below the directory as is', () => {
+    expect(stripPathPrefix('images-backup/photo.jpg', 'images')).toBe('images-backup/photo.jpg');
+    expect(stripPathPrefix('images', 'images')).toBe('images');
+    expect(stripPathPrefix('other/photo.jpg', 'images')).toBe('other/photo.jpg');
+  });
+
+  test('leaves the path as is without a directory', () => {
+    expect(stripPathPrefix('/photo.jpg', '')).toBe('/photo.jpg');
+    expect(stripPathPrefix('photo.jpg', undefined)).toBe('photo.jpg');
+  });
+});
+
+describe('Test isEquivalentFileExtension()', () => {
+  test('should return true for identical extensions', () => {
+    expect(isEquivalentFileExtension('png', 'png')).toBe(true);
+    expect(isEquivalentFileExtension('webp', 'webp')).toBe(true);
+  });
+
+  test('should ignore letter case', () => {
+    expect(isEquivalentFileExtension('PNG', 'png')).toBe(true);
+    expect(isEquivalentFileExtension('png', 'PNG')).toBe(true);
+    expect(isEquivalentFileExtension('JPEG', 'jpg')).toBe(true);
+  });
+
+  test('should return true for well-known aliases', () => {
+    expect(isEquivalentFileExtension('jpeg', 'jpg')).toBe(true);
+    expect(isEquivalentFileExtension('jpg', 'jfif')).toBe(true);
+    expect(isEquivalentFileExtension('tiff', 'tif')).toBe(true);
+    expect(isEquivalentFileExtension('html', 'htm')).toBe(true);
+    expect(isEquivalentFileExtension('yaml', 'yml')).toBe(true);
+    expect(isEquivalentFileExtension('markdown', 'md')).toBe(true);
+    expect(isEquivalentFileExtension('mpeg', 'mpg')).toBe(true);
+    expect(isEquivalentFileExtension('midi', 'mid')).toBe(true);
+    expect(isEquivalentFileExtension('aiff', 'aif')).toBe(true);
+  });
+
+  test('should return false for different formats', () => {
+    expect(isEquivalentFileExtension('png', 'jpg')).toBe(false);
+    expect(isEquivalentFileExtension('heic', 'jpg')).toBe(false);
+    expect(isEquivalentFileExtension('yml', 'json')).toBe(false);
+    expect(isEquivalentFileExtension('md', 'mdx')).toBe(false);
+  });
+
+  test('should handle omitted extensions', () => {
+    expect(isEquivalentFileExtension(undefined, undefined)).toBe(true);
+    expect(isEquivalentFileExtension('', '')).toBe(true);
+    expect(isEquivalentFileExtension(undefined, '')).toBe(true);
+    expect(isEquivalentFileExtension('png', undefined)).toBe(false);
+    expect(isEquivalentFileExtension(undefined, 'png')).toBe(false);
+  });
+});
+
+describe('Test createPathRegEx()', () => {
+  test('should create regex for simple path', () => {
+    const regex = createPathRegEx('folder/file.txt', (segment) => segment);
+
+    expect(regex.test('folder/file.txt')).toBe(true);
+    expect(regex.test('folder/file.txt/')).toBe(true); // Allows slash after
+    expect(regex.test('folder/file.txt ')).toBe(false); // Doesn't allow whitespace
+    expect(regex.test('other/file.txt')).toBe(false);
+  });
+
+  test('should apply replacer function to each segment', () => {
+    const regex = createPathRegEx('folder/{{slug}}/file.txt', (segment) =>
+      segment.replace(/{{.+?}}/, '.+?'),
+    );
+
+    expect(regex.test('folder/my-slug/file.txt')).toBe(true);
+    expect(regex.test('folder/another-slug/file.txt')).toBe(true);
+    expect(regex.test('other/my-slug/file.txt')).toBe(false);
+  });
+
+  test('should not escape special regex characters by default', () => {
+    // The replacer is responsible for escaping - the function itself doesn't escape
+    const regex = createPathRegEx('folder/file.txt', (segment) => segment);
+
+    // Without escaping in the replacer, the dot matches any character
+    expect(regex.test('folder/file.txt')).toBe(true);
+    expect(regex.test('folder/fileXtxt')).toBe(true); // Dot matches X
+  });
+
+  test('should support escaping when replacer escapes', () => {
+    const regex = createPathRegEx('folder/file.txt', (segment) =>
+      segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    );
+
+    // With escaping, dot only matches literal dot
+    expect(regex.test('folder/file.txt')).toBe(true);
+    expect(regex.test('folder/fileXtxt')).toBe(false);
+  });
+
+  test('should allow trailing slash or end of string', () => {
+    const regex = createPathRegEx('folder/prefix', (segment) => segment);
+
+    expect(regex.test('folder/prefix')).toBe(true);
+    expect(regex.test('folder/prefix/')).toBe(true);
+    expect(regex.test('folder/prefix-more')).toBe(false); // No match without slash or end
+    expect(regex.test('other/prefix')).toBe(false);
+  });
+
+  test('should handle multiple template tags', () => {
+    const regex = createPathRegEx('{{year}}/{{month}}/{{slug}}.md', (segment) =>
+      segment.replace(/{{.+?}}/, '.+?'),
+    );
+
+    expect(regex.test('2024/01/my-post.md')).toBe(true);
+    expect(regex.test('2024/12/another-post.md')).toBe(true);
+    expect(regex.test('2024/01')).toBe(false);
+  });
+
+  test('should handle paths with multiple segments', () => {
+    const regex = createPathRegEx('a/b/c/d/e', (segment) => segment);
+
+    expect(regex.test('a/b/c/d/e')).toBe(true);
+    expect(regex.test('a/b/c/d/e/')).toBe(true);
+    expect(regex.test('a/b/c/d/e/f')).toBe(true); // Matches because of trailing slash option
+    expect(regex.test('a/b/c/d')).toBe(false);
+  });
+
+  test('should handle brackets in path', () => {
+    const regex = createPathRegEx('app/(pages)/index.md', (segment) =>
+      segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    );
+
+    expect(regex.test('app/(pages)/index.md')).toBe(true);
+    expect(regex.test('app/(pages)/index.md/')).toBe(true);
+    expect(regex.test('app/pages/index.md')).toBe(false);
+  });
+
+  test('should handle brackets with template tags', () => {
+    const regex = createPathRegEx('app/(pages)/{{slug}}.md', (segment) => {
+      // First escape special regex chars including parentheses
+      let escaped = segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // Then replace escaped template placeholders with wildcard
+      escaped = escaped.replace(ESCAPED_PLACEHOLDER_REGEX, '.+?');
+      return escaped;
+    });
+
+    expect(regex.test('app/(pages)/my-post.md')).toBe(true);
+    expect(regex.test('app/(pages)/another.md')).toBe(true);
+    expect(regex.test('app/pages/my-post.md')).toBe(false);
+  });
+
+  test('should not consume the trailing slash when used with String.replace()', () => {
+    // Regression: with a consuming match `(?:\/|$)`, the slash between the slug folder and the
+    // filename was swallowed, producing `/@assets/images/666-testphoto.jpg` instead of
+    // `/@assets/images/666-test/photo.jpg`.
+    const regex = createPathRegEx('src/assets/images/{{slug}}', (segment) => {
+      const tag = segment.match(/{{(?<tag>.+?)}}/)?.groups?.tag;
+
+      return tag ? `(?<${tag}>[^/]+)` : segment;
+    });
+
+    const result = 'src/assets/images/666-test/photo.jpg'.replace(regex, '/@assets/images/$<slug>');
+
+    expect(result).toBe('/@assets/images/666-test/photo.jpg');
+  });
+});

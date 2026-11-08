@@ -1,0 +1,203 @@
+import { isConfigReadonly } from '$lib/services/config/readonly';
+import { getEntriesByCollection } from '$lib/services/contents/collection/entries';
+import { isCollectionIndexFile } from '$lib/services/contents/collection/entries/index-file';
+import { getOrderFieldKey } from '$lib/services/contents/collection/entries/reorder/config';
+import { sortEntriesByOrderField } from '$lib/services/contents/collection/entries/reorder/sort';
+import { saveEntryUpdates } from '$lib/services/contents/collection/entries/save';
+import { isArrayFileCollection } from '$lib/services/contents/collection/predicates';
+import { resolveCacheDB } from '$lib/services/contents/draft/save/file-changes';
+import {
+  buildEntryUpdateChanges,
+  createSyntheticDraft,
+} from '$lib/services/contents/entry/changes';
+
+/**
+ * @import { IndexedDB } from '@sveltia/utils/storage';
+ * @import { Entry, FileChange, InternalEntryCollection } from '$lib/types/private';
+ */
+
+/**
+ * Apply a new order value to all locales of an entry that have content. Locales without content are
+ * passed through unchanged so that they can still be referenced (e.g. for paths) without adding an
+ * `order` field to an empty content object.
+ * @param {Entry} entry Source entry.
+ * @param {string} orderKey Order field key.
+ * @param {number} newOrder New order value.
+ * @returns {Entry} Updated entry (the original entry is not mutated).
+ */
+const withUpdatedOrder = (entry, orderKey, newOrder) => {
+  /** @type {Entry['locales']} */
+  const updatedLocales = Object.fromEntries(
+    Object.entries(entry.locales).map(([locale, le]) => [
+      locale,
+      le.content ? { ...le, content: { ...le.content, [orderKey]: newOrder } } : { ...le },
+    ]),
+  );
+
+  return { ...entry, locales: updatedLocales };
+};
+
+/**
+ * Build the {@link FileChange}s needed to renumber the given entries with new 1-based order values.
+ * Entries whose order field already matches the target value are skipped so no empty commits are
+ * produced. The returned `savingEntries` are clones with the new order applied.
+ * @param {InternalEntryCollection} collection Entry collection.
+ * @param {Entry[]} orderedEntries Entries in the desired display order.
+ * @param {object} [options] Options.
+ * @param {IndexedDB} [options.cacheDB] Pre-opened file-cache database to reuse.
+ * @returns {Promise<{ changes: FileChange[], savingEntries: Entry[] }>} Collected changes and the
+ * entries to be saved.
+ */
+const buildReorderChanges = async (collection, orderedEntries, { cacheDB } = {}) => {
+  const orderKey = getOrderFieldKey(collection);
+
+  if (!orderKey) {
+    return { changes: [], savingEntries: [] };
+  }
+
+  const {
+    _i18n: { defaultLocale },
+  } = collection;
+
+  const db = resolveCacheDB(cacheDB);
+  const savingEntries = [];
+
+  // Single pass: skip entries whose order already matches the target value (so unchanged entries
+  // don’t trigger a normalize-only commit) and re-tag the rest with the new 1-based order. The
+  // existing value is coerced to a number so that a string-typed `order` (e.g. `"5"`) is treated as
+  // already-correct when it matches the new numeric order.
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [index, entry] of orderedEntries.entries()) {
+    const newOrder = index + 1;
+
+    if (Number(entry.locales[defaultLocale]?.content?.[orderKey]) !== newOrder) {
+      savingEntries.push(withUpdatedOrder(entry, orderKey, newOrder));
+    }
+  }
+
+  // Build the synthetic draft once for the whole batch — its shape is identical across entries.
+  const draft = createSyntheticDraft({ collection });
+
+  // Build file changes in parallel
+  const perEntryChanges = await Promise.all(
+    savingEntries.map((entry) =>
+      buildEntryUpdateChanges({ collection, entry, draft, cacheDB: db }),
+    ),
+  );
+
+  return { changes: perEntryChanges.flat(), savingEntries };
+};
+
+/**
+ * Build the change needed to reorder the entries of a collection storing all the entries in one
+ * file, which rewrites the file with the items in the new order.
+ * @param {InternalEntryCollection} collection Entry collection.
+ * @param {Entry[]} orderedEntries Entries in the desired display order.
+ * @returns {{ changes: FileChange[], savingEntries: Entry[] }} The change, if the order has
+ * changed, and the entries that have moved.
+ */
+const buildArrayFileReorderChanges = (collection, orderedEntries) => {
+  // The entries take the positions they occupy now, so an entry has moved if it doesn’t take its
+  // own position
+  const positions = orderedEntries
+    .map(({ arrayIndex }) => /** @type {number} */ (arrayIndex))
+    .sort((a, b) => a - b);
+
+  const savingEntries = orderedEntries.filter(
+    ({ arrayIndex }, index) => arrayIndex !== positions[index],
+  );
+
+  if (!savingEntries.length) {
+    return { changes: [], savingEntries: [] };
+  }
+
+  /** @type {FileChange} */
+  const change = {
+    action: 'update',
+    path: /** @type {string} */ (collection._file.fullPath),
+    arrayOrder: orderedEntries.map(({ arrayIndex, locales }) => ({
+      index: /** @type {number} */ (arrayIndex),
+      locales,
+    })),
+  };
+
+  return { changes: [change], savingEntries };
+};
+
+/**
+ * Re-save entries in the given collection with updated order values. Entries whose order field
+ * value is unchanged are skipped to avoid unnecessary commits. Files are written using the
+ * collection’s configured format and i18n structure.
+ * @param {InternalEntryCollection} collection Entry collection.
+ * @param {Entry[]} orderedEntries Entries in the desired display order. The new order value
+ * assigned to each entry is its 1-based index in this list.
+ * @returns {Promise<number>} Number of entries actually updated.
+ */
+export const reorderEntries = async (collection, orderedEntries) => {
+  // The collection could have been made read-only since the entries were put in reorder mode, e.g.
+  // by a configuration reload, in which case nothing is written, like with a bulk edit
+  if (isConfigReadonly({ collection })) {
+    return 0;
+  }
+
+  const { changes, savingEntries } = isArrayFileCollection(collection)
+    ? buildArrayFileReorderChanges(collection, orderedEntries)
+    : await buildReorderChanges(collection, orderedEntries);
+
+  return saveEntryUpdates({ collection, changes, savingEntries });
+};
+
+/**
+ * Compute the renumbered list of remaining entries for the given collection, in the order their
+ * `order` field should be persisted. Entries currently lacking a valid numeric order are placed at
+ * the end. The collection’s index file (if any) is excluded.
+ * @param {InternalEntryCollection} collection Entry collection.
+ * @param {object} [options] Options.
+ * @param {Set<string>} [options.excludeIds] IDs of entries to omit (e.g. entries about to be
+ * deleted). The collection’s current entries are read from {@link getEntriesByCollection}.
+ * @param {Map<string, Entry>} [options.updatedEntries] Entries already rewritten by the same
+ * operation, keyed by ID, which stand in for their stored counterparts so that the renumbered file
+ * carries both updates.
+ * @returns {Entry[]} Entries in the desired display order, with the index file removed.
+ */
+const computeRenumberedEntries = (collection, { excludeIds, updatedEntries } = {}) => {
+  // The index file (e.g. Hugo `_index.md`) is always pinned to the top of the list by the sort
+  // pipeline regardless of its `order` value, so it should never participate in numbering. It’s
+  // told by its path, as another collection’s index file within this folder has the same slug
+  const remaining = getEntriesByCollection(collection.name)
+    .filter(
+      (entry) =>
+        !isCollectionIndexFile(collection, entry) && !(excludeIds && excludeIds.has(entry.id)),
+    )
+    .map((entry) => updatedEntries?.get(entry.id) ?? entry);
+
+  return sortEntriesByOrderField(remaining, collection);
+};
+
+/**
+ * Build the renumber {@link FileChange}s for a collection without saving them. Useful when the
+ * caller wants to bundle the renumber into another commit (e.g. delete).
+ * @param {InternalEntryCollection | undefined} collection Entry collection.
+ * @param {object} [options] Options.
+ * @param {Set<string>} [options.excludeIds] IDs of entries to omit (e.g. entries about to be
+ * deleted).
+ * @param {Map<string, Entry>} [options.updatedEntries] Entries already rewritten by the same
+ * operation, keyed by ID. See {@link computeRenumberedEntries}.
+ * @param {IndexedDB} [options.cacheDB] Pre-opened file-cache database to reuse.
+ * @returns {Promise<{ changes: FileChange[], savingEntries: Entry[] }>} Collected changes and the
+ * entries to be saved. Empty when reordering is not enabled or nothing changed.
+ */
+export const buildRenumberChanges = async (
+  collection,
+  { excludeIds, updatedEntries, cacheDB } = {},
+) => {
+  if (!collection || collection._type !== 'entry' || !getOrderFieldKey(collection)) {
+    return { changes: [], savingEntries: [] };
+  }
+
+  return buildReorderChanges(
+    collection,
+    computeRenumberedEntries(collection, { excludeIds, updatedEntries }),
+    { cacheDB },
+  );
+};

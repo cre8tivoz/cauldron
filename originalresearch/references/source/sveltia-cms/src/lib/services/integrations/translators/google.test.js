@@ -1,0 +1,652 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import googleTranslator, { availability, chunkTexts, normalizeLanguage } from './google.js';
+
+// Mock fetch globally
+global.fetch = vi.fn();
+
+describe('Google Translator Service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Service Configuration', () => {
+    it('should have correct service metadata', () => {
+      expect(googleTranslator.serviceId).toBe('google');
+      expect(googleTranslator.serviceLabel).toBe('Google Cloud Translation');
+      expect(googleTranslator.apiLabel).toBe('Cloud Translation API');
+      expect(googleTranslator.developerURL).toBe(
+        'https://console.cloud.google.com/apis/library/translate.googleapis.com',
+      );
+      expect(googleTranslator.apiKeyURL).toBe(
+        'https://console.cloud.google.com/apis/api/translate.googleapis.com/credentials',
+      );
+      expect(googleTranslator.apiKeyPattern).toBeInstanceOf(RegExp);
+    });
+
+    it('should validate API key pattern', () => {
+      const validApiKey = 'AIzaSyB12345678901234567890123456789012';
+
+      const invalidApiKeys = [
+        'invalid-key',
+        'AIza123', // too short
+        'BIzaSyB12345678901234567890123456789012', // wrong prefix
+        '',
+      ];
+
+      expect(googleTranslator.apiKeyPattern.test(validApiKey)).toBe(true);
+
+      invalidApiKeys.forEach((key) => {
+        expect(googleTranslator.apiKeyPattern.test(key)).toBe(false);
+      });
+    });
+  });
+
+  describe('Language Support', () => {
+    describe('availability', () => {
+      it('should return true for supported language pairs', async () => {
+        await expect(availability({ sourceLanguage: 'en', targetLanguage: 'fr' })).resolves.toBe(
+          true,
+        );
+        await expect(
+          availability({ sourceLanguage: 'zh-CN', targetLanguage: 'pt-BR' }),
+        ).resolves.toBe(true);
+        await expect(
+          availability({ sourceLanguage: 'fr-FR', targetLanguage: 'zh-TW' }),
+        ).resolves.toBe(true);
+      });
+
+      it('should return false for unsupported source languages', async () => {
+        await expect(
+          availability({ sourceLanguage: 'unsupported', targetLanguage: 'en' }),
+        ).resolves.toBe(false);
+        await expect(availability({ sourceLanguage: 'xyz', targetLanguage: 'fr' })).resolves.toBe(
+          false,
+        );
+      });
+
+      it('should return false for unsupported target languages', async () => {
+        await expect(
+          availability({ sourceLanguage: 'en', targetLanguage: 'unsupported' }),
+        ).resolves.toBe(false);
+        await expect(availability({ sourceLanguage: 'fr', targetLanguage: 'xyz' })).resolves.toBe(
+          false,
+        );
+      });
+
+      it('should return false when both languages are unsupported', async () => {
+        await expect(
+          availability({ sourceLanguage: 'unsupported1', targetLanguage: 'unsupported2' }),
+        ).resolves.toBe(false);
+      });
+
+      it('should handle locale code variations', async () => {
+        await expect(
+          availability({ sourceLanguage: 'fr-fr', targetLanguage: 'zh-cn' }),
+        ).resolves.toBe(true); // normalized to fr-FR, zh-CN
+        await expect(
+          availability({ sourceLanguage: 'zh_CN', targetLanguage: 'pt_BR' }),
+        ).resolves.toBe(true); // normalized to zh-CN, pt-BR
+      });
+
+      it('should support Traditional Chinese variants (Hong Kong, Macanese)', async () => {
+        await expect(availability({ sourceLanguage: 'zh-HK', targetLanguage: 'en' })).resolves.toBe(
+          true,
+        ); // falls back to zh-TW
+        await expect(availability({ sourceLanguage: 'en', targetLanguage: 'zh-MO' })).resolves.toBe(
+          true,
+        ); // falls back to zh-TW
+        await expect(
+          availability({ sourceLanguage: 'zh-HK', targetLanguage: 'zh-MO' }),
+        ).resolves.toBe(true); // both fall back to zh-TW
+      });
+
+      it('should handle fallback to base language', async () => {
+        await expect(
+          availability({ sourceLanguage: 'en-XX', targetLanguage: 'fr-XX' }),
+        ).resolves.toBe(true); // fallback to en, fr
+      });
+    });
+  });
+
+  describe('Translation Function', () => {
+    const mockApiKey = 'AIzaSyB12345678901234567890123456789012';
+
+    const mockOptions = {
+      sourceLanguage: 'en',
+      targetLanguage: 'fr',
+      apiKey: mockApiKey,
+    };
+
+    it('should successfully translate text', async () => {
+      const mockResponse = {
+        data: {
+          translations: [
+            { translatedText: 'Bonjour le monde' },
+            { translatedText: 'Comment allez-vous ?' },
+          ],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      // Use a more complete mock response object
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      const texts = ['Hello world', 'How are you?'];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(['Bonjour le monde', 'Comment allez-vous ?']);
+      expect(fetch).toHaveBeenCalledWith(
+        'https://translation.googleapis.com/language/translate/v2',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': mockApiKey,
+          },
+          body: JSON.stringify({
+            q: texts,
+            source: 'en',
+            target: 'fr',
+            format: 'html',
+          }),
+        },
+      );
+    });
+
+    it('should handle HTML content in translation', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: '<p>Bonjour <strong>le monde</strong></p>' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ['<p>Hello <strong>world</strong></p>'];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(['<p>Bonjour <strong>le monde</strong></p>']);
+    });
+
+    it('should throw error for unsupported source locale', async () => {
+      const invalidOptions = {
+        ...mockOptions,
+        sourceLanguage: 'unsupported',
+      };
+
+      await expect(googleTranslator.translate(['Hello'], invalidOptions)).rejects.toThrow(
+        'Source locale is not supported.',
+      );
+    });
+
+    it('should throw error for unsupported target locale', async () => {
+      const invalidOptions = {
+        ...mockOptions,
+        targetLanguage: 'unsupported',
+      };
+
+      await expect(googleTranslator.translate(['Hello'], invalidOptions)).rejects.toThrow(
+        'Target locale is not supported.',
+      );
+    });
+
+    it('should handle API errors with error message', async () => {
+      const errorResponse = {
+        error: {
+          message: 'Invalid API key',
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(errorResponse), {
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      );
+
+      await expect(googleTranslator.translate(['Hello'], mockOptions)).rejects.toThrow(
+        'Google Translate API error: 400 Bad Request - Invalid API key',
+      );
+    });
+
+    it('should handle API errors without error message', async () => {
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response('{}', {
+          status: 403,
+          statusText: 'Forbidden',
+        }),
+      );
+
+      await expect(googleTranslator.translate(['Hello'], mockOptions)).rejects.toThrow(
+        'Google Translate API error: 403 Forbidden',
+      );
+    });
+
+    it('should handle JSON parsing errors', async () => {
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response('invalid json', {
+          status: 500,
+          statusText: 'Internal Server Error',
+        }),
+      );
+
+      await expect(googleTranslator.translate(['Hello'], mockOptions)).rejects.toThrow(
+        'Google Translate API error: 500 Internal Server Error',
+      );
+    });
+
+    it('should handle network errors', async () => {
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      await expect(googleTranslator.translate(['Hello'], mockOptions)).rejects.toThrow(
+        'Network error',
+      );
+    });
+
+    it('should handle empty text array without sending a request', async () => {
+      const result = await googleTranslator.translate([], mockOptions);
+
+      expect(result).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('should handle special locale cases', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: '你好世界' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const specialOptions = {
+        sourceLanguage: 'en',
+        targetLanguage: 'zh-CN',
+        apiKey: mockApiKey,
+      };
+
+      const result = await googleTranslator.translate(['Hello world'], specialOptions);
+
+      expect(result).toEqual(['你好世界']);
+      expect(fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({
+            q: ['Hello world'],
+            source: 'en',
+            target: 'zh-CN',
+            format: 'html',
+          }),
+        }),
+      );
+    });
+
+    it('should decode HTML apostrophes in translated text', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: 'Aujourd&#39;hui' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ['Today'];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(["Aujourd'hui"]);
+    });
+
+    it('should handle multiple apostrophes in a single translation', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: 'C&#39;est l&#39;été' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ["It's summer"];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(["C'est l'été"]);
+    });
+
+    it('should decode apostrophes in multiple translations', async () => {
+      const mockResponse = {
+        data: {
+          translations: [
+            { translatedText: 'C&#39;est magnifique' },
+            { translatedText: 'L&#39;amour c&#39;est' },
+            { translatedText: 'J&#39;aime les roses' },
+          ],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ["It's great", 'Love is', 'I love roses'];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(["C'est magnifique", "L'amour c'est", "J'aime les roses"]);
+    });
+
+    it('should preserve text without apostrophes', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: 'Bonjour le monde' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ['Hello world'];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(['Bonjour le monde']);
+    });
+
+    it('should handle mixed content with apostrophes and other text', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: 'Aujourd&#39;hui, c&#39;est merveilleux!' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ["Today, it's wonderful!"];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(["Aujourd'hui, c'est merveilleux!"]);
+    });
+
+    it('should handle apostrophes with HTML tags', async () => {
+      const mockResponse = {
+        data: {
+          translations: [{ translatedText: '<p>C&#39;est <strong>l&#39;été</strong></p>' }],
+        },
+      };
+
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          statusText: 'OK',
+        }),
+      );
+
+      const texts = ["<p>It's <strong>summer</strong></p>"];
+      const result = await googleTranslator.translate(texts, mockOptions);
+
+      expect(result).toEqual(["<p>C'est <strong>l'été</strong></p>"]);
+    });
+  });
+
+  describe('Service Integration', () => {
+    it('should export all required properties for TranslationService interface', () => {
+      expect(googleTranslator).toHaveProperty('serviceId');
+      expect(googleTranslator).toHaveProperty('serviceLabel');
+      expect(googleTranslator).toHaveProperty('apiLabel');
+      expect(googleTranslator).toHaveProperty('developerURL');
+      expect(googleTranslator).toHaveProperty('apiKeyURL');
+      expect(googleTranslator).toHaveProperty('apiKeyPattern');
+      expect(googleTranslator).toHaveProperty('markdownSupported');
+      expect(googleTranslator).toHaveProperty('availability');
+      expect(googleTranslator).toHaveProperty('translate');
+    });
+
+    it('should have correct markdown support flag', () => {
+      expect(googleTranslator.markdownSupported).toBe(false);
+    });
+
+    it('should have function properties that are callable', () => {
+      expect(typeof availability).toBe('function');
+      expect(typeof googleTranslator.translate).toBe('function');
+    });
+  });
+
+  describe('Exported Helper Functions', () => {
+    describe('normalizeLanguage', () => {
+      it('should normalize locale codes correctly', () => {
+        expect(normalizeLanguage('en')).toBe('en');
+        expect(normalizeLanguage('fr')).toBe('fr');
+        expect(normalizeLanguage('zh-CN')).toBe('zh-CN');
+        expect(normalizeLanguage('pt-BR')).toBe('pt-BR');
+      });
+
+      it('should handle case variations', () => {
+        expect(normalizeLanguage('fr-fr')).toBe('fr-FR');
+        expect(normalizeLanguage('zh-cn')).toBe('zh-CN');
+        expect(normalizeLanguage('zh_TW')).toBe('zh-TW');
+        expect(normalizeLanguage('Pt-Br')).toBe('pt-BR');
+      });
+
+      it('should handle underscore separators', () => {
+        expect(normalizeLanguage('zh_CN')).toBe('zh-CN');
+        expect(normalizeLanguage('zh_TW')).toBe('zh-TW');
+        expect(normalizeLanguage('pt_BR')).toBe('pt-BR');
+      });
+
+      it('should fallback to Traditional Chinese (zh-TW) for Hong Kong and Macanese variants', () => {
+        expect(normalizeLanguage('zh-HK')).toBe('zh-TW');
+        expect(normalizeLanguage('zh-MO')).toBe('zh-TW');
+        expect(normalizeLanguage('zh_HK')).toBe('zh-TW'); // with underscore
+        expect(normalizeLanguage('zh_MO')).toBe('zh-TW'); // with underscore
+      });
+
+      it('should map script codes to the matching Chinese variant', () => {
+        expect(normalizeLanguage('zh-Hant')).toBe('zh-TW');
+        expect(normalizeLanguage('zh-hant')).toBe('zh-TW');
+        expect(normalizeLanguage('zh_Hant_TW')).toBe('zh-TW');
+        expect(normalizeLanguage('zh-Hant-HK')).toBe('zh-TW');
+        expect(normalizeLanguage('zh-Hans')).toBe('zh-CN');
+        expect(normalizeLanguage('zh-Hans-SG')).toBe('zh-CN');
+        expect(normalizeLanguage('zh-SG')).toBe('zh-CN');
+      });
+
+      it('should match supported codes that have a script code', () => {
+        expect(normalizeLanguage('pa-Arab')).toBe('pa-Arab');
+        expect(normalizeLanguage('pa-arab')).toBe('pa-Arab');
+        expect(normalizeLanguage('ms-Arab')).toBe('ms-Arab');
+        expect(normalizeLanguage('mni-Mtei')).toBe('mni-Mtei');
+        expect(normalizeLanguage('mni-MTEI-IN')).toBe('mni-Mtei');
+      });
+
+      it('should fall back to the language code for its usual script', () => {
+        expect(normalizeLanguage('sr-Cyrl')).toBe('sr');
+        expect(normalizeLanguage('sr-Cyrl-RS')).toBe('sr');
+        expect(normalizeLanguage('uz-Latn')).toBe('uz');
+        expect(normalizeLanguage('pa-Guru')).toBe('pa');
+        expect(normalizeLanguage('pt-Latn-BR')).toBe('pt-BR');
+        expect(normalizeLanguage('nb-Latn')).toBe('no');
+      });
+
+      it('should not fall back to the language code for another script', () => {
+        // Google writes `sr` and `mn` in Cyrillic, `uz` in Latin and `zh` in Simplified Chinese, so
+        // these would be translated into the wrong script
+        expect(normalizeLanguage('sr-Latn')).toBeUndefined();
+        expect(normalizeLanguage('sr-Latn-RS')).toBeUndefined();
+        expect(normalizeLanguage('mn-Mong')).toBeUndefined();
+        expect(normalizeLanguage('uz-Cyrl')).toBeUndefined();
+        expect(normalizeLanguage('zh-Latn')).toBeUndefined();
+        // Not a valid language code
+        expect(normalizeLanguage('unsupported-Latn')).toBeUndefined();
+      });
+
+      it('should use the script a region implies when there is no script code', () => {
+        // Punjabi in Pakistan is written in the Arabic script, and Google’s `pa` in Gurmukhi
+        expect(normalizeLanguage('pa-PK')).toBe('pa-Arab');
+        expect(normalizeLanguage('pa_pk')).toBe('pa-Arab');
+        expect(normalizeLanguage('pa-IN')).toBe('pa');
+        // Serbian in Montenegro is written in Latin, and Google’s `sr` is Cyrillic
+        expect(normalizeLanguage('sr-ME')).toBeUndefined();
+        expect(normalizeLanguage('sr-RS')).toBe('sr');
+        expect(normalizeLanguage('az-IR')).toBeUndefined();
+        expect(normalizeLanguage('zh-US')).toBe('zh-TW');
+        expect(normalizeLanguage('zh-MY')).toBe('zh-CN');
+        expect(normalizeLanguage('es-419')).toBe('es');
+        // Not a valid language code
+        expect(normalizeLanguage('unsupported-US')).toBeUndefined();
+      });
+
+      it('should map the Norwegian nb code to no', () => {
+        expect(normalizeLanguage('nb')).toBe('no');
+        expect(normalizeLanguage('nb-NO')).toBe('no');
+        expect(normalizeLanguage('no-NO')).toBe('no');
+      });
+
+      it('should fallback to language code when region is not supported', () => {
+        expect(normalizeLanguage('en-XX')).toBe('en');
+        expect(normalizeLanguage('fr-YY')).toBe('fr');
+        expect(normalizeLanguage('de-ZZ')).toBe('de');
+      });
+
+      it('should return undefined for completely unsupported languages', () => {
+        expect(normalizeLanguage('unsupported')).toBeUndefined();
+        expect(normalizeLanguage('xyz')).toBeUndefined();
+        expect(normalizeLanguage('')).toBeUndefined();
+        expect(normalizeLanguage('invalid-format-code')).toBeUndefined();
+      });
+
+      it('should handle edge cases', () => {
+        expect(normalizeLanguage('a')).toBeUndefined(); // too short
+        expect(normalizeLanguage('abcd')).toBeUndefined(); // too long without region
+        expect(normalizeLanguage('zh-')).toBe('zh'); // falls back to base language
+        expect(normalizeLanguage('-CN')).toBeUndefined(); // incomplete
+      });
+    });
+  });
+
+  describe('chunkTexts', () => {
+    it('should return no chunks for no texts', () => {
+      expect(chunkTexts([])).toEqual([]);
+    });
+
+    it('should split texts into chunks of at most 128 segments', () => {
+      const texts = Array.from({ length: 300 }, (_, index) => `Text ${index}`);
+      const chunks = chunkTexts(texts);
+
+      expect(chunks.map((chunk) => chunk.length)).toEqual([128, 128, 44]);
+      expect(chunks.flat()).toEqual(texts);
+    });
+
+    it('should split texts into chunks of at most 90,000 bytes', () => {
+      // 3 bytes per character in UTF-8
+      const texts = Array.from({ length: 4 }, () => 'あ'.repeat(10_000));
+      const chunks = chunkTexts(texts);
+
+      expect(chunks.map((chunk) => chunk.length)).toEqual([3, 1]);
+      expect(chunks.flat()).toEqual(texts);
+    });
+
+    it('should give a text larger than the byte budget a chunk of its own', () => {
+      const large = 'a'.repeat(100_000);
+
+      expect(chunkTexts(['a', large, 'b'])).toEqual([['a'], [large], ['b']]);
+    });
+  });
+
+  describe('Translation in multiple requests', () => {
+    it('should send more than 128 texts in several requests and keep the order', async () => {
+      const texts = Array.from({ length: 130 }, (_, index) => `Text ${index}`);
+      const mockFetch = vi.mocked(fetch);
+
+      mockFetch.mockImplementation(async (_url, init) => {
+        const { q } = JSON.parse(/** @type {string} */ (init?.body));
+
+        return new Response(
+          JSON.stringify({
+            data: {
+              translations: q.map((/** @type {string} */ t) => ({
+                translatedText: `${t.replace('Text', 'Texte')}&#39;`,
+              })),
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      });
+
+      const result = await googleTranslator.translate(texts, {
+        sourceLanguage: 'en',
+        targetLanguage: 'fr',
+        apiKey: 'AIzaSyB12345678901234567890123456789012',
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(/** @type {string} */ (mockFetch.mock.calls[0][1]?.body)).q).toHaveLength(
+        128,
+      );
+      expect(JSON.parse(/** @type {string} */ (mockFetch.mock.calls[1][1]?.body)).q).toEqual([
+        'Text 128',
+        'Text 129',
+      ]);
+      expect(result).toEqual(texts.map((t) => `${t.replace('Text', 'Texte')}'`));
+    });
+  });
+});

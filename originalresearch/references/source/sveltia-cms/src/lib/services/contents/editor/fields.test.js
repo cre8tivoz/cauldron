@@ -1,0 +1,1694 @@
+// @vitest-environment happy-dom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { getField } from '$lib/services/contents/entry/fields';
+
+import {
+  expandInvalidFields as _expandInvalidFields,
+  getInitialExpanderState as _getInitialExpanderState,
+  syncExpanderStates as _syncExpanderStates,
+  findEditorField,
+  getExpanderKeys,
+  highlightEditorField,
+  highlightPreviewTemplateField,
+  isExpanded,
+  revealEditorField,
+} from './fields.js';
+
+/**
+ * Spy recording every write to the mock draft’s expander states.
+ */
+const expanderWrites = vi.fn();
+
+/**
+ * Create an expander state map that records its writes with {@link expanderWrites}.
+ * @param {Record<string, boolean>} [initial] Initial states.
+ * @returns {Record<string, boolean>} State map.
+ */
+const createExpanderStates = (initial = {}) =>
+  new Proxy(initial, {
+    /**
+     * Record the write, then apply it.
+     * @param {Record<string, boolean>} obj Target object.
+     * @param {string} key Key path.
+     * @param {boolean} value State.
+     * @returns {boolean} `true` to signal success.
+     */
+    set: (obj, key, value) => {
+      expanderWrites(key, value);
+      obj[key] = value;
+
+      return true;
+    },
+  });
+
+/**
+ * Mock entry draft.
+ * @type {any}
+ */
+let mockState;
+/**
+ * Sync the mock draft’s expander states.
+ * @param {Record<string, boolean>} stateMap Map of key path and state.
+ * @returns {void} Nothing.
+ */
+const syncExpanderStates = (stateMap) => _syncExpanderStates({ draft: mockState, stateMap });
+/**
+ * Get an initial expander state in the mock draft.
+ * @param {any} args Arguments other than the draft.
+ * @returns {boolean} State.
+ */
+const getInitialExpanderState = (args) => _getInitialExpanderState({ draft: mockState, ...args });
+
+/**
+ * Expand the invalid fields in the mock draft, with the given properties overridden.
+ * @param {object} [override] Draft properties to override.
+ * @returns {void} Nothing.
+ */
+const expandInvalidFields = (override = {}) =>
+  _expandInvalidFields({ draft: { ...mockState, ...override } });
+
+/**
+ * Wait for the microtask in which `syncExpanderStates` writes its batched changes to the store.
+ * @returns {Promise<void>} Promise resolved after the flush.
+ */
+const flush = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: vi.fn(),
+}));
+
+describe('highlightEditorField', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', {
+      location: { origin: 'https://example.com' },
+      postMessage: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('posts a highlight message for the given field', () => {
+    const locale = 'en';
+    const keyPath = 'title';
+
+    highlightEditorField({ locale, keyPath });
+
+    expect(window.postMessage).toHaveBeenCalledWith(
+      { type: 'highlight-editor-field', payload: { locale, keyPath } },
+      'https://example.com',
+    );
+  });
+});
+
+describe('findEditorField', () => {
+  /** @type {HTMLElement} */
+  let pane;
+
+  /**
+   * Add a field to the pane.
+   * @param {string} keyPath Key path.
+   * @param {HTMLElement} [parent] Parent element.
+   * @returns {HTMLElement} Field element.
+   */
+  const addField = (keyPath, parent = pane) => {
+    const field = document.createElement('div');
+
+    field.className = 'field';
+    field.dataset.keyPath = keyPath;
+    parent.append(field);
+
+    return field;
+  };
+
+  beforeEach(() => {
+    pane = document.createElement('div');
+    pane.className = 'pane';
+    pane.dataset.mode = 'edit';
+    pane.dataset.locale = 'en';
+    document.body.innerHTML = '<div class="content-editor"></div>';
+    document.body.firstElementChild?.append(pane);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('returns a field that is already rendered', async () => {
+    addField('title');
+
+    const field = addField('body');
+
+    await expect(findEditorField({ locale: 'en', keyPath: 'body' })).resolves.toBe(field);
+  });
+
+  it('returns the path editor, marked with a validation key', async () => {
+    const field = document.createElement('div');
+
+    field.className = 'field';
+    field.dataset.validationKey = '_path';
+    pane.append(field);
+
+    await expect(findEditorField({ locale: 'en', keyPath: '_path' })).resolves.toBe(field);
+  });
+
+  it('scrolls to the last rendered field of the deepest rendered parent until it is rendered', async () => {
+    addField('title');
+
+    const sections = addField('sections');
+
+    addField('sections.0.heading', sections);
+
+    const heading = addField('sections.4.heading', sections);
+    /** @type {HTMLElement | undefined} */
+    let target;
+    /** @type {HTMLElement[]} */
+    const scrolled = [];
+
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(
+      /**
+       * Render the next field below the one scrolled to.
+       * @param {any} options Options.
+       * @this {HTMLElement}
+       */
+      function scroll(options) {
+        expect(options).toEqual({ block: 'center' });
+        scrolled.push(this);
+
+        if (this === heading) {
+          addField('sections.4.cards', sections);
+        } else {
+          target = addField('sections.4.cards.3.title', sections);
+        }
+      },
+    );
+
+    const field = await findEditorField({
+      locale: 'en',
+      keyPath: 'sections.4.cards.3.title',
+      interval: 0,
+    });
+
+    expect(field).toBe(target);
+    expect(scrolled.map((element) => element.dataset.keyPath)).toEqual([
+      'sections.4.heading',
+      'sections.4.cards',
+    ]);
+  });
+
+  it('scrolls to a parent field none of whose subfields are rendered', async () => {
+    addField('title');
+
+    const sections = addField('sections');
+
+    addField('sections.1.heading', sections);
+
+    const sliders = addField('sections.1.sliders', sections);
+
+    // A field below the collapsed slider items, which used to be scrolled to instead
+    addField('sections.1.footer', sections);
+
+    /** @type {HTMLElement | undefined} */
+    let target;
+    /** @type {HTMLElement[]} */
+    const scrolled = [];
+
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(
+      /**
+       * Render the slider fields once the Sliders list is scrolled to.
+       * @this {HTMLElement}
+       */
+      function scroll() {
+        scrolled.push(this);
+
+        if (this === sliders) {
+          target = addField('sections.1.sliders.4.label', sliders);
+        }
+      },
+    );
+
+    const field = await findEditorField({
+      locale: 'en',
+      keyPath: 'sections.1.sliders.4.label',
+      interval: 0,
+    });
+
+    expect(field).toBe(target);
+    expect(scrolled.map((element) => element.dataset.keyPath)).toEqual(['sections.1.sliders']);
+  });
+
+  it('scrolls to the last rendered field of the pane for a top-level field', async () => {
+    addField('title');
+
+    const description = addField('description');
+    const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+
+    await expect(
+      findEditorField({ locale: 'en', keyPath: 'body', interval: 0 }),
+    ).resolves.toBeNull();
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.contexts[0]).toBe(description);
+  });
+
+  it('returns `null` if no parent is rendered', async () => {
+    const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+
+    await expect(
+      findEditorField({ locale: 'en', keyPath: 'title', interval: 0 }),
+    ).resolves.toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('returns `null` if the pane is not found', async () => {
+    addField('title');
+
+    await expect(findEditorField({ locale: 'fr', keyPath: 'title' })).resolves.toBeNull();
+  });
+
+  it('returns `null` if the pane is removed while scrolling', async () => {
+    addField('title');
+
+    const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {
+      pane.remove();
+    });
+
+    await expect(
+      findEditorField({ locale: 'en', keyPath: 'body', interval: 0 }),
+    ).resolves.toBeNull();
+    expect(spy).toHaveBeenCalledOnce();
+  });
+
+  it('gives up after the given number of attempts', async () => {
+    const list = addField('list');
+    let count = 0;
+
+    const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {
+      count += 1;
+      addField(`list.${count}`, list);
+    });
+
+    await expect(
+      findEditorField({ locale: 'en', keyPath: 'list.9', maxAttempts: 3, interval: 0 }),
+    ).resolves.toBeNull();
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('revealEditorField', () => {
+  /** @type {any} */
+  let draft;
+  /** @type {HTMLElement} */
+  let field;
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div class="content-editor">
+        <div class="pane" data-mode="edit" data-locale="en">
+          <div class="field" data-key-path="items.0.title">
+            <div class="field-wrapper"><button type="button"></button><input></div>
+          </div>
+        </div>
+      </div>
+    `;
+    field = /** @type {HTMLElement} */ (document.querySelector('.field'));
+    draft = {
+      collectionName: 'posts',
+      fileName: undefined,
+      isIndexFile: false,
+      currentValues: { en: { 'items.0.title': 'Hello' } },
+      expanderStates: { _: {} },
+    };
+    vi.mocked(getField).mockImplementation(({ keyPath }) =>
+      keyPath === 'items' ? /** @type {any} */ ({ name: 'items', widget: 'list' }) : undefined,
+    );
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('expands the parents, scrolls to the field and focuses its first control', async () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+
+    await revealEditorField({ draft, locale: 'en', keyPath: 'items.0.title' });
+
+    expect(getField).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionName: 'posts', valueMap: draft.currentValues.en }),
+    );
+    expect(draft.expanderStates._).toEqual({ 'items#': true });
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(scroll.mock.contexts[0]).toBe(field);
+    expect(document.activeElement).toBe(field.querySelector('input, button'));
+  });
+
+  it('scrolls only if needed where supported, and prefers a focusable widget', async () => {
+    const scrollIntoViewIfNeeded = vi.fn();
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+    const widget = document.createElement('div');
+
+    widget.tabIndex = 0;
+    field.querySelector('.field-wrapper')?.append(widget);
+    Object.assign(field, { scrollIntoViewIfNeeded });
+
+    await revealEditorField({ draft, locale: 'en', keyPath: 'items.0.title' });
+
+    expect(scrollIntoViewIfNeeded).toHaveBeenCalledOnce();
+    expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(widget);
+  });
+
+  it('leaves the field alone once a newer request has come in', async () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+
+    await revealEditorField({
+      draft,
+      locale: 'en',
+      keyPath: 'items.0.title',
+      isOutdated: vi.fn(() => true),
+    });
+
+    expect(draft.expanderStates._).toEqual({ 'items#': true });
+    expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('does nothing more if the field can’t be found', async () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+
+    await revealEditorField({ draft, locale: 'fr', keyPath: 'items.0.title' });
+
+    expect(getField).toHaveBeenCalledWith(expect.objectContaining({ valueMap: {} }));
+    expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('skips the focus if the field has no control', async () => {
+    field.querySelector('.field-wrapper')?.remove();
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+
+    await revealEditorField({ draft, locale: 'en', keyPath: 'items.0.title' });
+
+    expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe('highlightPreviewTemplateField', () => {
+  /**
+   * Create an element-like target.
+   * @param {string | null} keyPath Value of the `data-key-path` attribute.
+   * @param {any} [parent] Parent element.
+   * @returns {any} Element.
+   */
+  const createElementLike = (keyPath, parent) => {
+    /** @type {any} */
+    const element = {
+      getAttribute: vi.fn(() => keyPath),
+      closest: vi.fn(() => (keyPath !== null ? element : (parent?.closest() ?? null))),
+    };
+
+    return element;
+  };
+
+  /**
+   * Call the function with an event.
+   * @param {any} event Event-like object.
+   * @param {string} [locale] Locale.
+   */
+  const run = (event, locale = 'en') => {
+    highlightPreviewTemplateField({ event, locale });
+  };
+
+  /**
+   * Get the key paths of the fields that have been highlighted.
+   * @returns {string[]} Key paths.
+   */
+  const getHighlightedKeyPaths = () =>
+    vi.mocked(window.postMessage).mock.calls.map(([{ payload }]) => payload.keyPath);
+
+  beforeEach(() => {
+    vi.stubGlobal('window', {
+      location: { origin: 'https://example.com' },
+      postMessage: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('highlights the field of the clicked element', () => {
+    const target = createElementLike('sections.0.heading');
+
+    run({ type: 'click', target }, 'fr');
+
+    expect(target.closest).toHaveBeenCalledWith('[data-key-path]');
+    expect(window.postMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: 'highlight-editor-field', payload: { locale: 'fr', keyPath: 'sections.0.heading' } },
+      'https://example.com',
+    );
+  });
+
+  it('highlights the field of the closest marked ancestor', () => {
+    run({ type: 'click', target: createElementLike(null, createElementLike('sections.1')) });
+
+    expect(getHighlightedKeyPaths()).toEqual(['sections.1']);
+  });
+
+  it('does nothing when no element or an empty key path is marked', () => {
+    run({ type: 'click', target: createElementLike(null) });
+    run({ type: 'click', target: createElementLike('') });
+
+    expect(window.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the document is clicked', () => {
+    run({ type: 'click', target: {} });
+
+    expect(window.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the template has prevented the default action', () => {
+    run({ type: 'click', target: createElementLike('title'), defaultPrevented: true });
+    run({
+      type: 'keydown',
+      key: 'Enter',
+      target: createElementLike('title'),
+      defaultPrevented: true,
+    });
+
+    expect(window.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('highlights the field when Enter is pressed on the marked element', () => {
+    const target = createElementLike('title');
+
+    run({ type: 'keydown', key: 'Enter', target });
+
+    expect(target.closest).not.toHaveBeenCalled();
+    expect(getHighlightedKeyPaths()).toEqual(['title']);
+  });
+
+  it('ignores Enter pressed on an element inside the marked element', () => {
+    run({
+      type: 'keydown',
+      key: 'Enter',
+      target: createElementLike(null, createElementLike('title')),
+    });
+
+    expect(window.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('ignores other keys', () => {
+    run({ type: 'keydown', key: ' ', target: createElementLike('title') });
+
+    expect(window.postMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('editor/fields', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Reset the mock draft state
+    mockState = {
+      collectionName: 'posts',
+      fileName: undefined,
+      expanderStates: { _: createExpanderStates() },
+      currentValues: {},
+      validities: {},
+      isIndexFile: false,
+    };
+  });
+
+  describe('function exports', () => {
+    it('should export all expected functions', () => {
+      expect(typeof getInitialExpanderState).toBe('function');
+      expect(typeof syncExpanderStates).toBe('function');
+      expect(typeof getExpanderKeys).toBe('function');
+      expect(typeof expandInvalidFields).toBe('function');
+    });
+  });
+
+  describe('isExpanded', () => {
+    it('should return the stored state', () => {
+      const draft = { expanderStates: { _: { 'authors.0': false, 'details#': true } } };
+
+      expect(isExpanded(/** @type {any} */ (draft), 'authors.0')).toBe(false);
+      expect(isExpanded(/** @type {any} */ (draft), 'details#')).toBe(true);
+    });
+
+    it('should default to expanded when no state is stored', () => {
+      expect(isExpanded(/** @type {any} */ ({ expanderStates: { _: {} } }), 'authors.1')).toBe(
+        true,
+      );
+      expect(isExpanded(/** @type {any} */ ({}), 'authors.1')).toBe(true);
+      expect(isExpanded(undefined, 'authors.1')).toBe(true);
+    });
+  });
+
+  describe('getInitialExpanderState', () => {
+    it('should handle basic parameters without throwing', () => {
+      expect(() => {
+        getInitialExpanderState({
+          key: 'test.0',
+          locale: 'en',
+          collapsed: false,
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle empty key parameter', () => {
+      expect(() => {
+        getInitialExpanderState({
+          key: '',
+          locale: 'en',
+          collapsed: true,
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle different collapsed values', () => {
+      expect(() => {
+        getInitialExpanderState({
+          key: 'field.1',
+          locale: 'en',
+          collapsed: true,
+        });
+      }).not.toThrow();
+
+      expect(() => {
+        getInitialExpanderState({
+          key: 'field.2',
+          locale: 'en',
+          collapsed: false,
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle different locale values', () => {
+      expect(() => {
+        getInitialExpanderState({
+          key: 'test',
+          locale: 'ja',
+          collapsed: false,
+        });
+      }).not.toThrow();
+
+      expect(() => {
+        getInitialExpanderState({
+          key: 'test',
+          locale: 'fr',
+          collapsed: false,
+        });
+      }).not.toThrow();
+    });
+  });
+
+  describe('getExpanderKeys', () => {
+    it('should handle valid parameters', () => {
+      expect(() => {
+        getExpanderKeys({
+          collectionName: 'posts',
+          fileName: undefined,
+          valueMap: {},
+          keyPath: 'test',
+          isIndexFile: false,
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle with fileName', () => {
+      expect(() => {
+        getExpanderKeys({
+          collectionName: 'articles',
+          fileName: 'test.md',
+          valueMap: {},
+          keyPath: 'content',
+          isIndexFile: false,
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle index file scenario', () => {
+      expect(() => {
+        getExpanderKeys({
+          collectionName: 'pages',
+          fileName: '_index.md',
+          valueMap: {},
+          keyPath: 'sections',
+          isIndexFile: true,
+        });
+      }).not.toThrow();
+    });
+  });
+
+  describe('syncExpanderStates', () => {
+    it('should handle basic state map', () => {
+      expect(() => {
+        syncExpanderStates({
+          'field.0': true,
+          'content#': false,
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle empty state map', () => {
+      expect(() => {
+        syncExpanderStates({});
+      }).not.toThrow();
+    });
+
+    it('should handle complex nested paths', () => {
+      expect(() => {
+        syncExpanderStates({
+          'sections.0.items.1': true,
+          'metadata.tags.2': false,
+          'author.profile#': true,
+        });
+      }).not.toThrow();
+    });
+
+    it('should write to the draft when executed', async () => {
+      syncExpanderStates({
+        'test.field': true,
+      });
+
+      // The function should attempt to update the draft
+      await flush();
+      expect(expanderWrites).toHaveBeenCalledWith('test.field', true);
+    });
+
+    it('should skip update when state already matches (lines 54-56)', async () => {
+      mockState.expanderStates = {
+        _: createExpanderStates({
+          'field.0': true,
+          'content#': false,
+        }),
+      };
+
+      syncExpanderStates({
+        'field.0': true,
+        'content#': false,
+      });
+
+      // Writing to the store would re-render the whole editor, so it must be skipped entirely
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should update state when it differs (lines 54-56 opposite branch)', async () => {
+      mockState.expanderStates = {
+        _: createExpanderStates({
+          'field.0': false,
+          'content#': true,
+        }),
+      };
+
+      syncExpanderStates({
+        'field.0': true,
+        'content#': false,
+      });
+
+      await flush();
+      expect(expanderWrites).toHaveBeenCalled();
+      // After the update, the state should be changed
+      expect(mockState.expanderStates._['field.0']).toBe(true);
+      expect(mockState.expanderStates._['content#']).toBe(false);
+    });
+
+    it('should do nothing when the draft has no expander states', async () => {
+      mockState.expanderStates = undefined;
+
+      syncExpanderStates({ 'field.0': true });
+
+      await flush();
+
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should coalesce calls made in the same tick into a single write', async () => {
+      // One call per mounting Object/List editor
+      syncExpanderStates({ 'a#': true });
+      syncExpanderStates({ 'b#': false });
+      syncExpanderStates({ 'c#': true });
+
+      // Nothing is written until the tick ends
+      expect(expanderWrites).not.toHaveBeenCalled();
+
+      await flush();
+
+      expect(expanderWrites).toHaveBeenCalledTimes(3);
+      expect(mockState.expanderStates._).toEqual({ 'a#': true, 'b#': false, 'c#': true });
+    });
+
+    it('should keep the pending states of different drafts apart', async () => {
+      /** @type {any} */
+      const otherDraft = { expanderStates: { _: createExpanderStates() } };
+
+      syncExpanderStates({ 'a#': true });
+      _syncExpanderStates({ draft: otherDraft, stateMap: { 'b#': false } });
+
+      await flush();
+
+      expect(mockState.expanderStates._).toEqual({ 'a#': true });
+      expect(otherDraft.expanderStates._).toEqual({ 'b#': false });
+    });
+
+    it('should treat a queued state as the current one', async () => {
+      syncExpanderStates({ 'queued#': false });
+
+      // Not written to the draft yet, but must already be visible to a remounting editor
+      expect(mockState.expanderStates._['queued#']).toBeUndefined();
+      expect(getInitialExpanderState({ key: 'queued#', locale: 'en', collapsed: false })).toBe(
+        false,
+      );
+
+      // A repeat of the queued state is a no-op, so it must not add another write
+      syncExpanderStates({ 'queued#': false });
+
+      await flush();
+
+      expect(expanderWrites).toHaveBeenCalledTimes(1);
+      expect(mockState.expanderStates._['queued#']).toBe(false);
+    });
+
+    it('should not write to the draft when the state map is empty', async () => {
+      syncExpanderStates({});
+
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('expandInvalidFields', () => {
+    it('should handle valid parameters', () => {
+      expect(() => {
+        expandInvalidFields({
+          collectionName: 'posts',
+          fileName: undefined,
+          currentValues: { en: {} },
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle with fileName', () => {
+      expect(() => {
+        expandInvalidFields({
+          collectionName: 'articles',
+          fileName: 'test.md',
+          currentValues: { en: {}, ja: {} },
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle empty currentValues', () => {
+      expect(() => {
+        expandInvalidFields({
+          collectionName: 'pages',
+          fileName: undefined,
+          currentValues: {},
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle complex currentValues', () => {
+      expect(() => {
+        expandInvalidFields({
+          collectionName: 'blog',
+          fileName: 'post.md',
+          currentValues: {
+            en: { title: 'Test', content: 'Content' },
+            ja: { title: 'テスト', content: 'コンテンツ' },
+          },
+        });
+      }).not.toThrow();
+    });
+
+    it('should not write to the draft when nothing has to be expanded', async () => {
+      expandInvalidFields({
+        collectionName: 'test',
+        currentValues: { en: {} },
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the draft
+      // must be left untouched
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should expand the parent object of an invalid nested field', async () => {
+      mockState.validities = { en: { 'details.title': { valid: false } } };
+      mockState.currentValues = { en: { 'details.title': '' } };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) =>
+        keyPath === 'details'
+          ? { name: 'details', widget: 'object', fields: [] }
+          : { name: 'title', widget: 'string' },
+      );
+
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      await flush();
+      expect(expanderWrites).toHaveBeenCalled();
+      expect(mockState.expanderStates._['details#']).toBe(true);
+    });
+  });
+
+  describe('integration behavior', () => {
+    it('should work with mocked dependencies', () => {
+      // Set up mock return values
+      vi.mocked(getField).mockReturnValue({
+        name: 'testField',
+        widget: 'string',
+      });
+
+      // Test that functions can be called with mocked dependencies
+      expect(() => {
+        getInitialExpanderState({
+          key: 'test',
+          locale: 'en',
+          collapsed: false,
+        });
+
+        syncExpanderStates({
+          'test.field': true,
+        });
+
+        expandInvalidFields({
+          collectionName: 'test',
+          currentValues: { en: {} },
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle draft writes', async () => {
+      syncExpanderStates({
+        field1: true,
+        field2: false,
+      });
+
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: { en: {} },
+      });
+
+      // Only `syncExpanderStates` writes: `expandInvalidFields` has no invalid field to expand,
+      // so it produces an empty state map and must not touch the draft
+      await flush();
+      expect(expanderWrites).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getInitialExpanderState - auto collapsed behavior', () => {
+    it('should handle collapsed auto with values', () => {
+      mockState.currentValues = {
+        en: {
+          'details.title': 'Test',
+          'details.content': 'Content',
+        },
+      };
+
+      const result = getInitialExpanderState({
+        key: 'details#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('should handle collapsed auto without values', () => {
+      mockState.currentValues = {
+        en: {},
+      };
+
+      const result = getInitialExpanderState({
+        key: 'details#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('should collapse with auto only when a direct subfield has a value', () => {
+      /**
+       * Get the state of the `section` object for the given values.
+       * @param {Record<string, any>} values Values.
+       * @returns {boolean} Whether the object is expanded.
+       */
+      const getState = (values) => {
+        mockState.currentValues = { en: values };
+
+        return getInitialExpanderState({ key: 'section#', locale: 'en', collapsed: 'auto' });
+      };
+
+      expect(getState({ 'section.title': 'Hi' })).toBe(false);
+      expect(getState({ 'section.title': '' })).toBe(true);
+      // Neither a value further down nor one of a field whose name starts the same way counts
+      expect(getState({ 'section.meta.title': 'Hi', 'sections.title': 'Hi' })).toBe(true);
+      expect(getState({ 'other.title': 'Hi', 'section.body': 'Text' })).toBe(false);
+    });
+
+    it('should use existing state if available', () => {
+      mockState.expanderStates = { _: { 'test.0': true } };
+
+      const result = getInitialExpanderState({
+        key: 'test.0',
+        locale: 'en',
+        collapsed: false,
+      });
+
+      expect(result).toBe(true);
+    });
+
+    it('should return false when existing state is false', () => {
+      mockState.expanderStates = { _: { 'test.0': false } };
+
+      const result = getInitialExpanderState({
+        key: 'test.0',
+        locale: 'en',
+        collapsed: true,
+      });
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('getExpanderKeys - field types', () => {
+    it('should handle object field', () => {
+      vi.mocked(getField).mockReturnValue({
+        name: 'details',
+        widget: 'object',
+        fields: [],
+      });
+
+      const keys = getExpanderKeys({
+        collectionName: 'posts',
+        valueMap: {},
+        keyPath: 'details',
+      });
+
+      expect(Array.isArray(keys)).toBe(true);
+    });
+
+    it('should handle list field', () => {
+      vi.mocked(getField).mockReturnValue({
+        name: 'items',
+        widget: 'list',
+        field: { name: 'item', widget: 'string' },
+      });
+
+      const keys = getExpanderKeys({
+        collectionName: 'posts',
+        valueMap: {},
+        keyPath: 'items.0',
+      });
+
+      expect(Array.isArray(keys)).toBe(true);
+    });
+
+    it('should handle nested paths with numbers', () => {
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'sections') {
+          return { name: 'sections', widget: 'list', field: { widget: 'object' } };
+        }
+
+        if (keyPath === 'sections.0') {
+          return { name: 'section', widget: 'object', fields: [] };
+        }
+
+        return undefined;
+      });
+
+      const keys = getExpanderKeys({
+        collectionName: 'pages',
+        valueMap: {},
+        keyPath: 'sections.0.title',
+      });
+
+      expect(Array.isArray(keys)).toBe(true);
+      expect(keys.length).toBeGreaterThan(0);
+    });
+
+    it('should handle parent object with fields', () => {
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'parent') {
+          return { name: 'parent', widget: 'object', fields: [] };
+        }
+
+        return { name: 'child', widget: 'string' };
+      });
+
+      const keys = getExpanderKeys({
+        collectionName: 'test',
+        valueMap: {},
+        keyPath: 'parent.child',
+      });
+
+      expect(Array.isArray(keys)).toBe(true);
+    });
+
+    it('should handle parent list with field', () => {
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'items') {
+          return { name: 'items', widget: 'list', field: { widget: 'string' } };
+        }
+
+        return undefined;
+      });
+
+      const keys = getExpanderKeys({
+        collectionName: 'test',
+        valueMap: {},
+        keyPath: 'items.0',
+      });
+
+      expect(Array.isArray(keys)).toBe(true);
+    });
+
+    it('should expand an item of a list field with variable types', () => {
+      const sections = {
+        name: 'sections',
+        widget: 'list',
+        types: [
+          { name: 'hero', fields: [{ name: 'heading' }] },
+          { name: 'text', fields: [{ name: 'heading' }, { name: 'body', widget: 'text' }] },
+        ],
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'sections') {
+          return sections;
+        }
+
+        if (keyPath === 'sections.2') {
+          // The resolved type has no `widget`
+          return sections.types[1];
+        }
+
+        if (keyPath === 'sections.2.heading') {
+          return { name: 'heading' };
+        }
+
+        return undefined;
+      });
+
+      expect(
+        getExpanderKeys({ collectionName: 'pages', valueMap: {}, keyPath: 'sections.2.heading' }),
+      ).toEqual(['sections#', 'sections.2']);
+    });
+  });
+
+  describe('expandInvalidFields - validity handling', () => {
+    it('should handle invalid fields', () => {
+      mockState.validities = {
+        en: {
+          title: { valid: false },
+          content: { valid: true },
+        },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'title',
+        widget: 'string',
+      });
+
+      expect(() => {
+        expandInvalidFields({
+          collectionName: 'posts',
+          currentValues: { en: { title: '', content: 'test' } },
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle multiple locales with validities', () => {
+      mockState.validities = {
+        en: {
+          field1: { valid: false },
+        },
+        ja: {
+          field2: { valid: false },
+        },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'field',
+        widget: 'string',
+      });
+
+      expect(() => {
+        expandInvalidFields({
+          collectionName: 'posts',
+          currentValues: {
+            en: { field1: '' },
+            ja: { field2: '' },
+          },
+        });
+      }).not.toThrow();
+    });
+
+    it('should skip valid fields', async () => {
+      mockState.validities = {
+        en: {
+          field1: { valid: true },
+          field2: { valid: true },
+        },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'field',
+        widget: 'string',
+      });
+
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: { en: { field1: 'a', field2: 'b' } },
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should expand expander keys for invalid fields (line 141)', async () => {
+      mockState.validities = {
+        en: {
+          'details.title': { valid: false },
+          'details.content': { valid: true },
+        },
+      };
+
+      mockState.currentValues = {
+        en: {
+          'details.title': 'Test',
+          'details.content': 'Content',
+        },
+      };
+
+      // Mock getExpanderKeys to return some keys to exercise the forEach loop on line 141
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'details.title') {
+          return { name: 'title', widget: 'string' };
+        }
+
+        return undefined;
+      });
+
+      // This should exercise the forEach at line 141
+      expandInvalidFields({
+        collectionName: 'posts',
+        fileName: 'post.md',
+        currentValues: mockState.currentValues,
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should handle getExpanderKeys returning multiple keys for an invalid field', async () => {
+      // Create a nested invalid field
+      mockState.validities = {
+        en: {
+          'author.details': { valid: false },
+        },
+      };
+
+      mockState.currentValues = {
+        en: {
+          'author.details': 'some value',
+          'author.name': 'John',
+        },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'author',
+        widget: 'object',
+      });
+
+      // This tests the forEach loop when getExpanderKeys returns multiple keys
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      await flush();
+      expect(expanderWrites).toHaveBeenCalled();
+    });
+
+    it('should handle multiple invalid fields in the same locale (line 131)', async () => {
+      mockState.validities = {
+        en: {
+          field1: { valid: false },
+          field2: { valid: false },
+          field3: { valid: true },
+        },
+      };
+
+      mockState.currentValues = {
+        en: {
+          field1: 'value1',
+          field2: 'value2',
+          field3: 'value3',
+        },
+      };
+
+      // Mock getExpanderKeys to return keys for each invalid field
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'field1') {
+          return { name: 'field1', widget: 'string' };
+        }
+
+        if (keyPath === 'field2') {
+          return { name: 'field2', widget: 'string' };
+        }
+
+        return undefined;
+      });
+
+      // This should exercise the inner forEach at line 141
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should exercise the conditional branch at line 38 with regex test (collapsed auto)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'details.title': 'Test',
+          'details.description': '',
+          'details.content': 'Some content',
+        },
+      };
+
+      // When collapsed is 'auto', should check for values matching the regex
+      const result = getInitialExpanderState({
+        key: 'details#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // With values present, should return false (not collapsed, i.e., expanded)
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('should exercise line 38 with no matching values (collapsed auto)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'other.field': 'value',
+        },
+      };
+
+      // When collapsed is 'auto' and no matching values exist
+      const result = getInitialExpanderState({
+        key: 'details#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) when no matching values
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 38 regex test with matching value (collapsed auto expands)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'section.title': 'My Section', // Matches regex ^section\.[^\.]+$ with truthy value
+          'section.content': 'Content here', // Also matches
+          'other.data': 'other', // Does not match regex for 'section#'
+        },
+      };
+
+      // When collapsed is 'auto' and matching values exist with truthy values
+      const result = getInitialExpanderState({
+        key: 'section#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return false (expanded) when matching values exist
+      // This exercises the regex.test && !!value branch returning true, then ! negates to false
+      expect(result).toBe(false);
+    });
+
+    it('should exercise line 38 regex test with falsy values (collapsed auto)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'section.title': '',
+          'section.content': null,
+          'section.empty': undefined,
+        },
+      };
+
+      // When collapsed is 'auto' and matching keys exist but all values are falsy
+      const result = getInitialExpanderState({
+        key: 'section#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) when all matching values are falsy
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 38 with 0 as value (falsy but valid)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'count.value': 0, // 0 is falsy, so !!0 is false
+          'other.number': 5,
+        },
+      };
+
+      // When collapsed is 'auto' and matching key has falsy value (0)
+      const result = getInitialExpanderState({
+        key: 'count#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) since 0 is falsy
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 38 regex branch where regex.test fails', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          section: 'value', // No dot, so regex won't match ^section\.[^\.]+$
+          'deep.nested.field': 'value', // Too many dots
+          'other.field': 'truthy',
+        },
+      };
+
+      // When collapsed is 'auto' and regex doesn't match any keys
+      const result = getInitialExpanderState({
+        key: 'section#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) since no keys match the regex
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 38 with mixed matching and non-matching keys', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'meta.title': 'Test', // Matches regex and truthy
+          metadata: 'value', // Doesn't match (no dot after meta)
+          'meta.desc': '', // Matches regex but falsy
+        },
+      };
+
+      // When collapsed is 'auto' with one matching truthy value
+      const result = getInitialExpanderState({
+        key: 'meta#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return false (expanded) due to meta.title being truthy
+      expect(result).toBe(false);
+    });
+
+    it('should exercise line 38 with first entry matching truthy condition', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'author.name': 'John Doe', // First entry, matches and truthy
+          'other.field': 'value',
+        },
+      };
+
+      // This should hit the early exit of .some() since first entry matches
+      const result = getInitialExpanderState({
+        key: 'author#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return false (expanded)
+      expect(result).toBe(false);
+    });
+
+    it('should exercise line 38 with regex special characters (needs escaping)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {
+          'config[].name': 'value', // Special regex chars that need escaping
+          'config[].value': 'test',
+        },
+      };
+
+      // When key contains special regex characters
+      const result = getInitialExpanderState({
+        key: 'config[]#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should handle the escaped regex properly
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('should exercise line 38 empty valueMap case', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: {}, // Empty map
+      };
+
+      // When valueMap is empty
+      const result = getInitialExpanderState({
+        key: 'field#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) when no entries at all
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 38 with undefined locale in currentValues', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        // 'en' locale not present, will use ?? {} fallback
+      };
+
+      // When locale doesn't exist in currentValues
+      const result = getInitialExpanderState({
+        key: 'field#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) when valueMap is empty from ?? {}
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 38 with null valueMap (using ?? fallback)', () => {
+      mockState.expanderStates = { _: createExpanderStates() };
+      mockState.currentValues = {
+        en: null, // Explicitly null
+      };
+
+      // When currentValues[locale] is null
+      const result = getInitialExpanderState({
+        key: 'field#',
+        locale: 'en',
+        collapsed: 'auto',
+      });
+
+      // Should return true (collapsed) when valueMap becomes {} from ?? fallback
+      expect(result).toBe(true);
+    });
+
+    it('should exercise line 131 with multiple invalid fields per locale', async () => {
+      mockState.validities = {
+        en: {
+          field1: { valid: false },
+          field2: { valid: false },
+          field3: { valid: false },
+        },
+      };
+
+      mockState.currentValues = {
+        en: {
+          field1: 'value1',
+          field2: 'value2',
+          field3: 'value3',
+        },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'field',
+        widget: 'string',
+      });
+
+      // This directly exercises the inner forEach at line 131 with multiple iterations
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should exercise line 131 forEach with getExpanderKeys returning keys (line 138-141)', async () => {
+      mockState.validities = {
+        en: {
+          'author.profile': { valid: false },
+        },
+        ja: {
+          'author.bio': { valid: false },
+        },
+      };
+
+      mockState.currentValues = {
+        en: {
+          'author.profile': 'profile value',
+          'author.name': 'John',
+        },
+        ja: {
+          'author.bio': 'bio value',
+          'author.name': 'ジョン',
+        },
+      };
+
+      vi.mocked(getField).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'author.profile') {
+          return { name: 'profile', widget: 'object', fields: [] };
+        }
+
+        if (keyPath === 'author.bio') {
+          return { name: 'bio', widget: 'object', fields: [] };
+        }
+
+        return { name: keyPath, widget: 'string' };
+      });
+
+      // This exercises the nested forEach loops at lines 131 and 138-141 across multiple locales
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      await flush();
+      expect(expanderWrites).toHaveBeenCalled();
+    });
+
+    it('should handle empty validityMap for a locale (line 131)', async () => {
+      mockState.validities = {
+        en: {}, // Empty validity map for en
+        ja: {
+          title: { valid: false },
+        },
+      };
+
+      mockState.currentValues = {
+        en: { title: 'Test' },
+        ja: { title: 'テスト' },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'title',
+        widget: 'string',
+      });
+
+      // This exercises the forEach at line 131 with an empty validityMap
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should skip valid fields at line 132-137 (valid: true)', async () => {
+      mockState.validities = {
+        en: {
+          field1: { valid: true }, // valid is true, should skip
+          field2: { valid: false }, // valid is false, should process
+        },
+      };
+
+      mockState.currentValues = {
+        en: {
+          field1: 'value1',
+          field2: 'value2',
+        },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'field',
+        widget: 'string',
+      });
+
+      // This exercises the if (!valid) check at line 132
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+
+    it('should handle null validities (line 131 with ?? fallback)', async () => {
+      mockState.validities = null; // null validities, should use ?? {} fallback
+
+      mockState.currentValues = {
+        en: { title: 'Test' },
+      };
+
+      vi.mocked(getField).mockReturnValue({
+        name: 'title',
+        widget: 'string',
+      });
+
+      // This exercises Object.entries(validities ?? {}) when validities is null
+      expandInvalidFields({
+        collectionName: 'posts',
+        currentValues: mockState.currentValues,
+      });
+
+      // No expandable object/list ancestor, so the state map is empty and the store
+      // must be left untouched to avoid re-rendering the whole editor
+      await flush();
+      expect(expanderWrites).not.toHaveBeenCalled();
+    });
+  });
+});

@@ -1,0 +1,1633 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import {
+  extractDateTime,
+  fillEntryPathTemplate,
+  getEntryPreviewURL,
+  getEntryRepoBlobURL,
+} from '$lib/services/contents/entry/index';
+
+/**
+ * @import { Entry, InternalCollection, InternalCollectionFile, } from '$lib/types/private';
+ */
+
+// Mock the dependencies
+vi.mock('$lib/services/config');
+vi.mock('$lib/services/contents/collection/entries/index-file');
+vi.mock('$lib/services/common/template');
+vi.mock('$lib/services/contents');
+vi.mock('$lib/services/contents/folders');
+vi.mock('$lib/services/contents/collection');
+vi.mock('$lib/services/backends', () => ({
+  backend: {
+    current: {
+      repository: {
+        blobBaseURL: 'https://github.com/user/repo/blob/main',
+      },
+    },
+  },
+}));
+
+// The real implementation caches its formatter for the browser’s time zone, which a test changing
+// `process.env.TZ` would otherwise keep reading the first zone from
+vi.mock('@sveltia/utils/datetime', () => ({
+  getDateTimeParts: vi.fn(({ date = new Date(), timeZone = undefined } = {}) => {
+    /** @type {Intl.DateTimeFormatOptions} */
+    const options = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'longOffset',
+    };
+
+    return Object.fromEntries(
+      new Intl.DateTimeFormat('en-US', { ...options, hourCycle: 'h23', timeZone })
+        .formatToParts(date)
+        .filter(({ type }) => type in options)
+        .map(({ type, value }) => [type, value]),
+    );
+  }),
+}));
+
+describe('Test getEntryPreviewURL()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** @type {Entry} */
+  const mockEntry = {
+    id: 'test-entry',
+    slug: 'test-entry',
+    subPath: 'test-entry',
+    locales: {
+      en: {
+        slug: 'test-entry',
+        path: 'content/posts/test-entry.md',
+        content: {
+          title: 'Test Entry',
+          date: '2024-01-15T10:30:00Z',
+          tags: ['test', 'example'],
+        },
+      },
+      ja: {
+        slug: 'テスト-エントリ',
+        path: 'content/posts/テスト-エントリ.md',
+        content: {
+          title: 'テストエントリ',
+          date: '2024-01-15T10:30:00Z',
+          tags: ['テスト', '例'],
+        },
+      },
+    },
+  };
+
+  /** @type {InternalCollection} */
+  const mockCollection = {
+    name: 'posts',
+    folder: 'content/posts',
+    preview_path: '/posts/{{slug}}',
+    fields: [
+      {
+        name: 'title',
+        widget: 'string',
+      },
+      {
+        name: 'date',
+        widget: 'datetime',
+        format: 'YYYY-MM-DDTHH:mm:ssZ',
+      },
+    ],
+    _type: 'entry',
+    _file: {
+      extension: 'md',
+      format: 'yaml-frontmatter',
+      basePath: 'content/posts',
+    },
+    _i18n: {
+      i18nEnabled: false,
+      saveAllLocales: false,
+      allLocales: ['en'],
+      initialLocales: ['en'],
+      defaultLocale: 'en',
+      structure: 'single_file',
+      structureMap: {
+        i18nSingleFile: true,
+        i18nSingleFileDefaultRoot: false,
+        i18nMultiFile: false,
+        i18nMultiFolder: false,
+        i18nMultiRootFolder: false,
+      },
+      canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    },
+    _thumbnailFieldNames: [],
+  };
+
+  test('returns undefined when show_preview_links is false', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: false,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when baseURL is missing', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+      },
+    };
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when entry locale does not exist', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const result = getEntryPreviewURL(mockEntry, 'fr', mockCollection);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when preview_path is missing', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithoutPreviewPath = { ...mockCollection };
+
+    delete collectionWithoutPreviewPath.preview_path;
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithoutPreviewPath);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('generates basic preview URL with slug', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/posts/{{slug}}',
+      expect.objectContaining({
+        type: 'preview_path',
+        collection: mockCollection,
+        content: mockEntry.locales.en.content,
+        locale: 'en',
+        currentSlug: 'test-entry',
+        entryFilePath: 'content/posts/test-entry.md',
+        dateTimeParts: undefined,
+        isIndexFile: false,
+      }),
+    );
+    expect(result).toBe('https://example.com/posts/test-entry');
+  });
+
+  test('handles baseURL with trailing slash', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com/',
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBe('https://example.com/posts/test-entry');
+  });
+
+  test('handles path with leading slash', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('/posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBe('https://example.com/posts/test-entry');
+  });
+
+  test('works with different locales', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/テスト-エントリ');
+
+    const result = getEntryPreviewURL(mockEntry, 'ja', mockCollection);
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/posts/{{slug}}',
+      expect.objectContaining({
+        locale: 'ja',
+        currentSlug: 'テスト-エントリ',
+        content: mockEntry.locales.ja.content,
+      }),
+    );
+    expect(result).toBe('https://example.com/posts/テスト-エントリ');
+  });
+
+  test('handles datetime fields in preview path template', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithDatePath = {
+      ...mockCollection,
+      preview_path: '/{{year}}/{{month}}/{{slug}}',
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('2024/01/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithDatePath);
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/{{year}}/{{month}}/{{slug}}',
+      expect.objectContaining({
+        dateTimeParts: expect.objectContaining({
+          year: '2024',
+          month: '01',
+          day: '15',
+        }),
+      }),
+    );
+    expect(result).toBe('https://example.com/2024/01/test-entry');
+  });
+
+  test('takes a field that isn’t translated from the default locale', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: { show_preview_links: true, _baseURL: 'https://example.com' },
+    };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('ja/2024/test');
+
+    // The date is only stored in the default locale’s file
+    const entry = {
+      ...mockEntry,
+      locales: {
+        ...mockEntry.locales,
+        ja: { ...mockEntry.locales.ja, content: {} },
+      },
+    };
+
+    const collection = {
+      ...mockCollection,
+      // Another name than the other tests use, whose field lookups are cached
+      name: 'articles',
+      preview_path: '/{{locale}}/{{year}}/{{slug}}',
+      fields: [
+        { name: 'title', widget: 'string', i18n: true },
+        { name: 'date', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ssZ' },
+        { name: 'tags', widget: 'list', i18n: false },
+      ],
+    };
+
+    const { getCollection } = await import('$lib/services/contents/collection');
+
+    vi.mocked(getCollection).mockReturnValue(/** @type {any} */ (collection));
+
+    const result = getEntryPreviewURL(entry, 'ja', /** @type {any} */ (collection));
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/{{locale}}/{{year}}/{{slug}}',
+      expect.objectContaining({
+        locale: 'ja',
+        // The translated title isn’t taken from the default locale
+        content: { date: '2024-01-15T10:30:00Z', tags: ['test', 'example'] },
+        dateTimeParts: expect.objectContaining({ year: '2024' }),
+      }),
+    );
+    expect(result).toBe('https://example.com/ja/2024/test');
+  });
+
+  test('handles specific datetime field in preview path', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const entryWithCustomDate = {
+      ...mockEntry,
+      locales: {
+        en: {
+          ...mockEntry.locales.en,
+          content: {
+            ...mockEntry.locales.en.content,
+            publishDate: '2023-12-25T15:45:00Z',
+          },
+        },
+      },
+    };
+
+    const collectionWithCustomDateField = {
+      ...mockCollection,
+      preview_path: '/{{year}}/{{month}}/{{slug}}',
+      preview_path_date_field: 'publishDate',
+      fields: [
+        {
+          name: 'publishDate',
+          widget: 'datetime',
+          format: 'YYYY-MM-DDTHH:mm:ssZ',
+        },
+      ],
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('2023/12/test-entry');
+
+    const result = getEntryPreviewURL(entryWithCustomDate, 'en', collectionWithCustomDateField);
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/{{year}}/{{month}}/{{slug}}',
+      expect.objectContaining({
+        dateTimeParts: expect.objectContaining({
+          year: '2023',
+          month: '12',
+          day: '25',
+        }),
+      }),
+    );
+    expect(result).toBe('https://example.com/2023/12/test-entry');
+  });
+
+  test('returns undefined when datetime field is missing but required in template', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const entryWithoutDate = {
+      ...mockEntry,
+      locales: {
+        en: {
+          ...mockEntry.locales.en,
+          content: {
+            title: 'Test Entry',
+            // No date field
+          },
+        },
+      },
+    };
+
+    const collectionWithDatePath = {
+      ...mockCollection,
+      preview_path: '/{{year}}/{{month}}/{{slug}}',
+    };
+
+    const result = getEntryPreviewURL(entryWithoutDate, 'en', collectionWithDatePath);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('handles UTC datetime fields', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithUTCDatePath = {
+      ...mockCollection,
+      preview_path: '/{{year}}/{{month}}/{{slug}}',
+      fields: [
+        {
+          name: 'title',
+          widget: 'string',
+        },
+        {
+          name: 'date',
+          widget: 'datetime',
+          format: 'YYYY-MM-DDTHH:mm:ssZ',
+          picker_utc: true,
+        },
+      ],
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('2024/01/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithUTCDatePath);
+
+    expect(result).toBe('https://example.com/2024/01/test-entry');
+  });
+
+  test('handles _index slug files correctly (omits _index from URL)', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    // Create an entry with _index slug
+    const indexEntry = {
+      ...mockEntry,
+      slug: '_index',
+      locales: {
+        en: {
+          slug: '_index',
+          path: 'content/posts/_index.md',
+          content: {
+            title: 'Posts Index',
+            date: '2024-01-15T10:30:00Z',
+          },
+        },
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile, getIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(true);
+    vi.mocked(getIndexFile).mockReturnValue({
+      fields: [],
+    });
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts');
+
+    const result = getEntryPreviewURL(indexEntry, 'en', mockCollection);
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/posts/{{slug}}',
+      expect.objectContaining({
+        currentSlug: '_index',
+        isIndexFile: true,
+      }),
+    );
+    expect(result).toBe('https://example.com/posts');
+  });
+
+  test('works with collection files', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    /** @type {InternalCollectionFile} */
+    const mockCollectionFile = {
+      name: 'homepage',
+      file: 'content/index.md',
+      preview_path: '/',
+      fields: [
+        {
+          name: 'title',
+          widget: 'string',
+        },
+      ],
+      _file: {
+        extension: 'md',
+        format: 'yaml-frontmatter',
+        basePath: 'content',
+      },
+      _i18n: {
+        i18nEnabled: false,
+        saveAllLocales: false,
+        allLocales: ['en'],
+        initialLocales: ['en'],
+        defaultLocale: 'en',
+        structure: 'single_file',
+        structureMap: {
+          i18nSingleFile: true,
+          i18nSingleFileDefaultRoot: false,
+          i18nMultiFile: false,
+          i18nMultiFolder: false,
+          i18nMultiRootFolder: false,
+        },
+        canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+        omitDefaultLocaleFromFilePath: false,
+        omitDefaultLocaleFromPreviewPath: false,
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, mockCollectionFile);
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/',
+      expect.objectContaining({
+        type: 'preview_path',
+        collection: mockCollection,
+      }),
+    );
+    expect(result).toBe('https://example.com/');
+  });
+
+  test('returns undefined when fillTemplate throws error', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate to throw an error
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockImplementation(() => {
+      throw new Error('Template error');
+    });
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('handles empty content object', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const entryWithEmptyContent = {
+      ...mockEntry,
+      locales: {
+        en: {
+          ...mockEntry.locales.en,
+          content: {},
+        },
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(entryWithEmptyContent, 'en', mockCollection);
+
+    expect(result).toBe('https://example.com/posts/test-entry');
+  });
+
+  test('uses default show_preview_links when not explicitly set', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        _baseURL: 'https://example.com',
+        // show_preview_links not set, should default to true
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBe('https://example.com/posts/test-entry');
+  });
+
+  test('uses the base URL override instead of the configured site URL', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, undefined, {
+      baseURL: 'https://deploy-preview-1--example.netlify.app',
+    });
+
+    expect(result).toBe('https://deploy-preview-1--example.netlify.app/posts/test-entry');
+  });
+
+  test('uses the base URL override when site_url is not configured', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: true } };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, undefined, {
+      baseURL: 'https://preview.example.com',
+    });
+
+    expect(result).toBe('https://preview.example.com/posts/test-entry');
+  });
+
+  test('strips a trailing slash from the base URL override', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: true } };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('/posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, undefined, {
+      baseURL: 'https://preview.example.com/',
+    });
+
+    expect(result).toBe('https://preview.example.com/posts/test-entry');
+  });
+
+  test('links to the root of the site without preview_path when asked to', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: true } };
+
+    const collectionWithoutPreviewPath = { ...mockCollection };
+
+    delete collectionWithoutPreviewPath.preview_path;
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithoutPreviewPath, undefined, {
+      baseURL: 'https://preview.example.com/',
+      fallbackToRoot: true,
+    });
+
+    expect(result).toBe('https://preview.example.com/');
+  });
+
+  test('links to the root of the site without preview_path on the collection file', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: true } };
+
+    const collectionFile = /** @type {InternalCollectionFile} */ ({
+      name: 'about',
+      file: 'content/about.md',
+      fields: [],
+      _file: { extension: 'md', format: 'yaml-frontmatter' },
+      _i18n: mockCollection._i18n,
+    });
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, collectionFile, {
+      baseURL: 'https://preview.example.com',
+      fallbackToRoot: true,
+    });
+
+    // The collection’s own `preview_path` doesn’t apply to its files
+    expect(result).toBe('https://preview.example.com/');
+  });
+
+  test('uses preview_path rather than the root when both are possible', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: true } };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, undefined, {
+      baseURL: 'https://preview.example.com',
+      fallbackToRoot: true,
+    });
+
+    expect(result).toBe('https://preview.example.com/posts/test-entry');
+  });
+
+  test('gives no root link when preview_path cannot be filled in', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: true } };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockImplementation(() => {
+      throw new Error('Unresolvable template tag');
+    });
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, undefined, {
+      baseURL: 'https://preview.example.com',
+      fallbackToRoot: true,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('ignores fallbackToRoot when show_preview_links is false', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { show_preview_links: false } };
+
+    const collectionWithoutPreviewPath = { ...mockCollection };
+
+    delete collectionWithoutPreviewPath.preview_path;
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithoutPreviewPath, undefined, {
+      baseURL: 'https://preview.example.com',
+      fallbackToRoot: true,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('ignores the base URL override when show_preview_links is false', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: false,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection, undefined, {
+      baseURL: 'https://preview.example.com',
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('handles null cmsConfig by using empty object fallback (line 84)', async () => {
+    // @ts-ignore - Set cmsConfig to null to test the ?? {} fallback
+    (await import('$lib/services/config')).cmsConfig = { current: null };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // When cmsConfig is null, show_preview_links defaults to true but _baseURL is undefined
+    // This should return undefined because baseURL will be undefined
+    const result = getEntryPreviewURL(mockEntry, 'en', mockCollection);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('omits locale from preview path when omitDefaultLocaleFromPreviewPath is true and locale is default', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithLocaleInPath = {
+      ...mockCollection,
+      preview_path: '/{{locale}}/posts/{{slug}}',
+      _i18n: {
+        ...mockCollection._i18n,
+        defaultLocale: 'en',
+        omitDefaultLocaleFromPreviewPath: true,
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithLocaleInPath);
+
+    // Verify that fillTemplate was called with the modified template (locale segment removed)
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/posts/{{slug}}',
+      expect.objectContaining({
+        type: 'preview_path',
+        locale: 'en',
+      }),
+    );
+    expect(result).toBe('https://example.com/posts/test-entry');
+  });
+
+  test('removes locale segment with dot separator from preview path', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithDotLocaleInPath = {
+      ...mockCollection,
+      preview_path: '/posts/{{slug}}.{{locale}}.html',
+      _i18n: {
+        ...mockCollection._i18n,
+        defaultLocale: 'en',
+        omitDefaultLocaleFromPreviewPath: true,
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithDotLocaleInPath);
+
+    // Verify that fillTemplate was called with the modified template (.locale segment removed)
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/posts/{{slug}}.html',
+      expect.objectContaining({
+        type: 'preview_path',
+      }),
+    );
+    expect(result).toBe('https://example.com/test-entry');
+  });
+
+  test.each([
+    ['/{{locale}}', '/'],
+    ['/blog/{{locale}}', '/blog'],
+    ['/posts/{{locale}}.{{slug}}', '/posts/{{slug}}'],
+    // The placeholder can’t be removed without breaking the rest of the path, so it’s filled in
+    ['/{{locale}}.html', '/{{locale}}.html'],
+    ['/posts/{{locale}}-{{slug}}', '/posts/{{locale}}-{{slug}}'],
+  ])('omits locale from preview path %s where possible', async (previewPath, expected) => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('test-entry');
+
+    getEntryPreviewURL(mockEntry, 'en', {
+      ...mockCollection,
+      preview_path: previewPath,
+      _i18n: {
+        ...mockCollection._i18n,
+        defaultLocale: 'en',
+        omitDefaultLocaleFromPreviewPath: true,
+      },
+    });
+
+    expect(fillTemplate).toHaveBeenCalledWith(
+      expected,
+      expect.objectContaining({ type: 'preview_path' }),
+    );
+  });
+
+  test('preserves locale in preview path for non-default locales even when omitDefaultLocaleFromPreviewPath is true', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithLocaleInPath = {
+      ...mockCollection,
+      preview_path: '/{{locale}}/posts/{{slug}}',
+      _i18n: {
+        ...mockCollection._i18n,
+        defaultLocale: 'en',
+        omitDefaultLocaleFromPreviewPath: true,
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('ja/posts/テスト-エントリ');
+
+    const result = getEntryPreviewURL(mockEntry, 'ja', collectionWithLocaleInPath);
+
+    // Verify fillTemplate called with original template (non-default locale preserves locale)
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/{{locale}}/posts/{{slug}}',
+      expect.objectContaining({
+        type: 'preview_path',
+        locale: 'ja',
+      }),
+    );
+    expect(result).toBe('https://example.com/ja/posts/テスト-エントリ');
+  });
+
+  test('does not remove locale from preview path when omitDefaultLocaleFromPreviewPath is false', async () => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = {
+      current: {
+        show_preview_links: true,
+        _baseURL: 'https://example.com',
+      },
+    };
+
+    const collectionWithLocaleInPath = {
+      ...mockCollection,
+      preview_path: '/{{locale}}/posts/{{slug}}',
+      _i18n: {
+        ...mockCollection._i18n,
+        defaultLocale: 'en',
+        omitDefaultLocaleFromPreviewPath: false,
+      },
+    };
+
+    // Mock index file functions
+    const { isCollectionIndexFile } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+
+    // Mock fillTemplate
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('en/posts/test-entry');
+
+    const result = getEntryPreviewURL(mockEntry, 'en', collectionWithLocaleInPath);
+
+    // Verify fillTemplate called with original template (omitDefaultLocaleFromPreviewPath: false)
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/{{locale}}/posts/{{slug}}',
+      expect.objectContaining({
+        type: 'preview_path',
+      }),
+    );
+    expect(result).toBe('https://example.com/en/posts/test-entry');
+  });
+});
+
+describe('Test extractDateTime()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('should extract datetime from specified field', () => {
+    const fields = [
+      { name: 'title', widget: 'string' },
+      { name: 'publishDate', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ssZ' },
+    ];
+
+    const content = {
+      title: 'Test Entry',
+      publishDate: '2024-01-15T10:30:00Z',
+    };
+
+    const result = extractDateTime({
+      dateFieldName: 'publishDate',
+      fields,
+      content,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        year: '2024',
+        month: '01',
+        day: '15',
+        minute: '30',
+        second: '00',
+      }),
+    );
+  });
+
+  test('should extract datetime from first datetime field when no field name specified', () => {
+    const fields = [
+      { name: 'title', widget: 'string' },
+      { name: 'date', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ssZ' },
+      { name: 'publishDate', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ssZ' },
+    ];
+
+    const content = {
+      title: 'Test Entry',
+      date: '2024-01-15T10:30:00Z',
+      publishDate: '2024-02-20T15:45:00Z',
+    };
+
+    const result = extractDateTime({
+      fields,
+      content,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        year: '2024',
+        month: '01',
+        day: '15',
+      }),
+    );
+  });
+
+  test('should return undefined when field not found', () => {
+    const fields = [{ name: 'title', widget: 'string' }];
+
+    const content = {
+      title: 'Test Entry',
+    };
+
+    const result = extractDateTime({
+      dateFieldName: 'nonExistentDate',
+      fields,
+      content,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('should return undefined when field value is empty', () => {
+    const fields = [{ name: 'date', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ssZ' }];
+
+    const content = {
+      date: '',
+    };
+
+    const result = extractDateTime({
+      fields,
+      content,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test('should handle UTC datetime fields', () => {
+    const fields = [
+      { name: 'date', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ssZ', picker_utc: true },
+    ];
+
+    const content = {
+      date: '2024-01-15T10:30:00Z',
+    };
+
+    const result = extractDateTime({
+      fields,
+      content,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        year: '2024',
+        month: '01',
+        day: '15',
+        hour: '10',
+        minute: '30',
+        second: '00',
+      }),
+    );
+  });
+
+  test('should handle date value that does not match format (fallback parsing)', () => {
+    const fields = [{ name: 'date', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ss' }];
+
+    const content = {
+      // Value is ISO datetime but format expects space instead of T
+      date: '2024-01-15T10:30:00',
+    };
+
+    const result = extractDateTime({
+      fields,
+      content,
+    });
+
+    // Should still extract datetime via fallback native Date parsing
+    expect(result).toEqual(
+      expect.objectContaining({
+        year: '2024',
+        month: '01',
+        day: '15',
+        hour: '10',
+        minute: '30',
+        second: '00',
+      }),
+    );
+  });
+
+  test('should return undefined when fallback parsing also fails', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fields = [{ name: 'date', widget: 'datetime', format: 'YYYY-MM-DDTHH:mm:ss' }];
+
+    const content = {
+      // Completely invalid date string that neither day.js nor native Date can parse
+      date: 'not-a-valid-date-at-all',
+    };
+
+    const result = extractDateTime({
+      fields,
+      content,
+    });
+
+    // Should return undefined when date cannot be parsed
+    expect(result).toBeUndefined();
+    consoleSpy.mockRestore();
+  });
+
+  test('should extract datetime with UTC when format mismatch falls back to native parsing', () => {
+    const fields = [
+      {
+        name: 'date',
+        widget: 'datetime',
+        format: 'YYYY-MM-DD HH:mm:ss',
+        picker_utc: true,
+      },
+    ];
+
+    const content = {
+      // ISO datetime with Z doesn't match space-separated format
+      date: '2024-01-15T10:30:00Z',
+    };
+
+    const result = extractDateTime({
+      fields,
+      content,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        year: '2024',
+        month: '01',
+        day: '15',
+        hour: '10',
+        minute: '30',
+        second: '00',
+      }),
+    );
+  });
+});
+
+describe('Test extractDateTime() in different time zones', () => {
+  /**
+   * Run a function in each of the given browser time zones.
+   * @param {(timeZone: string) => void} fn Function.
+   */
+  const inTimeZones = (fn) => {
+    const { TZ } = process.env;
+
+    ['UTC', 'America/New_York', 'Asia/Tokyo', 'Etc/GMT+12', 'Pacific/Kiritimati'].forEach(
+      (timeZone) => {
+        process.env.TZ = timeZone;
+
+        try {
+          fn(timeZone);
+        } finally {
+          process.env.TZ = TZ;
+        }
+      },
+    );
+  };
+
+  /**
+   * Get the date part of the parts extracted from the given field value.
+   * @param {Record<string, any>} options Field options.
+   * @param {string} value Field value.
+   * @returns {string | undefined} `YYYY-MM-DD`.
+   */
+  const getDatePart = (options, value) => {
+    const parts = extractDateTime({
+      fields: [{ name: 'date', widget: 'datetime', ...options }],
+      content: { date: value },
+    });
+
+    return parts ? `${parts.year}-${parts.month}-${parts.day}` : undefined;
+  };
+
+  test('keeps the date of a date-only field', () => {
+    inTimeZones(() => {
+      expect(getDatePart({ time_format: false }, '2026-01-15')).toBe('2026-01-15');
+      expect(getDatePart({ time_format: false, format: 'YYYY-MM-DD' }, '2026-01-15')).toBe(
+        '2026-01-15',
+      );
+      expect(getDatePart({ time_format: false, format: 'DD/MM/YYYY' }, '15/01/2026')).toBe(
+        '2026-01-15',
+      );
+      expect(
+        getDatePart({ time_format: false, format: 'YYYY-MM-DD', output_utc: true }, '2026-01-15'),
+      ).toBe('2026-01-15');
+      expect(
+        getDatePart({ time_format: false, input_timezone: 'America/New_York' }, '2026-01-15'),
+      ).toBe('2026-01-15');
+      expect(
+        getDatePart(
+          { time_format: false, format: 'YYYY-MM-DD', input_timezone: 'Asia/Tokyo' },
+          '2026-01-15',
+        ),
+      ).toBe('2026-01-15');
+    });
+  });
+
+  test('reads a date/time in the custom input time zone', () => {
+    inTimeZones(() => {
+      expect(getDatePart({ input_timezone: 'Asia/Tokyo' }, '2026-01-15T08:00:00+09:00')).toBe(
+        '2026-01-15',
+      );
+      expect(getDatePart({ input_timezone: 'Asia/Tokyo' }, '2026-01-15T08:00:00')).toBe(
+        '2026-01-15',
+      );
+      expect(
+        getDatePart(
+          { input_timezone: 'Asia/Tokyo', format: 'YYYY-MM-DD HH:mm' },
+          '2026-01-15 08:00',
+        ),
+      ).toBe('2026-01-15');
+      expect(getDatePart({ input_timezone: 'America/New_York' }, '2026-01-15T22:00:00-05:00')).toBe(
+        '2026-01-15',
+      );
+      // A value stored in UTC is read in UTC
+      expect(
+        getDatePart({ input_timezone: 'Asia/Tokyo', output_utc: true }, '2026-01-14T23:00:00Z'),
+      ).toBe('2026-01-14');
+    });
+  });
+
+  /**
+   * Set the `slug.timezone` option.
+   * @param {'utc' | 'local'} timezone Option value.
+   */
+  const setSlugTimeZone = async (timezone) => {
+    // @ts-ignore
+    (await import('$lib/services/config')).cmsConfig = { current: { slug: { timezone } } };
+  };
+
+  test('reads a date/time in the slug time zone instead of the field’s own', async () => {
+    const fields = [{ name: 'date', widget: 'datetime', input_timezone: 'Asia/Tokyo' }];
+    const content = { date: '2026-01-15T08:00:00+09:00' };
+
+    await setSlugTimeZone('utc');
+
+    inTimeZones(() => {
+      expect(extractDateTime({ fields, content, inSlugTimeZone: true })).toEqual(
+        expect.objectContaining({ year: '2026', month: '01', day: '14', hour: '23' }),
+      );
+    });
+
+    await setSlugTimeZone('local');
+
+    const { TZ } = process.env;
+
+    process.env.TZ = 'America/New_York';
+
+    try {
+      expect(extractDateTime({ fields, content, inSlugTimeZone: true })).toEqual(
+        expect.objectContaining({ year: '2026', month: '01', day: '14', hour: '18' }),
+      );
+    } finally {
+      process.env.TZ = TZ;
+    }
+  });
+
+  test.each([['utc'], ['local']])(
+    'keeps the date of a date-only field with the `%s` slug time zone',
+    async (timezone) => {
+      await setSlugTimeZone(/** @type {'utc' | 'local'} */ (timezone));
+
+      inTimeZones(() => {
+        expect(
+          extractDateTime({
+            fields: [{ name: 'date', widget: 'datetime', time_format: false }],
+            content: { date: '2026-01-15' },
+            inSlugTimeZone: true,
+          }),
+        ).toEqual(expect.objectContaining({ year: '2026', month: '01', day: '15', hour: '00' }));
+        expect(
+          extractDateTime({
+            fields: [
+              { name: 'date', widget: 'datetime', time_format: false, format: 'DD/MM/YYYY' },
+            ],
+            content: { date: '15/01/2026' },
+            inSlugTimeZone: true,
+          }),
+        ).toEqual(expect.objectContaining({ year: '2026', month: '01', day: '15', hour: '00' }));
+      });
+    },
+  );
+});
+
+describe('Test fillEntryPathTemplate()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const collection = /** @type {InternalCollection} */ (
+    /** @type {unknown} */ ({ name: 'posts', _type: 'entry' })
+  );
+
+  const args = {
+    collection,
+    fields: /** @type {any[]} */ ([
+      { name: 'date', widget: 'datetime', format: 'YYYY-MM-DD' },
+      { name: 'published', widget: 'datetime', format: 'YYYY-MM-DD' },
+    ]),
+    locale: 'en',
+    slug: 'hello',
+    entryFilePath: 'content/posts/hello.md',
+    content: { date: '2024-01-15', published: '2025-06-30' },
+  };
+
+  test('fills in a template without date and time tags', async () => {
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('/images/hello.webp');
+
+    expect(fillEntryPathTemplate({ ...args, pathTemplate: '/images/{{slug}}.webp' })).toBe(
+      '/images/hello.webp',
+    );
+    expect(fillTemplate).toHaveBeenCalledWith('/images/{{slug}}.webp', {
+      type: 'preview_path',
+      collection,
+      content: args.content,
+      locale: 'en',
+      currentSlug: 'hello',
+      entryFilePath: 'content/posts/hello.md',
+      dateTimeParts: undefined,
+      isIndexFile: false,
+    });
+  });
+
+  test('fills in date and time tags from the given date field', async () => {
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockReturnValue('/images/2025/hello.webp');
+
+    expect(
+      fillEntryPathTemplate({
+        ...args,
+        pathTemplate: '/images/{{year}}/{{slug}}.webp',
+        dateFieldName: 'published',
+        isIndexFile: true,
+      }),
+    ).toBe('/images/2025/hello.webp');
+    expect(fillTemplate).toHaveBeenCalledWith(
+      '/images/{{year}}/{{slug}}.webp',
+      expect.objectContaining({
+        dateTimeParts: expect.objectContaining({ year: '2025' }),
+        isIndexFile: true,
+      }),
+    );
+  });
+
+  test('returns undefined without a date to fill in date and time tags', async () => {
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    expect(
+      fillEntryPathTemplate({ ...args, content: {}, pathTemplate: '/images/{{year}}.webp' }),
+    ).toBeUndefined();
+    expect(fillTemplate).not.toHaveBeenCalled();
+  });
+
+  test('returns undefined when a tag cannot be resolved', async () => {
+    const { fillTemplate } = await import('$lib/services/common/template');
+
+    vi.mocked(fillTemplate).mockImplementation(() => {
+      throw new Error('Unresolvable template tag');
+    });
+
+    expect(
+      fillEntryPathTemplate({ ...args, pathTemplate: '/images/{{fields.missing}}.webp' }),
+    ).toBeUndefined();
+  });
+});
+
+describe('Test getEntryRepoBlobURL()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('should return repository blob URL', () => {
+    const mockEntry = {
+      id: 'test-entry',
+      slug: 'test-entry',
+      subPath: 'test-entry',
+      locales: {
+        en: {
+          slug: 'test-entry',
+          path: 'content/posts/test-entry.md',
+          content: { title: 'Test Entry' },
+        },
+      },
+    };
+
+    const result = getEntryRepoBlobURL(mockEntry, 'en');
+
+    expect(result).toBe(
+      'https://github.com/user/repo/blob/main/content/posts/test-entry.md?plain=1',
+    );
+  });
+
+  test('should encode the characters in the path that have a meaning in a URL', () => {
+    const mockEntry = /** @type {any} */ ({
+      locales: { en: { path: 'content/posts/50% off #1.md' } },
+    });
+
+    expect(getEntryRepoBlobURL(mockEntry, 'en')).toBe(
+      'https://github.com/user/repo/blob/main/content/posts/50%25%20off%20%231.md?plain=1',
+    );
+  });
+
+  test('should handle missing locale gracefully', () => {
+    const mockEntry = {
+      id: 'test-entry',
+      slug: 'test-entry',
+      subPath: 'test-entry',
+      locales: {
+        en: {
+          slug: 'test-entry',
+          path: 'content/posts/test-entry.md',
+          content: { title: 'Test Entry' },
+        },
+      },
+    };
+
+    const result = getEntryRepoBlobURL(mockEntry, 'fr');
+
+    expect(result).toBe('https://github.com/user/repo/blob/main/?plain=1');
+  });
+});

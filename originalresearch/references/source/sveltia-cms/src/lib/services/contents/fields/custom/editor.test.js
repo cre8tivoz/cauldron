@@ -1,0 +1,251 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Create a mock registry that can be shared across tests
+/** @type {Map<string, any>} */
+let mockRegistry;
+
+// Mock the modules before importing
+vi.doMock('$lib/services/api/registries', () => {
+  mockRegistry = new Map();
+  return {
+    customFieldTypeRegistry: mockRegistry,
+  };
+});
+
+vi.doMock('$lib/services/api/preview-data', () => ({
+  buildPreviewData: vi.fn(({ draft, locale }) => ({
+    entryMap: { __entry: true, content: draft.currentValues[locale] },
+    getAsset: { __getAsset: true },
+  })),
+}));
+
+const { buildControlProps, resolveControl } = await import('./editor');
+
+// The library is loaded from the CDN at runtime; hand the real module to the code under test
+vi.mock('$lib/services/api/immutable', async () => {
+  const immutable = /** @type {typeof import('immutable')} */ (await vi.importActual('immutable'));
+
+  return {
+    /**
+     * Get the preloaded Immutable module.
+     * @returns {typeof import('immutable')} Immutable module.
+     */
+    getImmutable: () => immutable,
+    loadImmutable: vi.fn(async () => immutable),
+    preloadImmutable: vi.fn(),
+    immutableLoaded: { current: true },
+  };
+});
+
+describe('contents/fields/custom/helpers', () => {
+  beforeEach(() => {
+    // Reset the registry before each test
+    mockRegistry.clear();
+  });
+
+  it('resolves a function control directly', () => {
+    const control = vi.fn();
+
+    expect(resolveControl(control)).toBe(control);
+  });
+
+  it('resolves a `forwardRef` control directly', () => {
+    const control = /** @type {any} */ ({
+      $$typeof: Symbol.for('react.forward_ref'),
+      render: vi.fn(),
+    });
+
+    expect(resolveControl(control)).toBe(control);
+  });
+
+  it('resolves a registered custom widget control from the registry', () => {
+    const control = vi.fn();
+
+    mockRegistry.set('custom-widget', { control });
+
+    expect(resolveControl('custom-widget')).toBe(control);
+  });
+
+  it('returns undefined for built-in editors', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = resolveControl('string');
+
+    expect(result).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      'Custom field references built-in editor "string" which is not a React component.',
+    );
+  });
+
+  it('returns undefined for non-function and non-string controls', () => {
+    expect(resolveControl(undefined)).toBeUndefined();
+  });
+
+  it('returns undefined for unknown controls without registry matches', () => {
+    expect(resolveControl('unknown')).toBeUndefined();
+  });
+
+  it('returns undefined for a built-in field type that is not registered as custom', () => {
+    expect(resolveControl('string')).toBeUndefined();
+  });
+
+  it('returns undefined when a registry entry exists but has no control', () => {
+    mockRegistry.set('custom-widget', {});
+
+    expect(resolveControl('custom-widget')).toBeUndefined();
+  });
+
+  it('resolves a nested custom widget control referenced by a string', () => {
+    const control = vi.fn();
+
+    mockRegistry.set('parent-widget', { control: 'child-widget' });
+    mockRegistry.set('child-widget', { control });
+
+    expect(resolveControl('parent-widget')).toBe(control);
+  });
+
+  it.each([
+    ['a field type naming itself', [['a', 'a']], 'a'],
+    [
+      'field types naming each other',
+      [
+        ['a', 'b'],
+        ['b', 'a'],
+      ],
+      'b',
+    ],
+  ])('returns undefined with a warning for %s as the control', (_label, types, control) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    types.forEach(([name, ctrl]) => mockRegistry.set(name, { control: ctrl }));
+
+    expect(resolveControl(control)).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/^Custom field type "[ab]" references itself through its control\.$/),
+    );
+  });
+
+  it('builds props for the React widget with immutable field data', () => {
+    const onChange = vi.fn();
+    const addFile = vi.fn();
+    const pickFile = vi.fn();
+    const handleRef = vi.fn();
+
+    const props = buildControlProps({
+      currentValue: 'hello',
+      fieldConfig: { name: 'custom', widget: 'text' },
+      fieldId: 'field-id',
+      fieldClassName: 'custom-class',
+      draft: undefined,
+      locale: 'en',
+      onChange,
+      addFile,
+      pickFile,
+      handleRef,
+    });
+
+    expect(props.value).toBe('hello');
+    expect(props.forID).toBe('field-id');
+    expect(props.classNameWrapper).toBe('custom-class');
+    expect(props.onChange).toBe(onChange);
+    expect(props.addFile).toBe(addFile);
+    expect(props.pickFile).toBe(pickFile);
+    expect(props.ref).toBe(handleRef);
+    expect(props.field.get('widget')).toBe('text');
+    expect(props.field.get('name')).toBe('custom');
+    expect(props.field.toJS()).toEqual({ name: 'custom', widget: 'text' });
+  });
+
+  it('uses default widget and empty id when values are missing', () => {
+    const props = buildControlProps({
+      currentValue: 'hello',
+      fieldConfig: { widget: 'custom', name: 'custom' },
+      fieldId: '',
+      fieldClassName: '',
+      draft: undefined,
+      locale: 'en',
+      onChange: vi.fn(),
+      addFile: vi.fn(),
+      pickFile: vi.fn(),
+      handleRef: vi.fn(),
+    });
+
+    expect(props.field.get('widget')).toBe('custom');
+    expect(props.forID).toBe('');
+  });
+
+  it('uses empty string fallback for null fieldId and fieldClassName', () => {
+    const props = buildControlProps({
+      currentValue: 'test',
+      fieldConfig: { widget: 'custom', name: 'field' },
+      fieldId: null,
+      fieldClassName: null,
+      draft: undefined,
+      locale: 'en',
+      onChange: vi.fn(),
+      addFile: vi.fn(),
+      pickFile: vi.fn(),
+      handleRef: vi.fn(),
+    });
+
+    expect(props.forID).toBe('');
+    expect(props.classNameWrapper).toBe('');
+  });
+
+  it('uses empty string fallback for undefined fieldId and fieldClassName', () => {
+    const props = buildControlProps({
+      currentValue: 'test',
+      fieldConfig: { widget: 'custom', name: 'field' },
+      fieldId: undefined,
+      fieldClassName: undefined,
+      draft: undefined,
+      locale: 'en',
+      onChange: vi.fn(),
+      addFile: vi.fn(),
+      pickFile: vi.fn(),
+      handleRef: vi.fn(),
+    });
+
+    expect(props.forID).toBe('');
+    expect(props.classNameWrapper).toBe('');
+  });
+
+  it('includes the entry data, so a control can read sibling field values', () => {
+    /** @type {any} */
+    const draft = { collectionName: 'posts', currentValues: { en: { 'groups.0.name': 'foo' } } };
+
+    const props = buildControlProps({
+      currentValue: 'foo',
+      fieldConfig: { widget: 'custom', name: 'refgroup' },
+      fieldId: 'field-1',
+      fieldClassName: '',
+      draft,
+      locale: 'en',
+      onChange: vi.fn(),
+      addFile: vi.fn(),
+      pickFile: vi.fn(),
+      handleRef: vi.fn(),
+    });
+
+    expect(props.entry).toEqual({ __entry: true, content: { 'groups.0.name': 'foo' } });
+    // The same asset getter as a preview’s, so a control can display a stored file
+    expect(props.getAsset).toEqual({ __getAsset: true });
+  });
+
+  it('omits the entry data when there is no draft', () => {
+    const props = buildControlProps({
+      currentValue: 'foo',
+      fieldConfig: { widget: 'custom', name: 'refgroup' },
+      fieldId: 'field-1',
+      fieldClassName: '',
+      draft: undefined,
+      locale: 'en',
+      onChange: vi.fn(),
+      addFile: vi.fn(),
+      pickFile: vi.fn(),
+      handleRef: vi.fn(),
+    });
+
+    expect(props.entry).toBeUndefined();
+    expect(props.getAsset).toBeUndefined();
+  });
+});

@@ -1,0 +1,69 @@
+assumes_unproven,evidenced_gap,expected,fits_brief,flags,goes_beyond,id,noul,part,restricted_reuse,supported,testable,text,verdict
+,,,,,0.26,c_stacki_mit,,claims,,0.87,,Stacki 1.0.12 source code may be copied and modified in a free open-source project.,holds
+,,,,,0.42,c_css_root_cause,,claims,,0.79,,"Stacki stylesheet saves do not send the version of the file the edit was based on, so a stale stylesheet can replace newer changes on disk.",holds
+,,,,,0.58,c_source_same_gap,,claims,,0.62,,Stacki general source-file saves have the same missing-version gap as stylesheet saves.,review
+,,,,,0.58,c_page_versioned,,claims,,0.5,,Stacki page edits are checked against the version they were based on before being written.,review
+,,,,,0.74,c_release_unusable,,claims,,0.6,,The official Stacki download is not a suitable source of reusable code for Cauldron.,review
+,,,,,0.74,c_preview_frames,,claims,,0.67,,"In Stacki, the preload script runs inside the preview frames that show the user's website.",review
+,,,,,0.19,c_sitereal_merge,,claims,,0.94,,Sitereal keeps a stored base copy of files it writes and merges outside edits against it.,holds
+,,,,,0.19,c_sitereal_policy_differs,,claims,,0.92,,Sitereal resolves overlapping conflicts differently depending on which save path is used.,holds
+,,,,,0.34,c_sitereal_agent_undo,,claims,,0.64,,"Sitereal groups agent changes into runs and refuses to undo a run when later work changed the same parts, unless forced.",review
+,,,,,0.48,c_sitereal_no_reuse,,claims,,0.77,,Sitereal code may not be incorporated into Cauldron.,holds
+,,,,,0.23,c_zeku_choice,,claims,,0.93,,Zeku asks the user to choose between their version and the disk version when a file with unsaved edits changes on disk.,holds
+,,,,,0.85,x_stacki_css_safe,,claims,,0.03,,Stacki stylesheet undo safely preserves unrelated external edits.,rejected
+,,,,,0.92,x_sitereal_lossless,,claims,,0.19,,Sitereal never loses work when two changes conflict.,rejected
+,,,,,0.97,x_preview_cause,,claims,,0.03,,The Stacki new-page 404 is caused by Astro registering new routes late.,rejected
+,,,,,0.97,x_zeku_atomic,,claims,,0.04,,Zeku writes files atomically and is protected against write races.,rejected
+,,,,,0.97,x_release_mit,,claims,,0.02,,The official Stacki 0.0.23 download is MIT-licensed open source.,rejected
+0.56,0.92,,0.78,assumption review,,p_fork_stacki,,plan,0.07,,0.95,"Start Cauldron Astro as a fork of the MIT Stacki repository at commit 363b044, keeping its licence and attribution. Keep its Astro project opening, live preview, source-aware page editing, selection, style controls and undo machinery.",needs work
+0.11,0.99,,0.94,,,p_safe_saves,,plan,0.06,,0.96,"Before any agent work, make stylesheet and general source saves carry the version they were based on, through forward saves and Undo/Redo. Refuse or merge when the disk no longer matches. Add a regression test: visual CSS edit, then an unrelated outside CSS edit, then Undo; the outside edit must survive.",sound
+0.07,0.97,,0.64,fit review,,p_preview_refresh,,plan,0.02,,0.96,"Fix the new-page preview so a created page shows without a manual reload, after tracing the actual cause with a test.",needs work
+0.31,0.96,,0.82,assumption review,,p_preview_isolation,,plan,0.03,,0.9,"Audit and restrict what the preview frames can access, so a user's website or third-party scripts in it cannot use the editor's internal bridge. Give preview frames only a minimal height-reporting channel.",needs work
+0.39,0.96,,0.95,assumption review,,p_shared_actions,,plan,0.13,,0.83,"Create one set of project actions (read the selection, read a page outline with its version, targeted element edits, CSS rule edits, create page) used by the visual controls, the integrated agent and external agents alike. Every write states the version it was based on; stale writes return a clear conflict instead of saving.",needs work
+0.31,0.9,,0.94,assumption review,,p_agent_runs,,plan,0.09,,0.87,"Group each agent's changes into a run with a plain summary of which pages and files changed. Allow undoing a whole run; refuse when later work changed the same parts, and show what conflicts.",needs work
+0.45,0.93,,0.89,assumption review,,p_agent_panel,,plan,0.15,,0.83,"Add an agent conversation panel with equal prominence to the visual editor, using resizable and collapsible panels so both fit at small window sizes. It runs the agent tool the user already has with the current selection as context, keeps the session going between messages, and shows running, failed and finished states. Make one agent work end to end before adding others.",needs work
+0.64,0.95,,0.92,assumption review,,p_external_access,,plan,0.25,,0.86,"Expose the same project actions to external agents through a local MCP server bound to 127.0.0.1 with a per-project session token, plus small install guides per agent tool.",needs work
+0.22,0.93,,0.88,,,p_outside_edits,,plan,0.09,,0.93,"When a file changes on disk: merge automatically only when the changes do not overlap; otherwise keep both versions and ask the user to choose, never silently discarding either. Use one written conflict policy for every save path, with tests.",sound
+0.23,0.83,,0.92,,,p_recovery,,plan,0.13,,0.92,"Save unsaved edits to a recovery area outside the project every few seconds, offer them back after a crash, and clear them only after a verified save.",sound
+0.37,0.92,,0.93,assumption review,,p_content_forms,,plan,0.1,,0.87,"Edit content collections through forms built from the project's Astro schemas, showing when the schema information is out of date, with raw editing as a fallback.",needs work
+0.23,0.82,,0.92,testable review,,p_design_package,,plan,0.04,,0.37,"Provide a structured design-direction package: chosen references, typography, colour and spacing tokens, curated licence-compatible sections, and good and bad examples with reasons. Both the visual editor and the agent use it.",needs work
+0.1,0.94,,0.89,,,p_output_checks,,plan,0.02,,0.97,"Build the real Astro site and run measured checks: responsive overflow, keyboard navigation, automated accessibility, broken links and performance under stated conditions. Keep advisory visual critique separate from measured results.",sound
+0.44,0.91,,0.9,assumption review,,p_git_publish,,plan,0.08,,0.88,Show changed files and publish through the user's own Git remote. Block pull or publish while files have unsaved edits. Never commit or push without the user asking.,needs work
+0.13,0.93,,0.85,,,p_distribution,,plan,0.14,,0.86,"Ship an unsigned Mac download with first-launch instructions, and test it on a separate Mac. The Astro editor has never been packaged, so packaging is a task in its own right.",sound
+0.13,0.92,,0.91,testable review,,p_clean_room,,plan,0.07,,0.54,"Treat Sitereal and Zeku as idea references only. Write Cauldron's own behaviour specifications in plain words; do not use their extracted code or code excerpts while implementing, and keep their extracted files out of the Cauldron repository.",needs work
+0.13,0.6,,0.91,testable review; gap review,,p_byok_later,,plan,0.02,,0.4,"Decide on optional bring-your-own-key only after the integrated and external agent paths work, based on actual need.",needs work
+0.13,0.46,,0.88,testable review; gap review,,a_from_scratch,,alternative,0.02,,0.55,Build a new Electron Astro editor from scratch instead of starting from Stacki.,needs work
+0.43,0.57,,0.7,fit review; assumption review; gap review,,a_agent_first,,alternative,0.05,,0.82,Build the integrated agent panel first and fix the stylesheet and source save problems afterwards.,needs work
+0.48,0.86,,0.86,assumption review,,a_engine_rewrite,,alternative,0.07,,0.85,"Before other work, restructure Stacki into a separate per-project background engine process serving both the window and external agents.",needs work
+0.81,0.56,,0.05,fit no; licence yes; assumption yes; testable review; gap review,,a_copy_sitereal,,alternative,0.99,,0.69,Copy Sitereal's merge and agent-run code into Cauldron to save time.,rejected
+0.85,0.21,,0.1,fit no; licence yes; assumption yes; gap no,,a_release_base,,alternative,0.89,,0.78,Base Cauldron on the official Stacki 0.0.23 download.,rejected
+0.35,0.29,,0.09,fit no; assumption review; testable review; gap no,,a_tauri,,alternative,0.08,,0.67,"Switch to Tauri, as Zeku uses, for a smaller app.",rejected
+0.77,0.35,,0.36,fit review; assumption yes; gap review,,a_direct_files,,alternative,0.06,,0.87,"Let agents rewrite whole files directly and have the editor reload, without shared versioned actions.",needs work
+0.84,0.78,,0.73,licence review; assumption yes,,a_all_agents,,alternative,0.55,,0.81,Support all eight agent tools listed by HyperFrames at first release.,needs work
+,,true,,,,p_safe_saves before p_agent_panel,0.59,order,,,,,review
+,,true,,,,p_safe_saves before p_external_access,0.61,order,,,,,review
+,,true,,,,p_shared_actions before p_agent_panel,0.75,order,,,,,yes
+,,true,,,,p_shared_actions before p_external_access,0.87,order,,,,,yes
+,,true,,,,p_shared_actions before p_agent_runs,0.79,order,,,,,yes
+,,true,,,,p_preview_isolation before p_agent_panel,0.24,order,,,,,no
+,,true,,,,p_fork_stacki before p_safe_saves,0.66,order,,,,,review
+,,false,,,,p_design_package before p_safe_saves,0.04,order,,,,,no
+,,false,,,,p_distribution before p_safe_saves,0.04,order,,,,,no
+,,false,,,,p_byok_later before p_agent_panel,0.05,order,,,,,no
+,,true,,,,r_equal,0.96,coverage,,,,visual editing and agent interaction with equal prominence on the same selection,yes
+,,true,,,,r_integrated,0.99,coverage,,,,an integrated agent that uses the agent tools the user already has,yes
+,,true,,,,r_external,0.98,coverage,,,,"operation by external agents such as Claude Code, Codex or Hermes",yes
+,,true,,,,r_nokey,0.83,coverage,,,,no requirement for a Cauldron model API key,yes
+,,true,,,,r_real_astro,0.9,coverage,,,,editing real Astro project files as the source of truth,yes
+,,true,,,,r_no_loss,0.99,coverage,,,,protection against losing the user's or an agent's edits,yes
+,,true,,,,r_responsive_app,0.73,coverage,,,,an app layout that works at every window size,yes
+,,true,,,,r_taste,0.96,coverage,,,,help with good design taste,yes
+,,true,,,,r_quality,0.99,coverage,,,,measured accessibility and speed checks on the built site,yes
+,,true,,,,r_content,0.74,coverage,,,,editing site content such as blog posts,yes
+,,true,,,,r_publish,0.96,coverage,,,,publishing the site,yes
+,,true,,,,r_mac,0.95,coverage,,,,downloadable on a Mac without an Apple Developer account,yes
+,,true,,,,r_foss,0.9,coverage,,,,"remaining free and open source, including licence-safe reuse",yes
+,,,,,,r_good_looking,0.29,coverage,,,,"a good-looking, visually polished app interface of its own",no
+,,,,,,r_windows,0.03,coverage,,,,tested Windows and Linux releases,no
+,,false,,,,x_cloud,0.02,coverage,,,,a hosted cloud service with user accounts and paid subscriptions,no
+,,false,,,,x_mobile,0.03,coverage,,,,a native phone app for editing sites,no

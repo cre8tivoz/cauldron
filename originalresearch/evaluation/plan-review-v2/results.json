@@ -1,0 +1,983 @@
+{
+ "results": [
+  {
+   "part": "claims",
+   "id": "c_css_root_cause",
+   "text": "Stacki stylesheet saves do not send the version of the file the edit was based on, so a stale stylesheet can replace newer changes on disk.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.79,
+   "goes_beyond": 0.44
+  },
+  {
+   "part": "claims",
+   "id": "c_source_same_gap",
+   "text": "Stacki general source-file saves have the same missing-version gap as stylesheet saves.",
+   "verdict": "review",
+   "expected": "true",
+   "supported": 0.54,
+   "goes_beyond": 0.62
+  },
+  {
+   "part": "claims",
+   "id": "c_page_versioned",
+   "text": "Stacki page edits are checked against the version they were based on before being written.",
+   "verdict": "review",
+   "expected": "true",
+   "supported": 0.58,
+   "goes_beyond": 0.55
+  },
+  {
+   "part": "claims",
+   "id": "c_preview_frames",
+   "text": "In Stacki, the preload script runs inside the preview frames that show the user's website.",
+   "verdict": "review",
+   "expected": "true",
+   "supported": 0.62,
+   "goes_beyond": 0.75
+  },
+  {
+   "part": "claims",
+   "id": "c_sitereal_merge",
+   "text": "Sitereal keeps a stored base copy of files it writes and merges outside edits against it.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.94,
+   "goes_beyond": 0.18
+  },
+  {
+   "part": "claims",
+   "id": "c_sitereal_policy_differs",
+   "text": "Sitereal resolves overlapping conflicts differently depending on which save path is used.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.91,
+   "goes_beyond": 0.22
+  },
+  {
+   "part": "claims",
+   "id": "c_sitereal_agent_undo",
+   "text": "Sitereal groups agent changes into runs and refuses to undo a run when later work changed the same parts, unless forced.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.74,
+   "goes_beyond": 0.35
+  },
+  {
+   "part": "claims",
+   "id": "c_sitereal_no_reuse",
+   "text": "Sitereal code may not be incorporated into Cauldron.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.84,
+   "goes_beyond": 0.4
+  },
+  {
+   "part": "claims",
+   "id": "c_zeku_choice",
+   "text": "Zeku asks the user to choose between their version and the disk version when a file with unsaved edits changes on disk.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.93,
+   "goes_beyond": 0.18
+  },
+  {
+   "part": "claims",
+   "id": "x_stacki_css_safe",
+   "text": "Stacki stylesheet undo safely preserves unrelated external edits.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.04,
+   "goes_beyond": 0.85
+  },
+  {
+   "part": "claims",
+   "id": "x_sitereal_lossless",
+   "text": "Sitereal never loses work when two changes conflict.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.19,
+   "goes_beyond": 0.93
+  },
+  {
+   "part": "claims",
+   "id": "x_preview_cause",
+   "text": "The Stacki new-page 404 is caused by Astro registering new routes late.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.03,
+   "goes_beyond": 0.97
+  },
+  {
+   "part": "claims",
+   "id": "c_cos_taste",
+   "text": "Cauldron OS added design anti-patterns and premium UI rules to generation and let the user pick a design reference first.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.72,
+   "goes_beyond": 0.43
+  },
+  {
+   "part": "claims",
+   "id": "c_cos_critique",
+   "text": "Cauldron OS scored accessibility, hierarchy, spacing and contrast, and applied plain-language critique.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.81,
+   "goes_beyond": 0.32
+  },
+  {
+   "part": "claims",
+   "id": "c_od_reuse",
+   "text": "The Open Design systems may be included in an MIT-licensed app if the Apache licence and change notices are kept.",
+   "verdict": "rejected",
+   "expected": "true",
+   "supported": 0.27,
+   "goes_beyond": 0.88
+  },
+  {
+   "part": "claims",
+   "id": "c_od_newer",
+   "text": "The Open Design systems have changed since the copy imported into Cauldron OS.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.87,
+   "goes_beyond": 0.17
+  },
+  {
+   "part": "claims",
+   "id": "c_rb_no_bundle",
+   "text": "React Bits components may not be redistributed as part of a bundled component library.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.96,
+   "goes_beyond": 0.17
+  },
+  {
+   "part": "claims",
+   "id": "c_claude_headless",
+   "text": "The installed Claude Code offers non-interactive runs, streamed output, conversation resume and MCP configuration.",
+   "verdict": "holds",
+   "expected": "true",
+   "supported": 0.84,
+   "goes_beyond": 0.23
+  },
+  {
+   "part": "claims",
+   "id": "x_rb_free",
+   "text": "React Bits components can be freely bundled and redistributed in another component library.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.03,
+   "goes_beyond": 0.95
+  },
+  {
+   "part": "claims",
+   "id": "x_od_mit",
+   "text": "The Open Design systems are MIT-licensed.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.02,
+   "goes_beyond": 0.97
+  },
+  {
+   "part": "claims",
+   "id": "x_gd_reuse",
+   "text": "Gradient Deck grants permission to reuse its designs as library content.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.03,
+   "goes_beyond": 0.96
+  },
+  {
+   "part": "claims",
+   "id": "x_cos_astro",
+   "text": "Cauldron OS edited existing Astro sites in place.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.07,
+   "goes_beyond": 0.9
+  },
+  {
+   "part": "claims",
+   "id": "x_claude_tested",
+   "text": "Claude Code has already been tested working inside Cauldron.",
+   "verdict": "rejected",
+   "expected": "false",
+   "supported": 0.02,
+   "goes_beyond": 0.96
+  },
+  {
+   "part": "plan",
+   "id": "p_repo",
+   "text": "Set up the empty cre8tivoz/cauldron repository from scratch: MIT licence, README, a bare Electron app with React and TypeScript that opens a window, and automatic checks on every change.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.96,
+   "evidenced_gap": 0.9,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.09,
+   "testable": 0.91
+  },
+  {
+   "part": "plan",
+   "id": "p_reference_rule",
+   "text": "Keep all research outside the Cauldron repository. Use it to understand how things work and what broke, then write Cauldron's own code without copying from studied products.",
+   "verdict": "needs work",
+   "flags": "testable review",
+   "fits_brief": 0.95,
+   "evidenced_gap": 0.95,
+   "restricted_reuse": 0.02,
+   "assumes_unproven": 0.1,
+   "testable": 0.32
+  },
+  {
+   "part": "plan",
+   "id": "p_test_sites",
+   "text": "Test Cauldron from its first working build against copies of real sites (WDLsite first, then rudeboycoffee, which has a content collection), never the originals.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.87,
+   "evidenced_gap": 0.86,
+   "restricted_reuse": 0.07,
+   "assumes_unproven": 0.14,
+   "testable": 0.95
+  },
+  {
+   "part": "plan",
+   "id": "p_open_preview",
+   "text": "Open a folder, confirm it is an Astro site, and start its live preview automatically; if dependencies are missing, say so and ask rather than installing silently.",
+   "verdict": "needs work",
+   "flags": "assumption review",
+   "fits_brief": 0.91,
+   "evidenced_gap": 0.84,
+   "restricted_reuse": 0.04,
+   "assumes_unproven": 0.38,
+   "testable": 0.94
+  },
+  {
+   "part": "plan",
+   "id": "p_select_edit",
+   "text": "Select an element by clicking it in the preview, then edit its text, settings and styles; changes land in the real Astro files and appear in the preview.",
+   "verdict": "needs work",
+   "flags": "assumption review",
+   "fits_brief": 0.93,
+   "evidenced_gap": 0.95,
+   "restricted_reuse": 0.05,
+   "assumes_unproven": 0.46,
+   "testable": 0.95
+  },
+  {
+   "part": "plan",
+   "id": "p_versioned_saves",
+   "text": "Every page, style and source save, and every Undo and Redo, carries the version of the file it started from; if the file changed since, merge or ask, never overwrite. Test: style change, unrelated outside edit to the same file, Undo; the outside edit must survive.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.92,
+   "evidenced_gap": 0.98,
+   "restricted_reuse": 0.07,
+   "assumes_unproven": 0.17,
+   "testable": 0.95
+  },
+  {
+   "part": "plan",
+   "id": "p_outside_edits",
+   "text": "When a file changes on disk, merge automatically only when changes do not overlap; otherwise keep both and ask the user to choose. One written rule for every save path, with tests.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.84,
+   "evidenced_gap": 0.91,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.13,
+   "testable": 0.89
+  },
+  {
+   "part": "plan",
+   "id": "p_preserve_shape",
+   "text": "Leave anything Cauldron does not understand in a file exactly as written, tested on the real test sites rather than assumed.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.85,
+   "evidenced_gap": 0.72,
+   "restricted_reuse": 0.04,
+   "assumes_unproven": 0.09,
+   "testable": 0.91
+  },
+  {
+   "part": "plan",
+   "id": "p_recovery",
+   "text": "Save unsaved edits to a recovery area outside the site every few seconds and offer them back after a crash.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.91,
+   "evidenced_gap": 0.86,
+   "restricted_reuse": 0.11,
+   "assumes_unproven": 0.19,
+   "testable": 0.87
+  },
+  {
+   "part": "plan",
+   "id": "p_new_page",
+   "text": "A newly created page shows in the preview without a manual reload, verified with a test.",
+   "verdict": "needs work",
+   "flags": "assumption review",
+   "fits_brief": 0.93,
+   "evidenced_gap": 0.95,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.41,
+   "testable": 0.96
+  },
+  {
+   "part": "plan",
+   "id": "p_preview_isolation",
+   "text": "Give the website preview only a minimal reporting channel, so a site or a script an agent adds to it can never reach editing powers.",
+   "verdict": "needs work",
+   "flags": "assumption review",
+   "fits_brief": 0.77,
+   "evidenced_gap": 0.89,
+   "restricted_reuse": 0.04,
+   "assumes_unproven": 0.59,
+   "testable": 0.83
+  },
+  {
+   "part": "plan",
+   "id": "p_shared_actions",
+   "text": "One set of actions inside the app (read selection, read page outline with version, edit element, edit CSS rule, create page) used by the visual controls, the agent panel and outside agents; every change states its base version and stale changes are refused with a clear message.",
+   "verdict": "needs work",
+   "flags": "fit review; assumption review; testable review",
+   "fits_brief": 0.42,
+   "evidenced_gap": 0.94,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.45,
+   "testable": 0.68
+  },
+  {
+   "part": "plan",
+   "id": "p_agent_runs",
+   "text": "Group each agent job into a run with a plain summary of changed pages and files, undoable in one step unless later work changed the same parts; a Before/After toggle in the preview highlights what the run changed.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.9,
+   "evidenced_gap": 0.93,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.29,
+   "testable": 0.71
+  },
+  {
+   "part": "plan",
+   "id": "p_workspace",
+   "text": "Workspace with the agent column on the left, live preview centre and visual controls right, with resizable, collapsible panels at desktop window sizes down to 1280 x 800, following the Mac light/dark setting; Camillo designs the look from the Mobbin research and Billy approves.",
+   "verdict": "needs work",
+   "flags": "testable review",
+   "fits_brief": 0.93,
+   "evidenced_gap": 0.97,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.29,
+   "testable": 0.38
+  },
+  {
+   "part": "plan",
+   "id": "p_agent_panel",
+   "text": "Agent panel that runs Claude Code with the selected element as context, keeps the conversation going and shows running, finished and failed; one agent end to end before adding more; it may not change files until versioned saves and shared actions exist.",
+   "verdict": "needs work",
+   "flags": "fit review; testable review",
+   "fits_brief": 0.58,
+   "evidenced_gap": 0.97,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.27,
+   "testable": 0.54
+  },
+  {
+   "part": "plan",
+   "id": "p_external_access",
+   "text": "Offer the same actions to outside agents through a local MCP connection on this computer only, with a per-site access code, while Cauldron is open; each tool is tested before support is claimed.",
+   "verdict": "needs work",
+   "flags": "fit review",
+   "fits_brief": 0.34,
+   "evidenced_gap": 0.85,
+   "restricted_reuse": 0.07,
+   "assumes_unproven": 0.12,
+   "testable": 0.79
+  },
+  {
+   "part": "plan",
+   "id": "p_content_forms",
+   "text": "Content editing through forms built from the site's Astro content definitions, warning when they are out of date, with plain-text editing as a fallback.",
+   "verdict": "needs work",
+   "flags": "assumption review; testable review",
+   "fits_brief": 0.87,
+   "evidenced_gap": 0.95,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.38,
+   "testable": 0.65
+  },
+  {
+   "part": "plan",
+   "id": "p_taste_rules",
+   "text": "Always-on taste rules carried by every agent job: avoid the generic AI look (default fonts, pure black, cards inside cards, tired blue gradients) and insist on spacing, type, states and small interactions. If a site's direction clashes with a rule, the direction wins but Cauldron explains why it may not be best, with evidence and a recommendation. Rewritten fresh, informed by Cauldron OS.",
+   "verdict": "needs work",
+   "flags": "assumption review; testable review",
+   "fits_brief": 0.91,
+   "evidenced_gap": 0.98,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.51,
+   "testable": 0.58
+  },
+  {
+   "part": "plan",
+   "id": "p_direction",
+   "text": "A design direction for every site, chosen from the latest Open Design systems (Apache notice kept), a Refero search, or fonts, colours and layout pulled from a reference URL; saved inside the site as design tokens plus a design document the agent reads on every job; visual controls offer those tokens first.",
+   "verdict": "needs work",
+   "flags": "assumption review; testable review",
+   "fits_brief": 0.89,
+   "evidenced_gap": 0.96,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.53,
+   "testable": 0.67
+  },
+  {
+   "part": "plan",
+   "id": "p_library",
+   "text": "The component library at the heart of Cauldron: reusable sections, components and design files from Billy's design references, dropped into a site with previews and add or replace. Components are copied into the site as its own files, converted to plain Astro with React only where interaction needs it, shaped by the site's direction, and included as code only where the licence allows. Launch with a starter set across the main section types, picked by Camillo and approved by Billy.",
+   "verdict": "needs work",
+   "flags": "assumption review; testable review",
+   "fits_brief": 0.93,
+   "evidenced_gap": 0.98,
+   "restricted_reuse": 0.23,
+   "assumes_unproven": 0.39,
+   "testable": 0.57
+  },
+  {
+   "part": "plan",
+   "id": "p_quality",
+   "text": "Build the actual site and measure layout overflow at phone/tablet/desktop sizes, keyboard use, automated accessibility, broken links and speed; then check type scale, spacing rhythm, contrast and hierarchy against the site's direction; plain-language critique goes to the agent to apply; measured results stay separate from opinion.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.86,
+   "evidenced_gap": 0.95,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.11,
+   "testable": 0.96
+  },
+  {
+   "part": "plan",
+   "id": "p_blind_test",
+   "text": "Proof for version one: two contrasting real briefs, each built once by Claude Code alone and once by Claude Code inside Cauldron; Billy judges blind; Cauldron's versions must win and pass the measured checks, or version one does not ship.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.9,
+   "evidenced_gap": 0.94,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.24,
+   "testable": 0.88
+  },
+  {
+   "part": "plan",
+   "id": "p_publish",
+   "text": "Show changed pages and publish through the user's own Git repository; no publishing with unsaved edits, and nothing committed without the user asking.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.9,
+   "evidenced_gap": 0.92,
+   "restricted_reuse": 0.07,
+   "assumes_unproven": 0.28,
+   "testable": 0.75
+  },
+  {
+   "part": "plan",
+   "id": "p_distribution",
+   "text": "An unsigned Mac download with first-launch instructions, tested on a separate Mac.",
+   "verdict": "sound",
+   "flags": "",
+   "fits_brief": 0.79,
+   "evidenced_gap": 0.74,
+   "restricted_reuse": 0.02,
+   "assumes_unproven": 0.14,
+   "testable": 0.8
+  },
+  {
+   "part": "plan",
+   "id": "p_parked",
+   "text": "Park Windows and Linux releases and bring-your-own-key until after the first Mac release.",
+   "verdict": "needs work",
+   "flags": "testable no; gap review",
+   "fits_brief": 0.85,
+   "evidenced_gap": 0.49,
+   "restricted_reuse": 0.01,
+   "assumes_unproven": 0.05,
+   "testable": 0.22
+  },
+  {
+   "part": "alternative",
+   "id": "a_fork_stacki",
+   "text": "Fork the MIT Stacki repository and build Cauldron on top of its code.",
+   "verdict": "rejected",
+   "flags": "fit no; assumption review; gap review",
+   "fits_brief": 0.01,
+   "evidenced_gap": 0.4,
+   "restricted_reuse": 0.05,
+   "assumes_unproven": 0.45,
+   "testable": 0.87
+  },
+  {
+   "part": "alternative",
+   "id": "a_taste_later",
+   "text": "Ship a visual editor with the agent first and add design taste and the component library in a later release.",
+   "verdict": "rejected",
+   "flags": "fit no; testable review; gap no",
+   "fits_brief": 0.01,
+   "evidenced_gap": 0.26,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.24,
+   "testable": 0.5
+  },
+  {
+   "part": "alternative",
+   "id": "a_copy_sitereal",
+   "text": "Copy Sitereal's merge and agent-run code into Cauldron to save time.",
+   "verdict": "rejected",
+   "flags": "fit no; licence yes; assumption review; testable review; gap review",
+   "fits_brief": 0.01,
+   "evidenced_gap": 0.62,
+   "restricted_reuse": 0.99,
+   "assumes_unproven": 0.6,
+   "testable": 0.68
+  },
+  {
+   "part": "alternative",
+   "id": "a_bundle_reactbits",
+   "text": "Bundle React Bits components into Cauldron's component library.",
+   "verdict": "rejected",
+   "flags": "fit no; licence yes; assumption review; testable review",
+   "fits_brief": 0.17,
+   "evidenced_gap": 0.78,
+   "restricted_reuse": 0.88,
+   "assumes_unproven": 0.45,
+   "testable": 0.62
+  },
+  {
+   "part": "alternative",
+   "id": "a_linked_package",
+   "text": "Link library components from a shared Cauldron package that updates centrally, instead of copying them into the site.",
+   "verdict": "rejected",
+   "flags": "fit no; assumption review; testable review; gap no",
+   "fits_brief": 0.02,
+   "evidenced_gap": 0.23,
+   "restricted_reuse": 0.03,
+   "assumes_unproven": 0.58,
+   "testable": 0.67
+  },
+  {
+   "part": "alternative",
+   "id": "a_keep_react",
+   "text": "Keep every library component in React, its original framework.",
+   "verdict": "rejected",
+   "flags": "fit no; licence review; assumption review; testable review; gap no",
+   "fits_brief": 0.02,
+   "evidenced_gap": 0.26,
+   "restricted_reuse": 0.48,
+   "assumes_unproven": 0.48,
+   "testable": 0.7
+  },
+  {
+   "part": "alternative",
+   "id": "a_old_designs",
+   "text": "Use the 150 design systems already copied into Cauldron OS in June instead of sourcing the latest.",
+   "verdict": "rejected",
+   "flags": "fit no; assumption review; testable review; gap no",
+   "fits_brief": 0.02,
+   "evidenced_gap": 0.27,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.58,
+   "testable": 0.59
+  },
+  {
+   "part": "alternative",
+   "id": "a_agent_first",
+   "text": "Let the agent panel change files before versioned saves and shared actions exist.",
+   "verdict": "needs work",
+   "flags": "fit review; assumption yes; testable review; gap review",
+   "fits_brief": 0.4,
+   "evidenced_gap": 0.7,
+   "restricted_reuse": 0.05,
+   "assumes_unproven": 0.74,
+   "testable": 0.67
+  },
+  {
+   "part": "alternative",
+   "id": "a_engine",
+   "text": "Run shared actions in a separate background engine per site so outside agents can work while Cauldron is closed.",
+   "verdict": "rejected",
+   "flags": "fit no; assumption review",
+   "fits_brief": 0.03,
+   "evidenced_gap": 0.81,
+   "restricted_reuse": 0.06,
+   "assumes_unproven": 0.67,
+   "testable": 0.74
+  },
+  {
+   "part": "alternative",
+   "id": "a_all_agents",
+   "text": "Support all eight agent tools listed by HyperFrames at first release.",
+   "verdict": "rejected",
+   "flags": "fit no; assumption yes; testable review; gap review",
+   "fits_brief": 0.1,
+   "evidenced_gap": 0.54,
+   "restricted_reuse": 0.21,
+   "assumes_unproven": 0.8,
+   "testable": 0.56
+  },
+  {
+   "part": "order",
+   "id": "p_versioned_saves before p_agent_panel",
+   "verdict": "yes",
+   "noul": 0.88,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_shared_actions before p_agent_panel",
+   "verdict": "yes",
+   "noul": 0.85,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_shared_actions before p_external_access",
+   "verdict": "yes",
+   "noul": 0.91,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_shared_actions before p_agent_runs",
+   "verdict": "yes",
+   "noul": 0.83,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_preview_isolation before p_agent_panel",
+   "verdict": "no",
+   "noul": 0.29,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_taste_rules before p_agent_panel",
+   "verdict": "no",
+   "noul": 0.14,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_direction before p_library",
+   "verdict": "no",
+   "noul": 0.24,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_library before p_blind_test",
+   "verdict": "no",
+   "noul": 0.19,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_quality before p_blind_test",
+   "verdict": "no",
+   "noul": 0.2,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_repo before p_open_preview",
+   "verdict": "review",
+   "noul": 0.67,
+   "expected": "true"
+  },
+  {
+   "part": "order",
+   "id": "p_distribution before p_versioned_saves",
+   "verdict": "no",
+   "noul": 0.03,
+   "expected": "false"
+  },
+  {
+   "part": "order",
+   "id": "p_publish before p_taste_rules",
+   "verdict": "no",
+   "noul": 0.05,
+   "expected": "false"
+  },
+  {
+   "part": "order",
+   "id": "p_parked before p_agent_panel",
+   "verdict": "no",
+   "noul": 0.05,
+   "expected": "false"
+  },
+  {
+   "part": "coverage",
+   "id": "r_taste_core",
+   "text": "built-in design taste as a core part of version one",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_library",
+   "text": "a library of reusable sections and components, built from Billy's design references, that people drop into their site",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_latest_designs",
+   "text": "design directions from the latest, not out-of-date, design systems",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_proof",
+   "text": "a test proving the design taste actually improves results",
+   "verdict": "yes",
+   "noul": 0.8,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_equal",
+   "text": "visual editing and agent interaction with equal prominence on the same selection",
+   "verdict": "yes",
+   "noul": 0.93,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_agent_plugin",
+   "text": "agent tools the user already has plugging into the app, without a Cauldron API key",
+   "verdict": "yes",
+   "noul": 0.94,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_external",
+   "text": "operation by outside agents",
+   "verdict": "yes",
+   "noul": 0.98,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_real_astro",
+   "text": "editing real Astro files as the source of truth",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_no_loss",
+   "text": "protection against losing the user's or an agent's edits",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_content",
+   "text": "editing site content such as blog posts",
+   "verdict": "yes",
+   "noul": 0.97,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_publish",
+   "text": "publishing the site",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_quality",
+   "text": "measured accessibility and speed checks on the built site",
+   "verdict": "yes",
+   "noul": 0.99,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_good_looking",
+   "text": "a good-looking, visually polished app interface of its own",
+   "verdict": "yes",
+   "noul": 0.92,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_mac",
+   "text": "a Mac download without an Apple Developer account",
+   "verdict": "yes",
+   "noul": 0.94,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "r_foss",
+   "text": "remaining free and open source, with licence-safe reuse",
+   "verdict": "yes",
+   "noul": 0.95,
+   "expected": "true"
+  },
+  {
+   "part": "coverage",
+   "id": "x_cloud",
+   "text": "a hosted cloud service with user accounts and paid subscriptions",
+   "verdict": "no",
+   "noul": 0.02,
+   "expected": "false"
+  },
+  {
+   "part": "coverage",
+   "id": "x_mobile",
+   "text": "a native phone app for editing sites",
+   "verdict": "no",
+   "noul": 0.02,
+   "expected": "false"
+  },
+  {
+   "part": "coverage",
+   "id": "x_windows",
+   "text": "tested Windows and Linux releases in version one",
+   "verdict": "no",
+   "noul": 0.03,
+   "expected": "false"
+  }
+ ],
+ "controls": [
+  {
+   "id": "x_stacki_css_safe",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_sitereal_lossless",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_preview_cause",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_rb_free",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_od_mit",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_gd_reuse",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_cos_astro",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "x_claude_tested",
+   "check": "control claim rejected",
+   "passed": true
+  },
+  {
+   "id": "a_fork_stacki",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_taste_later",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_copy_sitereal",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_bundle_reactbits",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_linked_package",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_keep_react",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_old_designs",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "a_agent_first",
+   "check": "bad alternative rejected",
+   "passed": false
+  },
+  {
+   "id": "a_engine",
+   "check": "bad alternative rejected",
+   "passed": true
+  },
+  {
+   "id": "p_distribution->p_versioned_saves",
+   "check": "control: no dependency",
+   "passed": true
+  },
+  {
+   "id": "p_publish->p_taste_rules",
+   "check": "control: no dependency",
+   "passed": true
+  },
+  {
+   "id": "p_parked->p_agent_panel",
+   "check": "control: no dependency",
+   "passed": true
+  },
+  {
+   "id": "x_cloud",
+   "check": "control: not covered",
+   "passed": true
+  },
+  {
+   "id": "x_mobile",
+   "check": "control: not covered",
+   "passed": true
+  },
+  {
+   "id": "x_windows",
+   "check": "control: not covered",
+   "passed": true
+  }
+ ]
+}

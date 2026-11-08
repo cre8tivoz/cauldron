@@ -1,0 +1,360 @@
+/* eslint-disable camelcase */
+
+import { _ } from '@sveltia/i18n';
+import { isObject } from '@sveltia/utils/object';
+
+import { warnDeprecation } from '$lib/services/config/deprecations';
+import { parseCollectionFiles } from '$lib/services/config/parser/collection-files';
+import { checkArrayFileOptions } from '$lib/services/config/parser/collections/array-file';
+import { checkBulkEditFields } from '$lib/services/config/parser/collections/bulk-edit';
+import { checkCollectionFilter } from '$lib/services/config/parser/collections/filter';
+import { checkBodyField, isFormatMismatch } from '$lib/services/config/parser/collections/format';
+import { checkIdentifierField } from '$lib/services/config/parser/collections/identifier';
+import { checkPreviewPath } from '$lib/services/config/parser/collections/preview';
+import { checkSlugOptions } from '$lib/services/config/parser/collections/slug';
+import {
+  checkCollectionTemplates,
+  checkSummaryTemplate,
+} from '$lib/services/config/parser/collections/templates';
+import { checkViewOptions } from '$lib/services/config/parser/collections/views';
+import { parseFields } from '$lib/services/config/parser/fields';
+import { checkI18nOverrides } from '$lib/services/config/parser/i18n';
+import { checkFolderTemplateTags } from '$lib/services/config/parser/media';
+import { parsePublishMode } from '$lib/services/config/parser/publish-mode';
+import {
+  addMessage,
+  checkName,
+  checkUnsupportedOptions,
+} from '$lib/services/config/parser/utils/validator';
+import { getReorderGroupName } from '$lib/services/contents/collection/entries/reorder/config';
+import { parseViewOptions } from '$lib/services/contents/collection/view/options';
+import { mergeI18nConfigs } from '$lib/services/contents/i18n/config/merge';
+import {
+  hasLocalePlaceholder,
+  isValidLocaleFolderPath,
+} from '$lib/services/contents/i18n/placeholder';
+
+/**
+ * @import {
+ * CmsConfig,
+ * Collection,
+ * CollectionDivider,
+ * CollectionIndexFile,
+ * EntryCollection,
+ * } from '$lib/types/public';
+ * @import {
+ * ConfigParserCollectors,
+ * InternalSingletonCollection,
+ * UnsupportedOption,
+ * } from '$lib/types/private';
+ */
+
+/**
+ * Unsupported options for Number fields.
+ * @type {UnsupportedOption[]}
+ */
+const UNSUPPORTED_OPTIONS = [
+  // Deprecated camelCase option in Netlify/Decap CMS config, should be converted to snake_case.
+  { prop: 'sortableFields', newProp: 'sortable_fields' },
+];
+
+/**
+ * Parse and validate a single entry collection configuration.
+ * @param {object} context Context.
+ * @param {CmsConfig} context.cmsConfig Raw CMS configuration.
+ * @param {EntryCollection} context.collection Collection config to parse.
+ * @param {ConfigParserCollectors} collectors Collectors.
+ */
+export const parseEntryCollection = (context, collectors) => {
+  const { cmsConfig, collection } = context;
+
+  const {
+    body_field: bodyField,
+    extension,
+    fields,
+    folder,
+    format,
+    index_file,
+    preview_path,
+    preview_path_date_field,
+    reorder,
+    bulk_edit: bulkEdit,
+    slug_length: legacySlugLength,
+    view_groups,
+  } = collection;
+
+  if (isFormatMismatch(extension, format)) {
+    addMessage({
+      strKey: 'file_format_mismatch',
+      values: { extension, format },
+      context,
+      collectors,
+    });
+  }
+
+  // @todo Remove the legacy option prior to the 1.0 release.
+  if (legacySlugLength !== undefined) {
+    warnDeprecation('slug_length');
+  }
+
+  checkUnsupportedOptions({ UNSUPPORTED_OPTIONS, config: collection, context, collectors });
+
+  if (!fields?.length) {
+    addMessage({ strKey: 'collection_no_fields', context, collectors });
+  }
+
+  // Validate the `file` option and the options that can’t go with it
+  checkArrayFileOptions(context, collectors);
+
+  // The type of the `folder` option is checked against the JSON schema
+  if (typeof folder === 'string' && hasLocalePlaceholder(folder)) {
+    // The `{{locale}}` placeholder in the `folder` path is only valid if i18n is enabled for the
+    // collection, which takes the site-level configuration as well as the collection’s own `i18n`
+    // option: with either missing, `checkI18nOverrides()` merely warns that the collection stays
+    // monolingual, but the placeholder would then be replaced with the internal `_default` locale
+    // code, hiding the existing entries and saving new ones in the wrong place
+    if (!mergeI18nConfigs({ cmsConfig, collection })?.locales?.length) {
+      addMessage({ strKey: 'collection_folder_i18n_required', context, collectors });
+    }
+
+    // The placeholder stands for a folder named after the locale, and the entry path matcher can
+    // only capture one
+    if (!isValidLocaleFolderPath(folder)) {
+      addMessage({
+        strKey: 'invalid_collection_folder_locale',
+        values: { folder },
+        context,
+        collectors,
+      });
+    }
+  }
+
+  parseFields(fields, context, collectors);
+  checkBodyField({ extension, format, bodyField, fields, context, collectors });
+
+  // Validate the `identifier_field` option, and the `title` field it defaults to, against the
+  // fields. An index file has a fixed name, so its own fields don’t count
+  checkIdentifierField({ collection, context, collectors });
+
+  // Validate the `slug` option itself
+  checkSlugOptions({ collection, context, collectors });
+
+  // Validate the `slug`, `path`, `summary` and `thumbnail` options against the fields
+  checkCollectionTemplates({ collection, context, collectors });
+
+  // Validate the `filter` option, including the field it refers to
+  checkCollectionFilter({ collection, context, collectors });
+
+  if (index_file) {
+    // The index file can have an extension and format of its own, which have to agree with each
+    // other like the collection’s
+    if (
+      isObject(index_file) &&
+      isFormatMismatch(
+        /** @type {CollectionIndexFile} */ (index_file).extension,
+        /** @type {CollectionIndexFile} */ (index_file).format,
+      )
+    ) {
+      addMessage({
+        strKey: 'file_format_mismatch',
+        values: {
+          extension: /** @type {CollectionIndexFile} */ (index_file).extension,
+          format: /** @type {CollectionIndexFile} */ (index_file).format,
+        },
+        context: { cmsConfig, collection, isIndexFile: true },
+        collectors,
+      });
+    }
+
+    const indexFileContext = { cmsConfig, collection, isIndexFile: true };
+    const indexFileFields = index_file === true ? fields : (index_file.fields ?? fields);
+
+    parseFields(indexFileFields, indexFileContext, collectors);
+
+    // The index file can have fields or a format of its own, unlike the collection’s checked above.
+    // Its extension and format replace the collection’s together, as in `getIndexFileFormat()`
+    if (isObject(index_file)) {
+      const {
+        extension: indexExtension,
+        format: indexFormat,
+        fields: indexFields,
+        summary: indexSummary,
+      } = /** @type {CollectionIndexFile} */ (index_file);
+
+      const hasOwnFormat = indexExtension !== undefined || indexFormat !== undefined;
+
+      if (indexFields || hasOwnFormat) {
+        checkBodyField({
+          ...(hasOwnFormat
+            ? { extension: indexExtension, format: indexFormat }
+            : { extension, format }),
+          bodyField,
+          fields: indexFileFields,
+          context: indexFileContext,
+          collectors,
+        });
+      }
+
+      // Validate the index file’s `summary` option against the fields it uses
+      checkSummaryTemplate({
+        template: indexSummary,
+        fields: indexFileFields,
+        context: indexFileContext,
+        collectors,
+      });
+    }
+  }
+
+  // Validate the group named with the `reorder` option: an unknown name would silently fall back to
+  // an ungrouped list in reorder mode, which is hard to tell from a working configuration.
+  // `parseViewOptions()` is what `parseGroupConfig()` calls, so group lookup can’t diverge from the
+  // runtime.
+  const reorderGroupName = getReorderGroupName({ reorder });
+
+  if (reorderGroupName) {
+    const { options } = parseViewOptions(view_groups, 'groups');
+
+    if (!options.some(({ name }) => name === reorderGroupName)) {
+      addMessage({
+        strKey: 'invalid_reorder_group',
+        values: { name: reorderGroupName },
+        context,
+        collectors,
+      });
+    }
+  }
+
+  // Validate the fields named with the `bulk_edit` option: one that doesn’t exist, or can’t be
+  // edited in bulk, would silently be left out of the bulk editor
+  checkBulkEditFields({ bulkEdit, fields, context, collectors });
+
+  // Validate the `preview_path` option against the fields that can fill in its date and time tags.
+  // An index file can define its own fields, and the preview path reads from those for that entry,
+  // so a date field defined only there still counts
+  checkPreviewPath({
+    pathTemplate: preview_path,
+    dateFieldName: preview_path_date_field,
+    fields: [...(fields ?? []), ...(isObject(index_file) ? (index_file.fields ?? []) : [])],
+    context,
+    collectors,
+  });
+
+  // Validate the `sortable_fields`, `view_groups` and `view_filters` options, including the fields
+  // they refer to and the view group and filter names
+  checkViewOptions(context, collectors);
+};
+
+/**
+ * Parse and validate a collection or divider configuration.
+ * @param {object} context Context.
+ * @param {CmsConfig} context.cmsConfig Raw CMS configuration.
+ * @param {Collection | CollectionDivider} context.collection Collection config to parse.
+ * @param {ConfigParserCollectors} collectors Collectors.
+ */
+export const parseCollection = ({ cmsConfig, collection }, collectors) => {
+  const hasDivider = 'divider' in collection;
+  const hasFiles = 'files' in collection;
+  const hasFolder = 'folder' in collection;
+  const hasFile = 'file' in collection;
+  const optionCount = [hasDivider, hasFiles, hasFolder, hasFile].filter(Boolean).length;
+
+  // Validate at least one option
+  if (!optionCount) {
+    addMessage({
+      strKey: 'invalid_collection_no_options',
+      context: { cmsConfig, collection: /** @type {Collection} */ (collection) },
+      collectors,
+    });
+
+    return;
+  }
+
+  // Validate mutually exclusive options
+  if (optionCount > 1) {
+    addMessage({
+      strKey: 'invalid_collection_multiple_options',
+      // @ts-ignore
+      context: { cmsConfig, collection },
+      collectors,
+    });
+
+    return;
+  }
+
+  // Validate the `i18n` option against the site-level configuration it builds on. A divider has
+  // been ruled out above
+  checkI18nOverrides({ cmsConfig, collection: /** @type {Collection} */ (collection) }, collectors);
+
+  checkFolderTemplateTags({
+    config: collection,
+    context: { cmsConfig, collection: /** @type {Collection} */ (collection) },
+    collectors,
+  });
+
+  parsePublishMode({
+    value: /** @type {Collection} */ (collection).publish_mode,
+    context: { cmsConfig, collection: /** @type {Collection} */ (collection) },
+    collectors,
+  });
+
+  if (hasFiles) {
+    parseCollectionFiles({ cmsConfig, collection }, collectors);
+  } else if (hasFolder || hasFile) {
+    parseEntryCollection({ cmsConfig, collection }, collectors);
+  }
+};
+
+/**
+ * Parse and validate the collections configuration from the site config.
+ * @param {CmsConfig} cmsConfig Raw CMS configuration.
+ * @param {ConfigParserCollectors} collectors Collectors.
+ * @throws {Error} If there is an error in the collections config.
+ */
+export const parseCollections = (cmsConfig, collectors) => {
+  const { collections, singletons } = cmsConfig;
+  const { errors } = collectors;
+
+  if (!Array.isArray(collections) && !Array.isArray(singletons)) {
+    errors.add(_('config.error.no_collection'));
+
+    return;
+  }
+
+  // Validate that at least one collection is visible in the sidebar. A config where every
+  // collection is hidden with the `hide` option — or where the list contains nothing but dividers —
+  // leaves the user with an empty UI, which looks like a broken CMS rather than a configuration
+  // mistake. Singletons are always visible, so they satisfy the requirement on their own.
+  const hasVisibleCollection =
+    !!collections?.some((collection) => !('divider' in collection) && !collection.hide) ||
+    !!singletons?.length;
+
+  if (!hasVisibleCollection) {
+    errors.add(_('config.error.no_visible_collection'));
+  }
+
+  const checkNameArgs = { nameCounts: {}, strKeyBase: 'collection_name', collectors };
+
+  collections?.forEach((collection, index) => {
+    // Skip collection dividers
+    if ('divider' in collection) return;
+
+    const { name } = collection;
+    const newContext = { cmsConfig, collection };
+
+    if (checkName({ ...checkNameArgs, name, index, context: newContext })) {
+      parseCollection(newContext, collectors);
+    }
+  });
+
+  if (Array.isArray(singletons)) {
+    /** @type {InternalSingletonCollection} */
+    const collection = {
+      name: '_singletons',
+      label: _('singletons'),
+      label_singular: _('singleton'),
+      files: singletons,
+    };
+
+    parseCollectionFiles({ cmsConfig, collection }, collectors);
+  }
+};

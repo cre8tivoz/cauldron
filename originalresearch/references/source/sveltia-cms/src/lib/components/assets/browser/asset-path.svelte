@@ -1,0 +1,71 @@
+<script>
+  import { TruncatedText } from '@sveltia/ui';
+  import { stripSlashes } from '@sveltia/utils/string';
+  import { sanitize } from 'isomorphic-dompurify';
+
+  /**
+   * @import { Snippet } from 'svelte';
+   */
+
+  /**
+   * @typedef {object} Props
+   * @property {string} [path] The asset path to display.
+   * @property {string} [caption] The caption for the asset. Either `path` or `caption` should be
+   * provided. The `path` will be split into segments and displayed with line breaks, while the
+   * `caption` will be displayed as is without splitting.
+   * @property {Snippet} [children] Slot content.
+   */
+
+  /**
+   * Options for {@link sanitize}. Attributes are dropped, so a file name like
+   * `<wbr style="position: fixed; inset: 0">.png` cannot restyle the app.
+   */
+  const SANITIZE_OPTIONS = { ALLOWED_TAGS: ['wbr'], ALLOWED_ATTR: [] };
+
+  /** @type {Props} */
+  let {
+    /* eslint-disable prefer-const */
+    path,
+    caption,
+    children = undefined,
+    /* eslint-enable prefer-const */
+  } = $props();
+
+  const segments = $derived(path ? stripSlashes(path).split('/') : caption ? [caption] : []);
+
+  /**
+   * Get a label with `<wbr>` tags for line breaking after hyphens, underscores, and dots.
+   * @param {string} str The string to process.
+   * @returns {string} The processed string with `<wbr>` tags for line breaking.
+   */
+  const getLabel = (str) => sanitize(str.replace(/([-_.])/g, '$1<wbr>'), SANITIZE_OPTIONS);
+</script>
+
+{#if segments.length}
+  <!-- Hide the asset path from screen readers because the image comes with alt text -->
+  <span class="name" dir="ltr" aria-hidden="true">
+    <TruncatedText lines={2}>
+      {#each segments as segment, index (`${segment}-${index}`)}
+        {#if index === segments.length - 1}
+          <!-- File name -->
+          <strong>{@html getLabel(segment)}</strong>
+        {:else}
+          <!-- Folder name -->
+          {@html getLabel(segment)}/
+        {/if}
+      {/each}
+    </TruncatedText>
+    {@render children?.()}
+  </span>
+{/if}
+
+<style>
+  .name {
+    color: var(--sui-tertiary-foreground-color);
+
+    :global(strong) {
+      color: var(--sui-primary-foreground-color);
+      font-weight: var(--sui-font-weight-normal);
+    }
+  }
+</style>

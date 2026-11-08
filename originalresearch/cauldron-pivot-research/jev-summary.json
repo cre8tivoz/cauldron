@@ -1,0 +1,9 @@
+{
+  "documents": 46,
+  "requests": 51,
+  "input_tokens": 174579,
+  "estimated_usd": 0.007332318,
+  "model": "jev-1.14.0",
+  "cap_usd": 0.5,
+  "note": "Evidence judgments, not runtime tests or market validation. Negatives mean unsupported by supplied text."
+}

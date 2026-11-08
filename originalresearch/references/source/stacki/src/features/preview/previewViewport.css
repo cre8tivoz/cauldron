@@ -1,0 +1,82 @@
+/* Keep viewport controls with the preview so global input styles cannot expand them. */
+.preview-toolbar .device-btns {
+  flex-shrink: 0;
+}
+.preview-toolbar .preview-size-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.preview-size-controls .preview-width-field {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 3px;
+}
+.preview-width-field input {
+  width: 42px;
+  min-width: 0;
+  flex: 0 0 42px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: right;
+}
+.preview-width-field input:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.preview-size-controls output {
+  min-width: 38px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  text-align: center;
+}
+.preview-size-controls button {
+  padding: 3px 6px;
+  background: transparent;
+  font-size: inherit;
+}
+
+/* Only the iframe frame scales. The sibling overlay uses screen coordinates so
+   outlines retain their stroke width and labels retain their readable size. */
+.preview-frame-wrap > .frame-sized {
+  transform-origin: top center;
+  /* The frame and overlay must move in the same paint when changing devices. */
+  transition: none;
+}
+.preview-overlay-layer {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  overflow: hidden;
+  pointer-events: none;
+}
+.preview-overlay-layer.full {
+  top: 0;
+}
+
+.preview-page-loading {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}

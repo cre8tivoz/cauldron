@@ -1,0 +1,189 @@
+import {
+  getBranchPath,
+  getProjectId,
+  repository,
+} from '$lib/services/backends/git/gitlab/repository';
+import { fetchAPI } from '$lib/services/backends/git/shared/api';
+import { runConcurrently } from '$lib/services/backends/git/shared/concurrency';
+import { collectSafely, resolveDeployments } from '$lib/services/backends/git/shared/deployment';
+
+/**
+ * @import { DeployState, DeployStatus, DeployTarget } from '$lib/types/private';
+ * @import { DeployCandidate } from '$lib/services/backends/git/shared/deployment';
+ */
+
+/** Maximum number of items to retrieve per request. This is GitLab’s own cap. */
+const MAX_ITEMS = 100;
+/**
+ * How far back to look for deployments. GitLab’s Deployments API can’t filter by commit or ref, so
+ * a recent window is fetched and matched locally. A project that produces more than {@link
+ * MAX_ITEMS} deployments within the window may push a Review App out of the first page, in which
+ * case the commit statuses still cover it.
+ */
+const DEPLOYMENT_WINDOW = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Map a commit status to a normalized state. `skipped` is absent, so a job that didn’t run is
+ * ignored rather than reported as a failure.
+ * @type {Record<string, DeployState>}
+ * @see https://docs.gitlab.com/api/commits/#list-the-statuses-of-a-commit
+ */
+const COMMIT_STATUS_MAP = {
+  success: 'ready',
+  pending: 'pending',
+  running: 'pending',
+  created: 'pending',
+  preparing: 'pending',
+  manual: 'pending',
+  scheduled: 'pending',
+  waiting_for_resource: 'pending',
+  failed: 'error',
+  canceled: 'error',
+};
+
+/**
+ * Map a deployment status to a normalized state.
+ * @type {Record<string, DeployState>}
+ * @see https://docs.gitlab.com/api/deployments/
+ */
+const DEPLOYMENT_STATUS_MAP = {
+  success: 'ready',
+  created: 'pending',
+  running: 'pending',
+  blocked: 'pending',
+  failed: 'error',
+  canceled: 'error',
+};
+
+/**
+ * Manually trigger a deployment by creating a pipeline on the configured branch. Unlike a push
+ * pipeline, one created through the API runs even when the head commit message has `[skip ci]`.
+ * @returns {Promise<Response>} Response.
+ * @see https://docs.gitlab.com/api/pipelines/#create-a-new-pipeline
+ */
+export const triggerDeployment = async () =>
+  /** @type {Promise<Response>} */ (
+    fetchAPI(`/projects/${getProjectId()}/pipeline`, {
+      method: 'POST',
+      body: { ref: repository.branch },
+      responseType: 'raw',
+    })
+  );
+
+/**
+ * Fetch the head commit of the configured branch, which is the commit the production site is built
+ * from.
+ * @returns {Promise<string | undefined>} Commit SHA, or `undefined` if it couldn’t be resolved.
+ * @see https://docs.gitlab.com/api/branches/#get-single-repository-branch
+ */
+export const fetchBranchHeadSHA = async () => {
+  const { branch } = repository;
+
+  if (!branch) {
+    // The default branch hasn’t been detected yet
+    return undefined;
+  }
+
+  const result = /** @type {Record<string, any>} */ (await fetchAPI(getBranchPath(branch)));
+
+  return result?.commit?.id ?? undefined;
+};
+
+/**
+ * Collect deploy candidates from the project’s recent deployments, which is how GitLab’s own Review
+ * Apps and environments report a site URL. One request covers every target, because the API can
+ * only be narrowed by time, not by commit or ref. Each deployment is matched to a target by commit
+ * rather than by branch: a branch with any history has a finished deployment on it, and matching by
+ * branch would let that one — `ready`, with a URL — outrank the new commit’s own deployment, still
+ * `pending`, so a fresh save would read as built the moment it was pushed and never be checked
+ * again.
+ * @param {Record<string, DeployCandidate[]>} candidateMap Map to populate, keyed by the commit SHAs
+ * to look up.
+ */
+const collectDeploymentCandidates = async (candidateMap) => {
+  const updatedAfter = new Date(Date.now() - DEPLOYMENT_WINDOW).toISOString();
+
+  const deployments = /** @type {Record<string, any>[]} */ (
+    await fetchAPI(
+      `/projects/${getProjectId()}/deployments` +
+        `?order_by=updated_at&sort=desc&per_page=${MAX_ITEMS}` +
+        `&updated_after=${encodeURIComponent(updatedAfter)}`,
+    )
+  );
+
+  // The response is newest first, while {@link pickDeployment} expects the newest last
+  [...(deployments ?? [])].reverse().forEach(({ sha, status, environment }) => {
+    const state = DEPLOYMENT_STATUS_MAP[status];
+    // An older self-hosted GitLab omits `external_url` from the list response
+    const url = environment?.external_url ?? undefined;
+
+    if (!state || !sha) {
+      return;
+    }
+
+    // Anything else within the window is some other commit’s deployment
+    candidateMap[sha]?.push({
+      name: environment?.name ?? '',
+      url,
+      state,
+      source: 'deployment',
+    });
+  });
+};
+
+/**
+ * Collect deploy candidates from the commit statuses of the given commit. This is where an external
+ * CI service posts a build result when it posts one at all.
+ * @param {DeployTarget} target Commit to look up.
+ * @param {Record<string, DeployCandidate[]>} candidateMap Map to populate, keyed by commit SHA.
+ * @see https://docs.gitlab.com/api/commits/#list-the-statuses-of-a-commit
+ */
+const collectStatusCandidates = async ({ sha }, candidateMap) => {
+  const statuses = /** @type {Record<string, any>[]} */ (
+    await fetchAPI(
+      `/projects/${getProjectId()}/repository/commits/${encodeURIComponent(sha)}` +
+        `/statuses?per_page=${MAX_ITEMS}`,
+    )
+  );
+
+  (statuses ?? []).forEach(({ name, status, target_url: targetURL, description }) => {
+    const state = COMMIT_STATUS_MAP[status];
+
+    if (state) {
+      candidateMap[sha].push({
+        name: name ?? '',
+        url: targetURL ?? undefined,
+        state,
+        description: description ?? undefined,
+        source: 'status',
+      });
+    }
+  });
+};
+
+/**
+ * Collect deploy candidates for the given commits from the project’s deployments and from each
+ * commit’s statuses.
+ * @param {string[]} shas Commit SHAs.
+ * @param {Record<string, DeployCandidate[]>} candidateMap Candidates keyed by commit SHA.
+ */
+const collectCandidates = async (shas, candidateMap) => {
+  await Promise.all([
+    collectSafely(() => collectDeploymentCandidates(candidateMap)),
+    runConcurrently(shas, (sha) =>
+      collectSafely(() =>
+        collectStatusCandidates({ sha, branch: '', kind: 'preview' }, candidateMap),
+      ),
+    ),
+  ]);
+};
+
+/**
+ * Fetch the deployment status and URL for the given commits. Each source is requested separately
+ * and any failure is swallowed, so a commit whose statuses are gone — after a force push, say —
+ * doesn’t take the rest of the batch down with it.
+ * @param {DeployTarget[]} targets Commits to look up.
+ * @returns {Promise<Record<string, DeployStatus>>} Deployments keyed by commit SHA.
+ */
+export const fetchDeployments = async (targets) =>
+  resolveDeployments(targets, { collect: collectCandidates, selfURL: repository.repoURL });

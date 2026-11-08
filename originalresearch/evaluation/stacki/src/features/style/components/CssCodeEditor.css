@@ -1,0 +1,62 @@
+.code-editor {
+  width: 100%;
+  min-width: 0;
+}
+
+.code-editor .cm-editor {
+  min-height: inherit;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  flex-grow: 1;
+}
+
+.code-editor .cm-editor.cm-focused {
+  box-shadow: 0 0 0 var(--border-width-default) var(--color-border-focus);
+}
+
+.code-editor .cm-scroller {
+  font-family: var(--font-family-mono);
+  line-height: var(--line-height-normal);
+}
+
+.code-editor .cm-content {
+  min-height: inherit;
+  max-height: 70vh;
+  padding: var(--space-5);
+}
+
+.code-editor .cm-line {
+  padding: 0;
+}
+
+.code-editor .cm-gutters {
+  display: none;
+}
+
+.code-editor.is-readonly .cm-cursor {
+  display: none;
+}
+
+/* The frame around an editor: the anchor for its variable dot and chooser.
+   It passes the editor's own sizing through, so an editor that grows in a
+   column (the clip-path code) still grows. */
+.embed-editor_varconnect.code-editor_frame {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+}
+
+/* The frame is the field: its top-left corner is where the dot is drawn
+   (embed-editor_varconnect-dot's top and left), so the visible editor box must
+   start there. The app-wide `.code-editor` fallback adds 10px of padding, which
+   put the rounded box 10px inside the frame and left the dot floating off its
+   corner, up and to the left. The embedded editors own their spacing, so it is
+   dropped here for every one of them rather than per editor. */
+.code-editor_frame > .code-editor {
+  padding: 0;
+}

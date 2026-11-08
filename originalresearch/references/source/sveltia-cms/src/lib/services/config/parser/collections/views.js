@@ -1,0 +1,252 @@
+import { isObject } from '@sveltia/utils/object';
+
+import { hasComparison } from '$lib/services/common/view';
+import { SUMMARY_SPECIAL_TAGS } from '$lib/services/config/parser/collections/templates';
+import {
+  getCanonicalSlugKey,
+  hasField,
+  isNonFieldSortKey,
+} from '$lib/services/config/parser/utils/fields';
+import { checkFieldReferences } from '$lib/services/config/parser/utils/references';
+import { addMessage, checkName } from '$lib/services/config/parser/utils/validator';
+import { getOrderFieldKey } from '$lib/services/contents/collection/entries/reorder/config';
+import {
+  hasDefaultSort,
+  parseCustomSortableFields,
+  parseViewOptions,
+} from '$lib/services/contents/collection/view/options';
+import {
+  getConfiguredTableColumns,
+  isTemplateColumnKey,
+  METADATA_KEYS,
+  SUMMARY_COLUMN_KEY,
+} from '$lib/services/contents/collection/view/table-keys';
+
+/**
+ * @import { ConfigParserCollectors } from '$lib/types/private';
+ * @import {
+ * CmsConfig,
+ * EntryCollection,
+ * Field,
+ * ViewFilter,
+ * ViewFilters,
+ * ViewGroup,
+ * ViewGroups,
+ * } from '$lib/types/public';
+ */
+
+/**
+ * Validate the name and field key path of each option in the `view_groups` or `view_filters`
+ * option.
+ * @param {object} args Arguments.
+ * @param {ViewGroup[] | ViewGroups | ViewFilter[] | ViewFilters | undefined} args.config Raw
+ * configuration value.
+ * @param {(ViewGroup | ViewFilter)[]} args.options Parsed view group or filter options.
+ * @param {Field[]} args.fields Collection fields.
+ * @param {string[]} args.specialKeys Keys that are resolved without a field definition.
+ * @param {'view_group' | 'view_filter'} args.optionType Option type, used for message keys.
+ * @param {object} args.context Context.
+ * @param {ConfigParserCollectors} args.collectors Collectors.
+ */
+const checkNamedViewOptions = ({
+  config,
+  options,
+  fields,
+  specialKeys,
+  optionType,
+  context,
+  collectors,
+}) => {
+  // A `name` is required in the object (Static CMS) format, where an option is referenced by name
+  // from the `default` option, as well as the `reorder` option in the case of a group. It’s
+  // optional in the array (Netlify/Decap CMS) format, but must still be unique when provided
+  const isNameRequired = isObject(config);
+  /** @type {Record<string, number>} */
+  const nameCounts = {};
+
+  options.forEach((option, index) => {
+    const { name, field: key, pattern } = isObject(option) ? option : {};
+
+    checkName({
+      name,
+      index,
+      nameCounts,
+      strKeyBase: `${optionType}_name`,
+      context,
+      collectors,
+      required: isNameRequired,
+    });
+
+    // A group without a pattern or comparison groups the entries by the field value, but a filter
+    // has nothing to match against. The option type is checked against the JSON schema
+    if (optionType === 'view_filter' && isObject(option) && pattern === undefined) {
+      if (!hasComparison(option)) {
+        addMessage({
+          strKey: 'invalid_view_filter_no_condition',
+          values: { count: String(index + 1) },
+          context,
+          collectors,
+        });
+      }
+    }
+
+    // A missing field is not validated here, as it just disables grouping or filtering
+    if (typeof key !== 'string' || !key || specialKeys.includes(key)) {
+      return;
+    }
+
+    if (!hasField(fields, key)) {
+      addMessage({
+        strKey: `invalid_${optionType}_field`,
+        values: { name: key },
+        context,
+        collectors,
+      });
+    }
+  });
+
+  // The `default` option of the object format names one of the options. A name that matches none
+  // is silently ignored at runtime, so the collection opens without the intended view
+  const defaultName = isObject(config)
+    ? /** @type {ViewFilters | ViewGroups} */ (config).default
+    : undefined;
+
+  if (typeof defaultName === 'string' && defaultName) {
+    if (!options.some((option) => isObject(option) && option.name === defaultName)) {
+      addMessage({
+        strKey: `invalid_${optionType}_default`,
+        values: { name: defaultName },
+        context,
+        collectors,
+      });
+    }
+  }
+};
+
+/**
+ * Validate the `sortable_fields`, `view_groups` and `view_filters` options of an entry collection:
+ * the field key paths they refer to, and the name of each view group and filter. An unknown key
+ * path is silently ignored at runtime — a sort key disappears from the Sort menu, and a group or
+ * filter yields no result — which is hard to tell from a working configuration. Each of these
+ * options supports both an array (Netlify/Decap CMS compatible) and an object (Static CMS
+ * compatible) format, so the raw options are read through the same parsers the runtime uses, and
+ * the option lookup can’t diverge from it.
+ * @param {object} context Context.
+ * @param {CmsConfig} context.cmsConfig Raw CMS configuration.
+ * @param {EntryCollection} context.collection Collection config to parse.
+ * @param {ConfigParserCollectors} collectors Collectors.
+ * @see https://sveltiacms.app/en/docs/collections/entries/views
+ */
+export const checkViewOptions = (context, collectors) => {
+  const {
+    fields,
+    sortable_fields: sortableFields,
+    table_columns: tableColumns,
+    view_groups: viewGroups,
+    view_filters: viewFilters,
+  } = context.collection;
+
+  // A collection without fields is reported separately; checking key paths against an empty field
+  // list would only repeat that error for every view option
+  if (!fields?.length) {
+    return;
+  }
+
+  // A metadata key such as `slug` is read from the entry rather than its content, and the canonical
+  // slug key such as `translationKey` is part of the content without being a field
+  const canonicalSlugKey = getCanonicalSlugKey({
+    cmsConfig: context.cmsConfig,
+    collection: context.collection,
+  });
+
+  const specialKeys = [...METADATA_KEYS, ...(canonicalSlugKey ? [canonicalSlugKey] : [])];
+
+  if (sortableFields) {
+    const { keys, defaultKey } = parseCustomSortableFields(sortableFields);
+    const orderFieldKey = getOrderFieldKey(context.collection);
+
+    // `_summary` sorts by the generated entry summary, which only the entry list has. The default
+    // key is also in the list in the Decap CMS format, so it’s checked once
+    new Set([...keys, defaultKey]).forEach((key) => {
+      if (
+        key &&
+        key !== SUMMARY_COLUMN_KEY &&
+        !isNonFieldSortKey(key, { canonicalSlugKey, orderFieldKey }) &&
+        !hasField(fields, key)
+      ) {
+        addMessage({
+          strKey: 'invalid_sortable_field',
+          values: { name: key },
+          context,
+          collectors,
+        });
+      }
+    });
+
+    // Only one item in the Decap CMS format can have `default_sort`; the first one is used
+    if (Array.isArray(sortableFields) && sortableFields.filter(hasDefaultSort).length > 1) {
+      addMessage({ strKey: 'multiple_sortable_field_defaults', context, collectors });
+    }
+  }
+
+  // The columns of the table view, given with `table_columns` or its Static CMS alias
+  // `summary_fields`. The entry summary is `_summary`, the same as its sort key, or `summary` in
+  // the alias. A column naming no field would be silently left out of the table. The option types
+  // are checked against the JSON schema
+  const columns = getConfiguredTableColumns(context.collection);
+
+  if (columns) {
+    const columnOption = Array.isArray(tableColumns) ? 'table_columns' : 'summary_fields';
+
+    columns.forEach(({ key }) => {
+      // A template, e.g. `{{dirname}}/{{filename}}`, can use the same tags as a summary template
+      if (typeof key === 'string' && isTemplateColumnKey(key)) {
+        checkFieldReferences({
+          option: columnOption,
+          template: key,
+          specialTags: SUMMARY_SPECIAL_TAGS,
+          fields,
+          context,
+          collectors,
+        });
+
+        return;
+      }
+
+      if (
+        typeof key === 'string' &&
+        key &&
+        key !== SUMMARY_COLUMN_KEY &&
+        !specialKeys.includes(key) &&
+        !hasField(fields, key)
+      ) {
+        addMessage({
+          strKey: 'invalid_table_column_field',
+          values: { option: columnOption, name: key },
+          context,
+          collectors,
+        });
+      }
+    });
+  }
+
+  checkNamedViewOptions({
+    config: viewGroups,
+    options: parseViewOptions(viewGroups, 'groups').options,
+    fields,
+    specialKeys,
+    optionType: 'view_group',
+    context,
+    collectors,
+  });
+
+  checkNamedViewOptions({
+    config: viewFilters,
+    options: parseViewOptions(viewFilters, 'filters').options,
+    fields,
+    specialKeys,
+    optionType: 'view_filter',
+    context,
+    collectors,
+  });
+};

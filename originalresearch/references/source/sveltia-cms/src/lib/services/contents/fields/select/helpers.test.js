@@ -1,0 +1,355 @@
+import { describe, expect, test } from 'vitest';
+
+import {
+  getEmptyOptionValue,
+  getOptionLabel,
+  getOptionValue,
+  getOptionValueType,
+  getPreviewLabels,
+  isOptionValue,
+} from './helpers';
+
+/**
+ * @import { SelectField } from '$lib/types/public';
+ */
+
+/** @type {Pick<SelectField, 'widget' | 'name'>} */
+const baseFieldConfig = {
+  widget: 'select',
+  name: 'category',
+};
+
+/** @type {Pick<SelectField, 'widget' | 'name'>} */
+const baseMultipleFieldConfig = {
+  widget: 'select',
+  name: 'tags',
+};
+
+describe('Test getOptionLabel()', () => {
+  test('should return value for single select without labels', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseFieldConfig,
+      multiple: false,
+      options: ['option1', 'option2', 'option3'],
+    };
+
+    const valueMap = { category: 'option2' };
+    const keyPath = 'category';
+    const result = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result).toBe('option2');
+  });
+
+  test('should return label for single select with labels', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseFieldConfig,
+      multiple: false,
+      options: [
+        { label: 'First Option', value: 'option1' },
+        { label: 'Second Option', value: 'option2' },
+        { label: 'Third Option', value: 'option3' },
+      ],
+    };
+
+    const valueMap = { category: 'option2' };
+    const keyPath = 'category';
+    const result = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result).toBe('Second Option');
+  });
+
+  test('should return value if label not found', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseFieldConfig,
+      multiple: false,
+      options: [
+        { label: 'First Option', value: 'option1' },
+        { label: 'Second Option', value: 'option2' },
+      ],
+    };
+
+    const valueMap = { category: 'option3' };
+    const keyPath = 'category';
+    const result = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result).toBe('option3');
+  });
+
+  test('should return values array for multiple select without labels', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseMultipleFieldConfig,
+      multiple: true,
+      options: ['option1', 'option2', 'option3'],
+    };
+
+    const valueMap = {
+      'tags.0': 'option1',
+      'tags.1': 'option3',
+    };
+
+    const keyPath = 'tags';
+    const result = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result).toEqual(['option1', 'option3']);
+  });
+
+  test('should return labels array for multiple select with labels', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseMultipleFieldConfig,
+      multiple: true,
+      options: [
+        { label: 'First Option', value: 'option1' },
+        { label: 'Second Option', value: 'option2' },
+        { label: 'Third Option', value: 'option3' },
+      ],
+    };
+
+    const valueMap = {
+      'tags.0': 'option1',
+      'tags.1': 'option3',
+    };
+
+    const keyPath = 'tags';
+    const result = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result).toEqual(['First Option', 'Third Option']);
+  });
+
+  test('should return empty array for multiple select with no values', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseMultipleFieldConfig,
+      multiple: true,
+      options: ['option1', 'option2', 'option3'],
+    };
+
+    const valueMap = {};
+    const keyPath = 'tags';
+    const result = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result).toEqual([]);
+  });
+
+  test('should not mix up values of different types that stringify the same way', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseFieldConfig,
+      name: 'mixed',
+      multiple: false,
+      options: [
+        { label: 'Number one', value: 1 },
+        { label: 'String one', value: '1' },
+        { label: 'True', value: true },
+        { label: 'String true', value: 'true' },
+        { label: 'None', value: null },
+        { label: 'String null', value: 'null' },
+      ],
+    };
+
+    const keyPath = 'mixed';
+
+    /**
+     * Get the label of a value.
+     * @param {any} value Value.
+     * @returns {any} Label.
+     */
+    const getLabel = (value) =>
+      getOptionLabel({ fieldConfig, valueMap: { mixed: value }, keyPath });
+
+    expect(getLabel(1)).toBe('Number one');
+    expect(getLabel('1')).toBe('String one');
+    expect(getLabel(true)).toBe('True');
+    expect(getLabel('true')).toBe('String true');
+    expect(getLabel(null)).toBe('None');
+    expect(getLabel('null')).toBe('String null');
+  });
+
+  test('should return cached result on subsequent calls', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseFieldConfig,
+      multiple: false,
+      options: [
+        { label: 'First Option', value: 'option1' },
+        { label: 'Second Option', value: 'option2' },
+      ],
+    };
+
+    const valueMap = { category: 'option1' };
+    const keyPath = 'category';
+    // First call - should compute and cache
+    const result1 = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result1).toBe('First Option');
+
+    // Second call with same params - should return cached result
+    const result2 = getOptionLabel({ fieldConfig, valueMap, keyPath });
+
+    expect(result2).toBe('First Option');
+    expect(result1).toBe(result2); // Same reference from cache
+  });
+});
+
+describe('Test getPreviewLabels()', () => {
+  /** @type {SelectField} */
+  const plainFieldConfig = {
+    ...baseFieldConfig,
+    options: ['apple', 'banana', 'cherry'],
+  };
+
+  /** @type {SelectField} */
+  const labeledFieldConfig = {
+    ...baseFieldConfig,
+    options: [
+      { label: 'Apple', value: 'apple' },
+      { label: 'Banana', value: 'banana' },
+      { label: 'Zero', value: 0 },
+    ],
+  };
+
+  test('should return nothing when there is no value', () => {
+    expect(getPreviewLabels({ fieldConfig: plainFieldConfig, currentValue: undefined })).toEqual(
+      [],
+    );
+    expect(
+      getPreviewLabels({
+        fieldConfig: { ...plainFieldConfig, multiple: true },
+        currentValue: undefined,
+      }),
+    ).toEqual([]);
+    expect(
+      getPreviewLabels({ fieldConfig: { ...plainFieldConfig, multiple: true }, currentValue: [] }),
+    ).toEqual([]);
+  });
+
+  test('should show a value as is when the options have no labels', () => {
+    expect(getPreviewLabels({ fieldConfig: plainFieldConfig, currentValue: 'banana' })).toEqual([
+      'banana',
+    ]);
+    expect(getPreviewLabels({ fieldConfig: plainFieldConfig, currentValue: 42 })).toEqual(['42']);
+    // `null` is a cleared value unless it’s one of the options
+    expect(getPreviewLabels({ fieldConfig: plainFieldConfig, currentValue: null })).toEqual([]);
+  });
+
+  test('should show the label of a value when the options have labels', () => {
+    expect(getPreviewLabels({ fieldConfig: labeledFieldConfig, currentValue: 'banana' })).toEqual([
+      'Banana',
+    ]);
+    expect(getPreviewLabels({ fieldConfig: labeledFieldConfig, currentValue: 0 })).toEqual([
+      'Zero',
+    ]);
+  });
+
+  test('should show a value as is when it is not found in the labeled options', () => {
+    expect(getPreviewLabels({ fieldConfig: labeledFieldConfig, currentValue: 'cherry' })).toEqual([
+      'cherry',
+    ]);
+  });
+
+  test('should show nothing for a cleared `null` value unless it is one of the options', () => {
+    expect(getPreviewLabels({ fieldConfig: labeledFieldConfig, currentValue: null })).toEqual([]);
+    expect(
+      getPreviewLabels({
+        fieldConfig: {
+          ...baseFieldConfig,
+          options: [
+            { label: 'Yes', value: true },
+            { label: 'Not relevant', value: null },
+          ],
+        },
+        currentValue: null,
+      }),
+    ).toEqual(['Not relevant']);
+  });
+
+  test('should sort the labels of multiple values', () => {
+    expect(
+      getPreviewLabels({
+        fieldConfig: { ...labeledFieldConfig, multiple: true },
+        currentValue: ['banana', 'cherry', 'apple'],
+      }),
+    ).toEqual(['Apple', 'Banana', 'cherry']);
+    expect(
+      getPreviewLabels({
+        fieldConfig: { ...plainFieldConfig, multiple: true },
+        currentValue: ['cherry', 'apple'],
+      }),
+    ).toEqual(['apple', 'cherry']);
+  });
+
+  test('should ignore a non-array value for a multiple field', () => {
+    expect(
+      getPreviewLabels({
+        fieldConfig: { ...plainFieldConfig, multiple: true },
+        currentValue: 'apple',
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe('getOptionValue', () => {
+  test('should return the value of a labeled option or a plain value as is', () => {
+    expect(getOptionValue({ label: 'Yes', value: true })).toBe(true);
+    expect(getOptionValue({ label: 'None', value: null })).toBeNull();
+    expect(getOptionValue('a')).toBe('a');
+    expect(getOptionValue(0)).toBe(0);
+    expect(getOptionValue(null)).toBeNull();
+    expect(getOptionValue(undefined)).toBeUndefined();
+  });
+});
+
+describe('isOptionValue', () => {
+  test('should find a value among labeled options, including `false` and `null`', () => {
+    /** @type {SelectField} */
+    const fieldConfig = {
+      ...baseFieldConfig,
+      options: [
+        { label: 'Yes', value: true },
+        { label: 'No', value: false },
+        { label: 'Not relevant', value: null },
+      ],
+    };
+
+    expect(isOptionValue({ fieldConfig, value: true })).toBe(true);
+    expect(isOptionValue({ fieldConfig, value: false })).toBe(true);
+    expect(isOptionValue({ fieldConfig, value: null })).toBe(true);
+    expect(isOptionValue({ fieldConfig, value: '' })).toBe(false);
+    expect(isOptionValue({ fieldConfig, value: undefined })).toBe(false);
+  });
+
+  test('should find a value among plain options', () => {
+    /** @type {SelectField} */
+    const fieldConfig = { ...baseFieldConfig, options: [1, 2] };
+
+    expect(isOptionValue({ fieldConfig, value: 1 })).toBe(true);
+    expect(isOptionValue({ fieldConfig, value: '1' })).toBe(false);
+    expect(isOptionValue({ fieldConfig, value: null })).toBe(false);
+  });
+});
+
+describe('getOptionValueType', () => {
+  test('should return the type of the value, typing `null` as a number', () => {
+    expect(getOptionValueType('a')).toBe('string');
+    expect(getOptionValueType(1)).toBe('number');
+    expect(getOptionValueType(false)).toBe('boolean');
+    expect(getOptionValueType(null)).toBe('number');
+  });
+});
+
+describe('getEmptyOptionValue', () => {
+  test('should return an empty string for string options or no options', () => {
+    expect(getEmptyOptionValue('apple')).toBe('');
+    expect(getEmptyOptionValue(undefined)).toBe('');
+  });
+
+  test('should return `null` for other types of options', () => {
+    expect(getEmptyOptionValue(1)).toBeNull();
+    expect(getEmptyOptionValue(true)).toBeNull();
+    expect(getEmptyOptionValue(null)).toBeNull();
+  });
+});

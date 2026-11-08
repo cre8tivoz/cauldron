@@ -1,0 +1,148 @@
+import { IndexedDB, LocalStorage } from '@sveltia/utils/storage';
+
+import { backend } from '$lib/services/backends';
+import {
+  getBackupDatabaseName,
+  TEST_BACKEND_NAME,
+  TEST_BACKEND_ROOT_DIR_NAME,
+} from '$lib/services/backends/fs/test';
+import { gitBackendServices } from '$lib/services/backends/git/services';
+import { LEGACY_USER_STORAGE_KEYS } from '$lib/services/user/constants';
+
+/**
+ * Names of the IndexedDB object stores holding cached file contents, generated asset thumbnails and
+ * the asset hashes computed by the local backend. The data in these stores can always be re-fetched
+ * or regenerated, so it’s safe to delete.
+ * @type {string[]}
+ */
+const CACHE_STORE_NAMES = ['file-cache', 'asset-thumbnails', 'asset-hashes'];
+
+/**
+ * Prefix shared by all the local storage keys written by the CMS, such as `sveltia-cms.prefs`.
+ */
+export const LOCAL_STORAGE_KEY_PREFIX = 'sveltia-cms.';
+
+/**
+ * Pattern matching the IndexedDB database names created by the CMS, which are made up of a backend
+ * name and a repository path, e.g. `github:owner/repo`, or the test backend’s own database name.
+ * Used to leave any database owned by the site hosting the CMS untouched.
+ */
+const DATABASE_NAME_REGEX = new RegExp(
+  `^(?:${[...Object.keys(gitBackendServices), TEST_BACKEND_NAME].join('|')}):`,
+);
+
+/**
+ * Delete the directory in the origin private file system (OPFS) where the `test-repo` backend keeps
+ * entry and asset files. This is the backend’s only storage, so removing it resets the test site to
+ * an empty state.
+ * @returns {Promise<void>}
+ */
+const clearTestBackendFiles = async () => {
+  try {
+    const rootDirHandle = await navigator.storage.getDirectory();
+
+    await rootDirHandle.removeEntry(TEST_BACKEND_ROOT_DIR_NAME, { recursive: true });
+  } catch {
+    // The directory may not exist yet, or the handle may not be available for security reasons
+  }
+};
+
+/**
+ * Delete all the locally cached files, including remote file contents and asset thumbnails.
+ * @returns {Promise<void>}
+ */
+export const clearFileCache = async () => {
+  const _backend = backend.current;
+  const { databaseName } = _backend?.repository ?? {};
+
+  if (databaseName) {
+    // One store at a time: clearing a store the database doesn’t have yet bumps the database
+    // version to create it, and two of those at once leave one connection without its store
+    await CACHE_STORE_NAMES.reduce(
+      (previous, storeName) => previous.then(() => new IndexedDB(databaseName, storeName).clear()),
+      Promise.resolve(),
+    );
+  }
+
+  if (_backend?.name === TEST_BACKEND_NAME) {
+    await clearTestBackendFiles();
+  }
+};
+
+/**
+ * Get the names of the IndexedDB databases created by the CMS. The database for the current
+ * repository is always included, while any database left behind by another repository or backend is
+ * picked up only where `IDBFactory.databases()` is available; Firefox doesn’t implement it.
+ * @returns {Promise<string[]>} Database names.
+ */
+const getDatabaseNames = async () => {
+  const databaseName = getBackupDatabaseName(backend.current);
+  const names = new Set(databaseName ? [databaseName] : []);
+
+  try {
+    (await globalThis.indexedDB.databases?.())?.forEach(({ name }) => {
+      if (name && DATABASE_NAME_REGEX.test(name)) {
+        names.add(name);
+      }
+    });
+  } catch {
+    // Enumeration is best-effort; fall back to the current repository’s database alone
+  }
+
+  return [...names];
+};
+
+/**
+ * Delete an IndexedDB database.
+ * @param {string} name Database name.
+ * @returns {Promise<void>}
+ */
+const deleteDatabase = async (name) =>
+  new Promise((resolve) => {
+    /**
+     * Stop waiting for the deletion. This is also called on `blocked`, which fires when another
+     * open connection keeps the deletion pending: the app is about to be reloaded anyway, and the
+     * deletion goes through once the page unloads, so there’s no point in blocking on it.
+     * @returns {void}
+     */
+    const done = () => resolve();
+    const request = globalThis.indexedDB.deleteDatabase(name);
+
+    request.onsuccess = done;
+    request.onerror = done;
+    request.onblocked = done;
+  });
+
+/**
+ * Delete the local storage entries written by the CMS, leaving any entry owned by the site hosting
+ * the CMS untouched.
+ * @returns {Promise<void>}
+ */
+const clearLocalStorage = async () => {
+  try {
+    const keys = (await LocalStorage.keys()).filter(
+      (key) => key.startsWith(LOCAL_STORAGE_KEY_PREFIX) || LEGACY_USER_STORAGE_KEYS.includes(key),
+    );
+
+    await Promise.all(keys.map((key) => LocalStorage.delete(key)));
+  } catch {
+    // Storage access may be denied, e.g. when third-party cookies are blocked
+  }
+};
+
+/**
+ * Delete all the data the CMS keeps in the browser: the IndexedDB databases holding cached files,
+ * asset thumbnails, draft backups and UI settings, the local storage entries holding the user’s
+ * sign-in state and preferences, and the files stored by the `test-repo` backend.
+ * @returns {Promise<void>}
+ */
+export const eraseAllData = async () => {
+  const names = await getDatabaseNames();
+
+  // None of these reject, so they can all run at once
+  await Promise.all([
+    ...names.map((name) => deleteDatabase(name)),
+    clearLocalStorage(),
+    clearTestBackendFiles(),
+  ]);
+};

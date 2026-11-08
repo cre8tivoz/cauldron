@@ -1,0 +1,668 @@
+[
+  {
+    "kind": "competitor",
+    "source": "https://zeku.dev/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.86,
+      "external_agent": 0.05,
+      "local_files": 0.97,
+      "visual_code_roundtrip": 0.09,
+      "content_editing": 0.99,
+      "taste_guidance": 0.43,
+      "verification": 0.4
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://sveltiacms.app/en/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.09,
+      "external_agent": 0.18,
+      "local_files": 0.96,
+      "visual_code_roundtrip": 0.04,
+      "content_editing": 0.98,
+      "taste_guidance": 0.27,
+      "verification": 0.05
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://stacki.build/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.75,
+      "external_agent": 0.21,
+      "local_files": 0.87,
+      "visual_code_roundtrip": 0.11,
+      "content_editing": 0.98,
+      "taste_guidance": 0.8,
+      "verification": 0.03
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://benji.org/stageshow",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.04,
+      "external_agent": 0.66,
+      "local_files": 0.44,
+      "visual_code_roundtrip": 0.07,
+      "content_editing": 0.03,
+      "taste_guidance": 0.97,
+      "verification": 0.91
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://sitereal.app/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.99,
+      "external_agent": 0.94,
+      "local_files": 0.99,
+      "visual_code_roundtrip": 0.98,
+      "content_editing": 0.43,
+      "taste_guidance": 0.56,
+      "verification": 0.04
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://pagescms.org/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.07,
+      "external_agent": 0.02,
+      "local_files": 0.42,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.67,
+      "taste_guidance": 0.04,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://meno.so/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.14,
+      "external_agent": 0.2,
+      "local_files": 0.05,
+      "visual_code_roundtrip": 0.04,
+      "content_editing": 0.04,
+      "taste_guidance": 0.31,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://prosefly.com/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.39,
+      "external_agent": 0.07,
+      "local_files": 0.91,
+      "visual_code_roundtrip": 0.39,
+      "content_editing": 0.93,
+      "taste_guidance": 0.55,
+      "verification": 0.05
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://www.ycode.com/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.46,
+      "local_files": 0.08,
+      "visual_code_roundtrip": 0.06,
+      "content_editing": 0.24,
+      "taste_guidance": 0.2,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://splitleaf.eu/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.75,
+      "local_files": 0.98,
+      "visual_code_roundtrip": 0.18,
+      "content_editing": 0.83,
+      "taste_guidance": 0.39,
+      "verification": 0.26
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://ui.gradientdeck.com/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.02,
+      "local_files": 0.03,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.02,
+      "taste_guidance": 0.17,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://mkdir.directory/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.02,
+      "local_files": 0.02,
+      "visual_code_roundtrip": 0.01,
+      "content_editing": 0.04,
+      "taste_guidance": 0.16,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://www.unsection.com/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.03,
+      "local_files": 0.18,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.03,
+      "taste_guidance": 0.38,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://threeui.com/hero",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.01,
+      "local_files": 0.09,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.04,
+      "taste_guidance": 0.89,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://superdesign.dev",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.06,
+      "external_agent": 0.05,
+      "local_files": 0.02,
+      "visual_code_roundtrip": 0.03,
+      "content_editing": 0.02,
+      "taste_guidance": 0.15,
+      "verification": 0.03
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://reactbits.dev/get-started/index",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.02,
+      "local_files": 0.06,
+      "visual_code_roundtrip": 0.01,
+      "content_editing": 0.02,
+      "taste_guidance": 0.69,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://www.subframe.com/motion",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.02,
+      "local_files": 0.15,
+      "visual_code_roundtrip": 0.03,
+      "content_editing": 0.38,
+      "taste_guidance": 0.83,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://prompt-motion.com/?tag=diagrams",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.05,
+      "local_files": 0.07,
+      "visual_code_roundtrip": 0.03,
+      "content_editing": 0.04,
+      "taste_guidance": 0.09,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://sparkbites.dev/design-bites",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.04,
+      "external_agent": 0.58,
+      "local_files": 0.29,
+      "visual_code_roundtrip": 0.03,
+      "content_editing": 0.05,
+      "taste_guidance": 0.19,
+      "verification": 0.06
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://blocks.lander.studio/?category=website",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.01,
+      "local_files": 0.02,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.02,
+      "taste_guidance": 0.17,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://www.originkit.dev/?sort=copied",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.02,
+      "local_files": 0.02,
+      "visual_code_roundtrip": 0.01,
+      "content_editing": 0.02,
+      "taste_guidance": 0.08,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://templens.com/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.04,
+      "external_agent": 0.03,
+      "local_files": 0.03,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.03,
+      "taste_guidance": 0.05,
+      "verification": 0.54
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://designwithintent.ai/patterns/",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.06,
+      "local_files": 0.39,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.02,
+      "taste_guidance": 0.57,
+      "verification": 0.02
+    }
+  },
+  {
+    "kind": "competitor",
+    "source": "https://lexingtonthemes.com/pricing",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.17,
+      "external_agent": 0.52,
+      "local_files": 0.82,
+      "visual_code_roundtrip": 0.09,
+      "content_editing": 0.69,
+      "taste_guidance": 0.21,
+      "verification": 0.03
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS - v0.50 Release Plan.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.06,
+      "external_agent": 0.39,
+      "local_files": 0.87,
+      "visual_code_roundtrip": 0.03,
+      "content_editing": 0.23,
+      "taste_guidance": 0.49,
+      "verification": 0.98,
+      "planned_not_delivered": 0.2
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS \u2014 App Note.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.78,
+      "external_agent": 0.76,
+      "local_files": 0.92,
+      "visual_code_roundtrip": 0.06,
+      "content_editing": 0.04,
+      "taste_guidance": 0.48,
+      "verification": 0.77,
+      "planned_not_delivered": 0.62
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS \u2014 Bidirectional Agent Integration Scope.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.9,
+      "local_files": 0.45,
+      "visual_code_roundtrip": 0.39,
+      "content_editing": 0.18,
+      "taste_guidance": 0.32,
+      "verification": 0.23,
+      "planned_not_delivered": 0.95
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS \u2014 Camillo UX Research.md",
+    "chunks": 2,
+    "judgments": {
+      "astro_output": 0.04,
+      "external_agent": 0.34,
+      "local_files": 0.43,
+      "visual_code_roundtrip": 0.09,
+      "content_editing": 0.13,
+      "taste_guidance": 0.95,
+      "verification": 0.04,
+      "planned_not_delivered": 0.38
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS \u2014 Unification Plan.md",
+    "chunks": 2,
+    "judgments": {
+      "astro_output": 0.05,
+      "external_agent": 0.63,
+      "local_files": 0.9,
+      "visual_code_roundtrip": 0.05,
+      "content_editing": 0.24,
+      "taste_guidance": 0.49,
+      "verification": 0.62,
+      "planned_not_delivered": 0.52
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS \u2014 v0.40 Release Plan.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.3,
+      "external_agent": 0.78,
+      "local_files": 0.55,
+      "visual_code_roundtrip": 0.05,
+      "content_editing": 0.24,
+      "taste_guidance": 0.48,
+      "verification": 0.95,
+      "planned_not_delivered": 0.86
+    }
+  },
+  {
+    "kind": "project_note",
+    "source": "/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/WEB BUILDER IDEAS.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.31,
+      "external_agent": 0.43,
+      "local_files": 0.2,
+      "visual_code_roundtrip": 0.05,
+      "content_editing": 0.1,
+      "taste_guidance": 0.37,
+      "verification": 0.03,
+      "planned_not_delivered": 0.47
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/AGENTS.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.75,
+      "external_agent": 0.66,
+      "local_files": 0.26,
+      "visual_code_roundtrip": 0.03,
+      "content_editing": 0.04,
+      "taste_guidance": 0.36,
+      "verification": 0.24,
+      "planned_not_delivered": 0.74
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/README.md",
+    "chunks": 2,
+    "judgments": {
+      "astro_output": 0.85,
+      "external_agent": 0.84,
+      "local_files": 0.81,
+      "visual_code_roundtrip": 0.09,
+      "content_editing": 0.08,
+      "taste_guidance": 0.69,
+      "verification": 0.98,
+      "planned_not_delivered": 0.07
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/docs/ARCHITECTURE.md",
+    "chunks": 2,
+    "judgments": {
+      "astro_output": 0.09,
+      "external_agent": 0.6,
+      "local_files": 0.83,
+      "visual_code_roundtrip": 0.12,
+      "content_editing": 0.12,
+      "taste_guidance": 0.82,
+      "verification": 0.53,
+      "planned_not_delivered": 0.12
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/docs/PUBLIC_INTERFACES.md",
+    "chunks": 2,
+    "judgments": {
+      "astro_output": 0.65,
+      "external_agent": 0.79,
+      "local_files": 0.38,
+      "visual_code_roundtrip": 0.04,
+      "content_editing": 0.44,
+      "taste_guidance": 0.47,
+      "verification": 0.94,
+      "planned_not_delivered": 0.11
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/docs/BYOK_CLI_EXECUTION_CONTRACT.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.91,
+      "local_files": 0.32,
+      "visual_code_roundtrip": 0.06,
+      "content_editing": 0.05,
+      "taste_guidance": 0.28,
+      "verification": 0.03,
+      "planned_not_delivered": 0.74
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/lib/build-agents.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.84,
+      "local_files": 0.12,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.02,
+      "taste_guidance": 0.2,
+      "verification": 0.02,
+      "planned_not_delivered": 0.05
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/lib/scaffold-generator.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.94,
+      "external_agent": 0.19,
+      "local_files": 0.44,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.05,
+      "taste_guidance": 0.73,
+      "verification": 0.02,
+      "planned_not_delivered": 0.06
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/lib/verification.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.03,
+      "local_files": 0.2,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.02,
+      "taste_guidance": 0.09,
+      "verification": 0.94,
+      "planned_not_delivered": 0.03
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/lib/quality-scorer.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.02,
+      "local_files": 0.24,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.02,
+      "taste_guidance": 0.78,
+      "verification": 0.68,
+      "planned_not_delivered": 0.02
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/lib/design-system-export.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.03,
+      "local_files": 0.11,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.04,
+      "taste_guidance": 0.67,
+      "verification": 0.05,
+      "planned_not_delivered": 0.03
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/routes/build-agents.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.04,
+      "external_agent": 0.75,
+      "local_files": 0.18,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.04,
+      "taste_guidance": 0.07,
+      "verification": 0.05,
+      "planned_not_delivered": 0.07
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/routes/build.js",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.05,
+      "external_agent": 0.74,
+      "local_files": 0.13,
+      "visual_code_roundtrip": 0.05,
+      "content_editing": 0.03,
+      "taste_guidance": 0.12,
+      "verification": 0.52,
+      "planned_not_delivered": 0.06
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/docs/DESIGN_REFERENCE.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.04,
+      "external_agent": 0.03,
+      "local_files": 0.88,
+      "visual_code_roundtrip": 0.02,
+      "content_editing": 0.7,
+      "taste_guidance": 0.96,
+      "verification": 0.22,
+      "planned_not_delivered": 0.04
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/design-systems/NOTICE.md",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.03,
+      "external_agent": 0.03,
+      "local_files": 0.69,
+      "visual_code_roundtrip": 0.01,
+      "content_editing": 0.08,
+      "taste_guidance": 0.03,
+      "verification": 0.01,
+      "planned_not_delivered": 0.03
+    }
+  },
+  {
+    "kind": "repo_source",
+    "source": "/Users/habibi/hermes/apps-codebases/cauldron-os/LICENSE",
+    "chunks": 1,
+    "judgments": {
+      "astro_output": 0.02,
+      "external_agent": 0.05,
+      "local_files": 0.24,
+      "visual_code_roundtrip": 0.01,
+      "content_editing": 0.04,
+      "taste_guidance": 0.09,
+      "verification": 0.02,
+      "planned_not_delivered": 0.04
+    }
+  }
+]

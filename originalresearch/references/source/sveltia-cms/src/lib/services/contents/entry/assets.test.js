@@ -1,0 +1,1880 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { createMockAssetFolder } from '$lib/test/factories';
+
+/**
+ * @import { Asset, Entry, InternalEntryCollection } from '$lib/types/private';
+ */
+
+// Create hoisted mocks
+const {
+  mockGetMediaFieldURL,
+  mockGetMediaFieldSource,
+  mockRevokeBlobURLIfNeeded,
+  mockGetCollection,
+  mockIsCollectionIndexFile,
+  mockGetField,
+  mockGetAssetByPath,
+  mockGetAssetFoldersByPath,
+  mockGetAssetFolder,
+  mockAllAssets,
+  mockGetPathInfo,
+  mockGetEntriesByCollection,
+  mockFillEntryPathTemplate,
+  mockGetOwnedEntryFolderPath,
+  mockFindEntriesByAssets,
+  mockAllEntries,
+} = vi.hoisted(() => ({
+  mockGetMediaFieldURL: vi.fn(),
+  mockGetMediaFieldSource: vi.fn(),
+  mockRevokeBlobURLIfNeeded: vi.fn(),
+  mockGetCollection: vi.fn(),
+  mockIsCollectionIndexFile: vi.fn(),
+  mockGetField: vi.fn(),
+  mockGetAssetByPath: vi.fn(),
+  mockGetAssetFoldersByPath: vi.fn(),
+  mockGetAssetFolder: vi.fn(),
+  mockAllAssets: { current: /** @type {any} */ (undefined) },
+  mockGetPathInfo: vi.fn(),
+  mockGetEntriesByCollection: vi.fn(() => /** @type {any[]} */ ([])),
+  mockFillEntryPathTemplate: vi.fn(),
+  mockFindEntriesByAssets: vi.fn(),
+  mockAllEntries: { current: /** @type {any[]} */ ([]) },
+  // Unless a test says otherwise, every entry occupies the folder its file is stored in
+  mockGetOwnedEntryFolderPath: vi.fn(
+    (/** @type {any} */ _collection, /** @type {string} */ path) =>
+      path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : undefined,
+  ),
+}));
+
+// Mock the dependencies with hoisted functions
+vi.mock('$lib/services/assets', () => ({
+  getAssetByPath: mockGetAssetByPath,
+  /**
+   * Check if a path is a relative path.
+   * @param {string} path Path.
+   * @returns {boolean} `true` if the path is relative.
+   */
+  isRelativePath: (path) => !/^[/@]/.test(path),
+}));
+
+vi.mock('$lib/services/contents', () => ({
+  allEntries: mockAllEntries,
+}));
+
+vi.mock('$lib/services/assets/references', () => ({
+  findEntriesByAssets: mockFindEntriesByAssets,
+}));
+
+vi.mock('$lib/services/assets/state', () => ({
+  allAssets: mockAllAssets,
+}));
+
+vi.mock('$lib/services/assets/folders', () => ({
+  getAssetFoldersByPath: mockGetAssetFoldersByPath,
+  getAssetFolder: mockGetAssetFolder,
+}));
+
+vi.mock('$lib/services/assets/info', () => ({
+  revokeBlobURLIfNeeded: mockRevokeBlobURLIfNeeded,
+}));
+
+vi.mock('$lib/services/assets/media-field', () => ({
+  getMediaFieldSource: mockGetMediaFieldSource,
+  getMediaFieldURL: mockGetMediaFieldURL,
+}));
+
+vi.mock('$lib/services/contents/collection', () => ({
+  getCollection: mockGetCollection,
+}));
+
+vi.mock('$lib/services/contents/collection/predicates', () => ({
+  isArrayFileCollection: vi.fn((collection) => !!collection?._file?.arrayFile),
+}));
+
+vi.mock('$lib/services/contents/collection/entries', () => ({
+  getEntriesByCollection: mockGetEntriesByCollection,
+}));
+
+vi.mock('$lib/services/contents/collection/entries/index-file', () => ({
+  isCollectionIndexFile: mockIsCollectionIndexFile,
+}));
+
+vi.mock('$lib/services/contents/draft/save/assets', () => ({
+  getOwnedEntryFolderPath: mockGetOwnedEntryFolderPath,
+}));
+
+vi.mock('$lib/services/contents/entry', () => ({
+  fillEntryPathTemplate: mockFillEntryPathTemplate,
+}));
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: mockGetField,
+}));
+
+vi.mock('@sveltia/utils/file', () => ({
+  getPathInfo: mockGetPathInfo,
+}));
+
+vi.mock('@sveltia/utils/string', () => ({
+  // eslint-disable-next-line jsdoc/require-jsdoc
+  escapeRegExp: (/** @type {string} */ str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+}));
+
+// Import after mocking
+const {
+  getEntryThumbnail,
+  getAssociatedAssets,
+  getEntriesRelativeAssets,
+  getEntryRelativeAssets,
+  isThumbnailPath,
+  loadEntryThumbnail,
+} = await import('./assets');
+
+describe('isThumbnailPath', () => {
+  test('returns true for a path starting with a slash', () => {
+    expect(isThumbnailPath('/images/{{slug}}.webp')).toBe(true);
+  });
+
+  test('returns false for a field key path', () => {
+    expect(isThumbnailPath('image')).toBe(false);
+    expect(isThumbnailPath('images.*.src')).toBe(false);
+  });
+});
+
+describe('getEntryThumbnail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetMediaFieldURL.mockClear();
+    mockGetCollection.mockClear();
+    mockIsCollectionIndexFile.mockClear();
+    mockGetField.mockClear();
+    mockGetAssetByPath.mockClear();
+    mockGetAssetFoldersByPath.mockClear();
+  });
+
+  /** @type {InternalEntryCollection} */
+  const mockCollection = {
+    name: 'posts',
+    folder: 'content/posts',
+    fields: [
+      { name: 'title', widget: 'string' },
+      { name: 'image', widget: 'image' },
+    ],
+    _type: 'entry',
+    _file: {
+      extension: 'md',
+      format: 'yaml-frontmatter',
+      basePath: 'content/posts',
+    },
+    _i18n: {
+      i18nEnabled: false,
+      saveAllLocales: false,
+      allLocales: ['en'],
+      initialLocales: ['en'],
+      defaultLocale: 'en',
+      structure: 'single_file',
+      structureMap: {
+        i18nSingleFile: true,
+        i18nSingleFileDefaultRoot: false,
+        i18nMultiFile: false,
+        i18nMultiFolder: false,
+        i18nMultiRootFolder: false,
+      },
+      canonicalSlug: { key: 'translationKey', value: '{{slug}}' },
+      omitDefaultLocaleFromFilePath: false,
+      omitDefaultLocaleFromPreviewPath: false,
+    },
+    _thumbnailFieldNames: ['image', 'thumbnail'],
+  };
+
+  /** @type {Entry} */
+  const mockEntry = {
+    id: 'test-entry',
+    slug: 'test-entry',
+    subPath: 'test-entry',
+    locales: {
+      en: {
+        slug: 'test-entry',
+        path: 'content/posts/test-entry.md',
+        content: {
+          title: 'Test Entry',
+          image: '/images/test.jpg',
+        },
+      },
+    },
+  };
+
+  test('returns undefined when entry has no content', async () => {
+    const entryWithoutContent = {
+      ...mockEntry,
+      locales: {
+        en: {
+          slug: 'test-entry',
+          path: 'content/posts/test-entry.md',
+          content: {},
+        },
+      },
+    };
+
+    const result = await getEntryThumbnail(mockCollection, entryWithoutContent);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when no thumbnail fields match', async () => {
+    const entryWithoutImages = {
+      ...mockEntry,
+      locales: {
+        en: {
+          slug: 'test-entry',
+          path: 'content/posts/test-entry.md',
+          content: {
+            title: 'Test Entry',
+          },
+        },
+      },
+    };
+
+    const result = await getEntryThumbnail(mockCollection, entryWithoutImages);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when entry has no content in any locale (line 34-35)', async () => {
+    const entryWithoutLocaleContent = /** @type {any} */ ({
+      ...mockEntry,
+      locales: {
+        en: {
+          slug: 'test-entry',
+          path: 'content/posts/test-entry.md',
+          // No content property
+        },
+      },
+    });
+
+    const result = await getEntryThumbnail(mockCollection, entryWithoutLocaleContent);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns undefined when all locales are missing content (line 34-35)', async () => {
+    const entryWithoutAnyContent = /** @type {any} */ ({
+      ...mockEntry,
+      locales: {},
+    });
+
+    const result = await getEntryThumbnail(mockCollection, entryWithoutAnyContent);
+
+    expect(result).toBeUndefined();
+  });
+
+  test('returns thumbnail URL when image field is found', async () => {
+    mockGetMediaFieldURL.mockResolvedValue('https://example.com/thumbnails/test.jpg');
+
+    const result = await getEntryThumbnail(mockCollection, mockEntry);
+
+    expect(mockGetMediaFieldURL).toHaveBeenCalledWith({
+      value: '/images/test.jpg',
+      entry: mockEntry,
+      collectionName: 'posts',
+      typedKeyPath: 'image',
+      locale: 'en',
+      thumbnail: true,
+    });
+    expect(result).toEqual({ src: 'https://example.com/thumbnails/test.jpg', owned: false });
+  });
+});
+
+describe('loadEntryThumbnail', () => {
+  const collection = /** @type {any} */ ({
+    name: 'posts',
+    _i18n: { defaultLocale: 'en' },
+    _thumbnailFieldNames: ['image'],
+  });
+
+  const entry = /** @type {any} */ ({
+    locales: { en: { slug: 'a', path: 'a.md', content: { image: '/images/a.jpg' } } },
+  });
+
+  const asset = /** @type {any} */ ({ path: 'static/images/a.jpg', name: 'a.jpg', kind: 'image' });
+
+  /**
+   * Wait for the pending promise callbacks to run.
+   * @returns {Promise<void>}
+   */
+  const settle = () =>
+    new Promise((resolve) => {
+      setTimeout(resolve);
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetMediaFieldSource.mockReturnValue({ asset });
+  });
+
+  afterEach(() => {
+    mockGetMediaFieldSource.mockReset();
+    mockGetMediaFieldURL.mockReset();
+  });
+
+  test('marks an object URL made for an asset as owned', async () => {
+    mockGetMediaFieldURL.mockResolvedValue('blob:thumb');
+
+    expect(await getEntryThumbnail(collection, entry)).toEqual({ src: 'blob:thumb', owned: true });
+  });
+
+  test('marks the public URL of an asset as not owned', async () => {
+    mockGetMediaFieldURL.mockResolvedValue('/images/a.jpg');
+
+    expect(await getEntryThumbnail(collection, entry)).toEqual({
+      src: '/images/a.jpg',
+      owned: false,
+    });
+  });
+
+  test('hands out the thumbnail, then releases it', async () => {
+    const onLoad = vi.fn();
+
+    mockGetMediaFieldURL.mockResolvedValue('blob:thumb');
+
+    const release = loadEntryThumbnail(collection, entry, onLoad);
+
+    await settle();
+    expect(onLoad).toHaveBeenCalledExactlyOnceWith('blob:thumb');
+
+    release();
+    // Releasing doesn’t call back: no state is written while the caller is being torn down
+    expect(onLoad).toHaveBeenCalledOnce();
+    expect(mockRevokeBlobURLIfNeeded).toHaveBeenCalledExactlyOnceWith('blob:thumb');
+  });
+
+  test('does not revoke a URL it does not own', async () => {
+    const onLoad = vi.fn();
+
+    mockGetMediaFieldSource.mockReturnValue({ url: 'https://example.com/a.jpg' });
+    mockGetMediaFieldURL.mockResolvedValue('https://example.com/a.jpg');
+
+    const release = loadEntryThumbnail(collection, entry, onLoad);
+
+    await settle();
+    release();
+    expect(onLoad).toHaveBeenCalledOnce();
+    expect(mockRevokeBlobURLIfNeeded).not.toHaveBeenCalled();
+  });
+
+  test('releases an owned thumbnail that arrives after the release', async () => {
+    const onLoad = vi.fn();
+
+    mockGetMediaFieldURL.mockResolvedValue('blob:late');
+
+    loadEntryThumbnail(collection, entry, onLoad)();
+    await settle();
+
+    expect(onLoad).not.toHaveBeenCalled();
+    expect(mockRevokeBlobURLIfNeeded).toHaveBeenCalledExactlyOnceWith('blob:late');
+  });
+
+  test('ignores a late thumbnail it does not own, or no thumbnail at all', async () => {
+    const onLoad = vi.fn();
+
+    mockGetMediaFieldSource.mockReturnValue({ url: 'https://example.com/a.jpg' });
+    mockGetMediaFieldURL.mockResolvedValue('https://example.com/a.jpg');
+    loadEntryThumbnail(collection, entry, onLoad)();
+
+    mockGetMediaFieldURL.mockResolvedValue(undefined);
+    loadEntryThumbnail(collection, entry, onLoad)();
+    await settle();
+
+    expect(onLoad).not.toHaveBeenCalled();
+    expect(mockRevokeBlobURLIfNeeded).not.toHaveBeenCalled();
+  });
+
+  test('leaves an entry without a thumbnail alone', async () => {
+    const onLoad = vi.fn();
+
+    mockGetMediaFieldURL.mockResolvedValue(undefined);
+
+    const release = loadEntryThumbnail(collection, entry, onLoad);
+
+    await settle();
+    release();
+    expect(onLoad).not.toHaveBeenCalled();
+    expect(mockRevokeBlobURLIfNeeded).not.toHaveBeenCalled();
+  });
+
+  test('leaves the entry without a thumbnail when it cannot be loaded', async () => {
+    const onLoad = vi.fn();
+
+    mockGetMediaFieldURL.mockRejectedValue(new Error('Failed to retrieve blob'));
+
+    const release = loadEntryThumbnail(collection, entry, onLoad);
+
+    await settle();
+    release();
+    expect(onLoad).not.toHaveBeenCalled();
+  });
+});
+
+describe('getAssociatedAssets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetMediaFieldURL.mockClear();
+    mockGetCollection.mockClear();
+    mockIsCollectionIndexFile.mockClear();
+    mockGetField.mockClear();
+    mockGetAssetByPath.mockClear();
+    mockGetAssetFoldersByPath.mockClear();
+    mockGetAssetFolder.mockClear();
+    mockGetPathInfo.mockClear();
+
+    // Reset to default implementations
+    mockGetAssetFolder.mockReturnValue(undefined);
+    mockAllAssets.current = [];
+    mockGetPathInfo.mockImplementation((path) => ({
+      dirname: path.split('/').slice(0, -1).join('/'),
+      basename: path.split('/').pop(),
+      filename: path.split('/').pop()?.split('.')[0],
+      extension: path.split('.').pop()?.includes('/') ? '' : `.${path.split('.').pop()}`,
+    }));
+  });
+
+  /** @type {Entry} */
+  const mockEntry = {
+    id: 'test-entry',
+    slug: 'test-entry',
+    subPath: 'test-entry',
+    locales: {
+      en: {
+        slug: 'test-entry',
+        path: 'content/posts/test-entry.md',
+        content: {
+          title: 'Test Entry',
+          image: '/images/test.jpg',
+        },
+      },
+    },
+  };
+
+  test('returns empty array when collection does not exist', () => {
+    mockGetCollection.mockReturnValue(undefined);
+
+    const result = getAssociatedAssets({
+      entry: mockEntry,
+      collectionName: 'nonexistent',
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  test('looks up the fields of the given collection file', () => {
+    /** @type {Asset} */
+    const mockAsset = /** @type {any} */ ({ path: 'static/images/logo.png', name: 'logo.png' });
+
+    mockGetCollection.mockReturnValue({ name: 'settings', _type: 'file' });
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockImplementation(({ fileName }) =>
+      fileName === 'general' ? { widget: 'image' } : undefined,
+    );
+    mockGetAssetByPath.mockReturnValue(mockAsset);
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'settings', fileName: 'general', entryRelative: false },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: /** @type {any} */ ({
+        id: 'general',
+        slug: 'general',
+        locales: { _default: { path: 'data/general.yml', content: { logo: '/images/logo.png' } } },
+      }),
+      collectionName: 'settings',
+      fileName: 'general',
+    });
+
+    expect(mockGetField).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionName: 'settings', fileName: 'general', keyPath: 'logo' }),
+    );
+    expect(result).toEqual([mockAsset]);
+  });
+
+  test('resolves each locale’s values against that locale’s entry file', () => {
+    const enAsset = /** @type {any} */ ({ path: 'content/posts/en/hello/photo.jpg' });
+    const frAsset = /** @type {any} */ ({ path: 'content/posts/fr/hello/photo.jpg' });
+
+    mockGetCollection.mockReturnValue({ name: 'posts', _type: 'entry' });
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockImplementation(({ locale }) => (locale === 'fr' ? frAsset : enAsset));
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: true },
+    ]);
+
+    // With the `multiple_folders` i18n structure, each locale’s entry file has a folder of its own
+    const result = getAssociatedAssets({
+      entry: /** @type {any} */ ({
+        id: 'hello',
+        slug: 'hello',
+        locales: {
+          en: { path: 'content/posts/en/hello/index.md', content: { image: 'photo.jpg' } },
+          fr: { path: 'content/posts/fr/hello/index.md', content: { image: 'photo.jpg' } },
+        },
+      }),
+      collectionName: 'posts',
+    });
+
+    expect(result).toEqual([enAsset, frAsset]);
+  });
+
+  test('returns assets for image and file fields', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    /** @type {Asset} */
+    const mockAsset = {
+      path: '/images/test.jpg',
+      name: 'test.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: createMockAssetFolder({
+        collectionName: 'posts',
+        internalPath: 'images',
+        publicPath: '/images',
+      }),
+    };
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockReturnValue(mockAsset);
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: false },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: mockEntry,
+      collectionName: 'posts',
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result).toContain(mockAsset);
+  });
+
+  test('handles multiple wildcards in thumbnail field name', async () => {
+    const mockCollection = /** @type {any} */ ({
+      name: 'posts',
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['sections.*.images.*'],
+    });
+
+    const mockEntryLocal = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: { 'sections.0.title': 'Intro', 'sections.0.images.0': '/image1.jpg' },
+        },
+      },
+    });
+
+    mockGetMediaFieldURL.mockResolvedValue('https://example.com/image1.jpg');
+
+    const result = await getEntryThumbnail(mockCollection, mockEntryLocal);
+
+    expect(mockGetMediaFieldURL).toHaveBeenCalledWith(
+      expect.objectContaining({ value: '/image1.jpg', typedKeyPath: 'sections.0.images.0' }),
+    );
+    expect(result).toEqual({ src: 'https://example.com/image1.jpg', owned: false });
+  });
+
+  test('handles wildcard in thumbnail field name', async () => {
+    const mockCollection = /** @type {any} */ ({
+      name: 'posts',
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['images.*.src'],
+    });
+
+    const mockEntryLocal = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            'images.0.src': '/image1.jpg',
+            'images.1.src': '/image2.jpg',
+          },
+        },
+      },
+    });
+
+    mockGetMediaFieldURL.mockResolvedValue('https://example.com/image1.jpg');
+
+    const result = await getEntryThumbnail(mockCollection, mockEntryLocal);
+
+    expect(result).toEqual({ src: 'https://example.com/image1.jpg', owned: false });
+  });
+
+  test('handles multiple thumbnail candidates and returns first available URL', async () => {
+    const mockCollection = /** @type {any} */ ({
+      name: 'posts',
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['missing_image', 'existing_image'],
+    });
+
+    const mockEntryLocal = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            missing_image: undefined,
+            existing_image: '/test.jpg',
+          },
+        },
+      },
+    });
+
+    mockGetMediaFieldURL.mockImplementation(async ({ value }) => {
+      if (value === '/test.jpg') {
+        return 'https://example.com/test.jpg';
+      }
+
+      return undefined;
+    });
+
+    const result = await getEntryThumbnail(mockCollection, mockEntryLocal);
+
+    expect(result).toEqual({ src: 'https://example.com/test.jpg', owned: false });
+  });
+
+  test('skips a file without a thumbnail, like a document, for the next candidate', async () => {
+    const mockCollection = /** @type {any} */ ({
+      name: 'posts',
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['brochure', 'image'],
+    });
+
+    const mockEntryLocal = /** @type {any} */ ({
+      locales: {
+        en: { path: 'test.md', content: { brochure: '/files/flyer.docx', image: '/test.jpg' } },
+      },
+    });
+
+    mockGetMediaFieldSource.mockImplementation(({ value }) => ({
+      asset: value.endsWith('.docx')
+        ? { name: 'flyer.docx', kind: 'document' }
+        : { name: 'test.jpg', kind: 'image' },
+    }));
+    mockGetMediaFieldURL.mockImplementation(async ({ value }) => `https://example.com${value}`);
+
+    const result = await getEntryThumbnail(mockCollection, mockEntryLocal);
+
+    expect(result).toEqual({ src: 'https://example.com/test.jpg', owned: false });
+    // The document isn’t shown as its own thumbnail
+    expect(mockGetMediaFieldURL).toHaveBeenCalledOnce();
+  });
+
+  test('fills in a path template and resolves it like a field value', async () => {
+    const collection = /** @type {any} */ ({
+      name: 'posts',
+      preview_path_date_field: 'date',
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['/images/thumbnails/{{slug}}.webp'],
+    });
+
+    const entry = /** @type {any} */ ({
+      slug: 'hello',
+      locales: {
+        en: { slug: 'hello', path: 'content/posts/hello.md', content: { title: 'Hello' } },
+      },
+    });
+
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockFillEntryPathTemplate.mockReturnValue('/images/thumbnails/hello.webp');
+    mockGetMediaFieldURL.mockResolvedValue('blob:hello');
+
+    const result = await getEntryThumbnail(collection, entry);
+
+    expect(result).toEqual({ src: 'blob:hello', owned: true });
+    expect(mockFillEntryPathTemplate).toHaveBeenCalledWith({
+      pathTemplate: '/images/thumbnails/{{slug}}.webp',
+      dateFieldName: 'date',
+      fields: [],
+      collection,
+      locale: 'en',
+      slug: 'hello',
+      entryFilePath: 'content/posts/hello.md',
+      content: { title: 'Hello' },
+      isIndexFile: false,
+    });
+    expect(mockGetMediaFieldURL).toHaveBeenCalledWith({
+      value: '/images/thumbnails/hello.webp',
+      entry,
+      collectionName: 'posts',
+      typedKeyPath: undefined,
+      locale: 'en',
+      thumbnail: true,
+    });
+  });
+
+  test('uses the first locale when the default locale is missing', async () => {
+    const collection = /** @type {any} */ ({
+      name: 'posts',
+      fields: [{ name: 'title' }],
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['/images/{{slug}}.webp'],
+    });
+
+    const entry = /** @type {any} */ ({
+      locales: { ja: { slug: 'konnichiwa', path: 'ja/konnichiwa.md', content: { title: 'x' } } },
+    });
+
+    mockFillEntryPathTemplate.mockReturnValue('/images/konnichiwa.webp');
+    mockGetMediaFieldURL.mockResolvedValue('blob:konnichiwa');
+
+    expect(await getEntryThumbnail(collection, entry)).toEqual({
+      src: 'blob:konnichiwa',
+      owned: true,
+    });
+    expect(mockFillEntryPathTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ locale: 'ja', slug: 'konnichiwa', fields: [{ name: 'title' }] }),
+    );
+  });
+
+  test('falls back to the next candidate when a path template cannot be filled', async () => {
+    const collection = /** @type {any} */ ({
+      name: 'posts',
+      _i18n: { defaultLocale: 'en' },
+      _thumbnailFieldNames: ['/images/{{fields.missing}}.webp', 'image'],
+    });
+
+    const entry = /** @type {any} */ ({
+      locales: { en: { slug: 'a', path: 'a.md', content: { image: '/images/a.jpg' } } },
+    });
+
+    mockFillEntryPathTemplate.mockReturnValue(undefined);
+    mockGetMediaFieldURL.mockResolvedValue('blob:a');
+
+    expect(await getEntryThumbnail(collection, entry)).toEqual({ src: 'blob:a', owned: true });
+    expect(mockGetMediaFieldURL).toHaveBeenCalledTimes(1);
+    expect(mockGetMediaFieldURL).toHaveBeenCalledWith(
+      expect.objectContaining({ value: '/images/a.jpg', typedKeyPath: 'image' }),
+    );
+  });
+
+  test('filters duplicate assets', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    /** @type {Asset} */
+    const mockAsset = {
+      path: '/images/test.jpg',
+      name: 'test.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: createMockAssetFolder({
+        collectionName: 'posts',
+        internalPath: 'images',
+        publicPath: '/images',
+      }),
+    };
+
+    // Entry with duplicate image references
+    const entryWithDuplicates = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            image1: '/images/test.jpg',
+            image2: '/images/test.jpg', // Same image referenced twice
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockReturnValue(mockAsset);
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: false },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithDuplicates,
+      collectionName: 'posts',
+    });
+
+    // Should only contain the asset once despite duplicate references
+    expect(result).toHaveLength(1);
+    expect(result).toContain(mockAsset);
+  });
+
+  test('respects relative parameter to filter relative paths', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    /** @type {Asset} */
+    const mockAsset = {
+      path: 'relative/image.jpg',
+      name: 'image.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'relative',
+        publicPath: '/relative',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    };
+
+    const entryWithRelativeAsset = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            image1: 'relative/image.jpg', // Relative path
+            image2: '/absolute/image.jpg', // Absolute path
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+
+    mockGetField.mockImplementation(({ keyPath }) => {
+      if (keyPath === 'image1' || keyPath === 'image2') {
+        return { widget: 'image' };
+      }
+
+      return undefined;
+    });
+
+    mockGetAssetByPath.mockImplementation(({ value }) => {
+      if (value === 'relative/image.jpg') {
+        return mockAsset;
+      }
+
+      return undefined;
+    });
+
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: true },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithRelativeAsset,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should only include the relative path asset
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('relative/image.jpg');
+  });
+
+  test('accepts entry-relative assets when relative parameter is false (line 104-106 branch)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    /** @type {Asset} */
+    const mockAsset = {
+      path: 'relative/image.jpg',
+      name: 'image.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'relative',
+        publicPath: '/relative',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    };
+
+    const entryWithRelativeAsset = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            image: 'relative/image.jpg', // Relative path
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockReturnValue(mockAsset);
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: true },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithRelativeAsset,
+      collectionName: 'posts',
+      relative: false, // Explicitly false - should still accept entryRelative: true assets
+    });
+
+    // Should include the asset even though it's entry-relative and relative is false
+    expect(result).toHaveLength(1);
+    expect(result).toContain(mockAsset);
+  });
+
+  test('excludes asset when getAssetFoldersByPath returns empty array (line 99-107)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    /** @type {Asset} */
+    const mockAsset = {
+      path: '/images/test.jpg',
+      name: 'test.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: createMockAssetFolder({
+        collectionName: 'posts',
+        internalPath: 'images',
+        publicPath: '/images',
+      }),
+    };
+
+    const entryWithAsset = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            image: '/images/test.jpg',
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockReturnValue(mockAsset);
+    // getAssetFoldersByPath returns empty array - no matching folder found
+    mockGetAssetFoldersByPath.mockReturnValue([]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithAsset,
+      collectionName: 'posts',
+    });
+
+    // Should not include the asset since no folder matched
+    expect(result).toHaveLength(0);
+  });
+
+  test('returns empty array when no locales have content (lines 34-35)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const entryWithoutContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: undefined,
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+
+    const result = getAssociatedAssets({
+      entry: entryWithoutContent,
+      collectionName: 'posts',
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  test('handles orphaned entry-relative assets (lines 121-131)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const mockAsset = /** @type {Asset} */ ({
+      path: 'post-dir/orphaned.jpg',
+      name: 'orphaned.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'post-dir',
+        publicPath: '/post-dir',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    });
+
+    const entryWithContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'post-dir/index.md',
+          content: {
+            title: 'Test',
+            // No image field in content
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue(undefined); // No image field
+    mockGetAssetByPath.mockReturnValue(undefined);
+    mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+    mockGetAssetFoldersByPath.mockReturnValue([]);
+    mockGetPathInfo.mockImplementation((path) => {
+      if (path === 'post-dir/orphaned.jpg') {
+        return {
+          dirname: 'post-dir',
+          basename: 'orphaned.jpg',
+          filename: 'orphaned',
+          extension: '.jpg',
+        };
+      }
+
+      return {
+        dirname: 'post-dir',
+        basename: 'index.md',
+        filename: 'index',
+        extension: '.md',
+      };
+    });
+    mockAllAssets.current = /** @type {any} */ ([mockAsset]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithContent,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should include the orphaned asset since it's in the same directory
+    expect(result).toContain(mockAsset);
+  });
+
+  test('does not duplicate assets already in the array (line 126 !assets.find)', () => {
+    // Test that when an asset is already in the assets array,
+    // it's not added again even if it appears in allAssets
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const sharedAsset = /** @type {Asset} */ ({
+      path: 'post-dir/shared.jpg',
+      name: 'shared.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'shared123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'post-dir',
+        publicPath: '/post-dir',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    });
+
+    const entryWithContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'post-dir/index.md',
+          content: {
+            title: 'Test',
+            image: 'post-dir/shared.jpg', // This asset is in the content
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' }); // Image field
+    mockGetAssetByPath.mockReturnValue(sharedAsset); // Asset from content
+    mockGetAssetFoldersByPath.mockReturnValue([
+      {
+        collectionName: 'posts',
+        fileName: undefined,
+        entryRelative: true,
+      },
+    ]);
+    mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+    mockGetPathInfo.mockImplementation((path) => {
+      if (path === 'post-dir/shared.jpg') {
+        return {
+          dirname: 'post-dir',
+          basename: 'shared.jpg',
+          filename: 'shared',
+          extension: '.jpg',
+        };
+      }
+
+      return {
+        dirname: 'post-dir',
+        basename: 'index.md',
+        filename: 'index',
+        extension: '.md',
+      };
+    });
+    mockAllAssets.current = /** @type {any} */ ([sharedAsset]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithContent,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should only contain the asset once (not duplicated)
+    expect(result.filter((a) => a.path === 'post-dir/shared.jpg')).toHaveLength(1);
+  });
+
+  test('does not include orphaned assets when relative is false (lines 121-131)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const mockAsset = /** @type {Asset} */ ({
+      path: 'post-dir/orphaned.jpg',
+      name: 'orphaned.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'post-dir',
+        publicPath: '/post-dir',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    });
+
+    const entryWithContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'post-dir/index.md',
+          content: {
+            title: 'Test',
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue(undefined);
+    mockGetAssetByPath.mockReturnValue(undefined);
+    mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+    mockGetAssetFoldersByPath.mockReturnValue([]);
+    mockGetPathInfo.mockImplementation((path) => {
+      if (path === 'post-dir/orphaned.jpg') {
+        return {
+          dirname: 'post-dir',
+          basename: 'orphaned.jpg',
+          filename: 'orphaned',
+          extension: '.jpg',
+        };
+      }
+
+      return {
+        dirname: 'post-dir',
+        basename: 'index.md',
+        filename: 'index',
+        extension: '.md',
+      };
+    });
+    mockAllAssets.current = /** @type {any} */ ([mockAsset]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithContent,
+      collectionName: 'posts',
+      relative: false, // Not requesting relative assets
+    });
+
+    // Should not include orphaned assets when relative is false
+    expect(result).not.toContain(mockAsset);
+  });
+
+  test('treats paths starting with @ as absolute paths', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    /** @type {Asset} */
+    const mockAsset = {
+      path: '/media/image.jpg',
+      name: 'image.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: createMockAssetFolder({
+        collectionName: 'posts',
+        internalPath: 'media',
+        publicPath: '/media',
+      }),
+    };
+
+    const entryWithAliasPath = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            image1: '@assets/image.jpg', // Alias path - should be treated as absolute
+            image2: 'relative/image.jpg', // Relative path
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+
+    mockGetField.mockImplementation(({ keyPath }) => {
+      if (keyPath === 'image1' || keyPath === 'image2') {
+        return { widget: 'image' };
+      }
+
+      return undefined;
+    });
+
+    mockGetAssetByPath.mockImplementation(({ value }) => {
+      if (value === 'relative/image.jpg') {
+        return mockAsset;
+      }
+
+      return undefined;
+    });
+
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: true },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithAliasPath,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should only include the relative path asset, not the @assets path
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('/media/image.jpg');
+  });
+
+  test('excludes paths starting with @ when filtering relative paths', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const entryWithMixedPaths = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'test.md',
+          content: {
+            image1: '@assets/image.jpg', // Alias - absolute
+            image2: '@media/uploads/photo.jpg', // Alias - absolute
+            image3: 'relative/image.jpg', // Relative
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockReturnValue(undefined);
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: true },
+    ]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithMixedPaths,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Paths starting with @ should be treated as absolute and not included in relative filtering
+    expect(result).toHaveLength(0);
+    expect(
+      mockGetAssetByPath.mock.calls.some((call) => call[0].value === '@assets/image.jpg'),
+    ).toBe(false);
+    expect(
+      mockGetAssetByPath.mock.calls.some((call) => call[0].value === '@media/uploads/photo.jpg'),
+    ).toBe(false);
+  });
+
+  test('includes orphaned assets in sub-folders of entry directory (line 125)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const mockAsset = /** @type {Asset} */ ({
+      path: 'post-dir/subfolder/nested.jpg',
+      name: 'nested.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'post-dir/subfolder',
+        publicPath: '/post-dir/subfolder',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    });
+
+    const entryWithContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'post-dir/index.md',
+          content: {
+            title: 'Test',
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue(undefined);
+    mockGetAssetByPath.mockReturnValue(undefined);
+    mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+    mockGetAssetFoldersByPath.mockReturnValue([]);
+    mockGetPathInfo.mockImplementation((path) => {
+      if (path === 'post-dir/subfolder/nested.jpg') {
+        return {
+          dirname: 'post-dir/subfolder',
+          basename: 'nested.jpg',
+          filename: 'nested',
+          extension: '.jpg',
+        };
+      }
+
+      return {
+        dirname: 'post-dir',
+        basename: 'index.md',
+        filename: 'index',
+        extension: '.md',
+      };
+    });
+    mockAllAssets.current = /** @type {any} */ ([mockAsset]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithContent,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should include the orphaned asset in the sub-folder
+    expect(result).toContain(mockAsset);
+  });
+
+  describe('assets owned by a descendant entry', () => {
+    /**
+     * Set up a collection with nested entries where `pages/about` holds the entry being looked at
+     * and `pages/about/team` holds another one.
+     * @param {any[]} assets Assets to expose through the store.
+     */
+    const setupNestedEntries = (assets) => {
+      mockGetCollection.mockReturnValue({ name: 'pages', _type: 'entry' });
+      mockIsCollectionIndexFile.mockReturnValue(false);
+      mockGetField.mockReturnValue(undefined);
+      mockGetAssetByPath.mockReturnValue(undefined);
+      mockGetAssetFoldersByPath.mockReturnValue([]);
+      mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+      mockGetPathInfo.mockImplementation((/** @type {string} */ path) => ({
+        dirname: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : undefined,
+        basename: path.slice(path.lastIndexOf('/') + 1),
+        filename: path.slice(path.lastIndexOf('/') + 1),
+        extension: '',
+      }));
+      mockAllAssets.current = assets;
+    };
+
+    const parentEntry = /** @type {any} */ ({
+      id: 'about',
+      locales: { en: { path: 'pages/about/_index.md', content: { title: 'About' } } },
+    });
+
+    const childEntry = /** @type {any} */ ({
+      id: 'team',
+      locales: { en: { path: 'pages/about/team/_index.md', content: { title: 'Team' } } },
+    });
+
+    test('leaves out the assets stored in a descendant entry’s folder', () => {
+      const ownAsset = /** @type {any} */ ({ path: 'pages/about/parent.jpg' });
+      const childAsset = /** @type {any} */ ({ path: 'pages/about/team/child.jpg' });
+
+      setupNestedEntries([ownAsset, childAsset]);
+      mockGetEntriesByCollection.mockReturnValue([parentEntry, childEntry]);
+
+      expect(
+        getAssociatedAssets({ entry: parentEntry, collectionName: 'pages', relative: true }),
+      ).toEqual([ownAsset]);
+    });
+
+    test('leaves out the assets in a subfolder of a descendant entry’s folder', () => {
+      const childAsset = /** @type {any} */ ({ path: 'pages/about/team/images/child.jpg' });
+
+      setupNestedEntries([childAsset]);
+      mockGetEntriesByCollection.mockReturnValue([parentEntry, childEntry]);
+
+      expect(
+        getAssociatedAssets({ entry: parentEntry, collectionName: 'pages', relative: true }),
+      ).toEqual([]);
+    });
+
+    test('keeps the assets in a subfolder that holds no entry', () => {
+      const ownAsset = /** @type {any} */ ({ path: 'pages/about/images/parent.jpg' });
+
+      setupNestedEntries([ownAsset]);
+      mockGetEntriesByCollection.mockReturnValue([parentEntry, childEntry]);
+
+      expect(
+        getAssociatedAssets({ entry: parentEntry, collectionName: 'pages', relative: true }),
+      ).toEqual([ownAsset]);
+    });
+
+    test('ignores an entry stored at the repository root', () => {
+      const ownAsset = /** @type {any} */ ({ path: 'pages/about/parent.jpg' });
+
+      const rootEntry = /** @type {any} */ ({
+        id: 'readme',
+        locales: { en: { path: 'README.md', content: { title: 'Readme' } } },
+      });
+
+      setupNestedEntries([ownAsset]);
+      mockGetEntriesByCollection.mockReturnValue([rootEntry, parentEntry, childEntry]);
+
+      expect(
+        getAssociatedAssets({ entry: parentEntry, collectionName: 'pages', relative: true }),
+      ).toEqual([ownAsset]);
+    });
+
+    test('keeps its own assets when looking at the descendant', () => {
+      const childAsset = /** @type {any} */ ({ path: 'pages/about/team/child.jpg' });
+
+      setupNestedEntries([/** @type {any} */ ({ path: 'pages/about/parent.jpg' }), childAsset]);
+      mockGetEntriesByCollection.mockReturnValue([parentEntry, childEntry]);
+
+      expect(
+        getAssociatedAssets({ entry: childEntry, collectionName: 'pages', relative: true }),
+      ).toEqual([childAsset]);
+    });
+
+    test('collects the assets of every locale folder', () => {
+      // The `multiple_folders` i18n structure gives each locale a folder of its own
+      const enAsset = /** @type {any} */ ({ path: 'pages/en/about/en-pic.jpg' });
+      const deAsset = /** @type {any} */ ({ path: 'pages/de/about/de-pic.jpg' });
+
+      const entry = /** @type {any} */ ({
+        id: 'about',
+        locales: {
+          en: { path: 'pages/en/about/_index.md', content: { title: 'About' } },
+          de: { path: 'pages/de/about/_index.md', content: { title: 'Über uns' } },
+        },
+      });
+
+      setupNestedEntries([enAsset, deAsset]);
+      mockGetEntriesByCollection.mockReturnValue([entry]);
+
+      expect(getAssociatedAssets({ entry, collectionName: 'pages', relative: true })).toEqual([
+        enAsset,
+        deAsset,
+      ]);
+    });
+
+    test('keeps the assets of a folder shared with another entry', () => {
+      // Without the `subfolders` mode, entries are files sharing one folder, so neither owns it
+      const sharedAsset = /** @type {any} */ ({ path: 'pages/photo.jpg' });
+
+      const entry = /** @type {any} */ ({
+        id: 'overview',
+        locales: { en: { path: 'pages/overview.md', content: { title: 'Overview' } } },
+      });
+
+      const sibling = /** @type {any} */ ({
+        id: 'contact',
+        locales: { en: { path: 'pages/contact.md', content: { title: 'Contact' } } },
+      });
+
+      setupNestedEntries([sharedAsset]);
+      mockGetEntriesByCollection.mockReturnValue([entry, sibling]);
+      mockGetOwnedEntryFolderPath.mockReturnValueOnce(undefined);
+
+      // The asset can belong to either entry, so deleting this one mustn’t take it along
+      expect(getAssociatedAssets({ entry, collectionName: 'pages', relative: true })).toEqual([]);
+      expect(mockGetOwnedEntryFolderPath).toHaveBeenCalledWith(
+        { name: 'pages', _type: 'entry' },
+        'pages/overview.md',
+      );
+    });
+  });
+
+  test('returns undefined when assetFolderPath is undefined (line 124)', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const mockAsset = /** @type {Asset} */ ({
+      path: 'post-dir/orphaned.jpg',
+      name: 'orphaned.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'post-dir',
+        publicPath: '/post-dir',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    });
+
+    const entryWithContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'post-dir/index.md',
+          content: {
+            title: 'Test',
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue(undefined);
+    mockGetAssetByPath.mockReturnValue(undefined);
+    mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+    mockGetAssetFoldersByPath.mockReturnValue([]);
+    mockGetPathInfo.mockImplementation((path) => {
+      if (path === 'post-dir/orphaned.jpg') {
+        return {
+          dirname: undefined, // Asset path has undefined dirname
+          basename: 'orphaned.jpg',
+          filename: 'orphaned',
+          extension: '.jpg',
+        };
+      }
+
+      return {
+        dirname: 'post-dir',
+        basename: 'index.md',
+        filename: 'index',
+        extension: '.md',
+      };
+    });
+    mockAllAssets.current = /** @type {any} */ ([mockAsset]);
+
+    const result = getAssociatedAssets({
+      entry: entryWithContent,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should not include the asset since its folder path is undefined
+    expect(result).not.toContain(mockAsset);
+  });
+
+  test('skips the orphan lookup when the entry owns no folder', () => {
+    const mockCollection = { name: 'posts', _type: 'entry' };
+
+    const mockAsset = /** @type {Asset} */ ({
+      path: 'post-dir/orphaned.jpg',
+      name: 'orphaned.jpg',
+      kind: 'image',
+      size: 1024,
+      text: '',
+      sha: 'abc123',
+      folder: {
+        collectionName: 'posts',
+        internalPath: 'post-dir',
+        publicPath: '/post-dir',
+        entryRelative: true,
+        hasTemplateTags: false,
+      },
+    });
+
+    const entryWithContent = /** @type {any} */ ({
+      locales: {
+        en: {
+          path: 'post-dir/index.md',
+          content: {
+            title: 'Test',
+          },
+        },
+      },
+    });
+
+    mockGetCollection.mockReturnValue(mockCollection);
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue(undefined);
+    mockGetAssetByPath.mockReturnValue(undefined);
+    mockGetAssetFolder.mockReturnValue({ entryRelative: true });
+    mockGetAssetFoldersByPath.mockReturnValue([]);
+    mockGetPathInfo.mockImplementation((path) => {
+      if (path === 'post-dir/orphaned.jpg') {
+        return {
+          dirname: 'post-dir',
+          basename: 'orphaned.jpg',
+          filename: 'orphaned',
+          extension: '.jpg',
+        };
+      }
+
+      return {
+        dirname: undefined, // Entry path has undefined dirname
+        basename: 'index.md',
+        filename: 'index',
+        extension: '.md',
+      };
+    });
+    mockAllAssets.current = /** @type {any} */ ([mockAsset]);
+    mockGetOwnedEntryFolderPath.mockReturnValueOnce(undefined);
+
+    const result = getAssociatedAssets({
+      entry: entryWithContent,
+      collectionName: 'posts',
+      relative: true,
+    });
+
+    // Should not include the asset since the entry owns no folder
+    expect(result).not.toContain(mockAsset);
+  });
+});
+
+describe('getEntryRelativeAssets', () => {
+  /** @type {Entry} */
+  const entry = {
+    id: 'hello',
+    slug: 'hello',
+    subPath: 'hello/index',
+    locales: {
+      _default: {
+        slug: 'hello',
+        path: 'content/posts/hello/index.md',
+        content: { title: 'Hello', image: 'cover.jpg' },
+      },
+    },
+  };
+
+  /** @type {Asset} */
+  const asset = /** @type {any} */ ({ path: 'content/posts/hello/cover.jpg', name: 'cover.jpg' });
+
+  beforeEach(() => {
+    mockAllAssets.current = [];
+    mockGetCollection.mockReturnValue({ name: 'posts', _type: 'entry' });
+    mockIsCollectionIndexFile.mockReturnValue(false);
+    mockGetField.mockReturnValue({ widget: 'image' });
+    mockGetAssetByPath.mockReturnValue(asset);
+    mockGetAssetFoldersByPath.mockReturnValue([
+      { collectionName: 'posts', fileName: undefined, entryRelative: true },
+    ]);
+    mockGetPathInfo.mockImplementation((path) => ({
+      dirname: path.split('/').slice(0, -1).join('/'),
+    }));
+  });
+
+  test('returns nothing for an entry stored in a file with the other entries', () => {
+    // The entries share the folder of the file, and any of them can use an asset there
+    mockGetAssetFolder.mockReturnValue({ collectionName: 'members', entryRelative: true });
+    mockGetCollection.mockReturnValue({
+      name: 'members',
+      _type: 'entry',
+      _file: { arrayFile: true },
+    });
+
+    expect(getEntryRelativeAssets({ entry, collectionName: 'members' })).toEqual([]);
+  });
+
+  test('returns the assets stored alongside the entry', () => {
+    mockGetAssetFolder.mockReturnValue({ collectionName: 'posts', entryRelative: true });
+
+    expect(getEntryRelativeAssets({ entry, collectionName: 'posts' })).toEqual([asset]);
+    expect(mockGetAssetFolder).toHaveBeenCalledWith({
+      collectionName: 'posts',
+      fileName: undefined,
+    });
+    expect(mockGetField).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionName: 'posts', keyPath: 'image' }),
+    );
+  });
+
+  test('leaves out a file another pull request put at the same path', () => {
+    mockGetAssetFolder.mockReturnValue({ collectionName: 'posts', entryRelative: true });
+
+    // Someone else’s pull request replaced the published file, or added one of its own
+    mockGetAssetByPath.mockReturnValue({
+      ...asset,
+      workflow: { branch: 'cms/posts/other', replacedAsset: asset },
+    });
+    expect(getEntryRelativeAssets({ entry, collectionName: 'posts' })).toEqual([asset]);
+
+    mockGetAssetByPath.mockReturnValue({ ...asset, workflow: { branch: 'cms/posts/other' } });
+    expect(getEntryRelativeAssets({ entry, collectionName: 'posts' })).toEqual([]);
+  });
+
+  test('passes the collection file name on', () => {
+    mockGetAssetFolder.mockReturnValue(undefined);
+
+    expect(
+      getEntryRelativeAssets({ entry, collectionName: 'settings', fileName: 'general' }),
+    ).toEqual([]);
+    expect(mockGetAssetFolder).toHaveBeenCalledWith({
+      collectionName: 'settings',
+      fileName: 'general',
+    });
+  });
+
+  test('returns an empty list unless the asset folder is entry-relative', () => {
+    mockGetAssetFolder.mockReturnValue({ collectionName: 'posts', entryRelative: false });
+
+    expect(getEntryRelativeAssets({ entry, collectionName: 'posts' })).toEqual([]);
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+  test('looks for no other entry using an asset in a folder the entry owns', () => {
+    mockGetAssetFolder.mockReturnValue({ collectionName: 'posts', entryRelative: true });
+
+    expect(getEntryRelativeAssets({ entry, collectionName: 'posts' })).toEqual([asset]);
+    expect(mockFindEntriesByAssets).not.toHaveBeenCalled();
+  });
+
+  describe('in a folder shared by the entries', () => {
+    /** @type {Entry} */
+    const original = {
+      id: 'hello',
+      slug: 'hello',
+      subPath: 'hello',
+      locales: {
+        _default: {
+          slug: 'hello',
+          path: 'content/posts/hello.md',
+          content: { title: 'Hello', image: 'photo.jpg' },
+        },
+      },
+    };
+
+    /** @type {Entry} */
+    const copy = {
+      ...original,
+      id: 'hello-1',
+      slug: 'hello-1',
+      subPath: 'hello-1',
+      locales: { _default: { ...original.locales._default, path: 'content/posts/hello-1.md' } },
+    };
+
+    /** @type {Asset} */
+    const photo = /** @type {any} */ ({ path: 'content/posts/photo.jpg', name: 'photo.jpg' });
+
+    beforeEach(() => {
+      mockGetAssetFolder.mockReturnValue({ collectionName: 'posts', entryRelative: true });
+      // The entries are files sharing the collection folder, so none owns it
+      mockGetOwnedEntryFolderPath.mockReturnValue(undefined);
+      mockGetAssetByPath.mockReturnValue(photo);
+      mockGetEntriesByCollection.mockReturnValue([original, copy]);
+    });
+
+    afterEach(() => {
+      // Back to the implementations the mocks were created with
+      mockGetOwnedEntryFolderPath.mockReset();
+      mockGetAssetByPath.mockReset();
+      mockGetEntriesByCollection.mockReset();
+    });
+
+    test('leaves out an asset another entry uses too', () => {
+      // A duplicated entry keeps referring to the original’s files in a shared folder, so deleting
+      // the original mustn’t delete them
+      mockFindEntriesByAssets.mockReturnValue([[original, copy]]);
+
+      expect(getEntryRelativeAssets({ entry: original, collectionName: 'posts' })).toEqual([]);
+      expect(mockFindEntriesByAssets).toHaveBeenCalledWith([{ asset: photo }], {
+        entries: [original, copy],
+      });
+    });
+
+    test('looks at the entries of other collections stored in the same folder', () => {
+      // Another collection can list the entries of the folder, filtered by a field, and a page
+      // elsewhere has nothing to do with them
+      /** @type {any} */
+      const translation = {
+        id: 'bonjour',
+        locales: { _default: { path: 'content/posts/bonjour.md', content: {} } },
+      };
+
+      /** @type {any} */
+      const page = {
+        id: 'about',
+        locales: { _default: { path: 'content/about.md', content: {} } },
+      };
+
+      mockAllEntries.current = [original, copy, translation, page];
+      mockFindEntriesByAssets.mockReturnValue([[original]]);
+
+      getEntryRelativeAssets({ entry: original, collectionName: 'posts' });
+
+      expect(mockFindEntriesByAssets).toHaveBeenCalledWith([{ asset: photo }], {
+        entries: [original, copy, translation],
+      });
+
+      mockAllEntries.current = [];
+    });
+
+    test('returns an asset only the entry uses', () => {
+      mockFindEntriesByAssets.mockReturnValue([[original]]);
+
+      expect(getEntryRelativeAssets({ entry: original, collectionName: 'posts' })).toEqual([photo]);
+    });
+
+    test('looks the assets of every entry up at once', () => {
+      /** @type {Asset} */
+      const cover = /** @type {any} */ ({ path: 'content/posts/cover.jpg', name: 'cover.jpg' });
+
+      mockGetAssetByPath.mockImplementation(({ entry: { id } }) =>
+        id === 'hello' ? photo : cover,
+      );
+      // The two share no asset, but a third entry uses the copy’s cover
+      mockFindEntriesByAssets.mockReturnValue([[original], [copy, { id: 'other' }]]);
+
+      expect(
+        getEntriesRelativeAssets({ entries: [original, copy], collectionName: 'posts' }),
+      ).toEqual([[photo], []]);
+      expect(mockFindEntriesByAssets).toHaveBeenCalledOnce();
+      expect(mockFindEntriesByAssets).toHaveBeenCalledWith([{ asset: photo }, { asset: cover }], {
+        entries: [original, copy],
+      });
+    });
+
+    test('returns the assets in a folder an entry owns as they are', () => {
+      /** @type {Entry} */
+      const owner = {
+        ...original,
+        id: 'owner',
+        locales: { _default: { ...original.locales._default, path: 'content/posts/own/index.md' } },
+      };
+
+      /** @type {Asset} */
+      const cover = /** @type {any} */ ({ path: 'content/posts/own/cover.jpg', name: 'cover.jpg' });
+
+      mockGetOwnedEntryFolderPath.mockImplementation((_collection, path) =>
+        path.endsWith('/index.md') ? 'content/posts/own' : undefined,
+      );
+      mockGetAssetByPath.mockImplementation(({ entry: { id } }) =>
+        id === 'owner' ? cover : photo,
+      );
+      mockFindEntriesByAssets.mockReturnValue([[original, copy]]);
+
+      expect(
+        getEntriesRelativeAssets({ entries: [owner, original], collectionName: 'posts' }),
+      ).toEqual([[cover], []]);
+      // Only the asset outside the owned folder is looked up
+      expect(mockFindEntriesByAssets).toHaveBeenCalledWith([{ asset: photo }], expect.anything());
+    });
+
+    test('keeps a file shared by entries deleted together', () => {
+      // Either entry may still need it, e.g. while its deletion awaits review
+      mockFindEntriesByAssets.mockReturnValue([[original, copy]]);
+
+      expect(
+        getEntriesRelativeAssets({ entries: [original, copy], collectionName: 'posts' }),
+      ).toEqual([[], []]);
+    });
+  });
+});

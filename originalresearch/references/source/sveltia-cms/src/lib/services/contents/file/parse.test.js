@@ -1,0 +1,1928 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { FRONTMATTER_DELIMITER_MAP } from '$lib/services/contents/file/constants';
+import { detectedFrontMatterFormats } from '$lib/services/contents/file/detected-formats';
+import {
+  formatEntryFile,
+  formatFrontMatter,
+  formatJSON,
+  formatTOML,
+  formatYAML,
+} from '$lib/services/contents/file/format';
+import {
+  _resetUnsafeIntegerSources,
+  getUnsafeIntegerSource,
+} from '$lib/services/contents/file/integers';
+import {
+  detectFrontMatterFormat,
+  hasCustomParser,
+  parseEntryFile,
+  parseFrontMatter,
+  parseJSON,
+  parseTOML,
+  parseYAML,
+} from '$lib/services/contents/file/parse';
+import { valueSources } from '$lib/services/contents/file/value-sources';
+
+// Mock external dependencies
+vi.mock('$lib/services/contents/collection', () => ({
+  getCollection: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/collection/files', () => ({
+  getCollectionFile: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/file/config', () => ({
+  customFileFormatRegistry: new Map(),
+  getFrontMatterDelimiters: vi.fn(),
+  resolveFileConfig: vi.fn(
+    ({ collection, collectionFile, isIndexFile }) =>
+      (isIndexFile ? collection._file.indexFile : undefined) ??
+      (collectionFile ?? collection)._file,
+  ),
+}));
+
+vi.mock('$lib/services/contents/collection/entries/index-file', () => ({
+  isCollectionIndexFilePath: vi.fn(() => false),
+}));
+
+describe('Test parseJSON()', () => {
+  test('parses valid JSON', () => {
+    const jsonStr = '{"title": "Test Post", "published": true, "tags": ["tag1", "tag2"]}';
+    const expected = { title: 'Test Post', published: true, tags: ['tag1', 'tag2'] };
+
+    expect(parseJSON(jsonStr)).toEqual(expected);
+  });
+
+  test('parses nested JSON objects', () => {
+    const jsonStr = '{"user": {"name": "John", "age": 30}, "settings": {"theme": "dark"}}';
+    const expected = { user: { name: 'John', age: 30 }, settings: { theme: 'dark' } };
+
+    expect(parseJSON(jsonStr)).toEqual(expected);
+  });
+
+  test('parses JSON arrays', () => {
+    const jsonStr = '[{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]';
+
+    const expected = [
+      { id: 1, name: 'Item 1' },
+      { id: 2, name: 'Item 2' },
+    ];
+
+    expect(parseJSON(jsonStr)).toEqual(expected);
+  });
+
+  test('throws error for invalid JSON', () => {
+    const invalidJson = '{"title": "Test Post", "published": true,}'; // trailing comma
+
+    expect(() => parseJSON(invalidJson)).toThrow();
+  });
+
+  test('parses empty JSON object', () => {
+    expect(parseJSON('{}')).toEqual({});
+  });
+
+  test('parses JSON with null values', () => {
+    const jsonStr = '{"title": "Test", "content": null, "draft": false}';
+    const expected = { title: 'Test', content: null, draft: false };
+
+    expect(parseJSON(jsonStr)).toEqual(expected);
+  });
+});
+
+describe('Test parseTOML()', () => {
+  test('parses basic TOML', () => {
+    const tomlStr = 'title = "Test Post"\npublished = true\ntags = ["tag1", "tag2"]';
+    const result = parseTOML(tomlStr);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.tags).toEqual(['tag1', 'tag2']);
+  });
+
+  test('parses TOML with sections', () => {
+    const tomlStr = `
+title = "Test Post"
+
+[author]
+name = "John Doe"
+email = "john@example.com"
+
+[settings]
+theme = "dark"
+notifications = true
+`;
+
+    const result = parseTOML(tomlStr);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.author.name).toBe('John Doe');
+    expect(result.author.email).toBe('john@example.com');
+    expect(result.settings.theme).toBe('dark');
+    expect(result.settings.notifications).toBe(true);
+  });
+
+  test('parses TOML with dates as strings', () => {
+    const tomlStr = 'created = 2023-01-01T10:00:00Z\nmodified = 2023-01-02';
+    const result = parseTOML(tomlStr);
+
+    // The parseTOML function uses toRaw to convert Date objects to strings
+    expect(typeof result.created).toBe('string');
+    expect(typeof result.modified).toBe('string');
+  });
+
+  test('remembers the source text of the dates in a file', () => {
+    valueSources.clear();
+
+    expect(parseTOML('created = 2023-01-01T10:00:00Z', 'a.toml')).toEqual({
+      created: '2023-01-01T10:00:00.000Z',
+    });
+    expect(valueSources.get('a.toml')).toEqual({
+      created: { value: '2023-01-01T10:00:00.000Z', source: '2023-01-01T10:00:00Z' },
+    });
+
+    // A document that isn’t read from a file, e.g. the CMS configuration, leaves nothing behind
+    parseTOML('created = 2023-01-01T10:00:00Z');
+    expect(valueSources.size).toBe(1);
+  });
+
+  test('parses TOML with arrays', () => {
+    const tomlStr = 'numbers = [1, 2, 3]\nstrings = ["a", "b", "c"]';
+    const result = parseTOML(tomlStr);
+
+    expect(result.numbers).toEqual([1, 2, 3]);
+    expect(result.strings).toEqual(['a', 'b', 'c']);
+  });
+
+  test('throws error for invalid TOML', () => {
+    const invalidToml = 'title = "Test Post\npublished = true'; // unclosed quote
+
+    expect(() => parseTOML(invalidToml)).toThrow();
+  });
+});
+
+describe('Test parseYAML()', () => {
+  test('parses basic YAML', () => {
+    const yamlStr = 'title: Test Post\npublished: true\ntags:\n  - tag1\n  - tag2';
+    const expected = { title: 'Test Post', published: true, tags: ['tag1', 'tag2'] };
+
+    expect(parseYAML(yamlStr)).toEqual(expected);
+  });
+
+  test('parses nested YAML objects', () => {
+    const yamlStr = `
+title: Test Post
+author:
+  name: John Doe
+  email: john@example.com
+settings:
+  theme: dark
+  notifications: true
+`;
+
+    const result = parseYAML(yamlStr);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.author.name).toBe('John Doe');
+    expect(result.author.email).toBe('john@example.com');
+    expect(result.settings.theme).toBe('dark');
+    expect(result.settings.notifications).toBe(true);
+  });
+
+  test('parses YAML with different data types', () => {
+    const yamlStr = `
+string: "hello"
+number: 42
+float: 3.14
+boolean: true
+null_value: null
+date: 2023-01-01
+`;
+
+    const result = parseYAML(yamlStr);
+
+    expect(result.string).toBe('hello');
+    expect(result.number).toBe(42);
+    expect(result.float).toBe(3.14);
+    expect(result.boolean).toBe(true);
+    expect(result.null_value).toBeNull();
+    expect(result.date).toBe('2023-01-01');
+  });
+
+  test('parses empty YAML', () => {
+    expect(parseYAML('')).toBeNull();
+  });
+
+  test('throws error for invalid YAML', () => {
+    const invalidYaml = 'title: Test Post\n  invalid: indentation';
+
+    expect(() => parseYAML(invalidYaml)).toThrow();
+  });
+});
+
+describe('Integers a number can’t represent exactly', () => {
+  beforeEach(() => {
+    _resetUnsafeIntegerSources();
+  });
+
+  test('are written back as they were read from JSON', () => {
+    const json =
+      '{\n  "big": 12345678901234567890,\n  "list": [\n    -9007199254740993,\n    1.5\n  ]\n}';
+
+    const parsed = parseJSON(json);
+
+    expect(parsed).toEqual({ big: 12345678901234567000, list: [-9007199254740992, 1.5] });
+    expect(formatJSON(parsed)).toBe(json);
+    // An edited value is written as it is
+    expect(formatJSON({ ...parsed, big: 5 })).toContain('"big": 5,');
+  });
+
+  test('are read as usual without the source text, which the reviver gets in modern browsers', () => {
+    const { parse } = JSON;
+
+    // Simulate a browser that doesn’t pass the context to the reviver
+    vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) =>
+      parse(text, reviver && ((key, value) => reviver(key, value))),
+    );
+
+    try {
+      expect(parseJSON('{"big": 12345678901234567890}')).toEqual({ big: 12345678901234567000 });
+      expect(getUnsafeIntegerSource(12345678901234567000)).toBeUndefined();
+    } finally {
+      vi.mocked(JSON.parse).mockRestore();
+    }
+  });
+
+  test('are written back as they were read from YAML', () => {
+    const yaml =
+      'big: 12345678901234567890\nneg: -9007199254740993\nsmall: 3\nlist:\n  - 9007199254740993';
+
+    const parsed = parseYAML(yaml);
+
+    expect(parsed).toEqual({
+      big: 12345678901234567000,
+      neg: -9007199254740992,
+      small: 3,
+      list: [9007199254740992],
+    });
+    expect(formatYAML(parsed)).toBe(yaml);
+    // The options are kept
+    expect(parseYAML('a: &a\n  b: 1234567890123456789\nc:\n  <<: *a', { merge: true })).toEqual({
+      a: { b: 1234567890123456800 },
+      c: { b: 1234567890123456800 },
+    });
+  });
+
+  test('are written back as they were read from TOML', () => {
+    const toml = 'big = 9007199254740993\nsmall = 3\nlist = [ 9007199254740993 ]';
+    const parsed = parseTOML(toml);
+
+    // The parser would otherwise reject the document
+    expect(parsed).toEqual({ big: 9007199254740992, small: 3, list: [9007199254740992] });
+    expect(formatTOML(parsed)).toBe(toml);
+  });
+
+  test('are written back as they were read from front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    vi.mocked(getFrontMatterDelimiters).mockImplementation(
+      ({ format }) => FRONTMATTER_DELIMITER_MAP[format],
+    );
+
+    const collection = /** @type {any} */ ({
+      _file: { format: 'frontmatter', extension: 'md' },
+    });
+
+    [
+      '---\nbig: 12345678901234567890\n---\n\nBody',
+      '+++\nbig = 9007199254740993\n+++\n\nBody',
+      '{\n  "big": 12345678901234567890\n}\n\nBody',
+    ].forEach((text) => {
+      const format = detectFrontMatterFormat(text);
+      const content = parseFrontMatter({ collection, format, text });
+
+      expect(
+        formatFrontMatter({
+          content,
+          _file: { ...collection._file, format, fmDelimiters: FRONTMATTER_DELIMITER_MAP[format] },
+        }),
+      ).toBe(`${text}\n`);
+    });
+  });
+});
+
+describe('Test detectFrontMatterFormat()', () => {
+  test('detects TOML front matter', () => {
+    const text = '+++\ntitle = "Test Post"\n+++\n\nContent here';
+
+    expect(detectFrontMatterFormat(text)).toBe('toml-frontmatter');
+  });
+
+  test('detects JSON front matter', () => {
+    const text = '{\n  "title": "Test Post"\n}\n\nContent here';
+
+    expect(detectFrontMatterFormat(text)).toBe('json-frontmatter');
+  });
+
+  test('detects YAML front matter as default', () => {
+    const text = '---\ntitle: Test Post\n---\n\nContent here';
+
+    expect(detectFrontMatterFormat(text)).toBe('yaml-frontmatter');
+  });
+
+  test('defaults to YAML for unknown format', () => {
+    const text = 'Just some plain text without front matter';
+
+    expect(detectFrontMatterFormat(text)).toBe('yaml-frontmatter');
+  });
+
+  test('detects TOML even with additional content', () => {
+    const text = '+++\ntitle = "Test"\nauthor = "John"\n+++\n\n# Main Content\n\nSome text here';
+
+    expect(detectFrontMatterFormat(text)).toBe('toml-frontmatter');
+  });
+
+  test('detects JSON even with complex structure', () => {
+    const text = '{\n  "title": "Test",\n  "meta": {\n    "author": "John"\n  }\n}\n\nContent';
+
+    expect(detectFrontMatterFormat(text)).toBe('json-frontmatter');
+  });
+
+  test('detects the format by the whole first line', () => {
+    // A body starting with a brace, e.g. a Hugo shortcode, isn’t JSON front matter
+    expect(detectFrontMatterFormat('{{< figure src="a.jpg" >}}\n\nText')).toBe('yaml-frontmatter');
+    expect(detectFrontMatterFormat('{% include note.html %}\n\nText')).toBe('yaml-frontmatter');
+    expect(detectFrontMatterFormat('{/* comment */}\n\nText')).toBe('yaml-frontmatter');
+    expect(detectFrontMatterFormat('+++Text')).toBe('yaml-frontmatter');
+    // Trailing spaces after a delimiter are ignored, as the parser does
+    expect(detectFrontMatterFormat('+++ \ntitle = "Test"\n+++')).toBe('toml-frontmatter');
+    expect(detectFrontMatterFormat('{\t\n"title": "Test"\n}')).toBe('json-frontmatter');
+    expect(detectFrontMatterFormat('{')).toBe('json-frontmatter');
+  });
+});
+
+describe('Test parseFrontMatter()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('parses YAML front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = '---\ntitle: Test Post\npublished: true\n---\n\nThis is the content body.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('This is the content body.');
+  });
+
+  test('strips only the blank line written by the formatter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    // No blank line after the closing delimiter
+    expect(
+      parseFrontMatter({
+        collection: mockCollection,
+        format: 'yaml-frontmatter',
+        text: '---\ntitle: Test Post\n---\nThis is the content body.',
+      }).body,
+    ).toBe('This is the content body.');
+
+    // Two blank lines: the extra one belongs to the body
+    expect(
+      parseFrontMatter({
+        collection: mockCollection,
+        format: 'yaml-frontmatter',
+        text: '---\ntitle: Test Post\n---\n\n\nThis is the content body.',
+      }).body,
+    ).toBe('\nThis is the content body.');
+  });
+
+  test('ignores trailing spaces and tabs after the delimiters', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    expect(
+      parseFrontMatter({
+        collection: mockCollection,
+        format: 'yaml-frontmatter',
+        text: '---  \ntitle: Test Post\n---\t\n\nThis is the content body.',
+      }),
+    ).toEqual({ title: 'Test Post', body: 'This is the content body.' });
+
+    // Without a body
+    expect(
+      parseFrontMatter({
+        collection: mockCollection,
+        format: 'yaml-frontmatter',
+        text: '--- \ntitle: Test Post\n--- ',
+      }).title,
+    ).toBe('Test Post');
+
+    // Other text on a delimiter line is not a delimiter
+    expect(
+      parseFrontMatter({
+        collection: mockCollection,
+        format: 'yaml-frontmatter',
+        text: '--- x\ntitle: Test Post\n---\n',
+      }),
+    ).toEqual({ body: '--- x\ntitle: Test Post\n---\n' });
+  });
+
+  test.each([
+    ['yaml-frontmatter', ['---', '---'], '---\nfoo: bar\n---\nText'],
+    ['toml-frontmatter', ['+++', '+++'], '+++\nfoo = 1\n+++\nText'],
+    ['json-frontmatter', ['{', '}'], '{\n"foo": 1\n}\nText'],
+  ])(
+    'reads back a %s body starting with a delimiter line as written',
+    async (format, delimiters, body) => {
+      const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+      /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(delimiters);
+
+      const _file = /** @type {any} */ ({ format, fmDelimiters: delimiters });
+      const text = formatFrontMatter({ content: { body }, _file });
+
+      expect(
+        parseFrontMatter({
+          collection: /** @type {any} */ ({ name: 'test-collection', _file }),
+          format: /** @type {any} */ (format),
+          text: text.trim(),
+        }),
+      ).toEqual({ body });
+    },
+  );
+
+  test('parses TOML front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['+++', '+++']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['+++', '+++'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['+++', '+++'],
+      },
+    });
+
+    const text = '+++\ntitle = "Test Post"\npublished = true\n+++\n\nThis is the content body.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'toml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('This is the content body.');
+  });
+
+  test('parses JSON front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['{', '}']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['{', '}'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['{', '}'],
+      },
+    });
+
+    // This should match the format that the implementation expects
+    const text = '{\n  "title": "Test Post",\n  "published": true\n}\n\nThis is the content body.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'json-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('This is the content body.');
+  });
+
+  describe('JSON front matter round-trip', () => {
+    /**
+     * Parse the given text as JSON front matter with the given delimiters.
+     * @param {string} text File content.
+     * @param {[string, string]} delimiters Front matter delimiters.
+     * @returns {Record<string, any>} Parsed content.
+     */
+    const parseWith = (text, delimiters) =>
+      parseFrontMatter({
+        collection: /** @type {any} */ ({
+          name: 'posts',
+          _file: { format: 'json-frontmatter', fmDelimiters: delimiters },
+        }),
+        format: 'json-frontmatter',
+        text: text.trim(),
+      });
+
+    const content = {
+      title: 'Test Post',
+      author: { name: 'Jane', links: { site: 'https://example.com' } },
+      tags: ['a', 'b'],
+    };
+
+    test.each([
+      ['default', ['{', '}']],
+      ['custom', ['---', '---']],
+      ['custom brace-less', ['~~~', '~~~']],
+    ])('parses what the formatter writes with %s delimiters', (_label, delimiters) => {
+      const text = formatFrontMatter({
+        content: { ...content, body: 'Body text.' },
+        _file: /** @type {any} */ ({
+          format: 'json-frontmatter',
+          fmDelimiters: delimiters,
+        }),
+      });
+
+      expect(parseWith(text, /** @type {[string, string]} */ (delimiters))).toEqual({
+        ...content,
+        body: 'Body text.',
+      });
+    });
+
+    test('parses what the formatter writes without a body', () => {
+      const text = formatFrontMatter({
+        content: { ...content },
+        _file: /** @type {any} */ ({ format: 'json-frontmatter', fmDelimiters: ['{', '}'] }),
+      });
+
+      expect(parseWith(text, ['{', '}'])).toEqual({ ...content, body: undefined });
+    });
+
+    test('parses a file written with the braces doubled by an earlier version', () => {
+      const text = `{\n${JSON.stringify(content, null, 2)}\n}\n\nBody text.\n`;
+
+      expect(parseWith(text, ['{', '}'])).toEqual({ ...content, body: 'Body text.' });
+    });
+
+    test('parses a doubled-brace file without a body or indentation', () => {
+      const text = `{\n${JSON.stringify(content)}\n}\n`;
+
+      expect(parseWith(text, ['{', '}'])).toEqual({ ...content, body: undefined });
+    });
+
+    test('parses a Decap-style head without braces within custom delimiters', () => {
+      const text = '---\n"title": "Test Post"\n---\n\nBody text.';
+
+      expect(parseWith(text, ['---', '---'])).toEqual({ title: 'Test Post', body: 'Body text.' });
+    });
+
+    test('parses a full JSON object within custom delimiters', () => {
+      const text = '---\n{\n  "title": "Test Post"\n}\n---\n\nBody text.';
+
+      expect(parseWith(text, ['---', '---'])).toEqual({ title: 'Test Post', body: 'Body text.' });
+    });
+  });
+
+  test('handles content without front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = 'This is just plain content without front matter.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.body).toBe('This is just plain content without front matter.');
+    expect(Object.keys(result)).toEqual(['body']);
+  });
+
+  test('does not treat later delimiter lines as front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = 'foo\n\n---\nbar\n\n---\nbaz';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.body).toBe(text);
+    expect(Object.keys(result)).toEqual(['body']);
+  });
+
+  test('handles empty front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = '---\n\n---\n\nContent without front matter data.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.body).toBe('Content without front matter data.');
+  });
+
+  test('handles front matter with no line between the delimiters', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: { format: 'frontmatter', fmDelimiters: ['---', '---'] },
+    });
+
+    const args = {
+      collection: mockCollection,
+      format: /** @type {const} */ ('yaml-frontmatter'),
+    };
+
+    // Jekyll’s empty front matter
+    expect(parseFrontMatter({ ...args, text: '---\n---\n\nHello' })).toEqual({ body: 'Hello' });
+    expect(parseFrontMatter({ ...args, text: '---\n---' })).toEqual({ body: undefined });
+    // An empty head line yields the same result
+    expect(parseFrontMatter({ ...args, text: '---\n\n---' })).toEqual({ body: undefined });
+    // TOML and JSON front matter
+    expect(
+      parseFrontMatter({ ...args, format: 'toml-frontmatter', text: '---\n---\n\nHello' }),
+    ).toEqual({ body: 'Hello' });
+    expect(
+      parseFrontMatter({ ...args, format: 'json-frontmatter', text: '---\n---\n\nHello' }),
+    ).toEqual({ body: 'Hello' });
+  });
+
+  test('ignores the head of front matter in an unknown format', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    expect(
+      parseFrontMatter({
+        collection: /** @type {any} */ ({ name: 'test-collection', _file: { format: 'x' } }),
+        format: /** @type {any} */ ('x'),
+        text: '---\ntitle: A\n---\n\nHello',
+      }),
+    ).toEqual({ body: 'Hello' });
+  });
+
+  test('handles content with only front matter', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = '---\ntitle: Test Post\npublished: true\n---';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.body).toBeUndefined();
+  });
+
+  test('handles custom delimiters', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['===', '===']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['===', '==='],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['===', '==='],
+      },
+    });
+
+    const text = '===\ntitle: Custom Delimiters\n===\n\nContent body.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Custom Delimiters');
+    expect(result.body).toBe('Content body.');
+  });
+
+  test('works with collection only (no collectionFile)', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = '---\ntitle: Collection Only\n---\n\nContent.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Collection Only');
+    expect(result.body).toBe('Content.');
+  });
+
+  test('uses fmDelimiters directly when _file.format is not "frontmatter"', async () => {
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'yaml-frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'yaml-frontmatter',
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = '---\ntitle: Direct Delimiters\npublished: true\n---\n\nBody content.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Direct Delimiters');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('Body content.');
+  });
+
+  test('uses fmDelimiters directly when _format is not frontmatter (line 80)', async () => {
+    // When _format is a specific format like 'yaml-frontmatter' instead of generic 'frontmatter',
+    // the code should use fmDelimiters directly without calling getFrontMatterDelimiters
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'yaml-frontmatter', // NOT 'frontmatter'
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'yaml-frontmatter', // NOT 'frontmatter' - triggers the false branch
+        fmDelimiters: ['---', '---'],
+      },
+    });
+
+    const text = '---\ntitle: Direct Format\npublished: true\n---\n\nBody content.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Direct Format');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('Body content.');
+  });
+
+  test('uses default delimiters when fmDelimiters is undefined (line 80)', async () => {
+    // Test the ?? ['---', '---'] fallback when fmDelimiters is undefined/null
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'toml-frontmatter',
+        fmDelimiters: undefined, // triggers the ?? fallback
+      },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'toml-frontmatter',
+        fmDelimiters: undefined,
+      },
+    });
+
+    const text = '---\ntitle: Fallback Delimiters\npublished: true\n---\n\nBody content.';
+
+    const result = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Fallback Delimiters');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('Body content.');
+  });
+
+  test('reuses the cached regex for the same delimiter pair (frontMatterRegexCache)', () => {
+    // Set _format to a non-'frontmatter' value so getFrontMatterDelimiters is never called
+    // and the delimiters are taken directly from fmDelimiters. This avoids any mock pollution
+    // that would affect subsequent parseEntryFile tests.
+    const mockCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: { format: 'yaml-frontmatter', fmDelimiters: ['===', '==='] },
+    });
+
+    const mockCollectionFile = /** @type {any} */ ({
+      _file: { format: 'yaml-frontmatter', fmDelimiters: ['===', '==='] },
+    });
+
+    const text = '===\ntitle: Cached Entry\nauthor: Tester\n===\n\nBody text.';
+
+    // First call — creates and stores the regex in frontMatterRegexCache
+    const result1 = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    // Second call — reuses the cached regex (delimiter pair '==='|'===' is already in the cache)
+    const result2 = parseFrontMatter({
+      collection: mockCollection,
+      collectionFile: mockCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result1).toEqual(result2);
+    expect(result1.title).toBe('Cached Entry');
+    expect(result1.author).toBe('Tester');
+    expect(result1.body).toBe('Body text.');
+  });
+});
+
+describe('Test parseEntryFile()', () => {
+  /** @type {any} */
+  let getCollection;
+  /** @type {any} */
+  let getCollectionFile;
+  /** @type {any} */
+  let customFileFormatRegistry;
+
+  const mockCollection = {
+    _file: {
+      format: 'yaml',
+    },
+  };
+
+  const entryBase = {
+    text: '',
+    path: '/test/file.md',
+    folder: {
+      collectionName: 'posts',
+      fileName: 'test-file',
+    },
+    // Add required properties for BaseEntryListItem
+    name: 'test-file.md',
+    sha: 'abc123',
+    size: 1024,
+    type: /** @type {'entry'} */ ('entry'),
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const collectionModule = await import('$lib/services/contents/collection');
+    const collectionFileModule = await import('$lib/services/contents/collection/files');
+    const regModule = await import('$lib/services/api/registries');
+
+    getCollection = collectionModule.getCollection;
+    getCollectionFile = collectionFileModule.getCollectionFile;
+    customFileFormatRegistry = regModule.customFileFormatRegistry;
+  });
+
+  test('parses YAML format', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'title: Test Post\npublished: true\ntags:\n  - tag1\n  - tag2',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.tags).toEqual(['tag1', 'tag2']);
+  });
+
+  test('parses TOML format', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'toml' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'toml' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'title = "Test Post"\npublished = true\ntags = ["tag1", "tag2"]',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.tags).toEqual(['tag1', 'tag2']);
+  });
+
+  test('remembers the source text of the dates in a TOML file', async () => {
+    getCollection.mockReturnValue({ _file: { format: 'toml' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'toml' } });
+    valueSources.clear();
+
+    const result = await parseEntryFile({ ...entryBase, text: 'date = 1979-05-27 07:32:00\n' });
+
+    expect(result).toEqual({ date: '1979-05-27T07:32:00.000' });
+    expect(valueSources.get(entryBase.path)).toEqual({
+      date: { value: '1979-05-27T07:32:00.000', source: '1979-05-27 07:32:00' },
+    });
+
+    // The dates of an earlier version of the file are forgotten
+    await parseEntryFile({ ...entryBase, text: 'date = "TBD"\n' });
+    expect(valueSources.has(entryBase.path)).toBe(false);
+  });
+
+  test('remembers the source text of the dates in TOML front matter', async () => {
+    getCollection.mockReturnValue({ _file: { format: 'toml-frontmatter' } });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'toml-frontmatter', fmDelimiters: ['+++', '+++'] },
+    });
+    valueSources.clear();
+
+    const result = await parseEntryFile({
+      ...entryBase,
+      text: '+++\ntime = 12:30:00\n+++\n\nAt 12:30:00.000.\n',
+    });
+
+    expect(result).toEqual({ time: '12:30:00.000', body: 'At 12:30:00.000.' });
+    expect(valueSources.get(entryBase.path)).toEqual({
+      time: { value: '12:30:00.000', source: '12:30:00' },
+    });
+  });
+
+  test('parses JSON format', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'json' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'json' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: '{"title": "Test Post", "published": true, "tags": ["tag1", "tag2"]}',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.tags).toEqual(['tag1', 'tag2']);
+  });
+
+  test('parses front matter format with auto-detection', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'frontmatter' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'frontmatter', fmDelimiters: ['---', '---'] },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: '---\ntitle: Test Post\npublished: true\n---\n\nThis is the content.',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+    expect(result.body).toBe('This is the content.');
+  });
+
+  test('handles yml format alias', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'yml' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'yml' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'title: Test Post\npublished: true',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+  });
+
+  test('uses custom parser when available', async () => {
+    const customParser = vi.fn().mockReturnValue({ custom: 'result' });
+
+    customFileFormatRegistry.set('customFormat', { parser: customParser });
+
+    getCollection.mockReturnValue({
+      _file: { format: 'customFormat' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'customFormat' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'custom content',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(customParser).toHaveBeenCalledWith('custom content');
+    expect(result).toEqual({ custom: 'result' });
+  });
+
+  test('tells whether a file is read with a custom parser', () => {
+    customFileFormatRegistry.set('customFormat', { parser: vi.fn() });
+    getCollection.mockReturnValue({ _file: { format: 'customFormat' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'customFormat' } });
+    expect(hasCustomParser(entryBase)).toBe(true);
+
+    getCollection.mockReturnValue({ _file: { format: 'yaml' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'yaml' } });
+    expect(hasCustomParser(entryBase)).toBe(false);
+
+    // A file whose collection can’t be found isn’t parsed at all
+    getCollection.mockReturnValue(undefined);
+    expect(hasCustomParser(entryBase)).toBe(false);
+
+    customFileFormatRegistry.delete('customFormat');
+  });
+
+  test('parses raw format and returns content as-is', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'raw' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'raw' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'This is raw content\nwith multiple lines\nand no parsing',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result).toEqual({ body: 'This is raw content\nwith multiple lines\nand no parsing' });
+  });
+
+  test('parses raw format with HTML content', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'raw' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'raw' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: '<html><body><h1>Test</h1><p>Raw HTML content</p></body></html>',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result).toEqual({
+      body: '<html><body><h1>Test</h1><p>Raw HTML content</p></body></html>',
+    });
+  });
+
+  test('parses raw format with special characters', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'raw' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'raw' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: '{"not": "json"}\n---\nnot: yaml\n+++\nSpecial chars: @#$%^&*()',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result).toEqual({
+      body: '{"not": "json"}\n---\nnot: yaml\n+++\nSpecial chars: @#$%^&*()',
+    });
+  });
+
+  test('normalizes line breaks', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'title: Test Post\r\npublished: true\r\n',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+  });
+
+  test('trims whitespace', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: '   \ntitle: Test Post\npublished: true\n  \n  ',
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+  });
+
+  test('keeps the leading whitespace of a raw file', async () => {
+    getCollection.mockReturnValue({ _file: { format: 'raw' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'raw' } });
+
+    const result = await parseEntryFile({ ...entryBase, text: '\n    indented\r\nline\n\n' });
+
+    // The trailing whitespace is still dropped
+    expect(result).toEqual({ body: '\n    indented\nline' });
+  });
+
+  test('keeps the leading whitespace of a Markdown file without front matter', async () => {
+    getCollection.mockReturnValue({ _file: { format: 'frontmatter' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'frontmatter' } });
+
+    const result = await parseEntryFile({
+      ...entryBase,
+      text: '    const code = 1;\n\nText\n',
+    });
+
+    // An indented code block
+    expect(result).toEqual({ body: '    const code = 1;\n\nText' });
+  });
+
+  test('ignores the whitespace before a front matter block', async () => {
+    getCollection.mockReturnValue({ _file: { format: 'frontmatter' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'frontmatter' } });
+
+    expect(
+      await parseEntryFile({ ...entryBase, text: '\n  \n---\ntitle: Test\n---\n\nBody\n' }),
+    ).toEqual({ title: 'Test', body: 'Body' });
+
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    // The format is told by the delimiter after the whitespace
+    vi.mocked(getFrontMatterDelimiters).mockReturnValueOnce(
+      FRONTMATTER_DELIMITER_MAP['toml-frontmatter'],
+    );
+    expect(
+      await parseEntryFile({ ...entryBase, text: '\n+++\ntitle = "Test"\n+++\n\nBody\n' }),
+    ).toEqual({ title: 'Test', body: 'Body' });
+    expect(getFrontMatterDelimiters).toHaveBeenCalledWith(
+      expect.objectContaining({ format: 'toml-frontmatter' }),
+    );
+  });
+
+  test('only remembers the front matter format of a file with a front matter block', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    vi.mocked(getFrontMatterDelimiters).mockImplementation(
+      ({ format }) => FRONTMATTER_DELIMITER_MAP[format],
+    );
+    getCollection.mockReturnValue({ _file: { format: 'frontmatter' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'frontmatter' } });
+
+    const { path } = entryBase;
+
+    try {
+      expect(
+        await parseEntryFile({ ...entryBase, text: '{\n"title": "Test"\n}\n\nBody\n' }),
+      ).toEqual({ title: 'Test', body: 'Body' });
+      expect(detectedFrontMatterFormats.get(path)).toBe('json-frontmatter');
+
+      // A Hugo shortcode at the start of a file without front matter, which the file had once
+      expect(
+        await parseEntryFile({ ...entryBase, text: '{{< figure src="a.jpg" >}}\n\nText\n' }),
+      ).toEqual({ body: '{{< figure src="a.jpg" >}}\n\nText' });
+      expect(detectedFrontMatterFormats.has(path)).toBe(false);
+
+      // A delimiter line without a closing one isn’t a front matter block either
+      expect(await parseEntryFile({ ...entryBase, text: '+++\nText\n' })).toEqual({
+        body: '+++\nText',
+      });
+      expect(detectedFrontMatterFormats.has(path)).toBe(false);
+    } finally {
+      detectedFrontMatterFormats.delete(path);
+      vi.mocked(getFrontMatterDelimiters).mockReset();
+    }
+  });
+
+  test('gives a custom parser the content without the surrounding whitespace', async () => {
+    const customParser = vi.fn().mockReturnValue({});
+
+    customFileFormatRegistry.set('customFormat', { parser: customParser });
+    getCollection.mockReturnValue({ _file: { format: 'customFormat' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'customFormat' } });
+
+    await parseEntryFile({ ...entryBase, text: '\n  custom content\n' });
+
+    expect(customParser).toHaveBeenCalledWith('custom content');
+    customFileFormatRegistry.delete('customFormat');
+  });
+
+  test('throws error when collection not found', async () => {
+    getCollection.mockReturnValue(null);
+
+    const entry = {
+      ...entryBase,
+      text: 'title: Test Post',
+    };
+
+    await expect(parseEntryFile(entry)).rejects.toThrow('Collection not found');
+  });
+
+  test('throws error when collection file not found', async () => {
+    getCollection.mockReturnValue(mockCollection);
+    getCollectionFile.mockReturnValue(null);
+
+    const entry = {
+      ...entryBase,
+      text: 'title: Test Post',
+    };
+
+    await expect(parseEntryFile(entry)).rejects.toThrow('Collection file not found');
+  });
+
+  test('works without collection file when no fileName provided', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'yaml' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'title: Test Post\npublished: true',
+      folder: {
+        collectionName: 'posts',
+        fileName: undefined,
+      },
+    };
+
+    const result = await parseEntryFile(entry);
+
+    expect(result.title).toBe('Test Post');
+    expect(result.published).toBe(true);
+  });
+
+  test('parses the collection’s index file with its own format', async () => {
+    const { isCollectionIndexFilePath } =
+      await import('$lib/services/contents/collection/entries/index-file');
+
+    const collection = {
+      _file: { format: 'frontmatter', indexFile: { format: 'json' } },
+    };
+
+    getCollection.mockReturnValue(collection);
+    // The index file is told from the entries by its path
+    vi.mocked(isCollectionIndexFilePath).mockImplementation((_c, path) => path.endsWith('.json'));
+
+    const folder = { collectionName: 'posts', fileName: undefined };
+
+    expect(
+      await parseEntryFile({
+        ...entryBase,
+        path: 'content/posts/posts.json',
+        text: '{ "layout": "post" }',
+        folder,
+      }),
+    ).toEqual({ layout: 'post' });
+
+    expect(isCollectionIndexFilePath).toHaveBeenCalledWith(collection, 'content/posts/posts.json');
+
+    // An entry is parsed with the collection’s format
+    expect(
+      await parseEntryFile({
+        ...entryBase,
+        path: 'content/posts/hello.md',
+        text: '---\ntitle: Hello\n---\nBody',
+        folder,
+      }),
+    ).toEqual({ title: 'Hello', body: 'Body' });
+
+    // A collection file is never the index file
+    getCollectionFile.mockReturnValue({ _file: { format: 'yaml' } });
+    vi.mocked(isCollectionIndexFilePath).mockClear();
+
+    expect(await parseEntryFile({ ...entryBase, text: 'title: Test' })).toEqual({ title: 'Test' });
+    expect(isCollectionIndexFilePath).not.toHaveBeenCalled();
+  });
+
+  test('throws error for parsing failures', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'json' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'json' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: '{"title": "Test Post", "published": true,}', // invalid JSON
+    };
+
+    await expect(parseEntryFile(entry)).rejects.toThrow(/could not be parsed due to/);
+  });
+
+  test('throws error for unknown format', async () => {
+    getCollection.mockReturnValue({
+      _file: { format: 'unknown-format' },
+    });
+    getCollectionFile.mockReturnValue({
+      _file: { format: 'unknown-format' },
+    });
+
+    const entry = {
+      ...entryBase,
+      text: 'some content',
+    };
+
+    await expect(parseEntryFile(entry)).rejects.toThrow(
+      /could not be parsed due to an unknown format/,
+    );
+  });
+
+  test('throws a clear error for a custom format registered without a parser', async () => {
+    customFileFormatRegistry.set('csv', { formatter: vi.fn(), extension: 'csv' });
+    getCollection.mockReturnValue({ _file: { format: 'csv' } });
+    getCollectionFile.mockReturnValue({ _file: { format: 'csv' } });
+
+    try {
+      await expect(parseEntryFile({ ...entryBase, text: 'a,b' })).rejects.toThrow(
+        '/test/file.md could not be parsed, as no `fromFile` method was registered for the ' +
+          'custom “csv” format with `CMS.registerCustomFormat()`',
+      );
+    } finally {
+      customFileFormatRegistry.delete('csv');
+    }
+  });
+
+  test('parses frontmatter with inline body (bodyField.inline = true)', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const inlineBodyCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'body', inline: true },
+      },
+    });
+
+    const inlineBodyCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'body', inline: true },
+      },
+    });
+
+    const text =
+      '---\ntitle: Test Post\nbody: This is inline body content.\n---\n\nIgnored content.';
+
+    const result = parseFrontMatter({
+      collection: inlineBodyCollection,
+      collectionFile: inlineBodyCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    expect(result.body).toBe('This is inline body content.');
+    // With inline=true, content after frontmatter should NOT be added to body
+    expect(result.body).not.toContain('Ignored content');
+  });
+
+  test('reads the body under a key named after an `Object.prototype` member', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const _file = { format: 'frontmatter', bodyField: { key: 'constructor', inline: false } };
+
+    const result = parseFrontMatter({
+      collection: /** @type {any} */ ({ name: 'test-collection', _file }),
+      collectionFile: /** @type {any} */ ({ _file }),
+      format: 'yaml-frontmatter',
+      text: '---\ntitle: Test Post\n---\n\nBody text.',
+    });
+
+    // The inherited `Object` was taken for a body in the front matter, and the text was dropped
+    expect(Object.hasOwn(result, 'constructor')).toBe(true);
+    expect(result.constructor).toBe('Body text.');
+  });
+
+  test('reads the text below the front matter as an inline body missing from it', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const inlineBodyCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'body', inline: true },
+      },
+    });
+
+    const result = parseFrontMatter({
+      collection: inlineBodyCollection,
+      format: 'yaml-frontmatter',
+      text: '---\ntitle: Test Post\n---\n\nBelow.',
+    });
+
+    expect(result).toEqual({ title: 'Test Post', body: 'Below.' });
+
+    // No empty body is added to a file without one
+    expect(
+      parseFrontMatter({
+        collection: inlineBodyCollection,
+        format: 'yaml-frontmatter',
+        text: '---\ntitle: Test Post\n---\n',
+      }),
+    ).toEqual({ title: 'Test Post' });
+  });
+
+  test('parses frontmatter with custom body key', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const customKeyCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'content', inline: false },
+      },
+    });
+
+    const customKeyCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'content', inline: false },
+      },
+    });
+
+    const text = '---\ntitle: Test Post\n---\n\nThis is the content field.';
+
+    const result = parseFrontMatter({
+      collection: customKeyCollection,
+      collectionFile: customKeyCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    expect(result.content).toBe('This is the content field.');
+    expect(result.body).toBeUndefined();
+  });
+
+  test('frontmatter body value takes precedence over separate content', async () => {
+    const { getFrontMatterDelimiters } = await import('$lib/services/contents/file/config');
+
+    /** @type {any} */ (getFrontMatterDelimiters).mockReturnValue(['---', '---']);
+
+    const precedenceCollection = /** @type {any} */ ({
+      name: 'test-collection',
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'body', inline: false },
+      },
+    });
+
+    const precedenceCollectionFile = /** @type {any} */ ({
+      _file: {
+        format: 'frontmatter',
+        fmDelimiters: ['---', '---'],
+        bodyField: { key: 'body', inline: false },
+      },
+    });
+
+    // Body field exists in both frontmatter and separate content
+    const text =
+      '---\ntitle: Test Post\nbody: Value in frontmatter\n---\n\nContent after delimiter';
+
+    const result = parseFrontMatter({
+      collection: precedenceCollection,
+      collectionFile: precedenceCollectionFile,
+      format: 'yaml-frontmatter',
+      text,
+    });
+
+    expect(result.title).toBe('Test Post');
+    // Frontmatter value should take precedence
+    expect(result.body).toBe('Value in frontmatter');
+    // Separate content should be ignored when body is in frontmatter
+    expect(result.body).not.toContain('Content after delimiter');
+  });
+});
+
+describe('Floats that are whole numbers', () => {
+  /** @type {any} */
+  let getCollection;
+  const floats = { price: { value: 10, source: '10.0' } };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    valueSources.clear();
+    _resetUnsafeIntegerSources();
+    getCollection = (await import('$lib/services/contents/collection')).getCollection;
+  });
+
+  /**
+   * Parse an entry file of the given format.
+   * @param {string} format File format.
+   * @param {string} text File content.
+   * @param {string} [path] File path.
+   * @returns {Promise<any>} Parsed content.
+   */
+  const parse = (format, text, path = 'posts/a.md') => {
+    getCollection.mockReturnValue({
+      _file: {
+        format,
+        fmDelimiters: format === 'json-frontmatter' ? ['{', '}'] : undefined,
+      },
+    });
+
+    return parseEntryFile({
+      text,
+      path,
+      folder: { collectionName: 'posts' },
+      name: 'a.md',
+      sha: 'abc123',
+      size: 100,
+      type: 'entry',
+    });
+  };
+
+  test('are remembered only when a path is given', () => {
+    expect(parseYAML('price: 10.0')).toEqual({ price: 10 });
+    expect(parseJSON('{"price":10.0}')).toEqual({ price: 10 });
+    expect(valueSources.size).toBe(0);
+
+    expect(parseYAML('price: 10.0', undefined, 'a.yml')).toEqual({ price: 10 });
+    expect(parseJSON('{"price":10.0}', 'a.json')).toEqual({ price: 10 });
+    expect(valueSources.get('a.yml')).toEqual(floats);
+    expect(valueSources.get('a.json')).toEqual(floats);
+  });
+
+  test('aren’t looked for in a document without a candidate', () => {
+    expect(parseYAML('price: 10', undefined, 'a.yml')).toEqual({ price: 10 });
+    expect(parseJSON('{"price":10}', 'a.json')).toEqual({ price: 10 });
+    expect(valueSources.size).toBe(0);
+  });
+
+  test('aren’t remembered for a document with none', () => {
+    expect(parseYAML('version: "1.0"', undefined, 'a.yml')).toEqual({ version: '1.0' });
+    expect(parseJSON('{"version":"1.0"}', 'a.json')).toEqual({ version: '1.0' });
+    expect(valueSources.size).toBe(0);
+  });
+
+  test('are remembered along with an integer a number can’t represent exactly', () => {
+    expect(parseYAML('big: 12345678901234567890\nprice: 10.0', undefined, 'a.yml')).toEqual({
+      big: 12345678901234567000,
+      price: 10,
+    });
+    expect(parseJSON('{"big":12345678901234567890,"price":10.0}', 'a.json')).toEqual({
+      big: 12345678901234567000,
+      price: 10,
+    });
+    expect(getUnsafeIntegerSource(12345678901234567000)).toBe('12345678901234567890');
+    expect(valueSources.get('a.yml')).toEqual(floats);
+    expect(valueSources.get('a.json')).toEqual(floats);
+  });
+
+  test('don’t hide a YAML error or warning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      expect(() => parseYAML('price: 10.0\nprice: 1', undefined, 'a.yml')).toThrow(
+        /Map keys must be unique/,
+      );
+      expect(parseYAML('price: !foo 10.0', undefined, 'a.yml')).toEqual({ price: '10.0' });
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(valueSources.size).toBe(0);
+  });
+
+  test('are remembered for each file format', async () => {
+    await parse('yaml', 'price: 10.0', 'a.yml');
+    await parse('yml', 'price: 10.0', 'b.yml');
+    await parse('json', '{"price":10.0}', 'a.json');
+    await parse('yaml-frontmatter', '---\nprice: 10.0\n---\nBody', 'a.md');
+    await parse('json-frontmatter', '{\n"price": 10.0\n}\nBody', 'b.md');
+    await parse('frontmatter', '---\nprice: 10.0\n---\nBody', 'c.md');
+    await parse('toml', 'price = 10.0', 'a.toml');
+    await parse('toml-frontmatter', '---\nprice = 10.0\n---\nBody', 'e.md');
+
+    expect([...valueSources.keys()]).toEqual([
+      'a.yml',
+      'b.yml',
+      'a.json',
+      'a.md',
+      'b.md',
+      'c.md',
+      'a.toml',
+      'e.md',
+    ]);
+    valueSources.forEach((sourceMap) => {
+      expect(sourceMap).toEqual(floats);
+    });
+  });
+
+  test('are forgotten once the file is parsed again without them', async () => {
+    await parse('yaml', 'price: 10.0', 'a.yml');
+    expect(valueSources.has('a.yml')).toBe(true);
+
+    await parse('yaml', 'price: 10', 'a.yml');
+    expect(valueSources.has('a.yml')).toBe(false);
+  });
+
+  describe('round-trip', () => {
+    /**
+     * Parse an entry file and format the content back.
+     * @param {string} format File format.
+     * @param {string} text File content.
+     * @param {(content: any) => void} [edit] Function editing the content.
+     * @returns {Promise<string>} Formatted file content.
+     */
+    const roundTrip = async (format, text, edit) => {
+      const content = await parse(format, text);
+
+      edit?.(content);
+
+      return formatEntryFile({
+        content,
+        _file: /** @type {any} */ ({
+          format,
+          fmDelimiters: format === 'json-frontmatter' ? ['{', '}'] : undefined,
+        }),
+        valueSources: valueSources.get('posts/a.md'),
+      });
+    };
+
+    const yaml =
+      'price: 10.0\ndiff: -3.0\nsize: 1e3\ncount: 10\nrate: 1.5\nlist:\n  - 2.0\n  - 2\n';
+
+    const json =
+      '{\n  "price": 10.0,\n  "diff": -3.0,\n  "size": 1e3,\n  "count": 10,\n  "rate": 1.5,\n' +
+      '  "list": [\n    2.0,\n    2\n  ]\n}\n';
+
+    test('keeps untouched floats as floats and integers as integers', async () => {
+      expect(await roundTrip('yaml', yaml)).toBe(yaml);
+      expect(await roundTrip('json', json)).toBe(json);
+      expect(await roundTrip('yaml-frontmatter', `---\n${yaml}---\n\nBody\n`)).toBe(
+        `---\n${yaml}---\n\nBody\n`,
+      );
+      expect(await roundTrip('json-frontmatter', `${json.trim()}\n\nBody\n`)).toBe(
+        `${json.trim()}\n\nBody\n`,
+      );
+    });
+
+    test('saves an edited value as edited', async () => {
+      /**
+       * Edit the content.
+       * @param {any} content Content.
+       */
+      const edit = (content) => {
+        content.price = 12;
+        content.list[0] = 3;
+        content.count = 11;
+      };
+
+      expect(await roundTrip('yaml', yaml, edit)).toBe(
+        'price: 12\ndiff: -3.0\nsize: 1e3\ncount: 11\nrate: 1.5\nlist:\n  - 3\n  - 2\n',
+      );
+      expect(await roundTrip('json', json, edit)).toBe(
+        json.replace('10.0', '12').replace('2.0', '3').replace('10,', '11,'),
+      );
+    });
+
+    test('keeps an untouched float as it was written', async () => {
+      expect(await roundTrip('yaml', 'a: 10.\nb: +1.0\nc: .1e2\nd: 1E+3\ne: !!float 2.0\n')).toBe(
+        'a: 10.\nb: +1.0\nc: .1e2\nd: 1E+3\ne: 2.0\n',
+      );
+      expect(await roundTrip('json', '{"a": 1E+3, "b": 10.00, "c": -0.0}')).toBe(
+        '{\n  "a": 1E+3,\n  "b": 10.00,\n  "c": -0.0\n}\n',
+      );
+    });
+
+    test('keeps untouched floats in TOML as floats and integers as integers', async () => {
+      const toml =
+        'price = 10.0\ndiff = -3.0\nsize = 1e3\ncount = 11\nrate = 1.5\nlist = [ 2.0, 3 ]\n' +
+        'big = 2_000.0\ntitle = "Top 10"\n\n[meta]\nweight = 5.0\n';
+
+      expect(await roundTrip('toml', toml)).toBe(toml);
+      expect(
+        await roundTrip('toml', toml, (content) => {
+          content.price = 12;
+          content.list[0] = 4;
+        }),
+      ).toBe(toml.replace('10.0', '12').replace('2.0', '4'));
+    });
+
+    test('writes a number written both as a float and as an integer in TOML as it is', async () => {
+      expect(await roundTrip('toml', 'a = 10.0\nb = 10\nc = 2.0\nd = "2"\n')).toBe(
+        'a = 10\nb = 10\nc = 2.0\nd = "2"\n',
+      );
+      expect(await roundTrip('toml-frontmatter', '---\na = 10.0\n---\n\nBody\n')).toBe(
+        '---\na = 10.0\n---\n\nBody\n',
+      );
+    });
+  });
+});

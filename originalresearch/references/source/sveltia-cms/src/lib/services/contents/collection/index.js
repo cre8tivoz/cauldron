@@ -1,0 +1,289 @@
+import { _ } from '@sveltia/i18n';
+import { stripSlashes } from '@sveltia/utils/string';
+
+import { cmsConfig } from '$lib/services/config';
+import {
+  getValidCollectionFiles,
+  isEntryCollection,
+  isFileCollection,
+  isSingletonCollection,
+  isValidCollection,
+  isValidCollectionFile,
+} from '$lib/services/contents/collection/predicates';
+import { MEDIA_FIELD_TYPES } from '$lib/services/contents/fields';
+import { getFileConfig } from '$lib/services/contents/file/config';
+import { normalizeI18nConfig } from '$lib/services/contents/i18n/config';
+import { createRawState } from '$lib/services/utils/state.svelte';
+
+/**
+ * @import {
+ * CollectionType,
+ * InternalCollection,
+ * InternalEntryCollection,
+ * InternalFileCollection,
+ * InternalI18nOptions,
+ * } from '$lib/types/private';
+ * @import {
+ * Collection,
+ * CollectionDivider,
+ * CollectionFile,
+ * EntryCollection,
+ * FieldKeyPath,
+ * FileCollection,
+ * MediaField,
+ * } from '$lib/types/public';
+ */
+
+/**
+ * Currently selected collection.
+ * @type {{ current: InternalCollection | undefined }}
+ */
+export const selectedCollection = createRawState();
+
+/**
+ * @type {Map<string, InternalCollection | undefined>}
+ */
+export const collectionCacheMap = new Map();
+
+/**
+ * Get a list of valid collections from the given collection definitions. This filters out dividers
+ * and invalid collections that do not have a `fields` property for entry collections or a `files`
+ * property for file collections.
+ * @param {object} [options] Options.
+ * @param {(Collection | CollectionDivider)[]} [options.collections] Collection definitions. May
+ * include dividers. Defaults to the collections defined in the CMS configuration.
+ * @param {boolean} [options.visible] Whether to filter out hidden collections. Defaults to `false`.
+ * @param {CollectionType} [options.type] Type of collections to filter by. If provided, only
+ * collections of this type will be returned.
+ * @returns {Collection[]} List of valid collections.
+ */
+export const getValidCollections = ({
+  /* v8 ignore next */
+  collections = cmsConfig.current?.collections ?? [],
+  visible,
+  type,
+} = {}) =>
+  /** @type {Collection[]} */ (
+    collections.filter((collection) => isValidCollection(collection, { visible, type }))
+  );
+
+/**
+ * Get the first visible entry collection or file collection in the collection list.
+ * @returns {Collection | undefined} Found collection.
+ */
+export const getFirstCollection = () => getValidCollections({ visible: true })[0];
+
+/**
+ * Get a list of field key paths, or file path templates starting with a slash, to be used to find
+ * an entry thumbnail.
+ * @param {Collection} rawCollection Raw collection definition.
+ * @returns {FieldKeyPath[]} Key path list.
+ */
+export const getThumbnailFieldNames = (rawCollection) => {
+  if (!isEntryCollection(rawCollection)) {
+    return [];
+  }
+
+  const { fields, thumbnail = true } = rawCollection;
+
+  // Disable thumbnails
+  if (thumbnail === false) {
+    return [];
+  }
+
+  if (typeof thumbnail === 'string') {
+    return [thumbnail];
+  }
+
+  // Support multiple field names
+  if (Array.isArray(thumbnail)) {
+    return thumbnail;
+  }
+
+  // Collect the names of all non-nested Image/File fields for inference
+  if (fields?.length) {
+    return /** @type {MediaField[]} */ (
+      fields.filter(({ widget: fieldType = 'string' }) => MEDIA_FIELD_TYPES.includes(fieldType))
+    ).map(({ multiple, name }) =>
+      // If `multiple` is true, append `.*` to the name to indicate that it’s an array
+      multiple ? `${name}.*` : name,
+    );
+  }
+
+  return [];
+};
+
+/**
+ * Parse an entry collection and add additional properties.
+ * @param {EntryCollection} rawCollection Raw collection definition.
+ * @param {InternalI18nOptions} _i18n I18n options of the collection.
+ * @returns {InternalEntryCollection} Parsed entry collection with additional properties.
+ */
+export const parseEntryCollection = (rawCollection, _i18n) => ({
+  ...rawCollection,
+  _i18n,
+  _type: 'entry',
+  _file: getFileConfig({ rawCollection, _i18n }),
+  _thumbnailFieldNames: getThumbnailFieldNames(rawCollection),
+});
+
+/**
+ * Parse a file/singleton collection and add additional properties.
+ * @param {FileCollection} rawCollection Raw collection definition.
+ * @param {InternalI18nOptions} _i18n I18n options of the collection.
+ * @param {CollectionFile[]} files List of files in the collection.
+ * @returns {InternalFileCollection} Parsed file/singleton collection with additional properties.
+ */
+export const parseFileCollection = (rawCollection, _i18n, files) => ({
+  ...rawCollection,
+  _i18n,
+  _type: isSingletonCollection(rawCollection) ? 'singleton' : 'file',
+  _fileMap: Object.fromEntries(
+    files.filter(isValidCollectionFile).map((file) => {
+      const __i18n = normalizeI18nConfig(rawCollection, file);
+      const __file = getFileConfig({ rawCollection, file, _i18n: __i18n });
+
+      return [file.name, { ...file, _file: __file, _i18n: __i18n }];
+    }),
+  ),
+});
+
+/**
+ * Get the pseudo singleton file collection. This is a collection that contains all singleton files
+ * defined in the CMS configuration. It is used to handle singletons as a collection, allowing for
+ * easier access and management.
+ * @returns {InternalCollection | undefined} Singleton collection, or `undefined` if no singletons
+ * are defined.
+ */
+export const getSingletonCollection = () => {
+  const singletons = cmsConfig.current?.singletons;
+
+  if (!Array.isArray(singletons)) {
+    return undefined;
+  }
+
+  const files = getValidCollectionFiles(singletons) //
+    .map((file) => ({ ...file, file: stripSlashes(file.file) }));
+
+  if (!files.length) {
+    return undefined;
+  }
+
+  /** @type {Collection} */
+  const rawCollection = { name: '_singletons', files };
+  const _i18n = normalizeI18nConfig(rawCollection);
+
+  return parseFileCollection(rawCollection, _i18n, files);
+};
+
+/**
+ * Get a collection by name.
+ * @param {string} name Collection name.
+ * @returns {InternalCollection | undefined} Collection, including some extra, normalized
+ * properties.
+ */
+export const getCollection = (name) => {
+  const cache = collectionCacheMap.get(name);
+
+  if (cache) {
+    return cache;
+  }
+
+  if (name === '_singletons') {
+    const collection = getSingletonCollection();
+
+    collectionCacheMap.set(name, collection);
+
+    return collection;
+  }
+
+  const rawCollection = getValidCollections().find((c) => c.name === name);
+
+  // Ignore invalid collection
+  if (!rawCollection) {
+    collectionCacheMap.set(name, undefined);
+
+    return undefined;
+  }
+
+  const entryCollection = isEntryCollection(rawCollection) ? rawCollection : undefined;
+  const fileCollection = isFileCollection(rawCollection) ? rawCollection : undefined;
+
+  /* v8 ignore next 4 */
+  if (!entryCollection && !fileCollection) {
+    collectionCacheMap.set(name, undefined);
+
+    return undefined;
+  }
+
+  // Normalize folder/file paths by removing leading/trailing slashes
+  if (entryCollection) {
+    if (typeof entryCollection.folder === 'string') {
+      entryCollection.folder = stripSlashes(entryCollection.folder);
+    }
+
+    if (typeof entryCollection.file === 'string') {
+      entryCollection.file = stripSlashes(entryCollection.file);
+    }
+  } else {
+    fileCollection?.files.forEach((f) => {
+      if (f.file) {
+        f.file = stripSlashes(f.file);
+      }
+    });
+  }
+
+  const _i18n = normalizeI18nConfig(rawCollection);
+
+  const collection = entryCollection
+    ? parseEntryCollection(entryCollection, _i18n)
+    : parseFileCollection(
+        /** @type {FileCollection} */ (fileCollection),
+        _i18n,
+        /** @type {FileCollection} */ (fileCollection).files,
+      );
+
+  collectionCacheMap.set(name, collection);
+
+  return collection;
+};
+
+/**
+ * Get the label for a collection. If the collection is a singleton, it returns a localized label
+ * for files. Otherwise, it returns the collection’s label or name.
+ * @param {InternalCollection} collection Collection object.
+ * @param {object} [options] Options for label formatting.
+ * @param {boolean} [options.useSingular] Whether to use a singular form of the label.
+ * @returns {string} Human-readable label for the collection.
+ */
+export const getCollectionLabel = (collection, { useSingular = false } = {}) => {
+  const { _type, name, label, label_singular: singularLabel } = collection;
+
+  if (_type === 'singleton') {
+    return _('files');
+  }
+
+  if (useSingular && singularLabel) {
+    return singularLabel;
+  }
+
+  return label || name;
+};
+
+/**
+ * Get the index of a collection with the given name.
+ * @param {string | undefined} collectionName Collection name.
+ * @returns {number} Index.
+ */
+export const getCollectionIndex = (collectionName) => {
+  if (!collectionName) {
+    return -1;
+  }
+
+  // Singleton collection is always at the end
+  if (collectionName === '_singletons') {
+    return 9999999;
+  }
+
+  return cmsConfig.current?.collections?.findIndex(({ name }) => name === collectionName) ?? -1;
+};

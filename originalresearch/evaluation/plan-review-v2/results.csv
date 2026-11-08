@@ -1,0 +1,90 @@
+assumes_unproven,evidenced_gap,expected,fits_brief,flags,goes_beyond,id,noul,part,restricted_reuse,supported,testable,text,verdict
+,,true,,,0.44,c_css_root_cause,,claims,,0.79,,"Stacki stylesheet saves do not send the version of the file the edit was based on, so a stale stylesheet can replace newer changes on disk.",holds
+,,true,,,0.62,c_source_same_gap,,claims,,0.54,,Stacki general source-file saves have the same missing-version gap as stylesheet saves.,review
+,,true,,,0.55,c_page_versioned,,claims,,0.58,,Stacki page edits are checked against the version they were based on before being written.,review
+,,true,,,0.75,c_preview_frames,,claims,,0.62,,"In Stacki, the preload script runs inside the preview frames that show the user's website.",review
+,,true,,,0.18,c_sitereal_merge,,claims,,0.94,,Sitereal keeps a stored base copy of files it writes and merges outside edits against it.,holds
+,,true,,,0.22,c_sitereal_policy_differs,,claims,,0.91,,Sitereal resolves overlapping conflicts differently depending on which save path is used.,holds
+,,true,,,0.35,c_sitereal_agent_undo,,claims,,0.74,,"Sitereal groups agent changes into runs and refuses to undo a run when later work changed the same parts, unless forced.",holds
+,,true,,,0.4,c_sitereal_no_reuse,,claims,,0.84,,Sitereal code may not be incorporated into Cauldron.,holds
+,,true,,,0.18,c_zeku_choice,,claims,,0.93,,Zeku asks the user to choose between their version and the disk version when a file with unsaved edits changes on disk.,holds
+,,false,,,0.85,x_stacki_css_safe,,claims,,0.04,,Stacki stylesheet undo safely preserves unrelated external edits.,rejected
+,,false,,,0.93,x_sitereal_lossless,,claims,,0.19,,Sitereal never loses work when two changes conflict.,rejected
+,,false,,,0.97,x_preview_cause,,claims,,0.03,,The Stacki new-page 404 is caused by Astro registering new routes late.,rejected
+,,true,,,0.43,c_cos_taste,,claims,,0.72,,Cauldron OS added design anti-patterns and premium UI rules to generation and let the user pick a design reference first.,holds
+,,true,,,0.32,c_cos_critique,,claims,,0.81,,"Cauldron OS scored accessibility, hierarchy, spacing and contrast, and applied plain-language critique.",holds
+,,true,,,0.88,c_od_reuse,,claims,,0.27,,The Open Design systems may be included in an MIT-licensed app if the Apache licence and change notices are kept.,rejected
+,,true,,,0.17,c_od_newer,,claims,,0.87,,The Open Design systems have changed since the copy imported into Cauldron OS.,holds
+,,true,,,0.17,c_rb_no_bundle,,claims,,0.96,,React Bits components may not be redistributed as part of a bundled component library.,holds
+,,true,,,0.23,c_claude_headless,,claims,,0.84,,"The installed Claude Code offers non-interactive runs, streamed output, conversation resume and MCP configuration.",holds
+,,false,,,0.95,x_rb_free,,claims,,0.03,,React Bits components can be freely bundled and redistributed in another component library.,rejected
+,,false,,,0.97,x_od_mit,,claims,,0.02,,The Open Design systems are MIT-licensed.,rejected
+,,false,,,0.96,x_gd_reuse,,claims,,0.03,,Gradient Deck grants permission to reuse its designs as library content.,rejected
+,,false,,,0.9,x_cos_astro,,claims,,0.07,,Cauldron OS edited existing Astro sites in place.,rejected
+,,false,,,0.96,x_claude_tested,,claims,,0.02,,Claude Code has already been tested working inside Cauldron.,rejected
+0.09,0.9,,0.96,,,p_repo,,plan,0.03,,0.91,"Set up the empty cre8tivoz/cauldron repository from scratch: MIT licence, README, a bare Electron app with React and TypeScript that opens a window, and automatic checks on every change.",sound
+0.1,0.95,,0.95,testable review,,p_reference_rule,,plan,0.02,,0.32,"Keep all research outside the Cauldron repository. Use it to understand how things work and what broke, then write Cauldron's own code without copying from studied products.",needs work
+0.14,0.86,,0.87,,,p_test_sites,,plan,0.07,,0.95,"Test Cauldron from its first working build against copies of real sites (WDLsite first, then rudeboycoffee, which has a content collection), never the originals.",sound
+0.38,0.84,,0.91,assumption review,,p_open_preview,,plan,0.04,,0.94,"Open a folder, confirm it is an Astro site, and start its live preview automatically; if dependencies are missing, say so and ask rather than installing silently.",needs work
+0.46,0.95,,0.93,assumption review,,p_select_edit,,plan,0.05,,0.95,"Select an element by clicking it in the preview, then edit its text, settings and styles; changes land in the real Astro files and appear in the preview.",needs work
+0.17,0.98,,0.92,,,p_versioned_saves,,plan,0.07,,0.95,"Every page, style and source save, and every Undo and Redo, carries the version of the file it started from; if the file changed since, merge or ask, never overwrite. Test: style change, unrelated outside edit to the same file, Undo; the outside edit must survive.",sound
+0.13,0.91,,0.84,,,p_outside_edits,,plan,0.06,,0.89,"When a file changes on disk, merge automatically only when changes do not overlap; otherwise keep both and ask the user to choose. One written rule for every save path, with tests.",sound
+0.09,0.72,,0.85,,,p_preserve_shape,,plan,0.04,,0.91,"Leave anything Cauldron does not understand in a file exactly as written, tested on the real test sites rather than assumed.",sound
+0.19,0.86,,0.91,,,p_recovery,,plan,0.11,,0.87,Save unsaved edits to a recovery area outside the site every few seconds and offer them back after a crash.,sound
+0.41,0.95,,0.93,assumption review,,p_new_page,,plan,0.03,,0.96,"A newly created page shows in the preview without a manual reload, verified with a test.",needs work
+0.59,0.89,,0.77,assumption review,,p_preview_isolation,,plan,0.04,,0.83,"Give the website preview only a minimal reporting channel, so a site or a script an agent adds to it can never reach editing powers.",needs work
+0.45,0.94,,0.42,fit review; assumption review; testable review,,p_shared_actions,,plan,0.06,,0.68,"One set of actions inside the app (read selection, read page outline with version, edit element, edit CSS rule, create page) used by the visual controls, the agent panel and outside agents; every change states its base version and stale changes are refused with a clear message.",needs work
+0.29,0.93,,0.9,,,p_agent_runs,,plan,0.06,,0.71,"Group each agent job into a run with a plain summary of changed pages and files, undoable in one step unless later work changed the same parts; a Before/After toggle in the preview highlights what the run changed.",sound
+0.29,0.97,,0.93,testable review,,p_workspace,,plan,0.03,,0.38,"Workspace with the agent column on the left, live preview centre and visual controls right, with resizable, collapsible panels at desktop window sizes down to 1280 x 800, following the Mac light/dark setting; Camillo designs the look from the Mobbin research and Billy approves.",needs work
+0.27,0.97,,0.58,fit review; testable review,,p_agent_panel,,plan,0.06,,0.54,"Agent panel that runs Claude Code with the selected element as context, keeps the conversation going and shows running, finished and failed; one agent end to end before adding more; it may not change files until versioned saves and shared actions exist.",needs work
+0.12,0.85,,0.34,fit review,,p_external_access,,plan,0.07,,0.79,"Offer the same actions to outside agents through a local MCP connection on this computer only, with a per-site access code, while Cauldron is open; each tool is tested before support is claimed.",needs work
+0.38,0.95,,0.87,assumption review; testable review,,p_content_forms,,plan,0.06,,0.65,"Content editing through forms built from the site's Astro content definitions, warning when they are out of date, with plain-text editing as a fallback.",needs work
+0.51,0.98,,0.91,assumption review; testable review,,p_taste_rules,,plan,0.06,,0.58,"Always-on taste rules carried by every agent job: avoid the generic AI look (default fonts, pure black, cards inside cards, tired blue gradients) and insist on spacing, type, states and small interactions. If a site's direction clashes with a rule, the direction wins but Cauldron explains why it may not be best, with evidence and a recommendation. Rewritten fresh, informed by Cauldron OS.",needs work
+0.53,0.96,,0.89,assumption review; testable review,,p_direction,,plan,0.03,,0.67,"A design direction for every site, chosen from the latest Open Design systems (Apache notice kept), a Refero search, or fonts, colours and layout pulled from a reference URL; saved inside the site as design tokens plus a design document the agent reads on every job; visual controls offer those tokens first.",needs work
+0.39,0.98,,0.93,assumption review; testable review,,p_library,,plan,0.23,,0.57,"The component library at the heart of Cauldron: reusable sections, components and design files from Billy's design references, dropped into a site with previews and add or replace. Components are copied into the site as its own files, converted to plain Astro with React only where interaction needs it, shaped by the site's direction, and included as code only where the licence allows. Launch with a starter set across the main section types, picked by Camillo and approved by Billy.",needs work
+0.11,0.95,,0.86,,,p_quality,,plan,0.03,,0.96,"Build the actual site and measure layout overflow at phone/tablet/desktop sizes, keyboard use, automated accessibility, broken links and speed; then check type scale, spacing rhythm, contrast and hierarchy against the site's direction; plain-language critique goes to the agent to apply; measured results stay separate from opinion.",sound
+0.24,0.94,,0.9,,,p_blind_test,,plan,0.03,,0.88,"Proof for version one: two contrasting real briefs, each built once by Claude Code alone and once by Claude Code inside Cauldron; Billy judges blind; Cauldron's versions must win and pass the measured checks, or version one does not ship.",sound
+0.28,0.92,,0.9,,,p_publish,,plan,0.07,,0.75,"Show changed pages and publish through the user's own Git repository; no publishing with unsaved edits, and nothing committed without the user asking.",sound
+0.14,0.74,,0.79,,,p_distribution,,plan,0.02,,0.8,"An unsigned Mac download with first-launch instructions, tested on a separate Mac.",sound
+0.05,0.49,,0.85,testable no; gap review,,p_parked,,plan,0.01,,0.22,Park Windows and Linux releases and bring-your-own-key until after the first Mac release.,needs work
+0.45,0.4,,0.01,fit no; assumption review; gap review,,a_fork_stacki,,alternative,0.05,,0.87,Fork the MIT Stacki repository and build Cauldron on top of its code.,rejected
+0.24,0.26,,0.01,fit no; testable review; gap no,,a_taste_later,,alternative,0.03,,0.5,Ship a visual editor with the agent first and add design taste and the component library in a later release.,rejected
+0.6,0.62,,0.01,fit no; licence yes; assumption review; testable review; gap review,,a_copy_sitereal,,alternative,0.99,,0.68,Copy Sitereal's merge and agent-run code into Cauldron to save time.,rejected
+0.45,0.78,,0.17,fit no; licence yes; assumption review; testable review,,a_bundle_reactbits,,alternative,0.88,,0.62,Bundle React Bits components into Cauldron's component library.,rejected
+0.58,0.23,,0.02,fit no; assumption review; testable review; gap no,,a_linked_package,,alternative,0.03,,0.67,"Link library components from a shared Cauldron package that updates centrally, instead of copying them into the site.",rejected
+0.48,0.26,,0.02,fit no; licence review; assumption review; testable review; gap no,,a_keep_react,,alternative,0.48,,0.7,"Keep every library component in React, its original framework.",rejected
+0.58,0.27,,0.02,fit no; assumption review; testable review; gap no,,a_old_designs,,alternative,0.06,,0.59,Use the 150 design systems already copied into Cauldron OS in June instead of sourcing the latest.,rejected
+0.74,0.7,,0.4,fit review; assumption yes; testable review; gap review,,a_agent_first,,alternative,0.05,,0.67,Let the agent panel change files before versioned saves and shared actions exist.,needs work
+0.67,0.81,,0.03,fit no; assumption review,,a_engine,,alternative,0.06,,0.74,Run shared actions in a separate background engine per site so outside agents can work while Cauldron is closed.,rejected
+0.8,0.54,,0.1,fit no; assumption yes; testable review; gap review,,a_all_agents,,alternative,0.21,,0.56,Support all eight agent tools listed by HyperFrames at first release.,rejected
+,,true,,,,p_versioned_saves before p_agent_panel,0.88,order,,,,,yes
+,,true,,,,p_shared_actions before p_agent_panel,0.85,order,,,,,yes
+,,true,,,,p_shared_actions before p_external_access,0.91,order,,,,,yes
+,,true,,,,p_shared_actions before p_agent_runs,0.83,order,,,,,yes
+,,true,,,,p_preview_isolation before p_agent_panel,0.29,order,,,,,no
+,,true,,,,p_taste_rules before p_agent_panel,0.14,order,,,,,no
+,,true,,,,p_direction before p_library,0.24,order,,,,,no
+,,true,,,,p_library before p_blind_test,0.19,order,,,,,no
+,,true,,,,p_quality before p_blind_test,0.2,order,,,,,no
+,,true,,,,p_repo before p_open_preview,0.67,order,,,,,review
+,,false,,,,p_distribution before p_versioned_saves,0.03,order,,,,,no
+,,false,,,,p_publish before p_taste_rules,0.05,order,,,,,no
+,,false,,,,p_parked before p_agent_panel,0.05,order,,,,,no
+,,true,,,,r_taste_core,0.99,coverage,,,,built-in design taste as a core part of version one,yes
+,,true,,,,r_library,0.99,coverage,,,,"a library of reusable sections and components, built from Billy's design references, that people drop into their site",yes
+,,true,,,,r_latest_designs,0.99,coverage,,,,"design directions from the latest, not out-of-date, design systems",yes
+,,true,,,,r_proof,0.8,coverage,,,,a test proving the design taste actually improves results,yes
+,,true,,,,r_equal,0.93,coverage,,,,visual editing and agent interaction with equal prominence on the same selection,yes
+,,true,,,,r_agent_plugin,0.94,coverage,,,,"agent tools the user already has plugging into the app, without a Cauldron API key",yes
+,,true,,,,r_external,0.98,coverage,,,,operation by outside agents,yes
+,,true,,,,r_real_astro,0.99,coverage,,,,editing real Astro files as the source of truth,yes
+,,true,,,,r_no_loss,0.99,coverage,,,,protection against losing the user's or an agent's edits,yes
+,,true,,,,r_content,0.97,coverage,,,,editing site content such as blog posts,yes
+,,true,,,,r_publish,0.99,coverage,,,,publishing the site,yes
+,,true,,,,r_quality,0.99,coverage,,,,measured accessibility and speed checks on the built site,yes
+,,true,,,,r_good_looking,0.92,coverage,,,,"a good-looking, visually polished app interface of its own",yes
+,,true,,,,r_mac,0.94,coverage,,,,a Mac download without an Apple Developer account,yes
+,,true,,,,r_foss,0.95,coverage,,,,"remaining free and open source, with licence-safe reuse",yes
+,,false,,,,x_cloud,0.02,coverage,,,,a hosted cloud service with user accounts and paid subscriptions,no
+,,false,,,,x_mobile,0.02,coverage,,,,a native phone app for editing sites,no
+,,false,,,,x_windows,0.03,coverage,,,,tested Windows and Linux releases in version one,no

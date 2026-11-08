@@ -1,0 +1,56 @@
+
+> stacki@1.0.12 test
+> npm run build:scripts && node dist/scripts/gate/runTests.js documentActors styleWrites selection roundtripCorpus astroSaveRace pageSender --jobs=2
+
+
+> stacki@1.0.12 build:scripts
+> tsc -p scripts/tsconfig.build.json
+
+[gate] Named suites only: skipping the clean, tsc, ESLint, Prettier, the policy scan, adapter-surface, the renderer bundle. `npm test` with no suite runs the full gate.
+
+[gate] build:contracts done in 1.6s
+
+[gate] build:electron done in 4.0s
+
+[gate] build:morph done in 0.6s
+
+[gate] build:morph (bundle) done in 0.1s
+
+[gate] build:preload done in 1.5s
+
+[gate] build:preload (bundle) done in 0.1s
+
+[gate] stage:runtime done in 0.0s
+
+[gate] builds done in 7.9s
+
+[gate] 6 test suites, 2 at a time
+[1/6] FAIL electron/documents/astroSaveRace (0.1s)
+node:internal/modules/esm/resolve:275
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/habibi/hermes/apps-codebases/cauldron-astro/evaluation/stacki/studio/node_modules/astro/dist/core/config/index.js' imported from /Users/habibi/hermes/apps-codebases/cauldron-astro/evaluation/stacki/test/electron/documents/astroSaveRace.test.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    at moduleResolve (node:internal/modules/esm/resolve:861:10)
+    at defaultResolve (node:internal/modules/esm/resolve:985:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:747:20)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:724:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:320:38)
+    at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///Users/habibi/hermes/apps-codebases/cauldron-astro/evaluation/stacki/studio/node_modules/astro/dist/core/config/index.js'
+}
+
+Node.js v22.22.3
+
+[2/6] ok   electron/parse/roundtripCorpus (0.3s)
+[3/6] ok   electron/documents/documentActors (0.5s)
+[4/6] ok   electron/parse/selection (0.3s)
+[5/6] ok   renderer/editor/pageSender (0.3s)
+[6/6] ok   renderer/style/styleWrites (10.7s)
+
+Test suites took 11.3s. Slowest: renderer/style/styleWrites 10.7s, electron/documents/documentActors 0.5s, renderer/editor/pageSender 0.3s, electron/parse/selection 0.3s, electron/parse/roundtripCorpus 0.3s
+
+5/6 test suites passed in 19.3s.
+Failed: electron/documents/astroSaveRace

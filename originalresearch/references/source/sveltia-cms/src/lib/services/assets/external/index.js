@@ -1,0 +1,300 @@
+import { LINKED_FILES_SERVICE_ID, linkedFilesService } from '$lib/services/assets/external/linked';
+import { canPreviewFile } from '$lib/services/assets/kinds';
+import { cmsConfig } from '$lib/services/config';
+import { allCloudStorageServices } from '$lib/services/integrations/media-libraries/cloud';
+import { prefs } from '$lib/services/user/prefs.svelte';
+import { createDerivedState, createRawState } from '$lib/services/utils/state.svelte';
+import { encodePathSegments } from '$lib/services/utils/url';
+
+/**
+ * @import {
+ * AssetSubfolder,
+ * ExternalAsset,
+ * MediaLibraryService,
+ * } from '$lib/types/private';
+ */
+
+/**
+ * Prefix of the folder path segment in the Asset Library URL that selects a cloud storage service
+ * rather than a repository folder, e.g. `#/assets/-/uploadcare`. The same prefix is used for the
+ * All Assets folder (`-/all`), which is why a service ID can never be `all`.
+ */
+export const EXTERNAL_LOCATION_PATH_PREFIX = '-/';
+
+/**
+ * Cloud storage services enabled in the site configuration, in the order they are defined in
+ * {@link allCloudStorageServices}. These are listed as External Locations in the Asset Library.
+ * @type {{ readonly current: MediaLibraryService[] }}
+ */
+export const enabledCloudServices = createDerivedState(() => {
+  // Each service reads the config through `isEnabled()`, but a service that doesn’t have the
+  // method is considered enabled, so read the config here to always track it
+  void cmsConfig.current;
+
+  return Object.values(allCloudStorageServices).filter(({ isEnabled }) => isEnabled?.() ?? true);
+});
+
+/**
+ * Get an enabled cloud storage service by its ID, or the virtual service listing the files linked
+ * from entries.
+ * @param {string} serviceId Service ID, e.g. `uploadcare` or `linked`.
+ * @returns {MediaLibraryService | undefined} Service, or `undefined` if the service is unknown or
+ * not enabled.
+ */
+export const getCloudService = (serviceId) =>
+  serviceId === LINKED_FILES_SERVICE_ID
+    ? linkedFilesService
+    : enabledCloudServices.current.find((service) => service.serviceId === serviceId);
+
+/**
+ * Get the Asset Library path for the given cloud storage service.
+ * @param {MediaLibraryService} service Service.
+ * @returns {string} Path, e.g. `/assets/-/uploadcare`.
+ */
+export const getCloudServicePath = ({ serviceId }) =>
+  `/assets/${EXTERNAL_LOCATION_PATH_PREFIX}${serviceId}`;
+
+/**
+ * Get the Asset Library path of the given asset on a cloud storage service, whose details are shown
+ * in an overlay. The asset ID, e.g. an object key that may contain slashes and special characters,
+ * is percent-encoded per path segment.
+ * @param {MediaLibraryService} service Service.
+ * @param {ExternalAsset} asset Asset.
+ * @returns {string} Path, e.g. `/assets/-/aws_s3/images/photo.jpg`.
+ */
+export const getExternalAssetPath = (service, { id }) =>
+  `${getCloudServicePath(service)}/${encodePathSegments(id)}`;
+
+/**
+ * Whether the given asset can be previewed in the details overlay: a media file, a PDF document
+ * or a plaintext file.
+ * @param {ExternalAsset} asset Asset.
+ * @returns {boolean} Result.
+ */
+export const canPreviewExternalAsset = ({ kind, fileName }) => canPreviewFile(kind, fileName);
+
+/**
+ * Add newly uploaded assets to the top of a list. An upload is renamed rather than take the name of
+ * a file on the service, but the list can be out of date, e.g. still showing a file deleted
+ * elsewhere since, so an asset with the same ID is replaced rather than listed twice.
+ * @param {ExternalAsset[]} uploaded Uploaded assets.
+ * @param {ExternalAsset[]} assets Assets listed so far.
+ * @returns {ExternalAsset[]} Merged list.
+ */
+export const mergeUploadedExternalAssets = (uploaded, assets) => {
+  const uploadedIds = new Set(uploaded.map(({ id }) => id));
+
+  return [...uploaded, ...assets.filter(({ id }) => !uploadedIds.has(id))];
+};
+
+/**
+ * Cloud storage service currently selected in the Asset Library, or `undefined` when a repository
+ * folder is selected instead.
+ * @type {{ current: MediaLibraryService | undefined }}
+ */
+export const selectedCloudService = createRawState();
+
+/**
+ * Assets on the selected cloud storage service. It’s `undefined` while the assets are being
+ * fetched, and reset when a different service is selected.
+ * @type {{ current: ExternalAsset[] | undefined }}
+ */
+export const externalAssets = createRawState();
+
+/**
+ * Whether the given cloud storage service stores files at paths that the Asset Library and the
+ * asset picker browse folder by folder, like a repository folder. That takes a service that lists
+ * its folders — an S3-compatible service or Azure Blob Storage — rather than one with a flat file
+ * list, like Uploadcare, or one with a widget of its own, like Cloudinary.
+ * @param {MediaLibraryService | undefined} service Service.
+ * @returns {service is MediaLibraryService} Result.
+ */
+export const hasFolderSupport = (service) => !!service?.browse;
+
+/**
+ * Paths of the empty folders on the selected cloud storage service, each kept by a placeholder
+ * object, relative to the configured prefix. The folders that hold files are read off the file
+ * paths instead. Empty for a service without folder support.
+ * @type {{ current: string[] }}
+ */
+export const externalFolders = createRawState([]);
+
+/**
+ * Path of the folder being browsed on the selected cloud storage service, relative to the
+ * configured prefix. Empty at the root, and always empty for a service without folder support.
+ * @type {{ current: string }}
+ */
+export const selectedExternalDirPath = createRawState('');
+
+/**
+ * Subfolder currently focused in the list, whose info is shown in the Info pane, if any.
+ * @type {{ current: AssetSubfolder | undefined }}
+ */
+export const focusedExternalSubfolder = createRawState();
+
+/**
+ * Whether to show the New Folder dialog for the selected cloud storage service.
+ * @type {{ current: boolean }}
+ */
+export const showNewExternalFolderDialog = createRawState(false);
+
+/**
+ * Subfolder being renamed with the Rename Folder dialog, if any.
+ * @type {{ current: AssetSubfolder | undefined }}
+ */
+export const renamingExternalSubfolder = createRawState();
+
+/**
+ * Subfolder being deleted with the Delete Folder dialog, if any.
+ * @type {{ current: AssetSubfolder | undefined }}
+ */
+export const deletingExternalSubfolder = createRawState();
+
+/**
+ * Number of assets on each cloud storage service whose list has been fetched so far, keyed by
+ * service ID. Shown in the Asset Library sidebar; a service that hasn’t been visited yet has no
+ * count, as listing it would require the user’s credentials and an extra API call.
+ * @type {{ current: Record<string, number> }}
+ */
+export const externalAssetCounts = createRawState({});
+
+/**
+ * Key of the error message to be shown when the assets could not be fetched.
+ * @type {{ current: string | undefined }}
+ */
+export const externalAssetsError = createRawState();
+
+/**
+ * Whether the list of assets stopped short of the end, as the service holds more files than are
+ * listed at once, so the user can be told that some files are left out.
+ * @type {{ current: boolean }}
+ */
+export const externalAssetsTruncated = createRawState(false);
+
+/**
+ * Assets selected in the list.
+ * @type {{ current: ExternalAsset[] }}
+ */
+export const selectedExternalAssets = createRawState([]);
+
+/**
+ * Set of selected asset IDs, for O(1) membership checks in list items.
+ */
+export const selectedExternalAssetIdSet = createDerivedState(
+  () => new Set(selectedExternalAssets.current.map(({ id }) => id)),
+);
+
+/**
+ * Asset that has focus in the list, whose details are shown in the Info pane.
+ * @type {{ current: ExternalAsset | undefined }}
+ */
+export const focusedExternalAsset = createRawState();
+
+/**
+ * Drop the selected and focused assets that fail the given test, e.g. once they have been deleted
+ * or are no longer listed. The selection is only replaced when an asset is actually dropped, so a
+ * caller running in an effect doesn’t invalidate it needlessly.
+ * @param {(id: string) => boolean} keep Function telling whether to keep the asset with the given
+ * ID.
+ */
+export const pruneExternalAssetSelection = (keep) => {
+  const selected = selectedExternalAssets.current;
+  const kept = selected.filter(({ id }) => keep(id));
+
+  if (kept.length !== selected.length) {
+    selectedExternalAssets.current = kept;
+  }
+
+  if (focusedExternalAsset.current && !keep(focusedExternalAsset.current.id)) {
+    focusedExternalAsset.current = undefined;
+  }
+};
+
+/**
+ * Assets the toolbar actions operate on: the selected assets, or else the focused asset, if any.
+ * @type {{ readonly current: ExternalAsset[] }}
+ */
+export const selectedOrFocusedExternalAssets = createDerivedState(() => {
+  if (selectedExternalAssets.current.length) {
+    return [...selectedExternalAssets.current];
+  }
+
+  return focusedExternalAsset.current ? [focusedExternalAsset.current] : [];
+});
+
+/**
+ * ID of the asset whose details are shown in the overlay, taken from the URL. The asset itself is
+ * looked up in {@link externalAssets} once the list is loaded.
+ * @type {{ current: string | undefined }}
+ */
+export const overlaidExternalAssetId = createRawState();
+
+/**
+ * Asset being renamed, shown in the Rename Asset dialog.
+ * @type {{ current: ExternalAsset | undefined }}
+ */
+export const renamingExternalAsset = createRawState();
+
+/**
+ * Search terms entered in the list’s search bar, used to narrow down the assets by file name.
+ * @type {{ current: string }}
+ */
+export const externalAssetSearchTerms = createRawState('');
+
+/**
+ * Get the credentials needed to call the given service’s API, which the user has entered in the
+ * Asset Library, the asset picker or the Settings dialog.
+ * @param {MediaLibraryService} service Service.
+ * @returns {{ apiKey: string, userName: string, password: string }} Credentials, each of which is
+ * an empty string if not entered.
+ */
+export const getFetchOptions = ({ serviceId }) => {
+  const apiKey = prefs.apiKeys?.[serviceId] ?? '';
+  const [userName = '', password = ''] = (prefs.logins?.[serviceId] ?? '').split(' ');
+
+  return { apiKey, userName, password };
+};
+
+/**
+ * Whether the user has provided the credentials needed to call the given service’s API.
+ * @param {MediaLibraryService} service Service.
+ * @returns {boolean} Result.
+ */
+export const hasAuthInfo = (service) => {
+  const { apiKey, password } = getFetchOptions(service);
+
+  return service.authType === 'none' || !!apiKey || !!password;
+};
+
+/**
+ * Reset the list state. Called when a different service is selected.
+ */
+export const resetExternalAssets = () => {
+  externalAssets.current = undefined;
+  externalFolders.current = [];
+  externalAssetsError.current = undefined;
+  externalAssetsTruncated.current = false;
+  selectedExternalAssets.current = [];
+  selectedExternalDirPath.current = '';
+  focusedExternalAsset.current = undefined;
+  focusedExternalSubfolder.current = undefined;
+  overlaidExternalAssetId.current = undefined;
+  renamingExternalAsset.current = undefined;
+  renamingExternalSubfolder.current = undefined;
+  deletingExternalSubfolder.current = undefined;
+  externalAssetSearchTerms.current = '';
+};
+
+/**
+ * Browse a folder on the selected cloud storage service. The focus moves off whatever was focused
+ * in the folder being left, and the selection is emptied, so the toolbar never acts on an asset
+ * the user can’t see.
+ * @param {string} dirPath Folder path relative to the configured prefix. An empty string for the
+ * root.
+ */
+export const browseExternalFolder = (dirPath) => {
+  selectedExternalDirPath.current = dirPath;
+  selectedExternalAssets.current = [];
+  focusedExternalAsset.current = undefined;
+  focusedExternalSubfolder.current = undefined;
+};

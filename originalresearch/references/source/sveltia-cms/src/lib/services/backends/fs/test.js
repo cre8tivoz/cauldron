@@ -1,0 +1,146 @@
+import { _ } from '@sveltia/i18n';
+
+import { seedTestRepository } from '$lib/services/backends/fs/seed';
+import {
+  getDirectoryHandle,
+  getScopedRootDirHandle,
+  readFile,
+} from '$lib/services/backends/fs/shared/handles';
+import { loadFiles } from '$lib/services/backends/fs/shared/load';
+import { saveChanges } from '$lib/services/backends/fs/shared/save';
+import { dataLoaded } from '$lib/services/contents';
+import { env } from '$lib/services/user/env.svelte';
+
+/**
+ * @import { Asset, BackendService, CommitResults, FileChange, User } from '$lib/types/private';
+ */
+
+/**
+ * Name of the directory in the origin private file system (OPFS) where the entry and asset files
+ * are stored.
+ */
+export const TEST_BACKEND_ROOT_DIR_NAME = 'sveltia-cms-test';
+/**
+ * Name of the test backend.
+ */
+export const TEST_BACKEND_NAME = 'test-repo';
+/**
+ * Name of the IndexedDB database holding the test backend’s draft backups. The backend has no
+ * repository, which would otherwise give the database its name.
+ */
+export const TEST_BACKEND_DATABASE_NAME = `${TEST_BACKEND_NAME}:${TEST_BACKEND_ROOT_DIR_NAME}`;
+
+/**
+ * Get the name of the IndexedDB database holding the draft backups of the given backend.
+ * @param {BackendService | null | undefined} backend Backend service.
+ * @returns {string | undefined} Repository database name, {@link TEST_BACKEND_DATABASE_NAME} for
+ * the test backend, which has no repository, or an empty value if the backend has no database.
+ */
+export const getBackupDatabaseName = (backend) =>
+  backend?.name === TEST_BACKEND_NAME
+    ? TEST_BACKEND_DATABASE_NAME
+    : backend?.repository?.databaseName;
+
+const label = 'Test';
+/**
+ * @type {FileSystemDirectoryHandle | undefined}
+ */
+let rootDirHandle = undefined;
+/**
+ * Initialize the test backend. There is nothing to do here.
+ * @returns {undefined}
+ */
+const init = () => undefined;
+
+/**
+ * Sign in with the test backend. There is no actual sign-in; just get the root directory handle in
+ * the origin private file system (OPFS), so we can read/write files. On the first sign-in, the
+ * repository is seeded with the files listed in the `<link rel="cms-seed-url">` manifest, if any.
+ * @returns {Promise<User>} User info. Since we don’t have any details for the local user, just
+ * return the backend name.
+ * @throws {Error} If the browser can’t write files to the OPFS. The sign-in page disables the
+ * option then, but a user cached from an earlier session would still be signed in automatically.
+ * @see https://web.dev/articles/origin-private-file-system
+ */
+const signIn = async () => {
+  if (!env.isTestBackendSupported) {
+    throw new Error('Unsupported browser', {
+      cause: { message: _('test_repo_unsupported_browser') },
+    });
+  }
+
+  try {
+    const storageDirHandle = await navigator.storage.getDirectory();
+
+    await seedTestRepository(storageDirHandle, TEST_BACKEND_ROOT_DIR_NAME);
+
+    // The configured root directory is created if needed, like the backend’s own directory
+    rootDirHandle = await getScopedRootDirHandle(
+      await getDirectoryHandle(storageDirHandle, TEST_BACKEND_ROOT_DIR_NAME),
+      { create: true },
+    );
+  } catch {
+    // Directory handle could not be acquired for security reasons, but we can ignore the error
+  }
+
+  return { backendName: TEST_BACKEND_NAME };
+};
+
+/**
+ * Sign out from the test backend. There is nothing to do here.
+ */
+const signOut = async () => {};
+
+/**
+ * Load file list and all the entry files from the file system, then cache them in the
+ * {@link allEntries} and {@link allAssets} stores. If the root directory handle is not available,
+ * simply pretend that the data is loaded.
+ */
+const fetchFiles = async () => {
+  if (rootDirHandle) {
+    await loadFiles(rootDirHandle);
+  } else {
+    dataLoaded.current = true;
+  }
+};
+
+/**
+ * Save entries or assets in the OPFS using the root directory handle acquired during sign-in. If
+ * the handle is not available, do nothing; the data will still be stored in the in-memory cache,
+ * allowing the user to continue using the app without an error.
+ * @param {FileChange[]} changes File changes to be saved.
+ * @returns {Promise<CommitResults>} Commit results, including a pseudo commit SHA, saved files, and
+ * their blob SHAs.
+ */
+const commitChanges = async (changes) => saveChanges(rootDirHandle, changes);
+
+/**
+ * Read an asset file from the file system. An asset uploaded or moved during the session has no
+ * file handle of its own, so once the object URL it was given is revoked, the file is read from the
+ * disk again.
+ * @param {Asset} asset Asset to be fetched.
+ * @returns {Promise<Blob>} Blob.
+ * @throws {Error} If the root directory handle is not available or the file doesn’t exist.
+ */
+const fetchBlob = async ({ path }) => {
+  if (!rootDirHandle) {
+    throw new Error('Root directory handle is not available');
+  }
+
+  return readFile(rootDirHandle, path);
+};
+
+/**
+ * @type {BackendService}
+ */
+export default {
+  isGit: false,
+  name: TEST_BACKEND_NAME,
+  label,
+  init,
+  signIn,
+  signOut,
+  fetchFiles,
+  fetchBlob,
+  commitChanges,
+};

@@ -1,0 +1,212 @@
+import { _, locale as appLocale } from '@sveltia/i18n';
+
+import { COMPATIBILITY_URL } from '$lib/services/api/compatibility';
+import { DOCS_BASE_URL } from '$lib/services/app';
+import { getListFormatter } from '$lib/services/contents/i18n';
+import { getRegex } from '$lib/services/utils/regex';
+import { makeLink } from '$lib/services/utils/string';
+
+/**
+ * @import {
+ * ConfigParserContext,
+ * ConfigParserCollectors,
+ * UnsupportedOption,
+ * } from '$lib/types/private';
+ */
+
+// eslint-disable-next-line @stylistic/max-len
+const INVALID_FIELD_NAME_DOC_URL = `${DOCS_BASE_URL}/troubleshooting#using-proper-naming-conventions`;
+
+/**
+ * Add an error or warning message to the error collector with context information.
+ * @param {object} args Arguments.
+ * @param {'error' | 'warning'} [args.type] The type of the message.
+ * @param {string} args.strKey The i18n string key for the message.
+ * @param {Record<string, string | undefined>} [args.values] Values for the i18n string.
+ * @param {string} [args.extraStrKey] An extra i18n string key to append to the message.
+ * @param {ConfigParserContext} [args.context] The field parser context.
+ * @param {ConfigParserCollectors} args.collectors The collectors.
+ */
+export const addMessage = ({
+  type = 'error',
+  strKey,
+  values = {},
+  extraStrKey,
+  context = {},
+  collectors,
+}) => {
+  const { collection, collectionFile, componentName, typedKeyPath } = context;
+  const { errors, warnings } = collectors;
+  const locators = [];
+
+  if (collection) {
+    locators.push(
+      _('config.error_locator.collection', {
+        // An empty label is as good as none, so fall back the same way the UI does
+        values: { collection: collection.label_singular || collection.label || collection.name },
+      }),
+    );
+  }
+
+  if (collectionFile) {
+    locators.push(
+      _('config.error_locator.file', {
+        values: { file: collectionFile.label || collectionFile.name },
+      }),
+    );
+  }
+
+  if (componentName) {
+    locators.push(
+      _('config.error_locator.component', {
+        values: { component: componentName },
+      }),
+    );
+  }
+
+  if (typedKeyPath) {
+    locators.push(
+      _('config.error_locator.field', {
+        values: { field: typedKeyPath },
+      }),
+    );
+  }
+
+  const collector = type === 'error' ? errors : warnings;
+  const locale = appLocale.current;
+  const locatorStr = locators.length ? `${getListFormatter(locale).format(locators)}: ` : '';
+  let message = _(`config.${type}.${strKey}`, { values });
+
+  if (strKey === 'invalid_field_name') {
+    message = makeLink(message, INVALID_FIELD_NAME_DOC_URL);
+  }
+
+  const extraMessage = extraStrKey
+    ? _(`config.${extraStrKey}`, {
+        values: { link: extraStrKey === 'compatibility_link' ? COMPATIBILITY_URL : undefined },
+      })
+    : '';
+
+  collector.add(`${locatorStr}${message}${extraMessage ? ` ${extraMessage}` : ''}`);
+};
+
+/**
+ * Check for unsupported deprecated options in a configuration and add messages if found.
+ * @param {object} args Arguments.
+ * @param {UnsupportedOption[]} args.UNSUPPORTED_OPTIONS Array of unsupported option mappings.
+ * @param {Record<string, any>} args.config Configuration to check. Usually a field config.
+ * @param {ConfigParserContext} args.context Context.
+ * @param {ConfigParserCollectors} args.collectors Collectors.
+ */
+export const checkUnsupportedOptions = ({ UNSUPPORTED_OPTIONS, config, context, collectors }) => {
+  UNSUPPORTED_OPTIONS.forEach(
+    ({ type = 'error', prop, newProp, value, strKey = 'unsupported_deprecated_option' }) => {
+      if (prop in config && (value === undefined || config[prop] === value)) {
+        addMessage({
+          type,
+          strKey,
+          values: { prop, newProp },
+          extraStrKey: 'compatibility_link',
+          context,
+          collectors,
+        });
+      }
+    },
+  );
+};
+
+/**
+ * Regular expression to validate names. A valid name is a non-empty string that does not contain
+ * spaces, dots, asterisks, colons or angle brackets. Dots are used as separators in key paths,
+ * asterisks are used for wildcard matching for relation fields, colons are used for editor
+ * component identification, and angle brackets are used for variable type placeholders.
+ */
+const VALID_NAME_REGEX = /^[^\s.*:<>]+$/;
+
+/**
+ * Checks if the given name is valid. `__proto__` is also invalid: a value can’t be stored under
+ * that key in a plain object, which is how entry content and many lookups keyed by name are held,
+ * so a field with the name would silently lose its value.
+ * @param {string} name Name to check.
+ * @returns {boolean} `true` if the name is valid, `false` otherwise.
+ */
+export const isValidName = (name) => VALID_NAME_REGEX.test(name) && name !== '__proto__';
+
+/**
+ * Check if the given collection name, collection file name, field name or variable type name is
+ * valid and not duplicated. Adds messages to the collectors if invalid or duplicated.
+ * @param {object} args Arguments.
+ * @param {any} args.name Name to check.
+ * @param {number} args.index Index of the item in the array, used for error messages.
+ * @param {Record<string, number>} args.nameCounts Record of name counts. The keys are the names and
+ * the values are the counts.
+ * @param {string} args.strKeyBase I18n string key for the name message, excluding "missing_" or
+ * "invalid_".
+ * @param {ConfigParserContext} args.context Context.
+ * @param {ConfigParserCollectors} args.collectors Collectors.
+ * @param {boolean} [args.required] Whether a missing name must be reported even when the JSON
+ * schema has been applied. The schema requires a `name` almost everywhere, so this is only needed
+ * where it can’t, such as a view group or filter in the object format.
+ * @returns {boolean} `true` if the name is valid, `false` otherwise.
+ */
+export const checkName = ({
+  name,
+  index,
+  nameCounts,
+  strKeyBase,
+  context,
+  collectors,
+  required = false,
+}) => {
+  // A name that is absent or of the wrong type is reported against the JSON schema, so repeating it
+  // here would show two messages for one mistake. An empty string satisfies the schema but is just
+  // as unusable, and a name the schema can’t require has to be reported here or nowhere.
+  if (typeof name !== 'string' || !name) {
+    if (name === '' || (required && name === undefined)) {
+      // Use count (1-based index) for user-facing messages
+      const count = String(index + 1);
+
+      addMessage({ strKey: `missing_${strKeyBase}`, context, values: { count }, collectors });
+    }
+
+    return false;
+  }
+
+  if (!isValidName(name)) {
+    addMessage({ strKey: `invalid_${strKeyBase}`, context, values: { name }, collectors });
+
+    return false;
+  }
+
+  // Check for duplicates, the second occurrence will be caught here. A name like `constructor`
+  // mustn’t pick up the `Object.prototype` member of the same name
+  const count = Object.hasOwn(nameCounts, name) ? nameCounts[name] : 0;
+
+  if (count === 1) {
+    addMessage({ strKey: `duplicate_${strKeyBase}`, context, values: { name }, collectors });
+
+    return false;
+  }
+
+  nameCounts[name] = count + 1;
+
+  return true;
+};
+
+/**
+ * Check that a pattern option holds a regular expression that can be compiled. The runtime uses
+ * `getRegex()`, which returns `undefined` for a pattern it can’t compile, so a mistyped expression
+ * doesn’t fail loudly: a validation `pattern` stops validating, and a collection `filter` stops
+ * matching. A `RegExp` object, which the JS API accepts, is valid by construction, and a value of
+ * another type is reported against the JSON schema.
+ * @param {object} args Arguments.
+ * @param {string} args.option Name of the option holding the pattern, for the message.
+ * @param {any} args.pattern Pattern to check.
+ * @param {ConfigParserContext} args.context Context.
+ * @param {ConfigParserCollectors} args.collectors Collectors.
+ */
+export const checkRegex = ({ option, pattern, context, collectors }) => {
+  if (typeof pattern === 'string' && getRegex(pattern) === undefined) {
+    addMessage({ strKey: 'invalid_regex', values: { option, pattern }, context, collectors });
+  }
+};

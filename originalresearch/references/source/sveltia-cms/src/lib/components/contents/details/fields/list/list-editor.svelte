@@ -1,0 +1,47 @@
+<!--
+  @component
+  Implement the editor for a List field.
+  @see https://decapcms.org/docs/widgets/#List
+  @see https://sveltiacms.app/en/docs/fields/list
+-->
+<script>
+  import { Group } from '@sveltia/ui';
+
+  import ListEditorComplex from '$lib/components/contents/details/fields/list/list-editor-complex.svelte';
+  import ListEditorSimple from '$lib/components/contents/details/fields/list/list-editor-simple.svelte';
+  import { getListFieldInfo } from '$lib/services/contents/fields/list/helpers';
+
+  /**
+   * @import { FieldEditorProps } from '$lib/types/private';
+   * @import { ComplexListField, SimpleListField, ListField } from '$lib/types/public';
+   */
+
+  /**
+   * @typedef {object} Props
+   * @property {ListField} fieldConfig Field configuration.
+   * @property {any[]} currentValue Field value.
+   */
+
+  /** @type {FieldEditorProps & Props} */
+  let {
+    /* eslint-disable prefer-const */
+    fieldConfig: config,
+    ...rest
+    /* eslint-enable prefer-const */
+  } = $props();
+
+  const fieldId = $props.id();
+  const summaryId = `list-${fieldId}-summary`;
+  const { hasSubFields } = $derived(getListFieldInfo(config));
+</script>
+
+<!-- Only a list with subfields shows the item count that labels it -->
+<Group aria-labelledby={hasSubFields ? summaryId : undefined}>
+  {#if hasSubFields}
+    <ListEditorComplex
+      {...{ ...rest, fieldConfig: /** @type {ComplexListField} */ (config), summaryId }}
+    />
+  {:else}
+    <ListEditorSimple {...{ ...rest, fieldConfig: /** @type {SimpleListField} */ (config) }} />
+  {/if}
+</Group>

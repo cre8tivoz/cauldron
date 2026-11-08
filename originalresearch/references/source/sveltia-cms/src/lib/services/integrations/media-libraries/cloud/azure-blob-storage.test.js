@@ -1,0 +1,1090 @@
+// @vitest-environment happy-dom
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { cmsConfig } from '$lib/services/config/state';
+
+import azureBlobStorage, {
+  browse,
+  buildContainerUrl,
+  buildRequestUrl,
+  createEmptyFolder,
+  deleteFiles,
+  getLibraryOptions,
+  isAssetURL,
+  isEnabled,
+  list,
+  move,
+  parseBlobResults,
+  removeFolder,
+  rename,
+  replace,
+  search,
+  upload,
+} from './azure-blob-storage';
+
+const {
+  list: listBlobs,
+  browse: browseBlobs,
+  search: searchBlobs,
+  upload: uploadBlobs,
+  delete: deleteBlobs,
+  rename: renameBlob,
+  replace: replaceBlob,
+  move: moveBlob,
+  createFolder,
+  deleteFolder,
+} = azureBlobStorage.operations;
+
+// Mock dependencies
+vi.mock('$lib/services/config/state', () => ({
+  cmsConfig: { current: undefined },
+}));
+// Skip the waits between requests, which `shared/object-storage.test.js` covers
+vi.mock('@sveltia/utils/misc', () => ({ sleep: vi.fn() }));
+
+global.fetch = vi.fn();
+
+describe('integrations/media-libraries/cloud/azure-blob-storage', () => {
+  const accountName = 'mystorageaccount';
+  const container = 'media';
+  const token = 'sv=2024-11-04&ss=b&srt=o&sp=rwlac&se=2030-01-01T00%3A00%3A00Z&sig=ab%2Bcd%2F12%3D';
+  const containerURL = `https://${accountName}.blob.core.windows.net/${container}`;
+  const config = { account_name: accountName, container };
+
+  /**
+   * Build a `List Blobs` response body. The service returns compact XML, so no whitespace is added
+   * within the elements here either.
+   * @param {{ name: string, lastModified?: string, size?: number, type?: string }[]} blobs Blobs.
+   * @param {string} [nextMarker] Continuation token.
+   * @returns {string} XML.
+   */
+  const buildListXml = (blobs, nextMarker = '') =>
+    [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      `<EnumerationResults ServiceEndpoint="https://${accountName}.blob.core.windows.net/"`,
+      ` ContainerName="${container}"><Blobs>`,
+      blobs
+        .map(({ name, lastModified, size, type }) =>
+          [
+            `<Blob><Name>${name}</Name>`,
+            lastModified === undefined && size === undefined && type === undefined
+              ? ''
+              : [
+                  '<Properties>',
+                  lastModified === undefined
+                    ? ''
+                    : `<Last-Modified>${lastModified}</Last-Modified>`,
+                  size === undefined ? '' : `<Content-Length>${size}</Content-Length>`,
+                  type === undefined ? '' : `<Content-Type>${type}</Content-Type>`,
+                  '</Properties>',
+                ].join(''),
+            '</Blob>',
+          ].join(''),
+        )
+        .join(''),
+      `</Blobs><NextMarker>${nextMarker}</NextMarker></EnumerationResults>`,
+    ].join('');
+
+  const sampleBlob = {
+    name: 'photo.jpg',
+    lastModified: 'Mon, 01 Jan 2024 00:00:00 GMT',
+    size: 1024,
+    type: 'image/jpeg',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    cmsConfig.current = /** @type {any} */ ({
+      media_libraries: { azure_blob_storage: config },
+    });
+  });
+
+  describe('service configuration', () => {
+    it('should have correct service configuration', () => {
+      expect(azureBlobStorage.serviceType).toBe('cloud_storage');
+      expect(azureBlobStorage.serviceId).toBe('azure_blob_storage');
+      expect(azureBlobStorage.serviceLabel).toBe('Azure Blob Storage');
+      expect(azureBlobStorage.serviceURL).toBe(
+        'https://azure.microsoft.com/products/storage/blobs/',
+      );
+      expect(azureBlobStorage.showServiceLink).toBe(true);
+      expect(azureBlobStorage.hotlinking).toBe(true);
+      expect(azureBlobStorage.authType).toBe('api_key');
+      expect(azureBlobStorage.developerURL).toBe(
+        'https://learn.microsoft.com/en-us/rest/api/storageservices/blob-service-rest-api',
+      );
+      expect(azureBlobStorage.apiKeyURL).toBe(
+        'https://portal.azure.com/#browse/Microsoft.Storage%2FStorageAccounts',
+      );
+      // eslint-disable-next-line import-x/no-named-as-default-member
+      expect(azureBlobStorage.isEnabled).toBeDefined();
+    });
+
+    it('should validate the SAS token format', () => {
+      const { apiKeyPattern } = azureBlobStorage;
+
+      if (!apiKeyPattern) {
+        throw new Error('apiKeyPattern is not defined');
+      }
+
+      expect(apiKeyPattern.test(token)).toBe(true);
+      expect(apiKeyPattern.test(`?${token}`)).toBe(true);
+      expect(apiKeyPattern.test('sp=rwlac&sig=abc')).toBe(true);
+      expect(apiKeyPattern.test('sig=abc')).toBe(true);
+      // A connection string, an account key or an incomplete token should be rejected
+      expect(apiKeyPattern.test('sv=2024-11-04&sp=rwlac')).toBe(false);
+      expect(apiKeyPattern.test('sv=2024-11-04&sig=')).toBe(false);
+      expect(apiKeyPattern.test('AccountKey=abcdef1234567890==')).toBe(false);
+      expect(apiKeyPattern.test('')).toBe(false);
+    });
+  });
+
+  describe('getLibraryOptions', () => {
+    it('should return options from the `media_libraries` option', () => {
+      expect(getLibraryOptions()).toEqual(config);
+    });
+
+    it('should return options from the legacy `media_library` option', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_library: { name: 'azure_blob_storage', ...config },
+      });
+
+      expect(getLibraryOptions()).toEqual({ name: 'azure_blob_storage', ...config });
+    });
+
+    it('should return undefined when another library is configured', () => {
+      cmsConfig.current = /** @type {any} */ ({ media_library: { name: 'cloudinary' } });
+
+      expect(getLibraryOptions()).toBeUndefined();
+    });
+
+    it('should return false when explicitly disabled', () => {
+      cmsConfig.current = /** @type {any} */ ({ media_libraries: { azure_blob_storage: false } });
+
+      expect(getLibraryOptions()).toBe(false);
+    });
+
+    it('should return field-level options when given', () => {
+      const fieldOptions = { account_name: 'other', container: 'field-media' };
+
+      expect(
+        getLibraryOptions(
+          /** @type {any} */ ({ media_libraries: { azure_blob_storage: fieldOptions } }),
+        ),
+      ).toEqual(fieldOptions);
+    });
+  });
+
+  describe('isEnabled', () => {
+    it('should return true when the account name and container are given', () => {
+      expect(isEnabled()).toBe(true);
+    });
+
+    it('should return true when a custom endpoint is given instead of the account name', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          azure_blob_storage: { container, endpoint: 'https://cdn.example.com' },
+        },
+      });
+
+      expect(isEnabled()).toBe(true);
+    });
+
+    it('should return false when the container is missing', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: { azure_blob_storage: { account_name: accountName } },
+      });
+
+      expect(isEnabled()).toBe(false);
+    });
+
+    it('should return false when the account name and endpoint are both missing', () => {
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: { azure_blob_storage: { container } },
+      });
+
+      expect(isEnabled()).toBe(false);
+    });
+
+    it('should return false when not configured', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      expect(isEnabled()).toBe(false);
+    });
+  });
+
+  describe('buildContainerUrl', () => {
+    it('should build the default Blob service URL', () => {
+      expect(buildContainerUrl(config)).toBe(containerURL);
+    });
+
+    it('should use a custom endpoint and trim trailing slashes', () => {
+      expect(buildContainerUrl({ ...config, endpoint: 'https://cdn.example.com/' })).toBe(
+        'https://cdn.example.com/media',
+      );
+    });
+  });
+
+  describe('buildRequestUrl', () => {
+    it('should append the SAS token as given', () => {
+      expect(buildRequestUrl({ url: containerURL, token })).toBe(`${containerURL}?${token}`);
+    });
+
+    it('should strip a leading question mark or ampersand from the token', () => {
+      expect(buildRequestUrl({ url: containerURL, token: `?${token}` })).toBe(
+        `${containerURL}?${token}`,
+      );
+      expect(buildRequestUrl({ url: containerURL, token: `&${token}` })).toBe(
+        `${containerURL}?${token}`,
+      );
+    });
+
+    it('should prepend any extra query parameters', () => {
+      const searchParams = new URLSearchParams({ restype: 'container', comp: 'list' });
+
+      expect(buildRequestUrl({ url: containerURL, token, searchParams })).toBe(
+        `${containerURL}?restype=container&comp=list&${token}`,
+      );
+    });
+  });
+
+  describe('parseBlobResults', () => {
+    it('should convert blobs to assets', () => {
+      const [asset] = parseBlobResults(
+        [
+          {
+            Name: 'photo.jpg',
+            Properties: {
+              'Last-Modified': 'Mon, 01 Jan 2024 00:00:00 GMT',
+              'Content-Length': '1024',
+              'Content-Type': 'image/jpeg',
+            },
+          },
+        ],
+        config,
+        token,
+      );
+
+      expect(asset).toEqual({
+        id: 'photo.jpg',
+        description: 'photo.jpg',
+        previewURL: `${containerURL}/photo.jpg?${token}`,
+        downloadURL: `${containerURL}/photo.jpg`,
+        fileName: 'photo.jpg',
+        lastModified: new Date('Mon, 01 Jan 2024 00:00:00 GMT'),
+        size: 1024,
+        kind: 'image',
+      });
+    });
+
+    it('should omit the last modified date and size when not returned', () => {
+      const [asset] = parseBlobResults([{ Name: 'photo.jpg' }], config, token);
+
+      expect(asset.lastModified).toBeUndefined();
+      expect(asset.size).toBeUndefined();
+    });
+
+    it('should use the public URL for the download and preview URLs', () => {
+      const [asset] = parseBlobResults(
+        [{ Name: 'photo.jpg' }],
+        {
+          ...config,
+          public_url: 'https://cdn.example.com/',
+        },
+        token,
+      );
+
+      expect(asset.downloadURL).toBe('https://cdn.example.com/photo.jpg');
+      expect(asset.previewURL).toBe('https://cdn.example.com/photo.jpg');
+    });
+
+    it('should strip the configured prefix from the description', () => {
+      const [asset] = parseBlobResults(
+        [{ Name: 'uploads/photo.jpg' }],
+        { ...config, prefix: 'uploads/' },
+        token,
+      );
+
+      expect(asset.description).toBe('photo.jpg');
+      expect(asset.fileName).toBe('photo.jpg');
+      expect(asset.id).toBe('uploads/photo.jpg');
+    });
+
+    it('should keep the description as is when it doesn’t start with the prefix', () => {
+      const [asset] = parseBlobResults(
+        [{ Name: 'other/photo.jpg' }],
+        { ...config, prefix: 'uploads/' },
+        token,
+      );
+
+      expect(asset.description).toBe('other/photo.jpg');
+    });
+
+    it('should fall back to the blob name when it has no file name', () => {
+      const [asset] = parseBlobResults([{ Name: '/' }], config, token);
+
+      expect(asset.fileName).toBe('/');
+    });
+
+    it('should percent-encode the blob name while keeping path separators', () => {
+      const [asset] = parseBlobResults([{ Name: 'my photos/a&b.jpg' }], config, token);
+
+      expect(asset.downloadURL).toBe(`${containerURL}/my%20photos/a%26b.jpg`);
+      expect(asset.fileName).toBe('a&b.jpg');
+    });
+  });
+
+  describe('listBlobs', () => {
+    it('should list blobs', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(buildListXml([sampleBlob]), { status: 200 }));
+
+      const assets = await listBlobs(config, { apiKey: token });
+
+      expect(assets).toHaveLength(1);
+      expect(assets[0].fileName).toBe('photo.jpg');
+      expect(assets[0].size).toBe(1024);
+      expect(assets[0].kind).toBe('image');
+
+      expect(fetch).toHaveBeenCalledWith(
+        `${containerURL}?restype=container&comp=list&maxresults=1000&${token}`,
+      );
+    });
+
+    it('should handle multiple blobs', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(buildListXml([sampleBlob, { ...sampleBlob, name: 'second.jpg' }]), {
+          status: 200,
+        }),
+      );
+
+      const assets = await listBlobs(config, { apiKey: token });
+
+      expect(assets.map(({ fileName }) => fileName)).toEqual(['photo.jpg', 'second.jpg']);
+    });
+
+    it('should handle an empty container', async () => {
+      const xml =
+        '<?xml version="1.0" encoding="utf-8"?><EnumerationResults><Blobs /></EnumerationResults>';
+
+      vi.mocked(fetch).mockResolvedValue(new Response(xml, { status: 200 }));
+
+      expect(await listBlobs(config, { apiKey: token })).toEqual([]);
+    });
+
+    it('should handle a response without a blob list', async () => {
+      const xml =
+        '<?xml version="1.0" encoding="utf-8"?><EnumerationResults><NextMarker /></EnumerationResults>';
+
+      vi.mocked(fetch).mockResolvedValue(new Response(xml, { status: 200 }));
+
+      expect(await listBlobs(config, { apiKey: token })).toEqual([]);
+    });
+
+    it('should filter out directory placeholders', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(buildListXml([{ name: 'folder/' }, sampleBlob]), { status: 200 }),
+      );
+
+      const assets = await listBlobs(config, { apiKey: token });
+
+      expect(assets.map(({ id }) => id)).toEqual(['photo.jpg']);
+    });
+
+    it('should filter by asset kind', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(buildListXml([sampleBlob, { ...sampleBlob, name: 'doc.pdf' }]), {
+          status: 200,
+        }),
+      );
+
+      const assets = await listBlobs(config, { apiKey: token, kind: 'image' });
+
+      expect(assets.map(({ id }) => id)).toEqual(['photo.jpg']);
+    });
+
+    it('should apply the configured prefix', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(buildListXml([]), { status: 200 }));
+
+      await listBlobs({ ...config, prefix: 'uploads/' }, { apiKey: token });
+
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('prefix=uploads%2F'));
+    });
+
+    it('should follow the continuation marker', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          new Response(buildListXml([sampleBlob], 'marker-1'), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(buildListXml([{ ...sampleBlob, name: 'second.jpg' }]), { status: 200 }),
+        );
+
+      const assets = await listBlobs(config, { apiKey: token });
+
+      expect(assets).toHaveLength(2);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining('marker=marker-1'));
+    });
+
+    it('should stop after the maximum number of pages', async () => {
+      // A `Response` body can only be read once, so a new one is returned for each call
+      vi.mocked(fetch).mockImplementation(
+        async () => new Response(buildListXml([sampleBlob], 'marker-1'), { status: 200 }),
+      );
+
+      const assets = await listBlobs(config, { apiKey: token });
+
+      expect(assets).toHaveLength(10);
+      expect(fetch).toHaveBeenCalledTimes(10);
+    });
+
+    it('should reject when the SAS token is missing', async () => {
+      await expect(listBlobs(config, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('should reject when the request fails', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response('AuthenticationFailed', { status: 403 }));
+
+      await expect(listBlobs(config, { apiKey: token })).rejects.toThrow(
+        'Failed to list blobs: AuthenticationFailed',
+      );
+    });
+  });
+
+  describe('searchBlobs', () => {
+    beforeEach(() => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(
+          buildListXml([
+            { ...sampleBlob, name: 'uploads/cat.jpg' },
+            { ...sampleBlob, name: 'uploads/dog.jpg' },
+          ]),
+          { status: 200 },
+        ),
+      );
+    });
+
+    it('should filter blobs by file name', async () => {
+      const assets = await searchBlobs('CAT', config, { apiKey: token });
+
+      expect(assets.map(({ id }) => id)).toEqual(['uploads/cat.jpg']);
+    });
+
+    it('should filter blobs by description', async () => {
+      const assets = await searchBlobs('uploads/dog', config, { apiKey: token });
+
+      expect(assets.map(({ id }) => id)).toEqual(['uploads/dog.jpg']);
+    });
+
+    it('should return an empty array when nothing matches', async () => {
+      expect(await searchBlobs('bird', config, { apiKey: token })).toEqual([]);
+    });
+  });
+
+  describe('uploadBlobs', () => {
+    it('should upload a file as a block blob', async () => {
+      const file = new File(['content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response('', { status: 201 }));
+
+      const assets = await uploadBlobs([file], config, { apiKey: token });
+
+      expect(assets).toHaveLength(1);
+      expect(assets[0].fileName).toBe('test.jpg');
+      expect(assets[0].kind).toBe('image');
+      expect(assets[0].size).toBe(file.size);
+      expect(assets[0].lastModified).toBeInstanceOf(Date);
+
+      expect(fetch).toHaveBeenCalledWith(`${containerURL}/test.jpg?${token}`, {
+        method: 'PUT',
+        headers: {
+          'x-ms-blob-type': 'BlockBlob',
+          'Content-Type': 'image/jpeg',
+        },
+        body: file,
+      });
+    });
+
+    it('should fall back to a generic content type', async () => {
+      const file = new File(['content'], 'test.bin');
+
+      vi.mocked(fetch).mockResolvedValue(new Response('', { status: 201 }));
+
+      await uploadBlobs([file], config, { apiKey: token });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Content-Type': 'application/octet-stream' }),
+        }),
+      );
+    });
+
+    it('should apply the configured prefix', async () => {
+      const file = new File(['content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response('', { status: 201 }));
+
+      const assets = await uploadBlobs(
+        [file],
+        { ...config, prefix: 'uploads/' },
+        {
+          apiKey: token,
+        },
+      );
+
+      expect(assets[0].id).toBe('uploads/test.jpg');
+      expect(fetch).toHaveBeenCalledWith(
+        `${containerURL}/uploads/test.jpg?${token}`,
+        expect.anything(),
+      );
+    });
+
+    it('should sanitize path traversal in file names', async () => {
+      const file = new File(['content'], '../../secret.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response('', { status: 201 }));
+
+      const assets = await uploadBlobs([file], config, { apiKey: token });
+
+      expect(assets[0].fileName).toBe('secret.jpg');
+      expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining('..'), expect.anything());
+    });
+
+    it('should reject a file name that has nothing left once sanitized', async () => {
+      const file = new File(['content'], '/', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response(buildListXml([]), { status: 200 }));
+
+      await expect(uploadBlobs([file], config, { apiKey: token })).rejects.toThrow(
+        'Invalid file name: /',
+      );
+      expect(fetch).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ method: 'PUT' }),
+      );
+    });
+
+    it('should list the folder with a delimiter and rename a file whose name is taken', async () => {
+      const prefixedConfig = { ...config, prefix: 'uploads/' };
+
+      // The service sums up a subfolder in a blob prefix, which isn’t a file
+      const listXml = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        `<EnumerationResults ContainerName="${container}"><Blobs>`,
+        '<BlobPrefix><Name>uploads/2024/photo.jpg/</Name></BlobPrefix>',
+        '<Blob><Name>uploads/2024/photo.jpg</Name></Blob>',
+        '<Blob><Name>uploads/2024/notes.txt</Name></Blob>',
+        '</Blobs><NextMarker /></EnumerationResults>',
+      ].join('');
+
+      vi.mocked(fetch).mockImplementation(async (_url, init) =>
+        init?.method === 'PUT'
+          ? new Response('', { status: 201 })
+          : new Response(listXml, { status: 200 }),
+      );
+
+      const assets = await uploadBlobs(
+        [
+          new File(['1'], 'photo.jpg', { type: 'image/jpeg' }),
+          new File(['2'], 'photo.jpg', { type: 'image/jpeg' }),
+          new File(['3'], 'beach.jpg', { type: 'image/jpeg' }),
+        ],
+        prefixedConfig,
+        { apiKey: token, dirPath: '2024' },
+      );
+
+      expect(assets.map(({ id }) => id)).toEqual([
+        'uploads/2024/photo-1.jpg',
+        'uploads/2024/photo-2.jpg',
+        'uploads/2024/beach.jpg',
+      ]);
+
+      const listUrl = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+
+      expect(listUrl.searchParams.get('prefix')).toBe('uploads/2024/');
+      expect(listUrl.searchParams.get('delimiter')).toBe('/');
+      expect(fetch).not.toHaveBeenCalledWith(
+        `${containerURL}/uploads/2024/photo.jpg?${token}`,
+        expect.anything(),
+      );
+    });
+
+    it('should upload multiple files', async () => {
+      const files = [
+        new File(['1'], 'first.jpg', { type: 'image/jpeg' }),
+        new File(['2'], 'second.jpg', { type: 'image/jpeg' }),
+      ];
+
+      vi.mocked(fetch).mockResolvedValue(new Response('', { status: 201 }));
+
+      const assets = await uploadBlobs(files, config, { apiKey: token });
+
+      expect(assets.map(({ fileName }) => fileName)).toEqual(['first.jpg', 'second.jpg']);
+      // A listing of the folder, then an upload for each file
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('should return an empty array when there is no file', async () => {
+      expect(await uploadBlobs([], config, { apiKey: token })).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('should reject when the SAS token is missing', async () => {
+      const file = new File(['content'], 'test.jpg', { type: 'image/jpeg' });
+
+      await expect(uploadBlobs([file], config, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('should throw when the upload fails', async () => {
+      const file = new File(['content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(new Response(buildListXml([]), { status: 200 }))
+        .mockResolvedValue(new Response('AuthorizationFailure', { status: 403 }));
+
+      await expect(uploadBlobs([file], config, { apiKey: token })).rejects.toThrow(
+        'Failed to upload file test.jpg: AuthorizationFailure',
+      );
+    });
+  });
+
+  describe('list, search and upload', () => {
+    it('should use the configured library options', async () => {
+      vi.mocked(fetch).mockImplementation(
+        async () => new Response(buildListXml([sampleBlob]), { status: 200 }),
+      );
+
+      expect(await list({ apiKey: token })).toHaveLength(1);
+      expect(await search('photo', { apiKey: token })).toHaveLength(1);
+      expect(await search('nothing', { apiKey: token })).toHaveLength(0);
+    });
+
+    it('should upload files with the configured library options', async () => {
+      const file = new File(['content'], 'test.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response('', { status: 201 }));
+
+      expect(await upload([file], { apiKey: token })).toHaveLength(1);
+    });
+
+    it('should reject when the library is not configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      const message = 'Azure Blob Storage configuration is not available';
+
+      await expect(list({ apiKey: token })).rejects.toThrow(message);
+      await expect(search('photo', { apiKey: token })).rejects.toThrow(message);
+      await expect(upload([], { apiKey: token })).rejects.toThrow(message);
+    });
+  });
+
+  describe('isAssetURL', () => {
+    it('should match the container URL and the public URL', () => {
+      expect(azureBlobStorage).toMatchObject({ isAssetURL });
+      expect(isAssetURL(`${containerURL}/images/a.jpg`)).toBe(true);
+      expect(isAssetURL('https://cdn.example.com/a.jpg')).toBe(false);
+
+      cmsConfig.current = /** @type {any} */ ({
+        media_libraries: {
+          azure_blob_storage: { ...config, public_url: 'https://cdn.example.com/' },
+        },
+      });
+
+      expect(isAssetURL('https://cdn.example.com/a.jpg')).toBe(true);
+      expect(isAssetURL('https://example.com/a.jpg')).toBe(false);
+    });
+
+    it('should be false when the service is not configured', () => {
+      cmsConfig.current = /** @type {any} */ ({});
+      expect(isAssetURL(`${containerURL}/a.jpg`)).toBe(false);
+    });
+  });
+
+  describe('deleteBlobs', () => {
+    /** @type {any} */
+    const asset = { id: 'images/my photo.jpg', fileName: 'my photo.jpg' };
+
+    it('should send a DELETE request for each blob', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+
+      await deleteBlobs([asset, { ...asset, id: 'other.jpg' }], config, { apiKey: token });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenNthCalledWith(1, `${containerURL}/images/my%20photo.jpg?${token}`, {
+        method: 'DELETE',
+      });
+      expect(fetch).toHaveBeenNthCalledWith(2, `${containerURL}/other.jpg?${token}`, {
+        method: 'DELETE',
+      });
+    });
+
+    it('should reject when the token is missing', async () => {
+      await expect(deleteBlobs([asset], config, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('should throw when the request fails', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response('Forbidden', { status: 403 }));
+
+      await expect(deleteBlobs([asset], config, { apiKey: token })).rejects.toThrow(
+        'Failed to delete blob images/my photo.jpg: Forbidden',
+      );
+    });
+  });
+
+  describe('renameBlob', () => {
+    /** @type {any} */
+    const asset = {
+      id: 'images/my photo.jpg',
+      fileName: 'my photo.jpg',
+      size: 1234,
+      lastModified: new Date('2024-01-01T00:00:00Z'),
+    };
+
+    /**
+     * Get an empty listing of a folder, which is listed before a blob is renamed in it.
+     * @returns {Response} Response.
+     */
+    const createEmptyListing = () =>
+      new Response(
+        '<?xml version="1.0" encoding="utf-8"?><EnumerationResults><Blobs /></EnumerationResults>',
+        { status: 200 },
+      );
+
+    it('should copy the blob to the new name and delete the original', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(createEmptyListing())
+        .mockResolvedValue(new Response(null, { status: 201 }));
+
+      const result = await renameBlob(asset, 'renamed.jpg', config, { apiKey: token });
+
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch).toHaveBeenNthCalledWith(2, `${containerURL}/images/renamed.jpg?${token}`, {
+        method: 'PUT',
+        headers: {
+          'x-ms-blob-type': 'BlockBlob',
+          'x-ms-copy-source': `${containerURL}/images/my%20photo.jpg?${token}`,
+        },
+      });
+      expect(fetch).toHaveBeenNthCalledWith(3, `${containerURL}/images/my%20photo.jpg?${token}`, {
+        method: 'DELETE',
+      });
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: 'images/renamed.jpg',
+          fileName: 'renamed.jpg',
+          size: 1234,
+          lastModified: asset.lastModified,
+          kind: 'image',
+        }),
+      );
+    });
+
+    it('should rename a blob at the container root without metadata', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(createEmptyListing())
+        .mockResolvedValue(new Response(null, { status: 201 }));
+
+      const result = await renameBlob(
+        { ...asset, id: 'photo.jpg', size: undefined, lastModified: undefined },
+        'renamed.jpg',
+        config,
+        { apiKey: token },
+      );
+
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        `${containerURL}/renamed.jpg?${token}`,
+        expect.anything(),
+      );
+      expect(result.id).toBe('renamed.jpg');
+      expect(result.size).toBeUndefined();
+      expect(result.lastModified).toBeUndefined();
+    });
+
+    it('should reject when the token is missing', async () => {
+      await expect(renameBlob(asset, 'renamed.jpg', config, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+    });
+
+    it('should throw and keep the original while an asynchronous copy is pending', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(createEmptyListing())
+        .mockResolvedValue(
+          new Response(null, { status: 202, headers: { 'x-ms-copy-status': 'pending' } }),
+        );
+
+      await expect(renameBlob(asset, 'renamed.jpg', config, { apiKey: token })).rejects.toThrow(
+        'Failed to copy blob images/my photo.jpg: the copy operation is still pending',
+      );
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw and keep the original when the copy fails', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(createEmptyListing())
+        .mockResolvedValue(new Response('Forbidden', { status: 403 }));
+
+      await expect(renameBlob(asset, 'renamed.jpg', config, { apiKey: token })).rejects.toThrow(
+        'Failed to copy blob images/my photo.jpg: Forbidden',
+      );
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('replaceBlob', () => {
+    /** @type {any} */
+    const asset = { id: 'images/photo.jpg', fileName: 'photo.jpg', size: 10 };
+
+    it('should overwrite the blob under the same name', async () => {
+      const file = new File(['new content'], 'whatever.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+
+      const result = await replaceBlob(asset, file, config, { apiKey: token });
+
+      expect(fetch).toHaveBeenCalledWith(
+        `${containerURL}/images/photo.jpg?${token}`,
+        expect.objectContaining({
+          method: 'PUT',
+          headers: expect.objectContaining({ 'Content-Type': 'image/jpeg' }),
+        }),
+      );
+      expect(result).toEqual(
+        expect.objectContaining({ id: 'images/photo.jpg', fileName: 'photo.jpg', size: 11 }),
+      );
+    });
+
+    it('should reject when the token is missing', async () => {
+      const file = new File(['new content'], 'photo.jpg', { type: 'image/jpeg' });
+
+      await expect(replaceBlob(asset, file, config, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+    });
+  });
+
+  describe('delete, rename and replace', () => {
+    /** @type {any} */
+    const asset = { id: 'photo.jpg', fileName: 'photo.jpg' };
+
+    it('should expose the management functions on the service', () => {
+      expect(azureBlobStorage).toMatchObject({ delete: deleteFiles, rename, replace });
+    });
+
+    it('should use the configured library options', async () => {
+      const file = new File(['content'], 'photo.jpg', { type: 'image/jpeg' });
+
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+
+      await expect(deleteFiles([asset], { apiKey: token })).resolves.toBeUndefined();
+      expect((await rename(asset, 'renamed.jpg', { apiKey: token })).id).toBe('renamed.jpg');
+      expect((await replace(asset, file, { apiKey: token })).id).toBe('photo.jpg');
+    });
+
+    it('should reject when the library is not configured', async () => {
+      cmsConfig.current = /** @type {any} */ ({});
+
+      const file = new File(['content'], 'photo.jpg', { type: 'image/jpeg' });
+      const message = 'Azure Blob Storage configuration is not available';
+
+      await expect(deleteFiles([asset], { apiKey: token })).rejects.toThrow(message);
+      await expect(rename(asset, 'renamed.jpg', { apiKey: token })).rejects.toThrow(message);
+      await expect(replace(asset, file, { apiKey: token })).rejects.toThrow(message);
+    });
+  });
+
+  describe('folders', () => {
+    const prefixedConfig = { ...config, prefix: 'uploads/' };
+    const options = { apiKey: token };
+
+    it('should list the files and the empty folders, relative to the prefix', async () => {
+      const xml = buildListXml([
+        { name: 'uploads/' },
+        { ...sampleBlob, name: 'uploads/2024/photo.jpg' },
+        { name: 'uploads/2024/empty/' },
+        { name: 'uploads/notes.txt', type: 'text/plain' },
+      ]);
+
+      vi.mocked(fetch).mockImplementation(async () => new Response(xml, { status: 200 }));
+
+      const { assets, folders } = await browseBlobs(prefixedConfig, options);
+
+      expect(assets.map(({ description }) => description)).toEqual(['2024/photo.jpg', 'notes.txt']);
+      // The placeholder of the prefix itself isn’t a folder below it
+      expect(folders).toEqual(['2024/empty']);
+
+      const filtered = await browseBlobs(prefixedConfig, { ...options, kind: 'image' });
+
+      expect(filtered.assets.map(({ description }) => description)).toEqual(['2024/photo.jpg']);
+      expect(filtered.folders).toEqual(['2024/empty']);
+    });
+
+    it('should put right a prefix that lacks the trailing slash', async () => {
+      const slashlessConfig = { ...config, prefix: 'uploads' };
+
+      const xml = buildListXml([
+        { ...sampleBlob, name: 'uploads/2024/photo.jpg' },
+        { name: 'uploads/2024/empty/' },
+      ]);
+
+      vi.mocked(fetch).mockImplementation(async () => new Response(xml, { status: 200 }));
+
+      const { assets, folders } = await browseBlobs(slashlessConfig, options);
+
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('prefix=uploads%2F'));
+      expect(assets.map(({ description }) => description)).toEqual(['2024/photo.jpg']);
+      expect(folders).toEqual(['2024/empty']);
+
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+      await createFolder('2025', slashlessConfig, options);
+      expect(fetch).toHaveBeenLastCalledWith(
+        `${containerURL}/uploads/2025/?${token}`,
+        expect.anything(),
+      );
+    });
+
+    it('should create a folder by putting a placeholder blob', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+
+      await createFolder('2024/summer', prefixedConfig, options);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(
+        `${containerURL}/uploads/2024/summer/?${token}`,
+        {
+          method: 'PUT',
+          headers: { 'x-ms-blob-type': 'BlockBlob', 'Content-Type': 'application/x-directory' },
+        },
+      );
+
+      vi.mocked(fetch).mockResolvedValue(new Response('AuthorizationFailure', { status: 403 }));
+      await expect(createFolder('2024', prefixedConfig, options)).rejects.toThrow(
+        'Failed to create folder uploads/2024/: AuthorizationFailure',
+      );
+      await expect(createFolder('2024', prefixedConfig, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+    });
+
+    it('should delete the placeholder blob of a folder, if any', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+
+      await deleteFolder('2024/summer', prefixedConfig, options);
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(
+        `${containerURL}/uploads/2024/summer/?${token}`,
+        {
+          method: 'DELETE',
+        },
+      );
+
+      // A folder that only ever held files has no placeholder
+      vi.mocked(fetch).mockResolvedValue(new Response('BlobNotFound', { status: 404 }));
+      await expect(deleteFolder('2024', prefixedConfig, options)).resolves.toBeUndefined();
+
+      vi.mocked(fetch).mockResolvedValue(new Response('AuthorizationFailure', { status: 403 }));
+      await expect(deleteFolder('2024', prefixedConfig, options)).rejects.toThrow(
+        'Failed to delete blob uploads/2024/: AuthorizationFailure',
+      );
+      await expect(deleteFolder('2024', prefixedConfig, { apiKey: '' })).rejects.toThrow(
+        'Azure Blob Storage SAS token is required',
+      );
+    });
+
+    it('should move a blob to another path below the prefix', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+
+      const result = await moveBlob(
+        /** @type {any} */ ({ id: 'uploads/2024/photo.jpg', fileName: 'photo.jpg', size: 12 }),
+        '2025/photo.jpg',
+        prefixedConfig,
+        options,
+      );
+
+      expect(fetch).toHaveBeenNthCalledWith(1, `${containerURL}/uploads/2025/photo.jpg?${token}`, {
+        method: 'PUT',
+        headers: {
+          'x-ms-blob-type': 'BlockBlob',
+          'x-ms-copy-source': `${containerURL}/uploads/2024/photo.jpg?${token}`,
+        },
+      });
+      expect(fetch).toHaveBeenNthCalledWith(2, `${containerURL}/uploads/2024/photo.jpg?${token}`, {
+        method: 'DELETE',
+      });
+      expect(result).toEqual(
+        expect.objectContaining({ id: 'uploads/2025/photo.jpg', description: '2025/photo.jpg' }),
+      );
+    });
+
+    it('should rename a blob below the prefix within its folder', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+
+      const result = await renameBlob(
+        /** @type {any} */ ({ id: 'uploads/2024/photo.jpg', fileName: 'photo.jpg', size: 12 }),
+        'renamed.jpg',
+        prefixedConfig,
+        options,
+      );
+
+      expect(result.id).toBe('uploads/2024/renamed.jpg');
+    });
+
+    it('should upload files to the given folder', async () => {
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+
+      const results = await uploadBlobs([new File(['x'], 'photo.jpg')], prefixedConfig, {
+        ...options,
+        dirPath: '2024/summer',
+      });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenLastCalledWith(
+        `${containerURL}/uploads/2024/summer/photo.jpg?${token}`,
+        expect.objectContaining({ method: 'PUT' }),
+      );
+      expect(results[0].description).toBe('2024/summer/photo.jpg');
+    });
+
+    it('should expose the folder functions on the service, using the library options', async () => {
+      expect(azureBlobStorage).toMatchObject({
+        browse,
+        move,
+        createFolder: createEmptyFolder,
+        deleteFolder: removeFolder,
+      });
+
+      vi.mocked(fetch).mockResolvedValue(new Response(buildListXml([sampleBlob]), { status: 200 }));
+      expect((await browse(options)).assets).toHaveLength(1);
+
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 201 }));
+      expect(
+        (await move(/** @type {any} */ ({ id: 'photo.jpg' }), '2024/photo.jpg', options)).id,
+      ).toBe('2024/photo.jpg');
+      await expect(createEmptyFolder('2024', options)).resolves.toBeUndefined();
+      await expect(removeFolder('2024', options)).resolves.toBeUndefined();
+
+      cmsConfig.current = /** @type {any} */ ({});
+
+      const message = 'Azure Blob Storage configuration is not available';
+
+      await expect(browse(options)).rejects.toThrow(message);
+      await expect(move(/** @type {any} */ ({ id: 'photo.jpg' }), 'x', options)).rejects.toThrow(
+        message,
+      );
+      await expect(createEmptyFolder('2024', options)).rejects.toThrow(message);
+      await expect(removeFolder('2024', options)).rejects.toThrow(message);
+    });
+  });
+});

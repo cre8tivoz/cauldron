@@ -1,0 +1,777 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { processEntry } from '$lib/services/contents/fields/relation/helpers/entries';
+import { getSubFieldMatch } from '$lib/services/contents/fields/relation/helpers/list-fields';
+
+/**
+ * @import { Entry } from '$lib/types/private';
+ */
+
+// Mock dependencies
+vi.mock('$lib/services/contents/collection/entries/index-file', () => ({
+  isCollectionIndexFile: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/fields', () => ({
+  getField: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/values', () => ({
+  getFieldDisplayValue: vi.fn(),
+}));
+
+vi.mock('$lib/services/contents/entry/summary', () => ({
+  getEntrySummaryFromContent: vi.fn(),
+}));
+
+describe('Test processEntry()', async () => {
+  const { isCollectionIndexFile } =
+    await import('$lib/services/contents/collection/entries/index-file');
+
+  const { getField } = await import('$lib/services/contents/entry/fields');
+  const { getFieldDisplayValue } = await import('$lib/services/contents/entry/values');
+  const { getEntrySummaryFromContent } = await import('$lib/services/contents/entry/summary');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Set up default mocks
+    vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+    vi.mocked(getField).mockReturnValue(undefined);
+
+    // Mock getFieldDisplayValue to return based on valueMap
+    vi.mocked(getFieldDisplayValue).mockImplementation(({ keyPath, valueMap }) => {
+      if (!valueMap || !keyPath) return '';
+      return valueMap[keyPath] || '';
+    });
+
+    // Mock getEntrySummaryFromContent to return empty
+    vi.mocked(getEntrySummaryFromContent).mockReturnValue('');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('Simple option creation (no list fields)', () => {
+    test('should use createSimpleOption when hasListFields is false', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockImplementation(({ keyPath }) => {
+        if (keyPath === 'name') return 'John Doe';
+        if (keyPath === 'email') return 'john@example.com';
+        return '';
+      });
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'author-1',
+        slug: 'john-doe',
+        subPath: 'john-doe',
+        locales: {
+          _default: {
+            slug: 'john-doe',
+            path: 'authors/john-doe.md',
+            content: { name: 'John Doe', email: 'john@example.com' },
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = {
+        _type: 'entry',
+        name: 'authors',
+        _i18n: { defaultLocale: '_default' },
+      };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: { name: 'John Doe', email: 'john@example.com' },
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{name}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{name}} {{email}}',
+          allFieldNames: ['name', 'email', 'slug'],
+          hasListFields: false,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('John Doe');
+      expect(result[0].value).toBe('john-doe');
+      expect(result[0].searchValue).toBe('John Doe john@example.com');
+    });
+
+    test('should not throw when the entry has no content in the default locale', () => {
+      // A multi-file i18n entry can exist in a non-default locale only
+      /** @type {Entry} */
+      const entry = {
+        id: 'author-1',
+        slug: 'jean',
+        subPath: 'jean',
+        locales: {
+          fr: { slug: 'jean', path: 'authors/fr/jean.md', content: { name: '' } },
+        },
+      };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: { name: '' },
+        // @ts-ignore - Simplified mock collection for testing
+        collection: { _type: 'entry', name: 'authors', _i18n: { defaultLocale: 'en' } },
+        templates: {
+          _displayField: '{{name}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{name}}',
+          allFieldNames: ['name', 'slug'],
+          hasListFields: false,
+        },
+        fileName: undefined,
+        locale: 'fr',
+        identifierField: 'title',
+      });
+
+      expect(result).toEqual([{ label: 'jean', value: 'jean', searchValue: 'jean' }]);
+      expect(getFieldDisplayValue).toHaveBeenCalledWith(
+        expect.objectContaining({ keyPath: 'name', locale: 'en', valueMap: {} }),
+      );
+    });
+  });
+
+  describe('Fallback section (lines 656-673) - when processListFields returns hasProcessedListFields=false', () => {
+    test('should use replaceTemplateFields fallback when processListFields returns false', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'test-entry',
+        slug: 'test-slug',
+        subPath: 'test-slug',
+        locales: {
+          _default: {
+            slug: 'test-slug',
+            path: 'test-slug.md',
+            content: { title: 'Test Title' },
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = {
+        _type: 'entry',
+        name: 'pages',
+        _i18n: { defaultLocale: '_default' },
+      };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: { title: 'Test Title' },
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{title}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{title}}',
+          allFieldNames: ['title', 'slug'],
+          hasListFields: true, // Has list fields but processListFields will return false
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // When replaceTemplateFields returns values
+      expect(result).toHaveLength(1);
+      expect(result[0].value).toBe('test-slug');
+    });
+
+    test('should fallback to slug for empty label (line 666)', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'empty-label-entry',
+        slug: 'fallback-slug',
+        subPath: 'fallback-slug',
+        locales: {
+          _default: {
+            slug: 'fallback-slug',
+            path: 'fallback-slug.md',
+            content: {},
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: {},
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{nonexistent}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{nonexistent}}',
+          allFieldNames: ['nonexistent', 'slug'],
+          hasListFields: true,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // Label should fallback to slug when empty
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('fallback-slug');
+    });
+
+    test('should leave out the option when the value is empty', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'empty-value-entry',
+        slug: 'value-fallback-slug',
+        subPath: 'value-fallback-slug',
+        locales: {
+          _default: {
+            slug: 'value-fallback-slug',
+            path: 'value-fallback-slug.md',
+            content: {},
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: {},
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: 'Valid Label',
+          _valueField: '{{nonexistent_value}}',
+          _searchField: '{{nonexistent_value}}',
+          allFieldNames: ['nonexistent_value'],
+          hasListFields: true,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // The value used to fall back to the slug, which was stored as a reference that doesn’t
+      // identify the entry. Now an entry without a value can’t be referenced, so it’s left out
+      expect(result).toEqual([]);
+    });
+
+    test('should fallback searchValue to label when searchValue template is empty', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('');
+      vi.mocked(getEntrySummaryFromContent).mockReturnValue('');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'empty-search-entry',
+        slug: 'search-slug',
+        subPath: 'search-slug',
+        locales: {
+          _default: {
+            slug: 'search-slug',
+            path: 'search-slug.md',
+            content: {},
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: {},
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: 'Valid Label',
+          _valueField: '{{slug}}',
+          _searchField: '', // Empty searchField template
+          allFieldNames: ['slug'],
+          hasListFields: true,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // When searchValue template is empty, it stays empty after replaceTemplateFields
+      // Then it falls back to label
+      expect(result).toHaveLength(1);
+      expect(result[0].searchValue).toBe('Valid Label');
+    });
+
+    test('should handle all empty fallbacks (label, value, and searchValue)', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'all-empty-entry',
+        slug: 'all-empty-slug',
+        subPath: 'all-empty-slug',
+        locales: {
+          _default: {
+            slug: 'all-empty-slug',
+            path: 'all-empty-slug.md',
+            content: {},
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: {},
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{missing1}}',
+          _valueField: '{{missing2}}',
+          _searchField: '{{missing3}}',
+          allFieldNames: ['missing1', 'missing2', 'missing3'],
+          hasListFields: true,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // The label would fall back to the slug, but the value doesn’t, so the option is left out
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('Complex multi-list fallback scenarios', () => {
+    test('should leave out the option without a value in the processEntry fallback block', () => {
+      // Reach the fallback block: hasListFields=true BUT no wildcard fields
+      // → analyzeListFields returns empty map → hasProcessedListFields stays false
+      // → code falls into the fallback block at lines 697-720.
+      // Using empty templates so label/value/searchValue resolve to ''.
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'fallback-entry',
+        slug: 'fallback-slug',
+        subPath: 'fallback-slug',
+        locales: {
+          _default: {
+            slug: 'fallback-slug',
+            path: 'fallback-slug.md',
+            content: {},
+          },
+        },
+      };
+
+      // @ts-ignore
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      // @ts-ignore
+      const result = processEntry({
+        refEntry: entry,
+        content: {},
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '',
+          _valueField: '',
+          _searchField: '',
+          allFieldNames: [], // no wildcards → analyzeListFields returns empty Map
+          hasListFields: true, // true so we enter list-handling path then fall through
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // The empty value no longer falls back to the slug, so the option is left out
+      expect(result).toEqual([]);
+    });
+
+    test('should process entries with mixed list and non-list fields', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getField).mockReturnValue(undefined);
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'mixed-entry',
+        slug: 'mixed-slug',
+        subPath: 'mixed-slug',
+        locales: {
+          _default: {
+            slug: 'mixed-slug',
+            path: 'mixed-slug.md',
+            content: {
+              title: 'Test Entry',
+            },
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      // Test with hasListFields=true but templates that don't have wildcards
+      // @ts-ignore
+      const result = processEntry({
+        refEntry: entry,
+        content: {
+          title: 'Test Entry',
+        },
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{title}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{title}}',
+          allFieldNames: ['title', 'slug'],
+          hasListFields: false,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // Should process using createSimpleOption path
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      expect(result[0].value).toBe('mixed-slug');
+    });
+  });
+
+  describe('Locale and content handling', () => {
+    test('should handle different locales properly', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('Japanese Name');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'multi-locale-entry',
+        slug: 'entry-slug',
+        subPath: 'entry-slug',
+        locales: {
+          _default: {
+            slug: 'entry-slug',
+            path: 'entry-slug.md',
+            content: { name: 'English Name' },
+          },
+          ja: {
+            slug: 'entry-slug',
+            path: 'entry-slug.ja.md',
+            content: { name: 'Japanese Name' },
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = {
+        _type: 'entry',
+        name: 'entries',
+        _i18n: { defaultLocale: '_default' },
+      };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: { name: 'Japanese Name' },
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{name}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{name}}',
+          allFieldNames: ['name', 'slug'],
+          hasListFields: false,
+        },
+        fileName: undefined,
+        locale: 'ja',
+        identifierField: 'title',
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('Japanese Name');
+    });
+
+    test('should handle missing locales gracefully', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('Default Name');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'single-locale-entry',
+        slug: 'entry-slug',
+        subPath: 'entry-slug',
+        locales: {
+          _default: {
+            slug: 'entry-slug',
+            path: 'entry-slug.md',
+            content: { name: 'Default Name' },
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = {
+        _type: 'entry',
+        name: 'entries',
+        _i18n: { defaultLocale: '_default' },
+      };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: { name: 'Default Name' },
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{name}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{name}}',
+          allFieldNames: ['name', 'slug'],
+          hasListFields: false,
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('Default Name');
+    });
+  });
+
+  describe('File collection handling', () => {
+    test('should handle file collection entries', () => {
+      vi.mocked(isCollectionIndexFile).mockReturnValue(false);
+      vi.mocked(getFieldDisplayValue).mockReturnValue('File Entry');
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'file-entry',
+        slug: 'config',
+        subPath: 'config',
+        locales: {
+          _default: {
+            slug: 'config',
+            path: 'config.md',
+            content: { name: 'File Entry' },
+          },
+        },
+      };
+
+      // @ts-ignore - Simplified mock collection for testing
+      const mockCollection = {
+        _type: 'file',
+        name: 'config',
+        _i18n: { defaultLocale: '_default' },
+      };
+
+      const result = processEntry({
+        refEntry: entry,
+        content: { name: 'File Entry' },
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '{{name}}',
+          _valueField: '{{slug}}',
+          _searchField: '{{name}}',
+          allFieldNames: ['name', 'slug'],
+          hasListFields: false,
+        },
+        fileName: 'config.md',
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('File Entry');
+    });
+
+    test('should leave out the option without a value in the processEntry fallback block', () => {
+      // Reach the fallback block: hasListFields=true BUT no wildcard fields
+      // → analyzeListFields returns empty map → hasProcessedListFields stays false
+      // → code falls into the fallback block at lines 697-720.
+      // Using empty templates so label/value/searchValue resolve to ''.
+
+      /** @type {Entry} */
+      const entry = {
+        id: 'fallback-entry',
+        slug: 'fallback-slug',
+        subPath: 'fallback-slug',
+        locales: {
+          _default: {
+            slug: 'fallback-slug',
+            path: 'fallback-slug.md',
+            content: {},
+          },
+        },
+      };
+
+      // @ts-ignore
+      const mockCollection = { _type: 'entry', name: 'test', _i18n: { defaultLocale: '_default' } };
+
+      // @ts-ignore
+      const result = processEntry({
+        refEntry: entry,
+        content: {},
+        // @ts-ignore
+        collection: mockCollection,
+        templates: {
+          _displayField: '',
+          _valueField: '',
+          _searchField: '',
+          allFieldNames: [], // no wildcards → analyzeListFields returns empty Map
+          hasListFields: true, // true so we enter list-handling path then fall through
+        },
+        fileName: undefined,
+        locale: '_default',
+        identifierField: 'title',
+      });
+
+      // The empty value no longer falls back to the slug, so the option is left out
+      expect(result).toEqual([]);
+    });
+  });
+});
+
+describe('Test getSubFieldMatch()', () => {
+  test('should return null when no matching field is found', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [
+      ['skills.*', {}],
+      ['tags.*', {}],
+    ];
+
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).toBeNull();
+  });
+
+  test('should extract match from complex list field pattern', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [
+      ['cities.*.name', {}],
+      ['cities.*.population', {}],
+    ];
+
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).not.toBeNull();
+    expect(result?.[0]).toBe('cities.*.name');
+    expect(result?.[1]).toBe('cities');
+    expect(result?.[2]).toBe('name');
+  });
+
+  test('should return first matching field when multiple matches exist', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [
+      ['sections.*.title', {}],
+      ['sections.*.description', {}],
+      ['sections.*.id', {}],
+    ];
+
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).not.toBeNull();
+    expect(result?.[0]).toBe('sections.*.title');
+    expect(result?.[1]).toBe('sections');
+    expect(result?.[2]).toBe('title');
+  });
+
+  test('should handle single entry in groupEntries', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [['products.*.sku', {}]];
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).not.toBeNull();
+    expect(result?.[1]).toBe('products');
+    expect(result?.[2]).toBe('sku');
+  });
+
+  test('should not match simple list fields without wildcard pattern', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [
+      ['items.0.name', {}],
+      ['items.1.name', {}],
+    ];
+
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).toBeNull();
+  });
+
+  test('should not match fields with single wildcard at end', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [['tags.*', {}]];
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).toBeNull();
+  });
+
+  test('should extract base field name with multiple nested levels', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [['categories.*.description', {}]];
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).not.toBeNull();
+    expect(result?.[1]).toBe('categories');
+    expect(result?.[2]).toBe('description');
+  });
+
+  test('should handle empty groupEntries array', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [];
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).toBeNull();
+  });
+
+  test('should return correct indices for destructuring', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [['authors.*.name', { some: 'config' }]];
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).not.toBeNull();
+    expect(result).toHaveLength(3);
+
+    // Verify it can be destructured like in processComplexListField
+    const [fullMatch, baseFieldName, subKey] = result || [];
+
+    expect(fullMatch).toBe('authors.*.name');
+    expect(baseFieldName).toBe('authors');
+    expect(subKey).toBe('name');
+  });
+
+  test('should handle field names with hyphens or underscores', () => {
+    /** @type {[string, any][]} */
+    const groupEntries = [
+      ['social_media.*.profile_url', {}],
+      ['contact-info.*.email-address', {}],
+    ];
+
+    const result = getSubFieldMatch(groupEntries);
+
+    expect(result).not.toBeNull();
+    expect(result?.[1]).toBe('social_media');
+    expect(result?.[2]).toBe('profile_url');
+  });
+});

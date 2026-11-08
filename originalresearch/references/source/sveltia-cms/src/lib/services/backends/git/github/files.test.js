@@ -1,0 +1,888 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { fetchLastCommit } from '$lib/services/backends/git/github/commits';
+import {
+  fetchBlob,
+  fetchBlobText,
+  fetchDirSHA,
+  fetchFileContents,
+  fetchFileList,
+  fetchFileMetadata,
+  fetchFiles,
+  getFileContentsFragment,
+  getFileMetadataFragment,
+  parseFileContents,
+  parseFileMetadata,
+} from '$lib/services/backends/git/github/files';
+import {
+  getWorkflowRepository,
+  initOpenAuthoring,
+  isOpenAuthoringConfigured,
+} from '$lib/services/backends/git/github/fork';
+import {
+  checkBranchAccess,
+  checkRepositoryAccess,
+  fetchDefaultBranchName,
+  repository,
+} from '$lib/services/backends/git/github/repository';
+import { fetchAPI, fetchGraphQL } from '$lib/services/backends/git/shared/api';
+import { MAX_CONCURRENT_REQUESTS } from '$lib/services/backends/git/shared/concurrency';
+import { fetchAndParseFiles } from '$lib/services/backends/git/shared/fetch';
+import { startSimulatedProgress } from '$lib/services/backends/git/shared/progress';
+import { forkedRepository, openAuthoringInitialized } from '$lib/services/workflow/open-authoring';
+
+// Mock dependencies
+vi.mock('$lib/services/backends/git/github/commits');
+vi.mock('$lib/services/backends/git/github/fork');
+vi.mock('$lib/services/backends/git/github/repository');
+vi.mock('$lib/services/backends/git/shared/api');
+vi.mock('$lib/services/backends/git/shared/fetch');
+vi.mock('$lib/services/workflow/open-authoring', () => ({
+  forkedRepository: { current: undefined },
+  openAuthoringInitialized: { current: false },
+}));
+
+// The function returned by `startSimulatedProgress()`, so the tests can verify it’s called
+const stopProgress = vi.hoisted(() => vi.fn());
+
+vi.mock('$lib/services/backends/git/shared/progress', () => ({
+  startSimulatedProgress: vi.fn(() => stopProgress),
+}));
+
+const mockGetRootDir = vi.hoisted(() => vi.fn(() => ''));
+
+vi.mock('$lib/services/backends/root-dir', () => ({ getRootDir: mockGetRootDir }));
+vi.mock('@sveltia/i18n', async () =>
+  (await import('$lib/test/i18n')).createI18nMock({ values: true }),
+);
+
+describe('GitHub files service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.assign(repository, {
+      owner: 'test-owner',
+      repo: 'test-repo',
+      branch: 'main',
+    });
+    vi.mocked(isOpenAuthoringConfigured).mockReturnValue(false);
+    vi.mocked(getWorkflowRepository).mockReturnValue({ owner: 'test-owner', repo: 'test-repo' });
+  });
+
+  describe('fetchFileList', () => {
+    test('fetches file list successfully', async () => {
+      const mockTree = {
+        tree: [
+          { type: 'blob', path: 'file1.txt', sha: 'sha1', size: 100 },
+          { type: 'blob', path: 'folder/file2.md', sha: 'sha2', size: 200 },
+          { type: 'tree', path: 'folder', sha: 'sha3', size: 0 }, // Should be filtered out
+        ],
+      };
+
+      vi.mocked(fetchAPI).mockResolvedValue(mockTree);
+
+      const result = await fetchFileList();
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        '/repos/test-owner/test-repo/git/trees/main?recursive=1',
+      );
+      expect(result).toEqual([
+        { path: 'file1.txt', sha: 'sha1', size: 100, name: 'file1.txt' },
+        { path: 'folder/file2.md', sha: 'sha2', size: 200, name: 'file2.md' },
+      ]);
+    });
+
+    test('encodes the branch name', async () => {
+      repository.branch = 'release#1';
+      vi.mocked(fetchAPI).mockResolvedValue({ tree: [] });
+
+      await fetchFileList();
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        '/repos/test-owner/test-repo/git/trees/release%231?recursive=1',
+      );
+    });
+
+    test('fetches file list with custom hash', async () => {
+      const mockTree = { tree: [] };
+      const customHash = 'custom-hash';
+
+      vi.mocked(fetchAPI).mockResolvedValue(mockTree);
+
+      await fetchFileList(customHash);
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        `/repos/test-owner/test-repo/git/trees/${customHash}?recursive=1`,
+      );
+    });
+
+    test('walks the subtrees when the recursive tree is truncated', async () => {
+      const prefix = '/repos/test-owner/test-repo/git/trees';
+
+      /** @type {Record<string, any>} */
+      const responses = {
+        // The full tree is too big, so only part of it comes back
+        [`${prefix}/main?recursive=1`]: {
+          tree: [{ type: 'blob', path: 'a.md', sha: 'a', size: 1 }],
+          truncated: true,
+        },
+        [`${prefix}/main`]: {
+          tree: [
+            { type: 'blob', path: 'a.md', sha: 'a', size: 1 },
+            { type: 'tree', path: 'content', sha: 't1' },
+            { type: 'tree', path: 'static', sha: 't2' },
+          ],
+          truncated: false,
+        },
+        [`${prefix}/t1?recursive=1`]: {
+          tree: [
+            { type: 'blob', path: 'post.md', sha: 'b', size: 2 },
+            { type: 'tree', path: 'sub', sha: 't3' },
+            { type: 'blob', path: 'sub/x.md', sha: 'c', size: 3 },
+          ],
+          truncated: false,
+        },
+        // A subtree that is too big as well is walked in turn
+        [`${prefix}/t2?recursive=1`]: { tree: [], truncated: true },
+        [`${prefix}/t2`]: {
+          tree: [
+            { type: 'blob', path: 'img.png', sha: 'd', size: 4 },
+            { type: 'tree', path: 'icons', sha: 't4' },
+          ],
+          truncated: false,
+        },
+        [`${prefix}/t4?recursive=1`]: {
+          tree: [{ type: 'blob', path: 'logo.svg', sha: 'e', size: 5 }],
+          truncated: false,
+        },
+      };
+
+      vi.mocked(fetchAPI).mockImplementation(async (path) => responses[path]);
+
+      const result = await fetchFileList();
+
+      expect(result).toEqual([
+        { path: 'a.md', sha: 'a', size: 1, name: 'a.md' },
+        { path: 'content/post.md', sha: 'b', size: 2, name: 'post.md' },
+        { path: 'content/sub/x.md', sha: 'c', size: 3, name: 'x.md' },
+        { path: 'static/img.png', sha: 'd', size: 4, name: 'img.png' },
+        { path: 'static/icons/logo.svg', sha: 'e', size: 5, name: 'logo.svg' },
+      ]);
+    });
+
+    describe('with a root directory', () => {
+      beforeEach(() => {
+        mockGetRootDir.mockReturnValue('apps/site');
+      });
+
+      afterEach(() => {
+        mockGetRootDir.mockReturnValue('');
+      });
+
+      test('lists only the root directory, with paths relative to the repository root', async () => {
+        vi.mocked(fetchAPI).mockResolvedValue({
+          tree: [
+            { type: 'blob', path: 'content/a.md', sha: 'a', size: 1 },
+            { type: 'tree', path: 'content', sha: 't1' },
+          ],
+          truncated: false,
+        });
+
+        await expect(fetchFileList('abc')).resolves.toEqual([
+          { path: 'apps/site/content/a.md', sha: 'a', size: 1, name: 'a.md' },
+        ]);
+        expect(fetchAPI).toHaveBeenCalledWith(
+          '/repos/test-owner/test-repo/git/trees/abc%3Aapps/site?recursive=1',
+        );
+      });
+
+      test('walks the subtrees of a root directory too big to list at once', async () => {
+        const prefix = '/repos/test-owner/test-repo/git/trees';
+
+        /** @type {Record<string, any>} */
+        const responses = {
+          [`${prefix}/abc%3Aapps/site?recursive=1`]: { tree: [], truncated: true },
+          [`${prefix}/abc%3Aapps/site`]: {
+            tree: [{ type: 'tree', path: 'content', sha: 't1' }],
+            truncated: false,
+          },
+          [`${prefix}/t1?recursive=1`]: {
+            tree: [{ type: 'blob', path: 'a.md', sha: 'a', size: 1 }],
+            truncated: false,
+          },
+        };
+
+        vi.mocked(fetchAPI).mockImplementation(async (path) => responses[path]);
+
+        await expect(fetchFileList('abc')).resolves.toEqual([
+          { path: 'apps/site/content/a.md', sha: 'a', size: 1, name: 'a.md' },
+        ]);
+      });
+
+      test('throws a localized error when the root directory doesn’t exist', async () => {
+        vi.mocked(fetchAPI).mockRejectedValue(
+          new Error('Not Found', { cause: { status: 404, message: 'Not Found' } }),
+        );
+
+        await expect(fetchFileList('abc')).rejects.toThrow(
+          expect.objectContaining({
+            message: 'Failed to list the files.',
+            cause: expect.objectContaining({
+              message: 'root_dir_not_found:{"repo":"test-owner/test-repo","dir":"apps/site"}',
+            }),
+          }),
+        );
+      });
+
+      test('passes any other error on', async () => {
+        const error = new Error('Server error', { cause: { status: 500 } });
+
+        vi.mocked(fetchAPI).mockRejectedValue(error);
+
+        await expect(fetchFileList('abc')).rejects.toBe(error);
+      });
+
+      test('passes on a 404 error for a subtree of the root directory', async () => {
+        const error = new Error('Not Found', { cause: { status: 404 } });
+
+        vi.mocked(fetchAPI).mockImplementation(async (path) => {
+          if (path.includes('/t1')) {
+            throw error;
+          }
+
+          return path.endsWith('?recursive=1')
+            ? { tree: [], truncated: true }
+            : { tree: [{ type: 'tree', path: 'content', sha: 't1' }], truncated: false };
+        });
+
+        await expect(fetchFileList('abc')).rejects.toBe(error);
+      });
+    });
+
+    test('passes on a 404 error without a root directory', async () => {
+      const error = new Error('Not Found', { cause: { status: 404 } });
+
+      vi.mocked(fetchAPI).mockRejectedValue(error);
+
+      await expect(fetchFileList('abc')).rejects.toBe(error);
+    });
+
+    test('throws when a single directory is too big to list', async () => {
+      vi.mocked(fetchAPI).mockResolvedValue({ tree: [], truncated: true });
+
+      await expect(fetchFileList()).rejects.toThrow('too many files to list');
+    });
+  });
+
+  describe('fetchDirSHA', () => {
+    test('looks the tree of a directory up with a tree-ish expression', async () => {
+      vi.mocked(fetchGraphQL).mockResolvedValue({ repository: { object: { oid: 'tree-sha' } } });
+
+      await expect(fetchDirSHA('abc', 'apps/site')).resolves.toBe('tree-sha');
+      expect(fetchGraphQL).toHaveBeenCalledWith(expect.stringContaining('object(expression:'), {
+        owner: 'test-owner',
+        repo: 'test-repo',
+        expression: 'abc:apps/site',
+      });
+    });
+
+    test('returns `undefined` for a directory that doesn’t exist', async () => {
+      vi.mocked(fetchGraphQL).mockResolvedValue({ repository: { object: null } });
+
+      await expect(fetchDirSHA('abc', 'apps/site')).resolves.toBeUndefined();
+    });
+
+    test('returns `undefined` for a repository that can’t be read', async () => {
+      vi.mocked(fetchGraphQL).mockResolvedValue({ repository: null });
+
+      await expect(fetchDirSHA('abc', 'apps/site')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('getFileContentsFragment', () => {
+    test('generates the field selection for a file’s contents', () => {
+      const result = getFileContentsFragment(
+        /** @type {any} */ ({ type: 'entry', path: 'file1.txt', sha: 'sha1' }),
+      );
+
+      expect(result).toContain('object(oid: "sha1")');
+      // The truncation flag is needed to detect an oversized blob
+      expect(result).toContain('... on Blob { text isTruncated }');
+      // The commit history is fetched separately, as it’s the slow part
+      expect(result).not.toContain('history(');
+    });
+
+    test('skips an asset, which has no content to read', () => {
+      expect(
+        getFileContentsFragment(/** @type {any} */ ({ type: 'asset', path: 'a.png', sha: 's' })),
+      ).toBe('');
+    });
+  });
+
+  describe('getFileMetadataFragment', () => {
+    test('generates the field selection for the last commit of a file', () => {
+      const result = getFileMetadataFragment(
+        /** @type {any} */ ({ type: 'asset', path: 'image.png', sha: 'sha1' }),
+      );
+
+      expect(result).toContain('ref(qualifiedName: $branch)');
+      expect(result).toContain('history(first: 1, path: "image.png")');
+    });
+  });
+
+  describe('fetchBlobText', () => {
+    test('retrieves the blob content with the REST API', async () => {
+      vi.mocked(fetchAPI).mockResolvedValue('Full content');
+
+      const result = await fetchBlobText({ owner: 'test-owner', repo: 'test-repo', sha: 'sha1' });
+
+      expect(fetchAPI).toHaveBeenCalledWith('/repos/test-owner/test-repo/git/blobs/sha1', {
+        headers: { Accept: 'application/vnd.github.raw' },
+        responseType: 'text',
+      });
+      expect(result).toBe('Full content');
+    });
+  });
+
+  describe('parseFileContents', () => {
+    test('parses file contents, leaving the metadata for the second pass', async () => {
+      const fetchingFiles = /** @type {any[]} */ ([
+        { path: 'file1.txt', sha: 'sha1', size: 100, name: 'file1.txt' },
+        { path: 'file2.md', sha: 'sha2', size: 200, name: 'file2.md' },
+      ]);
+
+      const results = [{ text: 'Content of file1' }, { text: 'Content of file2' }];
+      const result = await parseFileContents(fetchingFiles, results);
+
+      expect(result).toEqual({
+        'file1.txt': { sha: 'sha1', size: 100, text: 'Content of file1', meta: undefined },
+        'file2.md': { sha: 'sha2', size: 200, text: 'Content of file2', meta: undefined },
+      });
+    });
+
+    test('handles missing text content', async () => {
+      const fetchingFiles = /** @type {any[]} */ ([
+        { path: 'image.png', sha: 'sha1', size: 100, name: 'image.png' },
+      ]);
+
+      const result = await parseFileContents(fetchingFiles, [undefined]);
+
+      expect(result['image.png']).toEqual({
+        sha: 'sha1',
+        size: 100,
+        text: undefined,
+        meta: undefined,
+      });
+    });
+
+    test('re-fetches a truncated blob with the REST API', async () => {
+      const fetchingFiles = /** @type {any[]} */ ([
+        { path: 'large.md', sha: 'sha1', size: 543840 },
+        { path: 'small.md', sha: 'sha2', size: 100 },
+      ]);
+
+      const results = [
+        { text: 'Cut short at 512 KB', isTruncated: true },
+        { text: 'Content of small.md', isTruncated: false },
+      ];
+
+      vi.mocked(fetchAPI).mockResolvedValue('Complete content of large.md');
+
+      const result = await parseFileContents(fetchingFiles, results);
+
+      // Only the truncated blob is fetched again
+      expect(fetchAPI).toHaveBeenCalledOnce();
+      expect(fetchAPI).toHaveBeenCalledWith('/repos/test-owner/test-repo/git/blobs/sha1', {
+        headers: { Accept: 'application/vnd.github.raw' },
+        responseType: 'text',
+      });
+      expect(result['large.md'].text).toBe('Complete content of large.md');
+      expect(result['small.md'].text).toBe('Content of small.md');
+    });
+  });
+
+  describe('parseFileMetadata', () => {
+    /**
+     * Create a commit history node as returned by the GraphQL API.
+     * @param {string} name Author name.
+     * @param {any} user GitHub user of the author, or `null` for an unlinked author.
+     * @param {string} date Commit date.
+     * @returns {any} Node.
+     */
+    const createCommit = (name, user, date) => ({
+      target: {
+        history: {
+          nodes: [{ author: { name, email: `${name}@example.com`, user }, committedDate: date }],
+        },
+      },
+    });
+
+    test('parses the last commit of every file', () => {
+      const fetchingFiles = /** @type {any[]} */ ([
+        { path: 'file1.txt', sha: 'sha1', size: 100 },
+        { path: 'image.png', sha: 'sha2', size: 200 },
+      ]);
+
+      const results = [
+        createCommit('Author 1', { id: 'user1', login: 'author1' }, '2023-01-01T00:00:00Z'),
+        // A commit whose author isn’t linked to a GitHub account
+        createCommit('Author 2', null, '2023-01-02T00:00:00Z'),
+      ];
+
+      expect(parseFileMetadata(fetchingFiles, results)).toEqual({
+        'file1.txt': {
+          commitAuthor: {
+            name: 'Author 1',
+            email: 'Author 1@example.com',
+            id: 'user1',
+            login: 'author1',
+          },
+          commitDate: new Date('2023-01-01T00:00:00Z'),
+        },
+        'image.png': {
+          commitAuthor: {
+            name: 'Author 2',
+            email: 'Author 2@example.com',
+            id: undefined,
+            login: undefined,
+          },
+          commitDate: new Date('2023-01-02T00:00:00Z'),
+        },
+      });
+    });
+
+    test('skips a file without a commit and tolerates a missing author', () => {
+      const fetchingFiles = /** @type {any[]} */ ([
+        { path: 'deleted.md', sha: 'sha1', size: 100 },
+        { path: 'missing.md', sha: 'sha2', size: 100 },
+        { path: 'anonymous.md', sha: 'sha3', size: 100 },
+        { path: 'file.md', sha: 'sha4', size: 100 },
+      ]);
+
+      const results = [
+        // A file deleted between the tree fetch and the metadata pass
+        { target: { history: { nodes: [] } } },
+        null,
+        {
+          target: { history: { nodes: [{ author: null, committedDate: '2023-01-03T00:00:00Z' }] } },
+        },
+        createCommit('Author 1', { id: 'user1', login: 'author1' }, '2023-01-01T00:00:00Z'),
+      ];
+
+      expect(parseFileMetadata(fetchingFiles, results)).toEqual({
+        'anonymous.md': {
+          commitAuthor: undefined,
+          commitDate: new Date('2023-01-03T00:00:00Z'),
+        },
+        'file.md': {
+          commitAuthor: {
+            name: 'Author 1',
+            email: 'Author 1@example.com',
+            id: 'user1',
+            login: 'author1',
+          },
+          commitDate: new Date('2023-01-01T00:00:00Z'),
+        },
+      });
+    });
+  });
+
+  describe('fetchFileContents', () => {
+    /**
+     * Build a GraphQL response holding the text of the given files.
+     * @param {any[]} files Files.
+     * @returns {any} Response.
+     */
+    const createResponse = (files) => ({
+      repository: Object.fromEntries(
+        files.map(({ path }, i) => [`content_${i}`, { text: `Content of ${path}` }]),
+      ),
+    });
+
+    test('fetches and parses file contents', async () => {
+      const fetchingFiles = /** @type {any[]} */ ([{ path: 'file.txt', sha: 'sha1', size: 100 }]);
+
+      vi.mocked(fetchGraphQL).mockResolvedValue(createResponse(fetchingFiles));
+
+      const result = await fetchFileContents(fetchingFiles);
+
+      expect(fetchGraphQL).toHaveBeenCalledWith(expect.stringContaining('content_0: object'), {});
+      expect(startSimulatedProgress).toHaveBeenCalledWith(fetchingFiles.length);
+      expect(stopProgress).toHaveBeenCalledOnce();
+      expect(result['file.txt']).toEqual({
+        sha: 'sha1',
+        size: 100,
+        text: 'Content of file.txt',
+        meta: undefined,
+      });
+    });
+
+    test('splits a large file list into chunks', async () => {
+      const fetchingFiles = /** @type {any[]} */ (
+        Array.from({ length: 300 }, (_, i) => ({ path: `file${i}.txt`, sha: `sha${i}`, size: 100 }))
+      );
+
+      vi.mocked(fetchGraphQL).mockImplementation(async (query) => {
+        // Answer only the aliases the query asks for, as the API does
+        const aliases = [.../** @type {string} */ (query).matchAll(/content_(\d+):/g)].map(
+          ([, i]) => Number(i),
+        );
+
+        return {
+          repository: Object.fromEntries(
+            aliases.map((i) => [`content_${i}`, { text: `Content of ${fetchingFiles[i].path}` }]),
+          ),
+        };
+      });
+
+      const result = await fetchFileContents(fetchingFiles);
+
+      // 300 files / 250 per chunk = 2 requests
+      expect(fetchGraphQL).toHaveBeenCalledTimes(2);
+      expect(Object.keys(result)).toHaveLength(300);
+      expect(result['file299.txt'].text).toBe('Content of file299.txt');
+    });
+
+    test('makes exactly one request for a chunk-sized list', async () => {
+      const fetchingFiles = /** @type {any[]} */ (
+        Array.from({ length: 250 }, (_, i) => ({ path: `file${i}.txt`, sha: `sha${i}`, size: 100 }))
+      );
+
+      vi.mocked(fetchGraphQL).mockResolvedValue(createResponse(fetchingFiles));
+
+      await fetchFileContents(fetchingFiles);
+
+      expect(fetchGraphQL).toHaveBeenCalledTimes(1);
+    });
+
+    test('keeps only a few queries in flight, without a fixed delay between them', async () => {
+      const fetchingFiles = /** @type {any[]} */ (
+        Array.from({ length: 3000 }, (_, i) => ({
+          path: `file${i}.txt`,
+          sha: `sha${i}`,
+          size: 100,
+        }))
+      );
+
+      /** @type {(() => void)[]} */
+      const resolvers = [];
+      let inFlight = 0;
+      let peak = 0;
+
+      vi.mocked(fetchGraphQL).mockImplementation(
+        (query) =>
+          new Promise((resolve) => {
+            inFlight += 1;
+            peak = Math.max(peak, inFlight);
+
+            resolvers.push(() => {
+              inFlight -= 1;
+
+              const aliases = [.../** @type {string} */ (query).matchAll(/content_(\d+):/g)].map(
+                ([, i]) => Number(i),
+              );
+
+              resolve({
+                repository: Object.fromEntries(
+                  aliases.map((i) => [`content_${i}`, { text: `Content of file${i}.txt` }]),
+                ),
+              });
+            });
+          }),
+      );
+
+      const promise = fetchFileContents(fetchingFiles);
+
+      // 3000 files / 250 per chunk = 12 queries, but no more than the general limit at once
+      await vi.waitFor(() => {
+        expect(fetchGraphQL).toHaveBeenCalledTimes(MAX_CONCURRENT_REQUESTS);
+      });
+
+      // Release the pending queries one by one; a worker picks up the next chunk each time
+      while (resolvers.length) {
+        /** @type {any} */ (resolvers.shift())();
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0);
+        });
+      }
+
+      const result = await promise;
+
+      expect(fetchGraphQL).toHaveBeenCalledTimes(12);
+      expect(peak).toBe(MAX_CONCURRENT_REQUESTS);
+      expect(Object.keys(result)).toHaveLength(3000);
+    });
+
+    test('handles empty file list', async () => {
+      const result = await fetchFileContents([]);
+
+      expect(result).toEqual({});
+      expect(fetchGraphQL).not.toHaveBeenCalled();
+      expect(startSimulatedProgress).toHaveBeenCalledWith(0);
+      expect(stopProgress).toHaveBeenCalledOnce();
+    });
+
+    test('stops the simulated progress when a request fails', async () => {
+      const fetchingFiles = /** @type {any[]} */ ([{ path: 'file.txt', sha: 'sha1', size: 100 }]);
+
+      vi.mocked(fetchGraphQL).mockRejectedValue(new Error('Unauthorized'));
+
+      await expect(fetchFileContents(fetchingFiles)).rejects.toThrow('Unauthorized');
+      // Otherwise the interval would keep running behind the error message
+      expect(stopProgress).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('fetchFileMetadata', () => {
+    test('fetches the last commit of every file in chunks', async () => {
+      const fetchingFiles = /** @type {any[]} */ (
+        Array.from({ length: 300 }, (_, i) => ({ path: `file${i}.txt`, sha: `sha${i}`, size: 100 }))
+      );
+
+      vi.mocked(fetchGraphQL).mockImplementation(async (query) => {
+        const aliases = [.../** @type {string} */ (query).matchAll(/commit_(\d+):/g)].map(([, i]) =>
+          Number(i),
+        );
+
+        return {
+          repository: Object.fromEntries(
+            aliases.map((i) => [
+              `commit_${i}`,
+              {
+                target: {
+                  history: {
+                    nodes: [
+                      {
+                        author: { name: `Author ${i}`, email: 'a@example.com', user: null },
+                        committedDate: '2023-01-01T00:00:00Z',
+                      },
+                    ],
+                  },
+                },
+              },
+            ]),
+          ),
+        };
+      });
+
+      const result = await fetchFileMetadata(fetchingFiles);
+
+      expect(fetchGraphQL).toHaveBeenCalledTimes(2);
+      expect(fetchGraphQL).toHaveBeenCalledWith(
+        expect.stringContaining('query($owner: String!, $repo: String!, $branch: String!)'),
+        {},
+      );
+      expect(fetchGraphQL).toHaveBeenCalledWith(expect.stringContaining('history(first: 1'), {});
+      // No progress bar: this runs in the background once the contents are shown
+      expect(startSimulatedProgress).not.toHaveBeenCalled();
+      expect(Object.keys(result)).toHaveLength(300);
+      expect(result['file299.txt'].commitAuthor?.name).toBe('Author 299');
+      expect(result['file299.txt'].commitDate).toEqual(new Date('2023-01-01T00:00:00Z'));
+    });
+  });
+
+  describe('fetchFiles', () => {
+    test('fetches files through shared fetch function', async () => {
+      vi.mocked(fetchAndParseFiles).mockResolvedValue();
+
+      await fetchFiles();
+
+      expect(initOpenAuthoring).not.toHaveBeenCalled();
+      // The access check is handed over so it can run alongside the branch and commit requests
+      expect(fetchAndParseFiles).toHaveBeenCalledWith({
+        repository,
+        checkAccess: checkRepositoryAccess,
+        checkBranchAccess,
+        fetchDefaultBranchName,
+        fetchLastCommit,
+        fetchFileList,
+        fetchFileContents,
+        fetchFileMetadata,
+      });
+    });
+
+    test('sets up the contributor’s fork when Open Authoring is configured', async () => {
+      vi.mocked(isOpenAuthoringConfigured).mockReturnValue(true);
+      vi.mocked(initOpenAuthoring).mockResolvedValue();
+      vi.mocked(fetchAndParseFiles).mockResolvedValue();
+      openAuthoringInitialized.current = false;
+
+      await fetchFiles();
+
+      expect(initOpenAuthoring).toHaveBeenCalled();
+      // A contributor without write access is expected here, so the plain access check is skipped
+      expect(checkRepositoryAccess).not.toHaveBeenCalled();
+      expect(fetchAndParseFiles).toHaveBeenCalledWith(
+        expect.objectContaining({ checkAccess: undefined }),
+      );
+    });
+
+    test('skips the branch check for a contributor, whose changes go to their fork', async () => {
+      vi.mocked(isOpenAuthoringConfigured).mockReturnValue(true);
+      vi.mocked(fetchAndParseFiles).mockResolvedValue();
+      openAuthoringInitialized.current = true;
+      forkedRepository.current = { owner: 'mona', repo: 'site' };
+
+      try {
+        await fetchFiles();
+
+        expect(fetchAndParseFiles).toHaveBeenCalledWith(
+          expect.objectContaining({ checkBranchAccess: undefined }),
+        );
+      } finally {
+        forkedRepository.current = undefined;
+      }
+    });
+
+    test('leaves the fork alone once it has been set up', async () => {
+      vi.mocked(isOpenAuthoringConfigured).mockReturnValue(true);
+      vi.mocked(fetchAndParseFiles).mockResolvedValue();
+      openAuthoringInitialized.current = true;
+
+      await fetchFiles();
+
+      expect(initOpenAuthoring).not.toHaveBeenCalled();
+      expect(fetchAndParseFiles).toHaveBeenCalledWith(
+        expect.objectContaining({ checkAccess: undefined }),
+      );
+    });
+  });
+
+  describe('fetchBlob', () => {
+    test('fetches blob as binary content', async () => {
+      const asset = /** @type {any} */ ({
+        sha: 'test-sha',
+        path: 'image.jpg',
+      });
+
+      const mockResponse = {
+        ok: true,
+        headers: new Map([['Content-Type', 'application/octet-stream']]),
+        blob: vi.fn().mockResolvedValue(new Blob(['binary data'])),
+      };
+
+      vi.mocked(fetchAPI).mockResolvedValue(mockResponse);
+
+      const result = await fetchBlob(asset);
+
+      expect(fetchAPI).toHaveBeenCalledWith('/repos/test-owner/test-repo/git/blobs/test-sha', {
+        headers: { Accept: 'application/vnd.github.raw' },
+        responseType: 'raw',
+      });
+      expect(mockResponse.blob).toHaveBeenCalled();
+      expect(result).toBeInstanceOf(Blob);
+    });
+
+    test('reads an unpublished asset from the workflow repository', async () => {
+      vi.mocked(getWorkflowRepository).mockReturnValue({ owner: 'contributor', repo: 'test-repo' });
+
+      const asset = /** @type {any} */ ({
+        sha: 'test-sha',
+        path: 'image.jpg',
+        workflow: { branch: 'cms/contributor/test-repo/posts/hello' },
+      });
+
+      vi.mocked(fetchAPI).mockResolvedValue({
+        ok: true,
+        headers: new Map([['Content-Type', 'application/octet-stream']]),
+        blob: vi.fn().mockResolvedValue(new Blob(['binary data'])),
+      });
+
+      await fetchBlob(asset);
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        '/repos/contributor/test-repo/git/blobs/test-sha',
+        expect.any(Object),
+      );
+    });
+
+    test('keeps the content of an SVG file', async () => {
+      const asset = /** @type {any} */ ({ sha: 'test-sha', path: 'file.svg' });
+
+      vi.mocked(fetchAPI).mockResolvedValue(
+        new Response('<svg></svg>', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }),
+      );
+
+      const result = await fetchBlob(asset);
+
+      expect(result).toBeInstanceOf(Blob);
+      expect(await result.text()).toBe('<svg></svg>');
+    });
+
+    test('keeps the UTF-8 BOM of a text file', async () => {
+      const asset = /** @type {any} */ ({ sha: 'csv-sha', path: 'data.csv' });
+      const bytes = new Uint8Array([0xef, 0xbb, 0xbf, 0x61, 0x2c, 0x62]);
+
+      vi.mocked(fetchAPI).mockResolvedValue(
+        new Response(bytes, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }),
+      );
+
+      const result = await fetchBlob(asset);
+
+      expect(new Uint8Array(await result.arrayBuffer())).toEqual(bytes);
+    });
+
+    test.each([
+      // `café` in Latin-1, which decoding and re-encoding as UTF-8 would turn into `caf\xC3\xA9`
+      ['iso-8859-1', [0x63, 0x61, 0x66, 0xe9]],
+      // `hi` in UTF-16LE with a BOM
+      ['utf-16le', [0xff, 0xfe, 0x68, 0x00, 0x69, 0x00]],
+    ])('keeps the bytes of a text file served as %s', async (charset, values) => {
+      const asset = /** @type {any} */ ({ sha: 'txt-sha', path: 'legacy.txt' });
+      const bytes = new Uint8Array(values);
+
+      vi.mocked(fetchAPI).mockResolvedValue(
+        new Response(bytes, { headers: { 'Content-Type': `text/plain; charset=${charset}` } }),
+      );
+
+      const result = await fetchBlob(asset);
+
+      expect(new Uint8Array(await result.arrayBuffer())).toEqual(bytes);
+    });
+
+    test('throws instead of returning an error response as the file content', async () => {
+      const asset = /** @type {any} */ ({ sha: 'test-sha', path: 'image.jpg' });
+
+      const mockResponse = {
+        ok: false,
+        status: 404,
+        headers: new Map([['Content-Type', 'application/json']]),
+        text: vi.fn().mockResolvedValue('{"message":"Not Found"}'),
+        blob: vi.fn(),
+      };
+
+      vi.mocked(fetchAPI).mockResolvedValue(mockResponse);
+
+      await expect(fetchBlob(asset)).rejects.toMatchObject({
+        message: 'Failed to fetch the blob',
+        cause: { status: 404 },
+      });
+      expect(mockResponse.text).not.toHaveBeenCalled();
+    });
+
+    test('calls fetchAPI with correct repository and asset SHA', async () => {
+      const asset = /** @type {any} */ ({
+        sha: 'custom-sha-123',
+        path: 'path/to/file.bin',
+      });
+
+      const mockResponse = {
+        ok: true,
+        headers: new Map([['Content-Type', 'application/octet-stream']]),
+        blob: vi.fn().mockResolvedValue(new Blob()),
+      };
+
+      vi.mocked(fetchAPI).mockResolvedValue(mockResponse);
+
+      await fetchBlob(asset);
+
+      expect(fetchAPI).toHaveBeenCalledWith(
+        '/repos/test-owner/test-repo/git/blobs/custom-sha-123',
+        expect.objectContaining({
+          headers: { Accept: 'application/vnd.github.raw' },
+          responseType: 'raw',
+        }),
+      );
+    });
+  });
+});

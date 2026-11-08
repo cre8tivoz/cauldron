@@ -1,0 +1,289 @@
+import { cacheAssetBlob } from '$lib/services/assets/info';
+import { allAssets } from '$lib/services/assets/state';
+import { backend } from '$lib/services/backends';
+import { promptCommitMessage } from '$lib/services/backends/commit-prompt';
+import { repositoryHead } from '$lib/services/backends/git/shared/head';
+import { checkForRemoteChanges, suspendChecksWhile } from '$lib/services/backends/refresh';
+import { allEntries } from '$lib/services/contents';
+import { getEntryPaths } from '$lib/services/contents/entry/paths';
+import { combineArrayFileChanges, createArrayFileEntries } from '$lib/services/contents/file/array';
+import { productionSHA } from '$lib/services/deployments';
+import { user } from '$lib/services/user/account.svelte';
+import { prefs } from '$lib/services/user/prefs.svelte';
+import { getRepositoryDatabase } from '$lib/services/utils/database';
+import { getByteSize } from '$lib/services/utils/file';
+
+/**
+ * @import {
+ * Asset,
+ * BackendService,
+ * ChangeResults,
+ * CommitAuthor,
+ * CommitOptions,
+ * CommitResults,
+ * Entry,
+ * FileChange,
+ * RepositoryFileInfo,
+ * User,
+ * } from '$lib/types/private';
+ */
+
+/**
+ * Get the commit author information from the user store.
+ * @returns {CommitAuthor | undefined} Commit author information including `name`, `email`, `id`,
+ * and `login`. `undefined` for the local and test-repo backends.
+ */
+export const getCommitAuthor = () => {
+  const userData = /** @type {User} */ (user.account);
+
+  if (!userData) {
+    return undefined;
+  }
+
+  const { name, email, id, login } = userData;
+
+  if (!name || !email) {
+    return undefined;
+  }
+
+  return { name, email, id, login };
+};
+
+/**
+ * Update the file cache with the given changes. This will update the file cache with the latest
+ * file content and metadata, such as SHA and size, for Git-based backends. The cache stands for the
+ * state of the repository as the user knows it, so a later fetch can tell the user’s own changes
+ * from someone else’s by the SHA; that’s why an asset, which has no text to cache, is recorded too.
+ * @param {object} args Arguments.
+ * @param {FileChange[]} args.changes Committed changes.
+ * @param {CommitResults} args.commit Commit results.
+ */
+export const updateCache = async ({ changes, commit }) => {
+  const cacheDB = getRepositoryDatabase(backend.current?.repository, 'file-cache');
+
+  if (!cacheDB) {
+    return;
+  }
+
+  const { files, author: commitAuthor, date: commitDate } = commit;
+  const meta = { commitAuthor, commitDate };
+
+  await Promise.all(
+    changes.map(async (change) => {
+      const { action, path, previousPath, data } = change;
+
+      // Delete the file from the cache if the action is `delete`
+      if (action === 'delete') {
+        await cacheDB.delete(path);
+        return;
+      }
+
+      // Delete the previous file from the cache if the action is `move`
+      if (action === 'move') {
+        await cacheDB.delete(previousPath);
+      }
+
+      /** @type {RepositoryFileInfo} */
+      const fileInfo = {
+        sha: files[path]?.sha,
+        // Only a deletion, handled above, comes without data
+        size: getByteSize(/** @type {string | File} */ (data)),
+        text: typeof data === 'string' ? data : undefined,
+        meta,
+      };
+
+      // Update the file cache with the new file content and metadata
+      await cacheDB.set(path, fileInfo);
+    }),
+  );
+};
+
+/**
+ * Update the entry and asset stores with the results of the commit changes.
+ * @param {object} args Arguments.
+ * @param {FileChange[]} args.changes Committed changes.
+ * @param {Entry[]} args.savedEntries Entries that have been saved.
+ * @param {Asset[]} args.savedAssets Assets that have been saved.
+ * @param {Entry[]} [args.arrayFileEntries] All the entries in the files storing all the entries of
+ * an entry collection that have been rewritten, which replace the entries previously in the files.
+ */
+export const updateStores = ({ changes, savedEntries, savedAssets, arrayFileEntries = [] }) => {
+  const savedEntryIds = new Set([...savedEntries, ...arrayFileEntries].map((e) => e.id));
+  const arrayFilePaths = new Set(arrayFileEntries.flatMap((e) => getEntryPaths(e)));
+
+  allEntries.current = [
+    ...allEntries.current.filter(
+      (e) =>
+        !savedEntryIds.has(e.id) &&
+        !(
+          e.arrayIndex !== undefined &&
+          Object.values(e.locales).some(({ path }) => arrayFilePaths.has(path))
+        ),
+    ),
+    ...savedEntries.filter((e) => !arrayFileEntries.includes(e)),
+    ...arrayFileEntries,
+  ];
+
+  const excludingPaths = new Set(savedAssets.map((a) => a.path));
+
+  changes.forEach((c) => {
+    if (c.action === 'move' && c.previousPath) {
+      excludingPaths.add(c.previousPath);
+    } else if (c.action === 'delete') {
+      excludingPaths.add(c.path);
+    }
+  });
+
+  allAssets.current = [
+    ...allAssets.current.filter((a) => !excludingPaths.has(a.path)),
+    ...savedAssets,
+  ];
+};
+
+/**
+ * Save changes to the backend and update the file cache and stores with the results.
+ *
+ * The repository is checked for someone else’s commits first, so that the commit is made on top of
+ * the branch as it is rather than as it was when the site data was loaded — GitHub rejects a commit
+ * made against a head that has moved. The check is a nicety here: if it fails, the commit is
+ * attempted anyway, and the backend has the last word. It also brings the files storing all the
+ * entries of an entry collection up to date, so the changes to them are applied to the items as
+ * they are now, and combined into one change for each file.
+ * @param {object} args Arguments.
+ * @param {FileChange[]} args.changes Changes to be committed.
+ * @param {Entry[]} [args.savingEntries] Entries to be saved.
+ * @param {Asset[]} [args.savingAssets] Assets to be saved.
+ * @param {CommitOptions} args.options Options for committing changes, such as commit type.
+ * @returns {Promise<ChangeResults>} Change results containing the commit information, saved
+ * entries, and saved assets.
+ */
+export const saveChanges = async ({ changes, savingEntries = [], savingAssets = [], options }) => {
+  const { commitChanges, fetchLastCommit } = /** @type {BackendService} */ (backend.current);
+  // Ask for a commit message first if configured, so the repository is checked for changes once
+  // the user is done, however long that takes. Cancelling it throws, leaving everything as it was
+  const commitOptions = await promptCommitMessage(changes, options);
+
+  try {
+    await checkForRemoteChanges();
+  } catch (ex) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to check the repository for changes.', ex);
+  }
+
+  /** Whether the commit has landed on top of someone else’s commit the stores don’t reflect. */
+  let missedRemoteChanges = false;
+
+  const results = await suspendChecksWhile(async () => {
+    // The head the stores reflect, which the commit is expected to be made on top of
+    const headBefore = repositoryHead.current;
+    // A check for remote changes made from here on would replace the items the changes are applied
+    // to, and the entries the saved ones are matched up with
+    const { changes: combinedChanges, arrayFileUpdates } = await combineArrayFileChanges(changes);
+
+    /** @type {CommitResults} */
+    const commit = {
+      ...(await commitChanges(combinedChanges, commitOptions)),
+      author: getCommitAuthor(),
+    };
+
+    if (prefs.devModeEnabled) {
+      // eslint-disable-next-line no-console
+      console.debug('Commit changes:', combinedChanges);
+      // eslint-disable-next-line no-console
+      console.debug('Commit results:', commit);
+    }
+
+    const { files, author: commitAuthor, date: commitDate } = commit;
+
+    const { entries: arrayFileEntries, savedEntries: savedArrayFileEntries } =
+      createArrayFileEntries({
+        arrayFileUpdates,
+        savingEntries,
+        meta: { commitAuthor, commitDate },
+      });
+
+    // An entry stored in a file with the other entries of the collection is replaced with the one
+    // made from the file as it has been saved, which knows its position in the array
+    const savedEntries = savingEntries.map(
+      (entry) =>
+        savedArrayFileEntries.get(entry) ??
+        /** @type {Entry} */ ({ ...entry, commitAuthor, commitDate }),
+    );
+
+    const savedAssets = await Promise.all(
+      savingAssets.map(async (asset) => {
+        const { sha, file } = files[asset.path] ?? {};
+
+        const savedAsset = /** @type {Asset} */ ({
+          ...asset,
+          sha,
+          blobURL: undefined,
+          commitAuthor,
+          commitDate,
+        });
+
+        // The URL has the CMS origin and can be opened in a new tab from a preview, so an SVG image
+        // gets the URL of a wrapper that can’t run any script, like an asset loaded from the
+        // repository does. The file is remembered with it, so reading the asset gives the file
+        if (file) {
+          try {
+            await cacheAssetBlob(savedAsset, file);
+          } catch (ex) {
+            // The commit has landed, so the save has succeeded; the asset is loaded from the
+            // repository instead
+            // eslint-disable-next-line no-console
+            console.error('Failed to cache the saved asset.', ex);
+          }
+        }
+
+        return savedAsset;
+      }),
+    );
+
+    try {
+      await updateCache({ changes: combinedChanges, commit });
+    } catch (ex) {
+      // The commit has landed, so the save has succeeded even if the cache couldn’t be written,
+      // e.g. when the storage quota is exceeded. The stores still have to be updated and the head
+      // advanced, or the next commit would be refused. A file missing from the cache is fetched
+      // again on the next load
+      // eslint-disable-next-line no-console
+      console.error('Failed to update the file cache.', ex);
+    }
+
+    updateStores({ changes: combinedChanges, savedEntries, savedAssets, arrayFileEntries });
+    // The site is rebuilt from this commit, so the deploy state the UI reports is now about the
+    // user’s own change. Editorial Workflow commits don’t come through here; they land on a
+    // workflow branch and are tracked by the pull request instead
+    productionSHA.current = commit.sha;
+
+    if (fetchLastCommit) {
+      // GitLab and Gitea/Forgejo only refuse a commit when one of the files being changed has been
+      // changed by someone else, so the commit can be made on top of a colleague’s commit to
+      // another file. The stores then reflect the commit only as far as the user’s own files go,
+      // and taking it as the head would mean the colleague’s commit is never fetched: the file
+      // would be saved over later, or the save refused for good. The head is left where it was
+      // instead, so the colleague’s commit is fetched by the next check
+      if (commit.parentSha === undefined || commit.parentSha === headBefore) {
+        // The stores now reflect this commit, so it’s the head to compare the branch with from here
+        // on
+        repositoryHead.current = commit.sha;
+      } else {
+        missedRemoteChanges = true;
+      }
+    }
+
+    return { commit, savedEntries, savedAssets };
+  });
+
+  if (missedRemoteChanges) {
+    // Fetch the commits made in the meantime now rather than on the next scheduled check. It’s not
+    // waited for: the save is done, and a failure leaves it to the next check
+    checkForRemoteChanges().catch((ex) => {
+      // eslint-disable-next-line no-console
+      console.error('Failed to check the repository for changes.', ex);
+    });
+  }
+
+  return results;
+};

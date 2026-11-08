@@ -1,0 +1,145 @@
+[
+  {
+    "url": "https://zeku.dev/",
+    "source_folders": [],
+    "disposition": "Paid application; public workflow reference"
+  },
+  {
+    "url": "https://sveltiacms.app/en/",
+    "source_folders": [
+      "sveltia-cms"
+    ],
+    "disposition": "MIT CMS source collected"
+  },
+  {
+    "url": "https://stacki.build/",
+    "source_folders": [
+      "stacki"
+    ],
+    "disposition": "MIT visual Astro editor source collected; primary foundation candidate"
+  },
+  {
+    "url": "https://benji.org/stageshow",
+    "source_folders": [
+      "stageshow-skills"
+    ],
+    "disposition": "MIT skill/components; independent asset notices"
+  },
+  {
+    "url": "https://sitereal.app/",
+    "source_folders": [],
+    "disposition": "Paid proprietary app; public docs/workflow reference; no source incorporation"
+  },
+  {
+    "url": "https://pagescms.org/",
+    "source_folders": [
+      "pages-cms"
+    ],
+    "disposition": "MIT CMS source collected"
+  },
+  {
+    "url": "https://meno.so/",
+    "source_folders": [
+      "meno-astro"
+    ],
+    "disposition": "MIT public runtime collected; editor npm metadata Elastic-2.0, public studio repo has no declared licence; editor not treated as MIT"
+  },
+  {
+    "url": "https://prosefly.com/",
+    "source_folders": [],
+    "disposition": "Hosted paid CMS; public workflow reference"
+  },
+  {
+    "url": "https://www.ycode.com/",
+    "source_folders": [
+      "ycode"
+    ],
+    "disposition": "MIT visual builder/CMS source collected"
+  },
+  {
+    "url": "https://splitleaf.eu/",
+    "source_folders": [],
+    "disposition": "Paid application; public workflow reference"
+  },
+  {
+    "url": "https://ui.gradientdeck.com/",
+    "source_folders": [],
+    "disposition": "Design gallery; preserve links and public extract; no blanket asset reuse permission"
+  },
+  {
+    "url": "https://mkdir.directory/",
+    "source_folders": [],
+    "disposition": "Directory of design references; links/extract retained"
+  },
+  {
+    "url": "https://www.unsection.com/",
+    "source_folders": [],
+    "disposition": "Section inspiration gallery; links/extract retained"
+  },
+  {
+    "url": "https://threeui.com/hero",
+    "source_folders": [
+      "threeui"
+    ],
+    "disposition": "MIT community catalogue source collected; not assumed to include premium catalogue"
+  },
+  {
+    "url": "https://superdesign.dev",
+    "source_folders": [
+      "superdesign",
+      "superdesign-skill"
+    ],
+    "disposition": "MIT skill collected separately from mixed-licence app"
+  },
+  {
+    "url": "https://reactbits.dev/get-started/index",
+    "source_folders": [
+      "react-bits"
+    ],
+    "disposition": "Source collected for study; redistribution restrictions recorded"
+  },
+  {
+    "url": "https://www.subframe.com/motion",
+    "source_folders": [],
+    "disposition": "Motion reference; no reusable source repository verified in this pass"
+  },
+  {
+    "url": "https://prompt-motion.com/?tag=diagrams",
+    "source_folders": [],
+    "disposition": "Motion/diagram reference; no reusable source repository verified in this pass"
+  },
+  {
+    "url": "https://sparkbites.dev/design-bites",
+    "source_folders": [
+      "design-bites"
+    ],
+    "disposition": "MIT design-bites reference library collected"
+  },
+  {
+    "url": "https://blocks.lander.studio/?category=website",
+    "source_folders": [],
+    "disposition": "Figma blocks gallery; extract retained; individual design/asset terms need checking"
+  },
+  {
+    "url": "https://www.originkit.dev/?sort=copied",
+    "source_folders": [
+      "originkit-plugin"
+    ],
+    "disposition": "MIT agent plugin collected; hosted catalogue/assets rights separate"
+  },
+  {
+    "url": "https://templens.com/",
+    "source_folders": [],
+    "disposition": "Quality-report UX reference; public extract retained"
+  },
+  {
+    "url": "https://designwithintent.ai/patterns/",
+    "source_folders": [],
+    "disposition": "Anti-pattern research reference; public extract retained"
+  },
+  {
+    "url": "https://lexingtonthemes.com/pricing",
+    "source_folders": [],
+    "disposition": "Paid theme/MCP reference; no paid material downloaded"
+  }
+]

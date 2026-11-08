@@ -1,0 +1,9 @@
+# Upstream source snapshots and private research assets are never application output.
+references/
+# Local evaluation checkout, dependencies, user profile, logs and screenshots.
+evaluation/
+node_modules/
+dist/
+.env
+.env.*
+.DS_Store

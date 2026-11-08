@@ -1,0 +1,242 @@
+[
+  {
+    "name": "stacki",
+    "repo": "flowtricks/stacki",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/stacki",
+    "url": "https://github.com/flowtricks/stacki",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "363b044f284c7875dfb674913d22a814b9ca62e2",
+    "remote": "https://github.com/flowtricks/stacki.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Timothy Ricks\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "sveltia-cms",
+    "repo": "sveltia/sveltia-cms",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/sveltia-cms",
+    "url": "https://github.com/sveltia/sveltia-cms",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "6ed4ebdb3c8d866b6db82e62b97d873acdf90f33",
+    "remote": "https://github.com/sveltia/sveltia-cms.git",
+    "status": "",
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_texts": {
+      "LICENSE.txt": "MIT License\n\nCopyright (c) 2026 Kohei Yoshino.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "pages-cms",
+    "repo": "pages-cms/pages-cms",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/pages-cms",
+    "url": "https://github.com/hunvreus/pagescms",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "6f4e860a35d934406580287e7042e5e111e207a1",
+    "remote": "https://github.com/pages-cms/pages-cms.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright 2025 Ronan Berder\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "ycode",
+    "repo": "ycode/ycode",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/ycode",
+    "url": "https://github.com/ycode/ycode",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "dd9e37ec026007fc1e527d55e05e44bec02aa4d6",
+    "remote": "https://github.com/ycode/ycode.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Ycode\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "stageshow-skills",
+    "repo": "benjitaylor/skills",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/stageshow-skills",
+    "url": "https://github.com/benjitaylor/skills",
+    "license_api": null,
+    "default_branch": "main",
+    "archived": false,
+    "head": "299140fafd08df55a9c234e610c3f64af3f45531",
+    "remote": "https://github.com/benjitaylor/skills.git",
+    "status": "",
+    "license_files": [
+      "stageshow/LICENSE",
+      "stageshow/NOTICE.md"
+    ],
+    "license_texts": {
+      "stageshow/LICENSE": "MIT License\n\nCopyright (c) 2026 Benji Taylor\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "stageshow/NOTICE.md": "# Notices\n\nStageshow source is MIT licensed; see `LICENSE`.\n\nProduct and operating-system names, familiar device geometry, app icons, and\nillustrated interfaces are used as examples. Those names and marks remain\nwith their owners; the Stageshow license does not grant trademark rights or\nimply endorsement. Adapt examples to the product you are illustrating.\n\nThe Radix-inspired look uses publicly documented color and spacing values;\nits source is identified in `examples/looks/radix.css`. The app icons in `assets/app-icons.ts` are artwork from their respective app\nbundles, as identified in that file; they are not covered by the Stageshow MIT\nlicense. They remain illustrative references to those products. The Wikipedia\nstudy includes two local photographs dedicated under CC0 1.0 (also used\nin the Finder, Telegram and annotation studies); their authors,\noriginal source pages and modifications are recorded in\n[`examples/wikipedia/PHOTOS.md`](examples/wikipedia/PHOTOS.md). Other scenes\nuse CSS and vector illustrations. No third-party fonts are bundled, and the\nplayground does not fetch fonts or photographs from external services at runtime.\n\nThe local brand registry in `kit/brands/` includes SVG artwork from SVGL (MIT), payment-icons (Apache 2.0), Cryptocurrency Icons (CC0 1.0), and official Linear, American Express and Circle assets. Per-file sources, hashes and license files are listed in [`kit/brands/SOURCES.md`](kit/brands/SOURCES.md). The original artwork and brand usage terms remain with their respective owners.\n\n`Phone frame=\"photo\"` is optional. Supply your own permitted bezel image via\n`--ss-phone-photo-light: url(...)` and optionally `--ss-phone-photo-dark`.\nWithout it, the kit uses its CSS-drawn `pro` frame. No bezel photographs are\nbundled.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT source; third-party assets require separate checks"
+  },
+  {
+    "name": "superdesign",
+    "repo": "superdesigndev/superdesign",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/superdesign",
+    "url": "https://github.com/superdesigndev/superdesign",
+    "license_api": "NOASSERTION",
+    "default_branch": "main",
+    "archived": false,
+    "head": "49e2b9dd9615c6dae936b326b1ddb85d4f1d6f19",
+    "remote": "https://github.com/superdesigndev/superdesign.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "Super Design License\n\nThis project is **mostly licensed under the GNU Affero General Public License v3 (AGPLv3)** as described below.  \n**However, certain files are licensed under a separate commercial license.**  \nThese files are clearly marked at the top of the file with the following comment:\n\n    /* @license Enterprise */\n\nFiles with this comment are **not** licensed under the AGPLv3, but instead are subject to the commercial license terms further below.\n\n---\n\nGNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007\n\nCopyright (C) 2025 AI Jason, JackJack.\nAll rights reserved.\n\nThis program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.\n\nThis program is distributed in the hope that it will be useful,\nbut WITHOUT ANY WARRANTY; without even the implied warranty of\nMERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\nGNU Affero General Public License for more details.\n\nYou should have received a copy of the GNU Affero General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.\n\n---\n\nHow to Identify Commercially Licensed Files:\n\nAny file that includes the comment `/* @license Enterprise */` at the top is licensed under the following terms instead of the AGPL:\n\n---\n\nThe Super Design Enterprise Commercial License\n\nCopyright (C) 2025 AI Jason, JackJack.\n\nWith regard to files marked `/* @license Enterprise */`, this portion of the software and associated documentation files (the \"Software\") may only be used in production if you (and any entity that you represent) have agreed to, and are in compliance with, a valid Super Design Enterprise Edition subscription agreement or other agreements governing the use of the Software, as mutually agreed by you and the Licensor(s).\n\nSubject to the foregoing, you are free to modify this Software and publish patches to it. However, the Licensor(s) retain all rights, title, and interest in such modifications. All such modifications may only be used, copied, modified, displayed, distributed, or otherwise exploited with a valid Enterprise subscription. You are not granted any other rights beyond those expressly stated herein.\n\nDevelopment and testing usage of this Software is permitted without a subscription.\n\nIt is forbidden to copy, merge, publish, distribute, sublicense, and/or sell this Software without a valid commercial agreement.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n---\n\nProject URL:\nhttps://superdesign.dev\n\nLicensor Contact:\nAI Jason, JackJack\n\n"
+    },
+    "collected": true,
+    "reuse_class": "mixed AGPL and enterprise terms; reference only pending file-level review"
+  },
+  {
+    "name": "superdesign-skill",
+    "repo": "superdesigndev/superdesign-skill",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/superdesign-skill",
+    "url": "https://github.com/superdesigndev/superdesign-skill",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "f9f05cd988c247dce6c072eaf9ac6b162f2ffc4b",
+    "remote": "https://github.com/superdesigndev/superdesign-skill.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Superdesign (superdesign.dev)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "react-bits",
+    "repo": "DavidHDev/react-bits",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/react-bits",
+    "url": "https://github.com/DavidHDev/react-bits",
+    "license_api": "NOASSERTION",
+    "default_branch": "main",
+    "archived": false,
+    "head": "4dc7b5b7772e1217c8fb8d2a7aa074302180e5b4",
+    "remote": "https://github.com/DavidHDev/react-bits.git",
+    "status": "",
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "license_texts": {
+      "LICENSE.md": "MIT + Commons Clause License Condition v1.0\n\nCopyright (c) 2026 David Haz\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, and distribute the Software **as part of an application, website, or product**, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## Commons Clause Restriction\n\nYou may use this Software, including for any commercial purpose, **so long as you do not sell, sublicense, or redistribute the components themselves-whether alone, in a bundle, or as a ported version.**\n\nThe same restriction covers the React Bits tools (Background Studio, Texture Lab, Shape Magic, Center Stage, Sound Lab and any tools added later) and the sounds in the sound library. **You may not sell, sublicense, or redistribute the tools or the sounds themselves, or offer the tools or a substantially similar copy of them as a hosted service-whether alone, in a bundle, or as a ported version.**\n\nWhat you make with the tools is yours to use. You can use exported code, images, videos, and audio files in any personal or commercial application, website, or product, including paid ones. **You may not sell or redistribute the exports on their own, either individually or as the product itself, such as a sound, texture, background, or template pack.**\n\n## No Warranty\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "restricted source; reference only; do not bundle/port component library"
+  },
+  {
+    "name": "threeui",
+    "repo": "MengTo/threeui",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/threeui",
+    "url": "https://github.com/MengTo/threeui",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "68802d5428071ada5c20db8094b1649e6bb770ed",
+    "remote": "https://github.com/MengTo/threeui.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Meng To\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "design-bites",
+    "repo": "educlopez/design-bites",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/design-bites",
+    "url": "https://github.com/educlopez/design-bites",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "754ddd2934531744e841bf1fd95194b16dc28d21",
+    "remote": "https://github.com/educlopez/design-bites.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Eduardo Calvo Lopez\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "originkit-plugin",
+    "repo": "vellum-ai/originkit",
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/originkit-plugin",
+    "url": "https://github.com/vellum-ai/originkit",
+    "license_api": "MIT",
+    "default_branch": "main",
+    "archived": false,
+    "head": "d27526a2e2e728fd2c0c13b28021ade6908211a7",
+    "remote": "https://github.com/vellum-ai/originkit.git",
+    "status": "",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Vellum, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  },
+  {
+    "name": "meno-astro",
+    "repo": "meno-so/meno-astro",
+    "url": "https://github.com/meno-so/meno-astro",
+    "license_api": "MIT",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_texts": {
+      "LICENSE": "MIT License\n\nCopyright (c) 2026 Meno\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    "collected": true,
+    "path": "/Users/habibi/hermes/apps-codebases/cauldron-astro/references/source/meno-astro",
+    "head": "49263ea33c2e5522f3e6e11716faf1da916f1efc",
+    "remote": "https://github.com/meno-so/meno-astro.git",
+    "status": "",
+    "reuse_class": "MIT root licence verified; preserve attribution and inspect third-party assets before adoption"
+  }
+]

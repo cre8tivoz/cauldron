@@ -1,0 +1,47 @@
+source,kind,chunks,astro_output,external_agent,local_files,visual_code_roundtrip,content_editing,taste_guidance,verification
+https://zeku.dev/,competitor,1,0.86,0.05,0.97,0.09,0.99,0.43,0.4
+https://sveltiacms.app/en/,competitor,1,0.09,0.18,0.96,0.04,0.98,0.27,0.05
+https://stacki.build/,competitor,1,0.75,0.21,0.87,0.11,0.98,0.8,0.03
+https://benji.org/stageshow,competitor,1,0.04,0.66,0.44,0.07,0.03,0.97,0.91
+https://sitereal.app/,competitor,1,0.99,0.94,0.99,0.98,0.43,0.56,0.04
+https://pagescms.org/,competitor,1,0.07,0.02,0.42,0.02,0.67,0.04,0.02
+https://meno.so/,competitor,1,0.14,0.2,0.05,0.04,0.04,0.31,0.02
+https://prosefly.com/,competitor,1,0.39,0.07,0.91,0.39,0.93,0.55,0.05
+https://www.ycode.com/,competitor,1,0.03,0.46,0.08,0.06,0.24,0.2,0.02
+https://splitleaf.eu/,competitor,1,0.03,0.75,0.98,0.18,0.83,0.39,0.26
+https://ui.gradientdeck.com/,competitor,1,0.03,0.02,0.03,0.02,0.02,0.17,0.02
+https://mkdir.directory/,competitor,1,0.02,0.02,0.02,0.01,0.04,0.16,0.02
+https://www.unsection.com/,competitor,1,0.03,0.03,0.18,0.02,0.03,0.38,0.02
+https://threeui.com/hero,competitor,1,0.03,0.01,0.09,0.02,0.04,0.89,0.02
+https://superdesign.dev,competitor,1,0.06,0.05,0.02,0.03,0.02,0.15,0.03
+https://reactbits.dev/get-started/index,competitor,1,0.02,0.02,0.06,0.01,0.02,0.69,0.02
+https://www.subframe.com/motion,competitor,1,0.03,0.02,0.15,0.03,0.38,0.83,0.02
+https://prompt-motion.com/?tag=diagrams,competitor,1,0.02,0.05,0.07,0.03,0.04,0.09,0.02
+https://sparkbites.dev/design-bites,competitor,1,0.04,0.58,0.29,0.03,0.05,0.19,0.06
+https://blocks.lander.studio/?category=website,competitor,1,0.02,0.01,0.02,0.02,0.02,0.17,0.02
+https://www.originkit.dev/?sort=copied,competitor,1,0.03,0.02,0.02,0.01,0.02,0.08,0.02
+https://templens.com/,competitor,1,0.04,0.03,0.03,0.02,0.03,0.05,0.54
+https://designwithintent.ai/patterns/,competitor,1,0.02,0.06,0.39,0.02,0.02,0.57,0.02
+https://lexingtonthemes.com/pricing,competitor,1,0.17,0.52,0.82,0.09,0.69,0.21,0.03
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS - v0.50 Release Plan.md,project_note,1,0.06,0.39,0.87,0.03,0.23,0.49,0.98
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS — App Note.md,project_note,1,0.78,0.76,0.92,0.06,0.04,0.48,0.77
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS — Bidirectional Agent Integration Scope.md,project_note,1,0.03,0.9,0.45,0.39,0.18,0.32,0.23
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS — Camillo UX Research.md,project_note,2,0.04,0.34,0.43,0.09,0.13,0.95,0.04
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS — Unification Plan.md,project_note,2,0.05,0.63,0.9,0.05,0.24,0.49,0.62
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/Cauldron OS — v0.40 Release Plan.md,project_note,1,0.3,0.78,0.55,0.05,0.24,0.48,0.95
+/Users/habibi/OBSIDIAN-VAULT/Obsidian Vault/HERMES/10 Projects/Witch Daddy Labs/Built Apps/CAULDRON-OS/WEB BUILDER IDEAS.md,project_note,1,0.31,0.43,0.2,0.05,0.1,0.37,0.03
+/Users/habibi/hermes/apps-codebases/cauldron-os/AGENTS.md,repo_source,1,0.75,0.66,0.26,0.03,0.04,0.36,0.24
+/Users/habibi/hermes/apps-codebases/cauldron-os/README.md,repo_source,2,0.85,0.84,0.81,0.09,0.08,0.69,0.98
+/Users/habibi/hermes/apps-codebases/cauldron-os/docs/ARCHITECTURE.md,repo_source,2,0.09,0.6,0.83,0.12,0.12,0.82,0.53
+/Users/habibi/hermes/apps-codebases/cauldron-os/docs/PUBLIC_INTERFACES.md,repo_source,2,0.65,0.79,0.38,0.04,0.44,0.47,0.94
+/Users/habibi/hermes/apps-codebases/cauldron-os/docs/BYOK_CLI_EXECUTION_CONTRACT.md,repo_source,1,0.03,0.91,0.32,0.06,0.05,0.28,0.03
+/Users/habibi/hermes/apps-codebases/cauldron-os/lib/build-agents.js,repo_source,1,0.02,0.84,0.12,0.02,0.02,0.2,0.02
+/Users/habibi/hermes/apps-codebases/cauldron-os/lib/scaffold-generator.js,repo_source,1,0.94,0.19,0.44,0.02,0.05,0.73,0.02
+/Users/habibi/hermes/apps-codebases/cauldron-os/lib/verification.js,repo_source,1,0.03,0.03,0.2,0.02,0.02,0.09,0.94
+/Users/habibi/hermes/apps-codebases/cauldron-os/lib/quality-scorer.js,repo_source,1,0.02,0.02,0.24,0.02,0.02,0.78,0.68
+/Users/habibi/hermes/apps-codebases/cauldron-os/lib/design-system-export.js,repo_source,1,0.03,0.03,0.11,0.02,0.04,0.67,0.05
+/Users/habibi/hermes/apps-codebases/cauldron-os/routes/build-agents.js,repo_source,1,0.04,0.75,0.18,0.02,0.04,0.07,0.05
+/Users/habibi/hermes/apps-codebases/cauldron-os/routes/build.js,repo_source,1,0.05,0.74,0.13,0.05,0.03,0.12,0.52
+/Users/habibi/hermes/apps-codebases/cauldron-os/docs/DESIGN_REFERENCE.md,repo_source,1,0.04,0.03,0.88,0.02,0.7,0.96,0.22
+/Users/habibi/hermes/apps-codebases/cauldron-os/design-systems/NOTICE.md,repo_source,1,0.03,0.03,0.69,0.01,0.08,0.03,0.01
+/Users/habibi/hermes/apps-codebases/cauldron-os/LICENSE,repo_source,1,0.02,0.05,0.24,0.01,0.04,0.09,0.02
