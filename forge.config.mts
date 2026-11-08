@@ -10,6 +10,9 @@ const config: ForgeConfig = {
     name: 'Cauldron',
     appBundleId: 'com.cre8tivoz.cauldron',
     icon: 'build/icon',
+    // The supplied startup artwork travels beside app.asar, so the packaged
+    // app reads it without carrying a second copy inside the asar.
+    extraResource: ['build/splash.png'],
   },
   rebuildConfig: {},
   // Mac first. Windows and Linux are parked until after the first Mac release.

@@ -104,7 +104,10 @@ Motion: ${direction.motion.quick} and ${direction.motion.settle}, ${direction.mo
 
 The full document is in cauldron/DESIGN.md and the CSS variables are in cauldron/tokens.css.
 Use var(--cauldron-c-…), var(--cauldron-size-…), var(--cauldron-space-…) and var(--cauldron-radius-…) for every colour, size,
-spacing and corner. Do not hard-code any of them. Watch out for: ${direction.watch}`
+spacing and corner. Do not hard-code any of them.
+Sizes and spacing are rem against a 16px root: leave html font-size at its default and put size tokens on body and text elements, never on html.
+DESIGN.md measures the safe colour pairs: small text needs 4.5:1, large text 3:1, and button labels 4.5:1 against their fill.
+Watch out for: ${direction.watch}`
     : 'No design direction has been chosen for this site yet.';
 
   const selectionBlock = context.selection

@@ -55,8 +55,9 @@ const SMOKE = process.env.CAULDRON_SMOKE === '1';
 let sawUnexpectedError = '';
 const E2E_SITE = process.env.CAULDRON_E2E_SITE ?? '';
 // Test runs can keep their app data in their own folder, so parallel or
-// repeated harness runs never share recovery, conflict or run records.
-if (E2E_SITE && process.env.CAULDRON_TEST_USER_DATA)
+// repeated harness runs never share recovery, conflict or run records. The
+// variable is only ever set by a test run.
+if (process.env.CAULDRON_TEST_USER_DATA)
   app.setPath('userData', process.env.CAULDRON_TEST_USER_DATA);
 
 type SelectionState = {
@@ -1598,13 +1599,93 @@ function refreshSelectionFromDisk(): void {
   pushSelection();
 }
 
-function createWindow(): BrowserWindow {
+/**
+ * The supplied Witch Daddy Labs artwork, shipped beside the app at package
+ * time (forge.config.mts `extraResource`). It is the crop's own 1280×800
+ * canvas, so the startup window keeps its aspect ratio exactly.
+ */
+function splashImagePath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'splash.png')
+    : path.join(app.getAppPath(), 'build', 'splash.png');
+}
+
+type Splash = { window: BrowserWindow; shown: Promise<void> };
+
+/** Shows the branded startup window; the main window retires it when ready. */
+function showSplash(): Splash | null {
+  // CAULDRON_SPLASH_PROOF lets the hidden smoke run exercise and photograph
+  // this path without taking the screen (used by the packaging proof).
+  const proof = process.env.CAULDRON_SPLASH_PROOF ?? '';
+  if ((SMOKE || E2E_SITE) && !proof) return null;
+  let image = '';
+  try {
+    image = fs.readFileSync(splashImagePath()).toString('base64');
+  } catch (error) {
+    // A missing picture must not stop the app; the main window still opens.
+    console.error('The Cauldron startup artwork could not be read:', error);
+    return null;
+  }
+  const splash = new BrowserWindow({
+    width: 640,
+    height: 400,
+    show: false,
+    frame: false,
+    resizable: false,
+    movable: false,
+    title: 'Cauldron',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#fff;overflow:hidden}img{display:block;width:100%;height:100%;object-fit:contain}</style>
+</head><body><img src="data:image/png;base64,${image}" alt="Cauldron by Witch Daddy Labs"></body></html>`;
+  void splash.loadURL(
+    `data:text/html;base64,${Buffer.from(html, 'utf8').toString('base64')}`,
+  );
+  console.log('STARTUP splash created');
+  let markShown = () => {};
+  const shown = new Promise<void>((resolve) => (markShown = resolve));
+  splash.once('ready-to-show', () => {
+    if (splash.isDestroyed()) return markShown();
+    if (proof) {
+      // Hidden runs keep the picture for evidence instead of foregrounding.
+      void splash.webContents
+        .capturePage()
+        .then((shot) => {
+          fs.writeFileSync(path.join(proof, 'splash.png'), shot.toPNG());
+          console.log('STARTUP splash captured');
+        })
+        .catch((error) => {
+          console.error('STARTUP splash capture failed:', error);
+        })
+        .finally(markShown);
+      return;
+    }
+    splash.show();
+    markShown();
+  });
+  splash.once('closed', () => {
+    console.log('STARTUP splash closed');
+    markShown();
+  });
+  splash.webContents.once('did-fail-load', markShown);
+  return { window: splash, shown };
+}
+
+function createWindow(splash: Splash | null = null): BrowserWindow {
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1280,
     minHeight: 800,
-    show: !SMOKE && !E2E_SITE,
+    // The branded startup window is shown until this one has rendered. Test
+    // runs stay hidden; they never take the screen.
+    show: false,
     title: 'Cauldron',
     backgroundColor: '#0b0b0c',
     titleBarStyle: 'hiddenInset',
@@ -1615,6 +1696,24 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  // Show the app only once its own interface is ready, then retire the splash.
+  // No timer: the transition is driven by the renderer's ready-to-show event.
+  let revealed = false;
+  const reveal = async () => {
+    if (revealed) return;
+    revealed = true;
+    console.log('STARTUP main ready');
+    // Wait for the splash's first paint, not a timer, so a fast renderer can
+    // never close the branded window before anyone sees it.
+    if (splash) await splash.shown;
+    if (splash && !splash.window.isDestroyed()) splash.window.close();
+    if (!SMOKE && !E2E_SITE && !window.isDestroyed()) window.show();
+  };
+  window.once('ready-to-show', reveal);
+  window.webContents.once('did-fail-load', () => {
+    if (splash && !splash.window.isDestroyed()) splash.window.close();
   });
 
   window.webContents.on('will-navigate', (event) => event.preventDefault());
@@ -1901,9 +2000,23 @@ export function start(): void {
 
   app.whenReady().then(async () => {
     if ((SMOKE || E2E_SITE) && process.platform === 'darwin') app.dock?.hide();
+    // Development runs otherwise show Electron's own icon in the Dock. The
+    // packaged app reads build/icon.icns from its bundle.
+    if (
+      !app.isPackaged &&
+      !SMOKE &&
+      !E2E_SITE &&
+      process.platform === 'darwin'
+    ) {
+      try {
+        app.dock?.setIcon(path.join(app.getAppPath(), 'build/icon.png'));
+      } catch (error) {
+        console.error('The Cauldron Dock icon could not be set:', error);
+      }
+    }
     Menu.setApplicationMenu(buildMenu());
     registerIpc();
-    createWindow();
+    createWindow(showSplash());
 
     if (SMOKE) {
       const fail = setTimeout(() => {

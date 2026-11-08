@@ -48,6 +48,11 @@ export const TASTE_RULES: TasteRule[] = [
     rule: 'The focus indicator must be at least 3:1 against what is behind it. Never remove an outline without replacing it.',
   },
   {
+    id: 'contrast',
+    title: 'Text and buttons meet 4.5:1',
+    rule: 'Small text needs 4.5:1 against its background, large text 3:1, and button labels 4.5:1 against their fill. DESIGN.md lists the measured pairs for this direction; use them.',
+  },
+  {
     id: 'spacing',
     title: 'Spacing on the scale',
     rule: "Use only the direction's spacing steps, plus 0 and 1px hairlines.",

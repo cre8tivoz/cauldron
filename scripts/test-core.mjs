@@ -1629,6 +1629,174 @@ test('24 the focus check’s contrast maths uses the approved 3:1 bar', () => {
   assert.deepEqual(tasteChange.parseColour('#333'), [51, 51, 51, 1]);
 });
 
+// Ticket 29: the real-brief reports showed directions used as small-text
+// colours at 3.1–4.1:1, and one site multiplied every rem token by setting
+// html font-size to a size token. The guidance must state the measured limits.
+test('29 every direction document states measured text pairs and the rem root rule', async () => {
+  assert.ok(directions && contrast, 'directions/contrast module missing');
+  for (const direction of directions.DIRECTIONS) {
+    const doc = directions.designDocument(direction);
+    assert.match(doc, /16px root/, `${direction.id}: no rem root rule`);
+    assert.match(
+      doc,
+      /Never set `html \{ font-size/,
+      `${direction.id}: no html font-size warning`,
+    );
+    for (const foreground of ['ink', 'muted', 'primary']) {
+      for (const background of ['bg', 'surface']) {
+        if (!direction.colours[foreground] || !direction.colours[background])
+          continue;
+        const raw = contrast.contrastRatio(
+          direction.colours[foreground],
+          direction.colours[background],
+        );
+        const ratio = contrast.round1(raw);
+        const line = new RegExp(
+          `\\| ${foreground} on ${background} \\| ${ratio}:1 \\| (small text and above|large text \\(24px\\+, or 18\\.66px\\+ bold\\) only|decorative fills only, no text) \\|`,
+        ).exec(doc);
+        assert.ok(
+          line,
+          `${direction.id}: no measured row for ${foreground} on ${background}`,
+        );
+        const expected =
+          raw >= contrast.TEXT_CONTRAST
+            ? 'small text and above'
+            : raw >= contrast.LARGE_TEXT_CONTRAST
+              ? 'large text (24px+, or 18.66px+ bold) only'
+              : 'decorative fills only, no text';
+        assert.equal(
+          line[1],
+          expected,
+          `${direction.id}: ${foreground} on ${background} is ${raw}:1 but its use is wrong`,
+        );
+      }
+    }
+    for (const on of ['surface', 'bg']) {
+      if (!direction.colours[on] || !direction.colours.primary) continue;
+      const raw = contrast.contrastRatio(
+        direction.colours[on],
+        direction.colours.primary,
+      );
+      const ratio = contrast.round1(raw);
+      const line = new RegExp(
+        `\\| ${on} on primary fill \\| ${ratio}:1 \\| (button labels allowed|not for button labels) \\|`,
+      ).exec(doc);
+      assert.ok(line, `${direction.id}: no measured button fill pair`);
+      assert.equal(
+        line[1] === 'button labels allowed',
+        raw >= contrast.BUTTON_CONTRAST,
+        `${direction.id}: ${on} on primary is ${raw}:1 but its use is wrong`,
+      );
+    }
+  }
+  const openHouse = directions.designDocument(
+    directions.findDirection('open-house'),
+  );
+  assert.match(
+    openHouse,
+    /\| primary on bg \| 3\.8:1 \| large text/,
+    'the Moretti direction’s failing primary-on-bg pair is not marked',
+  );
+  assert.match(
+    openHouse,
+    /\| surface on primary fill \| 4\.1:1 \| not for button labels \|/,
+    'the Moretti direction’s failing button pair is not marked',
+  );
+});
+
+test('29 contrast use is classified on the raw ratio, not the rounded display', async () => {
+  assert.ok(directions && contrast, 'directions/contrast module missing');
+  // #777 on white is 4.4781:1 and prints as 4.5:1. #959595 is 2.9953:1 and
+  // prints as 3.0:1. Both must stay on the failing side of their threshold.
+  const direction = {
+    ...directions.findDirection('open-house'),
+    colours: {
+      ...directions.findDirection('open-house').colours,
+      bg: '#ffffff',
+      surface: '#ffffff',
+      ink: '#777777',
+      muted: '#959595',
+      primary: '#777777',
+    },
+  };
+  const doc = directions.designDocument(direction);
+  assert.match(
+    doc,
+    /\| ink on bg \| 4\.5:1 \| large text \(24px\+, or 18\.66px\+ bold\) only \|/,
+    '4.478:1 printed as 4.5 is wrongly allowed for small text',
+  );
+  assert.match(
+    doc,
+    /\| muted on bg \| 3:1 \| decorative fills only, no text \|/,
+    '2.995:1 printed as 3 is wrongly allowed for large text',
+  );
+  assert.match(
+    doc,
+    /\| surface on primary fill \| 4\.5:1 \| not for button labels \|/,
+    '4.478:1 printed as 4.5 is wrongly allowed for button labels',
+  );
+  assert.doesNotMatch(doc, /small text and above \|/);
+});
+
+test('29 the agent brief carries the contrast and rem root rules', async () => {
+  assert.ok(directions, 'directions module missing');
+  const { buildPrompt } = await import('../src/main/agent.ts');
+  const prompt = buildPrompt({
+    request: 'build the site',
+    siteName: 'fixture',
+    direction: directions.findDirection('open-house'),
+    selection: null,
+    catalogue: [],
+  });
+  assert.match(prompt, /rem against a 16px root/);
+  assert.match(prompt, /small text needs 4\.5:1/i);
+  assert.match(
+    prompt,
+    /Text and buttons meet 4\.5:1/,
+    'the approved contrast rule is missing from the taste rules',
+  );
+});
+
+// Ticket 29: focus and keyboard failed the same controls, and a run’s own
+// findings reused the whole-site ids. Both were report defects, not design.
+test('29 unreachable controls are keyboard failures, not focus failures', async () => {
+  const tasteCheck = await import('../src/main/taste-check.ts');
+  const clean = tasteCheck.focusOutcome({
+    invisible: 0,
+    lowContrast: 0,
+    unreached: 2,
+    weakest: 99,
+    problems: [],
+  });
+  assert.equal(
+    clean.failed,
+    false,
+    'a focus failure was reported with no indicator fault',
+  );
+  assert.match(clean.focusDetail, /keyboard/);
+  const weak = tasteCheck.focusOutcome({
+    invisible: 1,
+    lowContrast: 0,
+    unreached: 2,
+    weakest: 1.09,
+    problems: ['button.btn 1.09:1'],
+  });
+  assert.equal(weak.failed, true);
+  assert.match(weak.thresholdDetail, /1\.09:1/);
+});
+
+test('29 a run’s own taste findings do not reuse the whole-site ids', async () => {
+  const tasteCheck = await import('../src/main/taste-check.ts');
+  assert.equal(
+    tasteCheck.tasteFindingId('hover', '/gallery', 1280, 'site'),
+    'taste-hover-/gallery-1280',
+  );
+  assert.equal(
+    tasteCheck.tasteFindingId('hover', '/gallery', 1280, 'change'),
+    'taste-change-hover-/gallery-1280',
+  );
+});
+
 // Tickets 27/28: a whole-site brief needs bounded, version-checked access to
 // page/component/layout markup and design CSS. These actions are whole-file
 // reads and writes, never a general filesystem tool.

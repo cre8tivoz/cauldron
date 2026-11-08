@@ -3,6 +3,49 @@ import type { DesignDirection } from './directions';
 import type { Finding } from './quality';
 import { judgeFocus, type FocusSample } from './contrast';
 
+/**
+ * Ticket 29: a run's own findings (scope `change`) reused the whole-site
+ * finding ids, so one report held two rows with the same id and a different
+ * result. Prefix the id as well as the label.
+ */
+export function tasteFindingId(
+  id: string,
+  page: string,
+  width: number | undefined,
+  kind?: 'site' | 'change',
+): string {
+  return `taste-${kind === 'change' ? 'change-' : ''}${id}-${page}${
+    width ? `-${width}` : ''
+  }`;
+}
+
+/**
+ * Ticket 29: a control that cannot be reached by Tab is a keyboard failure,
+ * not an invisible focus ring. Counting it in both checks produced a focus
+ * failure whose own detail said "0 without an indicator, 0 under 3:1".
+ */
+export function focusOutcome(input: {
+  invisible: number;
+  lowContrast: number;
+  unreached: number;
+  weakest: number;
+  problems: string[];
+}): { failed: boolean; focusDetail: string; thresholdDetail: string } {
+  const failedCount = input.invisible + input.lowContrast;
+  const problems = input.problems.length
+    ? ` (${input.problems.slice(0, 3).join('; ')})`
+    : '';
+  return {
+    failed: failedCount > 0,
+    focusDetail: `${input.invisible} without an indicator, ${
+      input.lowContrast
+    } under 3:1${problems}. ${input.unreached} control(s) not reached; the keyboard check reports those.`,
+    thresholdDetail: `${input.invisible} reached control(s) had no indicator or one under 3:1 against its background${
+      input.weakest === 99 ? '' : `; weakest measured ${input.weakest}:1`
+    }. ${input.unreached} control(s) could not be reached and are counted by the keyboard check.`,
+  };
+}
+
 /** The approved automatic taste tests. A scope limits judgement to newly added pieces. */
 export async function measureTaste(
   window: BrowserWindow,
@@ -140,12 +183,11 @@ export async function measureTaste(
   if (measured.error)
     throw new Error(`The taste checks could not run: ${measured.error}`);
   const width = opts.width;
-  const suffix = width ? `-${width}` : '';
   const labelPrefix = opts.kind === 'change' ? 'Agent changes: ' : '';
   const findings: Finding[] = [];
   const add = (id: string, label: string, failed: number, detail?: string) =>
     findings.push({
-      id: `taste-${id}-${page}${suffix}`,
+      id: tasteFindingId(id, page, width, opts.kind),
       label: `${labelPrefix}${label}`,
       status: failed ? 'fail' : 'pass',
       kind: 'measured',
@@ -269,25 +311,45 @@ export async function measureTaste(
     hoverless = 0,
     disabledUnchanged = 0;
   const focusProblems: string[] = [];
+  const hoverProblems: string[] = [];
+  const disabledProblems: string[] = [];
   const signature = `['color','backgroundColor','borderColor','boxShadow','outline','textDecoration','opacity','transform'].map(p=>getComputedStyle(el)[p]).join('|')`;
+  const activeIndex = () =>
+    window.webContents.executeJavaScript(
+      `(() => {const el=document.activeElement;return Number(el?.getAttribute?.('data-cauldron-audit-control')??-1);})()`,
+    ) as Promise<number>;
+  // Ticket 29: one Tab press per expected control lost controls to the race
+  // between the key event and Chromium moving focus. Two passes over the same
+  // page in one report disagreed (5/7 then 7/7), so wait for focus to actually
+  // move and press again only when the first press did nothing.
+  const pressTab = async (): Promise<number> => {
+    const before = await activeIndex();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+      for (let wait = 0; wait < 4; wait++) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        const after = await activeIndex();
+        if (after !== before) return after;
+      }
+    }
+    return before;
+  };
   await window.webContents.executeJavaScript(
     `document.body.tabIndex=-1;document.body.focus()`,
   );
   await new Promise((resolve) => setTimeout(resolve, 150));
-  for (let index = 0; index < measured.totalControls + 2; index++) {
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-    const active = await window.webContents.executeJavaScript(
-      `(() => {const el=document.activeElement;return {index:Number(el.getAttribute('data-cauldron-audit-control')??-1)};})()`,
-    );
-    if (active.index >= 0 && !reached.has(active.index)) {
-      reached.add(active.index);
-      const selector = `[data-cauldron-audit-control="${active.index}"]`;
-      await force(active.index, []);
+  const moves = measured.controls + measured.totalControls * 2 + 8;
+  for (let step = 0; step < moves && reached.size < measured.controls; step++) {
+    const index = await pressTab();
+    if (index >= 0 && !reached.has(index)) {
+      reached.add(index);
+      const selector = `[data-cauldron-audit-control="${index}"]`;
+      await force(index, []);
       const before = await window.webContents.executeJavaScript(
         `(() => {const el=document.querySelector(${JSON.stringify(selector)});return getComputedStyle(el).backgroundColor;})()`,
       );
-      await force(active.index, ['focus', 'focus-visible']);
+      await force(index, ['focus', 'focus-visible']);
       const after = (await window.webContents.executeJavaScript(
         `(() => {
           const el=document.querySelector(${JSON.stringify(selector)});
@@ -320,28 +382,53 @@ export async function measureTaste(
       }
       if (verdict.state !== 'ok')
         weakest = Math.min(weakest, verdict.ratio ?? 0);
-      await force(active.index, []);
+      await force(index, []);
     }
   }
+  const unreached = measured.controls - reached.size;
+  // Name what was not reached, so the person (or the next agent job) knows
+  // where to look instead of only a count.
+  const missed = unreached
+    ? ((await window.webContents.executeJavaScript(
+        `(${JSON.stringify(
+          [...Array(measured.controls).keys()].filter(
+            (index) => !reached.has(index),
+          ),
+        )}).map(i => {
+          const el = document.querySelector('[data-cauldron-audit-control="'+i+'"]');
+          if (!el) return 'control '+i;
+          const where = el.tagName.toLowerCase() + (typeof el.className==='string' && el.className ? '.'+el.className.split(' ')[0] : '');
+          const name = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\\s+/g,' ').slice(0,40);
+          return name ? where+' (“'+name+'”)' : where;
+        })`,
+      )) as string[])
+    : [];
   add(
     'keyboard',
     'Interactive parts can be reached by keyboard',
-    measured.controls - reached.size,
-    `${reached.size}/${measured.controls} reached using Tab.`,
+    unreached,
+    `${reached.size}/${measured.controls} reached using Tab.${
+      missed.length ? ` Not reached: ${missed.slice(0, 5).join('; ')}.` : ''
+    }`,
   );
+  const focus = focusOutcome({
+    invisible,
+    lowContrast,
+    unreached,
+    weakest,
+    problems: focusProblems,
+  });
   add(
     'focus',
     'Focus is visible on controls',
-    invisible + lowContrast + measured.controls - reached.size,
-    `${invisible} without an indicator, ${lowContrast} under 3:1${
-      focusProblems.length ? ` (${focusProblems.slice(0, 3).join('; ')})` : ''
-    }.`,
+    focus.failed ? 1 : 0,
+    focus.focusDetail,
   );
   add(
     'focus-threshold',
     'Focus indicator is visible at 3:1 or better',
-    invisible + lowContrast + measured.controls - reached.size,
-    `${invisible} reached control(s) had no indicator or one under 3:1 against its background${weakest === 99 ? '' : `; weakest measured ${weakest}:1`}. ${measured.controls - reached.size} control(s) could not be reached.`,
+    focus.failed ? 1 : 0,
+    focus.thresholdDetail,
   );
   for (let index = 0; index < measured.controls; index++) {
     const selector = `[data-cauldron-audit-control="${index}"]`;
@@ -354,16 +441,47 @@ export async function measureTaste(
     );
     await force(index, ['hover']);
     await new Promise((resolve) => setTimeout(resolve, 160));
-    const states = await window.webContents.executeJavaScript(
-      `(() => {const el=document.querySelector(${JSON.stringify(selector)});const hover=${signature};let disabled=null;if('disabled' in el){el.disabled=true;disabled=${signature};el.disabled=false;}return {hover,disabled};})()`,
-    );
+    const states = (await window.webContents.executeJavaScript(
+      `(() => {const el=document.querySelector(${JSON.stringify(selector)});const hover=${signature};let disabled=null;if('disabled' in el){el.disabled=true;disabled=${signature};el.disabled=false;}return {hover,disabled,where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40)};})()`,
+    )) as {
+      hover: string;
+      disabled: string | null;
+      where: string;
+      name: string;
+    };
     await force(index, []);
-    if (states.hover === before.signature) hoverless++;
-    if (states.disabled !== null && states.disabled === states.hover)
+    const label = states.name
+      ? `${states.where} (“${states.name}”)`
+      : states.where;
+    if (states.hover === before.signature) {
+      hoverless++;
+      hoverProblems.push(label);
+    }
+    if (states.disabled !== null && states.disabled === states.hover) {
       disabledUnchanged++;
+      disabledProblems.push(label);
+    }
   }
-  add('hover', 'Controls have a visible hover state', hoverless);
-  add('disabled', 'Controls have a visible disabled state', disabledUnchanged);
+  add(
+    'hover',
+    'Controls have a visible hover state',
+    hoverless,
+    `${hoverless} violation(s).${
+      hoverProblems.length
+        ? ` No hover change: ${hoverProblems.slice(0, 5).join('; ')}.`
+        : ''
+    }`,
+  );
+  add(
+    'disabled',
+    'Controls have a visible disabled state',
+    disabledUnchanged,
+    `${disabledUnchanged} violation(s).${
+      disabledProblems.length
+        ? ` No disabled change: ${disabledProblems.slice(0, 5).join('; ')}.`
+        : ''
+    }`,
+  );
   try {
     await window.webContents.debugger.sendCommand(
       'Emulation.setEmulatedMedia',
@@ -375,7 +493,7 @@ export async function measureTaste(
     add('motion', 'Motion respects reduced-motion', moving);
   } catch (error) {
     findings.push({
-      id: `taste-motion-${page}`,
+      id: tasteFindingId('motion', page, width, opts.kind),
       label: 'Motion respects reduced-motion',
       status: 'unknown',
       kind: 'failure',

@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isInside } from './files';
+import {
+  BUTTON_CONTRAST,
+  LARGE_TEXT_CONTRAST,
+  TEXT_CONTRAST,
+  contrastRatio,
+  round1,
+} from './contrast';
 
 /**
  * The seven design directions in Cauldron's starter set (design/STARTER-SET.md),
@@ -367,6 +374,48 @@ export function designDocument(direction: DesignDirection): string {
     .map(([name, value]) => `| ${name} | \`${value}\` |`)
     .join('\n');
 
+  // Real-brief evidence (ticket 29): directions whose muted or primary sat
+  // under 4.5:1 were used for small labels, links and button text anyway,
+  // because the document said "every colour comes from this table" and never
+  // gave the measured limits. State the measured pairs instead of guessing.
+  // The threshold is decided on the unrounded ratio; rounding is only for
+  // display. Otherwise 4.46 prints as 4.5 and is wrongly allowed for small
+  // text, and 2.99 prints as 3.0 and is wrongly offered for large text.
+  const textPairs = ['ink', 'muted', 'primary']
+    .filter((name) => direction.colours[name])
+    .flatMap((name) =>
+      ['bg', 'surface']
+        .filter((background) => direction.colours[background])
+        .map((background) => {
+          const raw = contrastRatio(
+            direction.colours[name],
+            direction.colours[background],
+          );
+          const use =
+            raw >= TEXT_CONTRAST
+              ? 'small text and above'
+              : raw >= LARGE_TEXT_CONTRAST
+                ? 'large text (24px+, or 18.66px+ bold) only'
+                : 'decorative fills only, no text';
+          return `| ${name} on ${background} | ${round1(raw)}:1 | ${use} |`;
+        }),
+    )
+    .join('\n');
+  const buttonPairs = ['surface', 'bg']
+    .filter((name) => direction.colours[name] && direction.colours.primary)
+    .map((name) => {
+      const raw = contrastRatio(
+        direction.colours[name],
+        direction.colours.primary,
+      );
+      const use =
+        raw >= BUTTON_CONTRAST
+          ? 'button labels allowed'
+          : 'not for button labels';
+      return `| ${name} on primary fill | ${round1(raw)}:1 | ${use} |`;
+    })
+    .join('\n');
+
   return `# ${direction.name}
 
 Chosen in Cauldron for: **${direction.forWhom}**. Learned from ${direction.learnedFrom}.
@@ -381,6 +430,24 @@ ${colours}
 
 Every colour on the page comes from this table. Nothing else.
 
+## Text and buttons
+
+Measured from this direction's own colours:
+
+| Pair | Ratio | Use |
+|---|---|---|
+${textPairs}
+${buttonPairs}
+
+Small text (under 24px) must use a pair at 4.5:1 or better. Large text (24px+,
+or 18.66px+ bold) may use a pair at 3:1 or better, and only at 3:1 or better.
+Button labels must be 4.5:1 or better against the colour behind them. A colour
+marked "decorative fills only, no text" measures under 3:1, so it is for
+backgrounds, borders and rules only: never use it for text at any size. Use
+\`ink\` for small labels and links, with an underline for links. If a button fill
+cannot carry button text at 4.5:1, use \`ink\` as the fill or an \`ink\` border on
+\`bg\` instead.
+
 ## Type
 
 - Display: ${direction.fonts.display.family} (${direction.fonts.display.package}), weights ${direction.fonts.display.weights.join(', ')}
@@ -392,6 +459,11 @@ No other sizes.
 ## Spacing
 
 Steps, in rem: ${direction.spacing.map((step) => step / 16).join(', ')}.
+
+Sizes and spacing are rem values measured against a 16px root. Leave \`html\` at
+the browser's default size and apply size tokens to \`body\`, headings and text
+elements. Never set \`html { font-size: <a rem token> }\`: that multiplies every
+size and spacing token and takes all of them off this scale.
 
 ## Corners
 
