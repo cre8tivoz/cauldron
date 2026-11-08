@@ -1,0 +1,5 @@
+# Preserve rendered sites, screenshots and archives locally, without image bundles in Git.
+*.tar.gz
+pair-A/
+pair-B/
+screenshots/

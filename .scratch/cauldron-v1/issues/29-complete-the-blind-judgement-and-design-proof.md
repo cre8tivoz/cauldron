@@ -118,3 +118,25 @@ editorial direction for provenance-led briefs instead of asking the model to mak
 `open-house` editorial; no direction was invented here. Two real Cauldron runs (one per
 pair, same frozen standalone baselines, new neutral blind re-judge) are the next justified
 step; no win is promised. Ticket remains **open**.
+
+## Corrected-proof round 2 — 8 Nov 2026 (revision `0ba9e1e`)
+
+Two new real Codex runs through the packaged app (`gpt-5.6-terra`, installed CLI 0.152.0,
+hidden fresh userData, existing `runBriefTest`/`sendAgent` path, no retry). This is a new proof
+attempt after Billy's feedback, not the original independent trial; frozen outputs and verdicts
+are unchanged. Fresh original scaffold + same supplied images, real cloned `node_modules`.
+
+- Moretti: direction `the-edit` chosen through the existing test hook; 4 files changed; 3 routes
+  built. Measured **452 findings, 37 failures, 37 distinct failing ids** — spacing 12 rows
+  (25px/13px), hover 18, disabled 6, heading hierarchy 1. No contrast, axe, type-size, keyboard or
+  focus failures (lowest text contrast 5.59:1; keyboard 8/8).
+- PeNtA: direction `silver-screen`; 4 files changed; 3 routes built. Measured **452 findings,
+  84 failures, 84 distinct failing ids** — text/axe contrast at 3.68:1 (muted captions/definition
+  text), type sizes 63.75–256px off scale, hover 18, disabled 12, emoji-as-icon 6, spacing and
+  hard-coded `15%` padding. Keyboard and focus pass (10/10).
+
+New neutral pairs with fresh random labels are preserved in
+`.scratch/cauldron-v1/blind-round2/` (archive gitignored; screenshots per label). The condition
+key is private, outside the repository. Billy's verdict on the new labels is pending; measured
+failures remain, so the release gate is **not** passed and no comparison win is claimed.
+Full record: `scratch/t29-proof2-result.md`.
