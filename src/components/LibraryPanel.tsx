@@ -23,18 +23,37 @@ export function LibraryPanel({ site, onBack }: Props) {
   const [lastRun, setLastRun] = useState<string | null>(null);
 
   useEffect(() => {
-    void window.cauldron.library().then((result) => {
-      setPieces(result.pieces);
-      setLinks(result.links);
-    });
-    void window.cauldron.runAction({ action: 'listPages' }).then((result) => {
-      const listed = result as {
-        pages?: Array<{ page: string; file: string }>;
-      };
-      setPages(listed.pages ?? []);
-      if (listed.pages && listed.pages.length > 0)
-        setPage(listed.pages[0].page);
-    });
+    window.cauldron
+      .library()
+      .then((result) => {
+        setPieces(result.pieces);
+        setLinks(result.links);
+      })
+      .catch((error: unknown) => {
+        // A failed load must say why, not quietly show an empty shelf.
+        setMessage(
+          `The component library could not be read: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+    window.cauldron
+      .runAction({ action: 'listPages' })
+      .then((result) => {
+        const listed = result as {
+          pages?: Array<{ page: string; file: string }>;
+        };
+        setPages(listed.pages ?? []);
+        if (listed.pages && listed.pages.length > 0)
+          setPage(listed.pages[0].page);
+      })
+      .catch((error: unknown) => {
+        setMessage(
+          `The site's pages could not be listed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
   }, [site?.root]);
 
   const add = async (piece: CauldronPiece, mode: 'add' | 'replace' = 'add') => {

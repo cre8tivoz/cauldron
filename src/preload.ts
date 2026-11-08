@@ -9,6 +9,8 @@ const EVENTS = [
   'cauldron:drafts',
   'cauldron:agent-event',
   'cauldron:agent-done',
+  'cauldron:menu',
+  'cauldron:prepare-progress',
 ] as const;
 
 type EventName = (typeof EVENTS)[number];
@@ -103,6 +105,24 @@ const api = {
     ipcRenderer.invoke('cauldron:restore-draft', draft),
   newPage: (page: { path: string; title: string }) =>
     ipcRenderer.invoke('cauldron:new-page', page),
+
+  // Project home (issue 32). The native folder picker is invoked through the
+  // main process only; the renderer never gets raw dialog power.
+  projectsHome: () => ipcRenderer.invoke('cauldron:projects-home'),
+  createProject: (payload: { name: string; parent: string }) =>
+    ipcRenderer.invoke('cauldron:create-project', payload),
+  chooseProjectParent: () =>
+    ipcRenderer.invoke('cauldron:choose-project-parent'),
+  detectDependencies: (root: string) =>
+    ipcRenderer.invoke('cauldron:detect-dependencies', root),
+  prepareDependencies: (root: string) =>
+    ipcRenderer.invoke('cauldron:prepare-dependencies', root),
+  cancelPrepare: () => ipcRenderer.invoke('cauldron:prepare-cancel'),
+  removeRecent: (projectPath: string) =>
+    ipcRenderer.invoke('cauldron:remove-recent', projectPath),
+  /** Test-only preview introspection; the main process answers only under CAULDRON_BACKGROUND_TEST. */
+  testPreviewIntrospect: () =>
+    ipcRenderer.invoke('cauldron:test-preview-introspect') as Promise<unknown>,
 
   on: (channel: EventName, callback: (payload: never) => void) => {
     if (!EVENTS.includes(channel)) throw new Error(`Unknown event: ${channel}`);

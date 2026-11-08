@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { childEnvForTools } from './runtime';
 
 export type PackageManager = 'npm' | 'pnpm' | 'yarn';
 
@@ -15,6 +16,18 @@ export type Site = {
 export type Problem = { problem: string; detail: string };
 
 function detectPackageManager(root: string): PackageManager {
+  // A project's own packageManager declaration is honoured (new Cauldron
+  // projects declare pnpm); lockfiles decide when there is no declaration.
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+    ) as { packageManager?: string };
+    const declared = pkg.packageManager?.split('@')[0];
+    if (declared === 'pnpm' || declared === 'yarn' || declared === 'npm')
+      return declared;
+  } catch {
+    // Unreadable manifest: fall back to lockfiles.
+  }
   if (fs.existsSync(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
   if (fs.existsSync(path.join(root, 'yarn.lock'))) return 'yarn';
   return 'npm';
@@ -120,9 +133,15 @@ export function startDevServer(
   }
 
   return new Promise((resolve) => {
+    // A GUI launch has no terminal PATH; the astro shebang needs a real Node.
+    const env = childEnvForTools({
+      ...process.env,
+      FORCE_COLOR: '0',
+      NO_COLOR: '1',
+    });
     const child = spawn(astroBin, ['dev', '--host', '127.0.0.1'], {
       cwd: site.root,
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

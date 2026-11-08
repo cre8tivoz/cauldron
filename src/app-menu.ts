@@ -2,8 +2,19 @@ import { Menu, app, shell, type MenuItemConstructorOptions } from 'electron';
 
 const isMac = process.platform === 'darwin';
 
-/** The standard Mac menu, so undo, copy, paste and quit all behave normally. */
-export function buildMenu(): Menu {
+/**
+ * The standard Mac menu, so undo, copy, paste and quit all behave normally.
+ * The project-workflow actions arrive as trusted app-level callbacks (issue 32):
+ * they forward one fixed action name to the renderer, they never carry site or
+ * filesystem power of their own.
+ */
+export function buildMenu(
+  options: {
+    onNewProject?: () => void;
+    onOpenProject?: () => void;
+    onProjectHome?: () => void;
+  } = {},
+): Menu {
   const appMenu: MenuItemConstructorOptions[] = isMac
     ? [
         {
@@ -23,11 +34,43 @@ export function buildMenu(): Menu {
       ]
     : [];
 
+  const fileItems: MenuItemConstructorOptions[] = [
+    ...(options.onNewProject
+      ? [
+          {
+            label: 'New Project…',
+            accelerator: 'CmdOrCtrl+N',
+            click: options.onNewProject,
+          } as MenuItemConstructorOptions,
+        ]
+      : []),
+    ...(options.onOpenProject
+      ? [
+          {
+            label: 'Open Project…',
+            accelerator: 'CmdOrCtrl+O',
+            click: options.onOpenProject,
+          } as MenuItemConstructorOptions,
+        ]
+      : []),
+    ...(options.onProjectHome
+      ? [
+          {
+            label: 'Project Home',
+            accelerator: 'CmdOrCtrl+Shift+H',
+            click: options.onProjectHome,
+          } as MenuItemConstructorOptions,
+        ]
+      : []),
+    { type: 'separator' },
+    { role: 'close' },
+  ];
+
   const template: MenuItemConstructorOptions[] = [
     ...appMenu,
     {
       label: 'File',
-      submenu: [{ role: 'close' }],
+      submenu: fileItems,
     },
     {
       label: 'Edit',

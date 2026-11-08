@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { DesignDirection } from './directions';
 import { generatedSiteStandards } from './directions';
 import { tasteRulesText } from './tastes';
+import { childEnvForTools, resolveToolPath } from './runtime';
 
 /** The .env of the Hermes profile Cauldron runs (ticket 20). */
 export function hermesEnvFile(): string {
@@ -490,11 +491,22 @@ export function runAgent(options: {
       process.env.CAULDRON_AGENT_ARGS_LOG,
       `${JSON.stringify({ tool, command, args, sessionId: sessionId ?? null })}\n`,
     );
-  const env: NodeJS.ProcessEnv = {
+  // GUI launch: bare names rely on a terminal PATH that the app does not have.
+  // Resolve the real installed binary, and hand every child a PATH that puts
+  // the resolved directories first so sibling shebang tools still run.
+  const resolvedCommand = resolveToolPath(command);
+  if (!resolvedCommand) {
+    onEvent({
+      type: 'error',
+      text: `${command} could not be found. It is not installed, or it is installed somewhere Cauldron could not resolve (check ~/.local/bin and your shell's PATH). Nothing was sent to any provider.`,
+    });
+    return { cancel: () => {} };
+  }
+  const env: NodeJS.ProcessEnv = childEnvForTools({
     ...process.env,
     FORCE_COLOR: '0',
     NO_COLOR: '1',
-  };
+  });
   // The profile's Cauldron entry stays dormant until these two are set (plan 3.3).
   if (tool === 'hermes' && options.mcp) {
     env.CAULDRON_MCP_URL = options.mcp.url;
@@ -505,7 +517,7 @@ export function runAgent(options: {
     writeHermesConnection(options.mcp.url, options.mcp.code);
   }
 
-  const child: ChildProcess = spawn(command, args, {
+  const child: ChildProcess = spawn(resolvedCommand, args, {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

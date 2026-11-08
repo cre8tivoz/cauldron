@@ -10,6 +10,7 @@ import { ContentPanel } from './components/ContentPanel';
 import { LibraryPanel } from './components/LibraryPanel';
 import { QualityPanel } from './components/QualityPanel';
 import { PublishPanel } from './components/PublishPanel';
+import { ProjectHome } from './components/ProjectHome';
 import {
   DRAFT_SAVE_DELAY_MS,
   clearDraftSchedule,
@@ -41,8 +42,14 @@ export function App() {
   } | null>(null);
   const [picking, setPicking] = useState(true);
   const [view, setView] = useState<
-    'build' | 'design' | 'content' | 'library' | 'quality' | 'publish'
-  >('build');
+    | 'projects'
+    | 'build'
+    | 'design'
+    | 'content'
+    | 'library'
+    | 'quality'
+    | 'publish'
+  >('projects');
   const [direction, setDirection] = useState<CauldronDirectionSummary | null>(
     null,
   );
@@ -89,6 +96,9 @@ export function App() {
       setSelection(null);
       setProblem(null);
       setConflict(null);
+      // A real project opened (created or reopened): the build view is where
+      // the work happens; the home stays reachable from the top bar and menu.
+      setView('build');
     });
     const offPreview = window.cauldron.on(
       'cauldron:preview',
@@ -116,6 +126,18 @@ export function App() {
         setDrafts(next.drafts ?? []);
       },
     );
+    const offMenu = window.cauldron.on('cauldron:menu', (payload: never) => {
+      const action = payload as unknown as {
+        action: 'new-project' | 'open-project' | 'project-home';
+      };
+      if (action.action === 'project-home') setView('projects');
+      if (action.action === 'new-project') {
+        setView('projects');
+        // ⌘N must lead to the new-project form, not just the same home.
+        setNewFormSignal((signal) => signal + 1);
+      }
+      if (action.action === 'open-project') openSiteRef.current();
+    });
 
     return () => {
       offSite();
@@ -123,6 +145,7 @@ export function App() {
       offStatus();
       offSelection();
       offDrafts();
+      offMenu();
     };
   }, []);
 
@@ -196,13 +219,112 @@ export function App() {
     [selection],
   );
 
+  // The menu forwards its trusted action to whatever the latest render bound,
+  // so the listener registered once at startup never uses a stale callback.
+  const openSiteRef = useRef<() => void>(() => {});
+
+  // An existing project whose dependencies are missing: shown as an explicit
+  // install-and-open consent panel on the project home (issue 32).
+  const [pendingExisting, setPendingExisting] = useState<{
+    root: string;
+    setup: CauldronDependencySetup;
+    problem: string;
+  } | null>(null);
+  // Unsaved-edit confirmation before any project switch (issue 32).
+  const [confirmOpen, setConfirmOpen] = useState<{ root: string } | null>(null);
+  // Bumped by the New Project menu item so the home focuses the new-project
+  // form even when it is already showing.
+  const [newFormSignal, setNewFormSignal] = useState(0);
+
+  /**
+   * The one opening path every entry point shares: native picker result,
+   * recents, the path field and the File menu all end here. It guards
+   * unsaved edits, shows the structured needsPreparation answer as an
+   * install offer, and surfaces every failure as text.
+   */
+  const beginOpen = useCallback(
+    async (root: string, discardConfirmed = false) => {
+      if (busy) return;
+      if (!discardConfirmed && (unsavedEdits > 0 || contentUnsaved)) {
+        // No automatic discard: the person chooses.
+        setConfirmOpen({ root });
+        return;
+      }
+      setBusy(true);
+      setProblem(null);
+      try {
+        const result = await window.cauldron.openSite(root);
+        if ('needsConfirm' in result) {
+          // Persisted recovery drafts the renderer could not see.
+          setConfirmOpen({ root: result.root });
+          setProblem(result.problem);
+          return;
+        }
+        if ('needsPreparation' in result) {
+          setPendingExisting({
+            root,
+            setup: result.setup,
+            problem: result.problem,
+          });
+          setView('projects');
+          return;
+        }
+        if ('problem' in result) setProblem(result.problem);
+      } catch (error) {
+        setProblem(
+          `Opening the project failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, unsavedEdits, contentUnsaved],
+  );
+  const beginOpenRef = useRef(beginOpen);
+  beginOpenRef.current = beginOpen;
+
+  /** Explicit discard chosen in the confirm dialog, then the open proceeds. */
+  const discardAndOpen = useCallback(async () => {
+    const target = confirmOpen?.root;
+    setConfirmOpen(null);
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = null;
+    draftSchedule.current = clearDraftSchedule();
+    draftValues.current.clear();
+    setUnsavedEdits(0);
+    setContentUnsaved(false);
+    await window.cauldron.discardDrafts();
+    setDrafts([]);
+    if (target) void beginOpenRef.current(target, true);
+  }, [confirmOpen]);
+
+  const choosingFolder = useRef(false);
   const openSite = useCallback(async () => {
-    setBusy(true);
+    if (busy || choosingFolder.current) return;
+    choosingFolder.current = true;
     setProblem(null);
-    const result = await window.cauldron.openSiteDialog();
-    setBusy(false);
-    if ('problem' in result) setProblem(result.problem);
-  }, []);
+    try {
+      const result = await window.cauldron.openSiteDialog();
+      if ('picked' in result) {
+        await beginOpenRef.current(result.picked);
+        return;
+      }
+      if ('problem' in result) setProblem(result.problem);
+    } catch (error) {
+      setProblem(
+        `Opening the site failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    } finally {
+      choosingFolder.current = false;
+    }
+  }, [busy]);
+  openSiteRef.current = openSite;
+
+  const openPath = beginOpen;
 
   const togglePreview = useCallback(async () => {
     setBusy(true);
@@ -309,6 +431,15 @@ export function App() {
         <button
           className="rail-button"
           type="button"
+          aria-current={view === 'projects' ? 'page' : undefined}
+          title="Project home"
+          onClick={() => setView('projects')}
+        >
+          H
+        </button>
+        <button
+          className="rail-button"
+          type="button"
           aria-current={view === 'build' ? 'page' : undefined}
           title="Sites"
           onClick={() => setView('build')}
@@ -371,6 +502,7 @@ export function App() {
           canUndo={canUndo}
           canRedo={canRedo}
           onOpen={openSite}
+          onProjects={() => setView('projects')}
           onTogglePreview={togglePreview}
           onReload={() => void window.cauldron.reloadPreview()}
           onUndo={undo}
@@ -420,7 +552,18 @@ export function App() {
           </div>
         ) : null}
 
-        {view === 'publish' ? (
+        {view === 'projects' ? (
+          <div className="panes">
+            <ProjectHome
+              busy={busy}
+              onOpenExisting={openSite}
+              onOpenPath={openPath}
+              pendingExisting={pendingExisting}
+              onDismissExisting={() => setPendingExisting(null)}
+              focusNewForm={newFormSignal}
+            />
+          </div>
+        ) : view === 'publish' ? (
           <div className="panes">
             <PublishPanel
               site={site}
@@ -553,6 +696,58 @@ export function App() {
             Element {inspectorCollapsed ? '◂' : '▸'}
           </button>
         </div>
+
+        {confirmOpen ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Unsaved edits"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 40,
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--card, #0f1011)',
+                border: '1px solid var(--hairline)',
+                borderRadius: 6,
+                padding: 16,
+                maxWidth: 460,
+              }}
+            >
+              <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>
+                Unsaved edits in this project
+              </h2>
+              <p className="hint" style={{ marginTop: 0 }}>
+                Opening another project now would replace what is on screen.
+                Keep editing to stay here, or discard the unsaved changes and
+                open the other project. Nothing is discarded automatically.
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button
+                  className="button primary"
+                  type="button"
+                  onClick={() => setConfirmOpen(null)}
+                >
+                  Keep editing
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => void discardAndOpen()}
+                >
+                  Discard changes and open
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <StatusBar
           message={

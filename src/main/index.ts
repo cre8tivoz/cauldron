@@ -41,6 +41,19 @@ import { checkSite } from './quality';
 import { directionFromUrl } from './reference';
 import { macBuildInfo, publish, repoState } from './publishing';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
+import {
+  addRecent,
+  canonicalProjectPath,
+  createProject,
+  loadRecents,
+  removeRecent,
+} from './projects';
+import {
+  detectDependencySetup,
+  prepareDependencies,
+  type PrepareHandle,
+  type PrepareUpdate,
+} from './dependencies';
 import { draftEditOperation } from '../draft-restore';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
@@ -53,8 +66,19 @@ import {
 } from './edit';
 
 const SMOKE = process.env.CAULDRON_SMOKE === '1';
+// Test-only: hides the window, Dock and splash so an automated UI proof can
+// drive the real app in the background. It grants no other shortcut: the
+// renderer, preload, IPC and backend all run exactly as a person sees them.
+const BACKGROUND_TEST = process.env.CAULDRON_BACKGROUND_TEST === '1';
 let sawUnexpectedError = '';
 const E2E_SITE = process.env.CAULDRON_E2E_SITE ?? '';
+/**
+ * The Astro version verified for this workflow in the project-backend proof
+ * (real installs from the shared store; see the issue-32 backend record).
+ * It is the app's current tested version, pinned exactly in new projects —
+ * deliberately NOT presented as a live "latest" lookup.
+ */
+const ASTRO_VERSION_TESTED = '7.4.7';
 // Test runs can keep their app data in their own folder, so parallel or
 // repeated harness runs never share recovery, conflict or run records. The
 // variable is only ever set by a test run.
@@ -83,6 +107,9 @@ type Controller = {
   sessions: Map<string, Partial<Record<AgentTool, string>>>;
   mcp: McpHandle | null;
   status: string[];
+  /** A running dependency install, one at a time across the app. */
+  prepare: PrepareHandle | null;
+  prepareRoot: string | null;
 };
 
 const state: Controller = {
@@ -99,7 +126,34 @@ const state: Controller = {
   sessions: new Map(),
   mcp: null,
   status: [],
+  prepare: null,
+  prepareRoot: null,
 };
+
+// --- Project home state -----------------------------------------------------
+
+/** The small JSON library of recent projects, persisted across restarts. */
+function recentsStorePath(): string {
+  return path.join(app.getPath('userData'), 'recent-projects.json');
+}
+
+/**
+ * One app-managed pnpm content-addressable store, outside every project, so
+ * new projects share downloaded packages without a per-userData fresh store
+ * or any global settings write. Supplied per install with --store-dir.
+ */
+function pnpmStoreDir(): string {
+  // macOS Electron exposes no per-app cache path; the app-level Application
+  // Support location is outside every project and outside the test-overridden
+  // userData, so the store is genuinely shared and persists across restarts.
+  return path.join(app.getPath('appData'), 'Cauldron', 'pnpm-store');
+}
+
+/** Record a project in the library; a store failure is shown, never fatal. */
+function recordRecent(root: string): void {
+  const result = addRecent(recentsStorePath(), root);
+  if (result.problem) fail(result.problem);
+}
 
 function send(channel: string, payload: unknown): void {
   const window = state.window;
@@ -299,10 +353,52 @@ async function openSiteAt(root: string) {
       problem:
         'Finish or cancel the current agent job before opening another site.',
     };
+  if (state.prepare)
+    return {
+      problem:
+        'A dependency install is running. Cancel it or wait for it to finish before opening another project.',
+    };
+  // Data safety (issue 32): a project with edits saved as recovery drafts is
+  // not abandoned silently. The renderer confirms typed-but-unsaved edits
+  // itself; this guard covers the persisted ones the main process knows about.
+  if (state.site) {
+    const current = canonicalProjectPath(state.site.root);
+    const target = canonicalProjectPath(root);
+    if (current !== target) {
+      const saved = storedDrafts(state.site.root);
+      if (saved.length > 0)
+        return {
+          needsConfirm: true,
+          root,
+          problem: `${state.site.name} has ${saved.length} unsaved edit${
+            saved.length === 1 ? '' : 's'
+          } kept as recovery drafts. Confirm before switching projects.`,
+        };
+    }
+  }
   const detected = detectSite(root);
   if ('problem' in detected) {
     status(detected.problem);
     return detected;
+  }
+  // The library records every project that was really detected as a site,
+  // including one whose open is refused below for missing dependencies: a
+  // failed or cancelled install must stay recoverable from the library, never
+  // become a dead end (issue 32).
+  recordRecent(detected.root);
+  // An existing project without its dependencies is not opened into a dead
+  // preview: the caller gets a structured answer and the setup flow offers an
+  // explicit install with the project's own package manager (issue 32).
+  const setup = detectDependencySetup(root);
+  if (!setup.hasAstroBin) {
+    status(
+      `${detected.name} needs its dependencies installed before it can open.`,
+    );
+    return {
+      needsPreparation: true as const,
+      problem: `${detected.name} does not have its dependencies installed yet, so its preview cannot run. Install them from the project home (packages are downloaded through Cauldron's shared store; nothing is installed globally).`,
+      setup,
+    };
   }
 
   await stopPreview();
@@ -849,7 +945,23 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
       },
     };
   } else {
-    state.agent = start();
+    // runAgent can report a missing tool SYNCHRONOUSLY, before returning its
+    // handle. The error event has already run finishAgentRun (which cleared
+    // agent and runId), so the handle is assigned only if the run is still the
+    // current one — otherwise a stale handle would stick and lock the controls.
+    try {
+      const handle = start();
+      if (state.agentRunId === run.id) state.agent = handle;
+    } catch (error) {
+      if (state.agentRunId === run.id) {
+        state.agent = null;
+        state.agentRunId = null;
+        onEvent({
+          type: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   return { ok: true, runId: run.id };
@@ -873,19 +985,177 @@ function handle(
 }
 
 function registerIpc(): void {
+  // The dialog only picks; the opening itself goes through the same guarded
+  // flow as every other entry point (recents, path field, menu), so an
+  // unprepared project gets the same setup offer instead of a dead preview
+  // (issue 32).
   handle('cauldron:open-site-dialog', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
       title: 'Open an Astro site',
     });
     if (result.canceled || result.filePaths.length === 0)
-      return { cancelled: true };
-    return openSiteAt(result.filePaths[0]);
+      return { cancelled: true as const };
+    return { picked: result.filePaths[0] };
   });
 
   handle('cauldron:open-site', async (_event, root: string) =>
     openSiteAt(root),
   );
+
+  // --- Project home (issue 32) ----------------------------------------------
+
+  handle('cauldron:projects-home', () => {
+    const library = loadRecents(recentsStorePath());
+    return {
+      problem: library.problem,
+      projects: library.projects.map((project) => ({
+        ...project,
+        missing: !fs.existsSync(project.path),
+        // So the library can offer "Install dependencies" again on an entry
+        // whose install failed or was dismissed, without re-opening first.
+        prepared:
+          fs.existsSync(project.path) &&
+          detectDependencySetup(project.path).hasAstroBin,
+      })),
+    };
+  });
+
+  handle('cauldron:choose-project-parent', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Choose where the new project folder is created',
+    });
+    return {
+      cancelled: result.canceled,
+      path: result.canceled ? null : (result.filePaths[0] ?? null),
+    };
+  });
+
+  handle(
+    'cauldron:create-project',
+    (_event, payload: { name: string; parent: string }) => {
+      const result = createProject({
+        parent: payload.parent,
+        name: payload.name,
+        astroVersion: ASTRO_VERSION_TESTED,
+      });
+      if ('ok' in result) {
+        recordRecent(result.project.root);
+        status(`Created ${result.project.name} in ${result.project.root}`);
+        return result;
+      }
+      status(result.problem);
+      return result;
+    },
+  );
+
+  handle('cauldron:detect-dependencies', (_event, root: string) => {
+    const site = detectSite(root);
+    return {
+      site: 'problem' in site ? null : site,
+      problem: 'problem' in site ? site.problem : null,
+      setup: detectDependencySetup(root),
+    };
+  });
+
+  handle('cauldron:prepare-dependencies', (_event, root: string) => {
+    if (state.prepare)
+      return {
+        ok: false,
+        problem: 'An install is already running. Cancel it first.',
+      };
+    if (state.agent)
+      return {
+        ok: false,
+        problem: 'An agent job is running; prepare can start once it finishes.',
+      };
+    const resolved = canonicalProjectPath(root);
+    if (!fs.existsSync(resolved))
+      return { ok: false, problem: 'That project folder no longer exists.' };
+    state.prepareRoot = resolved;
+    // A failure the helper reports synchronously (a missing package manager,
+    // an unusable folder) emits its terminal event before this handler
+    // returns. The handle must then never be stored: a stale handle would
+    // block every later install and survive as an un-cancellable ghost.
+    let syncProblem: string | null = null;
+    let handle: PrepareHandle;
+    try {
+      handle = prepareDependencies({
+        root: resolved,
+        storeDir: pnpmStoreDir(),
+        onUpdate: (update: PrepareUpdate) => {
+          if (state.prepareRoot !== resolved) return;
+          if (update.type === 'progress') {
+            send('cauldron:prepare-progress', {
+              root: resolved,
+              type: 'progress',
+              text: update.text,
+            });
+            return;
+          }
+          send('cauldron:prepare-progress', {
+            root: resolved,
+            type: 'done',
+            ok: update.ok,
+            problem: update.ok ? null : update.problem,
+            detail: update.detail,
+          });
+          state.prepare = null;
+          state.prepareRoot = null;
+          if (!update.ok) syncProblem = update.problem;
+          if (update.ok)
+            status(`Dependencies are ready in ${path.basename(resolved)}.`);
+          else fail(update.problem);
+        },
+      });
+    } catch (error) {
+      state.prepare = null;
+      state.prepareRoot = null;
+      const problem = `The install could not be started: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      fail(problem);
+      return { ok: false, problem };
+    }
+    if (state.prepareRoot !== resolved) {
+      // The run already ended synchronously; report that outcome instead of
+      // pretending the install is running.
+      return {
+        ok: false,
+        problem: syncProblem ?? 'The install could not be started.',
+      };
+    }
+    state.prepare = handle;
+    return { ok: true };
+  });
+
+  handle('cauldron:prepare-cancel', () => {
+    state.prepare?.cancel();
+    return true;
+  });
+
+  // Test-only instrumentation (CAULDRON_BACKGROUND_TEST): reads the real
+  // preview WebContentsView state and captures the child page and the parent
+  // window, so a background run can prove the view is actually laid out,
+  // visible and rendering without foregrounding the app. It reports facts
+  // only; it changes nothing.
+  if (BACKGROUND_TEST)
+    handle('cauldron:test-preview-introspect', async () => {
+      const child = await state.preview.captureChild();
+      const parent = await state.preview.captureWindow();
+      return {
+        ...state.preview.introspect(),
+        childPng: child,
+        parentPng: parent,
+      };
+    });
+
+  handle('cauldron:remove-recent', (_event, projectPath: string) => {
+    const result = removeRecent(recentsStorePath(), projectPath);
+    if (result.problem) fail(result.problem);
+    return { ok: !result.problem, problem: result.problem ?? undefined };
+  });
 
   handle('cauldron:site-state', () => ({
     site: state.site,
@@ -1605,7 +1875,7 @@ function showSplash(): Splash | null {
   // CAULDRON_SPLASH_PROOF lets the hidden smoke run exercise and photograph
   // this path without taking the screen (used by the packaging proof).
   const proof = process.env.CAULDRON_SPLASH_PROOF ?? '';
-  if ((SMOKE || E2E_SITE) && !proof) return null;
+  if ((SMOKE || E2E_SITE || BACKGROUND_TEST) && !proof) return null;
   let image = '';
   try {
     image = fs.readFileSync(splashImagePath()).toString('base64');
@@ -1697,7 +1967,10 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
     // never close the branded window before anyone sees it.
     if (splash) await splash.shown;
     if (splash && !splash.window.isDestroyed()) splash.window.close();
-    if (!SMOKE && !E2E_SITE && !window.isDestroyed()) window.show();
+    // Background test runs keep the window off-screen; the interface still
+    // renders and is fully drivable over CDP, exactly like a shown window.
+    if (!SMOKE && !E2E_SITE && !BACKGROUND_TEST && !window.isDestroyed())
+      window.show();
   };
   window.once('ready-to-show', reveal);
   window.webContents.once('did-fail-load', () => {
@@ -1987,13 +2260,15 @@ export function start(): void {
   });
 
   app.whenReady().then(async () => {
-    if ((SMOKE || E2E_SITE) && process.platform === 'darwin') app.dock?.hide();
+    if ((SMOKE || E2E_SITE || BACKGROUND_TEST) && process.platform === 'darwin')
+      app.dock?.hide();
     // Development runs otherwise show Electron's own icon in the Dock. The
     // packaged app reads build/icon.icns from its bundle.
     if (
       !app.isPackaged &&
       !SMOKE &&
       !E2E_SITE &&
+      !BACKGROUND_TEST &&
       process.platform === 'darwin'
     ) {
       try {
@@ -2002,7 +2277,13 @@ export function start(): void {
         console.error('The Cauldron Dock icon could not be set:', error);
       }
     }
-    Menu.setApplicationMenu(buildMenu());
+    Menu.setApplicationMenu(
+      buildMenu({
+        onNewProject: () => send('cauldron:menu', { action: 'new-project' }),
+        onOpenProject: () => send('cauldron:menu', { action: 'open-project' }),
+        onProjectHome: () => send('cauldron:menu', { action: 'project-home' }),
+      }),
+    );
     registerIpc();
     createWindow(showSplash());
 
@@ -2199,10 +2480,14 @@ export function start(): void {
   });
 
   app.on('window-all-closed', () => {
+    // A window closing while an install runs must not leave the pnpm child
+    // running detached from any UI (issue 32).
+    state.prepare?.cancel();
     if (process.platform !== 'darwin') app.quit();
   });
 
   app.on('before-quit', () => {
+    state.prepare?.cancel();
     state.server?.stop();
     state.mcp?.close();
   });

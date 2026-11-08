@@ -151,13 +151,62 @@ type WriteOutcome = {
   selection?: CauldronSelection;
 };
 
+type CauldronRecent = {
+  path: string;
+  name: string;
+  addedAt: number;
+  lastOpenedAt: number | null;
+  /** The folder is gone or moved; the entry stays for cleanup or re-pointing. */
+  missing: boolean;
+  /** The project has its dependencies (node_modules/.bin/astro) ready. */
+  prepared: boolean;
+};
+
+/** What opening a project can answer with (issue 32). */
+type CauldronOpenResult =
+  | { site: CauldronSite }
+  | { cancelled: true }
+  | { picked: string }
+  | { problem: string; detail?: string }
+  | {
+      needsPreparation: true;
+      problem: string;
+      setup: CauldronDependencySetup;
+    }
+  | { needsConfirm: true; root: string; problem: string };
+
+type CauldronDependencySetup = {
+  manager: 'npm' | 'pnpm' | 'yarn';
+  lockfile: string | null;
+  hasNodeModules: boolean;
+  hasAstroBin: boolean;
+  conflict: string | null;
+};
+
+type CauldronPrepareEvent =
+  | { root: string; type: 'progress'; text: string }
+  | {
+      root: string;
+      type: 'done';
+      ok: boolean;
+      problem: string | null;
+      detail: string;
+    };
+
+type CauldronCreatedProject = {
+  root: string;
+  name: string;
+  astroVersion: string;
+  slug: string;
+};
+
 type CauldronApi = {
   openSiteDialog: () => Promise<
     | { cancelled: true }
-    | { site: CauldronSite }
+    | { picked: string }
     | { problem: string; detail: string }
   >;
-  openSite: (root: string) => Promise<unknown>;
+  openSite: (root: string) => Promise<CauldronOpenResult>;
   state: () => Promise<{
     site: CauldronSite | null;
     running: boolean;
@@ -287,6 +336,39 @@ type CauldronApi = {
     path: string;
     title: string;
   }) => Promise<{ ok: true; file: string; url: string } | { problem: string }>;
+
+  projectsHome: () => Promise<{
+    problem: string | null;
+    projects: CauldronRecent[];
+  }>;
+  createProject: (payload: {
+    name: string;
+    parent: string;
+  }) => Promise<
+    | { ok: true; project: CauldronCreatedProject }
+    | { problem: string; detail: string }
+  >;
+  chooseProjectParent: () => Promise<{
+    cancelled: boolean;
+    path: string | null;
+  }>;
+  detectDependencies: (root: string) => Promise<{
+    site: CauldronSite | null;
+    problem: string | null;
+    setup: CauldronDependencySetup;
+  }>;
+  prepareDependencies: (root: string) => Promise<{
+    ok: boolean;
+    problem?: string;
+  }>;
+  cancelPrepare: () => Promise<boolean>;
+  removeRecent: (
+    projectPath: string,
+  ) => Promise<{ ok: boolean; problem?: string }>;
+
+  /** Test-only preview introspection (main answers only under CAULDRON_BACKGROUND_TEST). */
+  testPreviewIntrospect: () => Promise<unknown>;
+
   on: (channel: string, callback: (payload: never) => void) => () => void;
 };
 

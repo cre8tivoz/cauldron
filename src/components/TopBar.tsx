@@ -8,6 +8,7 @@ type Props = {
   canUndo: boolean;
   canRedo: boolean;
   onOpen: () => void;
+  onProjects: () => void;
   onTogglePreview: () => void;
   onReload: () => void;
   onUndo: () => void;
@@ -24,6 +25,7 @@ export function TopBar({
   canUndo,
   canRedo,
   onOpen,
+  onProjects,
   onTogglePreview,
   onReload,
   onUndo,
@@ -142,6 +144,14 @@ export function TopBar({
         disabled={!site || busy}
       >
         {running ? 'Stop preview' : 'Start preview'}
+      </button>
+      <button
+        className="button"
+        type="button"
+        onClick={onProjects}
+        title="Project home"
+      >
+        Projects
       </button>
       <button
         className="button primary"

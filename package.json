@@ -20,6 +20,8 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "test": "node scripts/test-core.mjs && node scripts/test-agent.mjs",
+    "test:projects": "node scripts/test-projects.mjs",
+    "test:projects:ui": "node scripts/test-projects-ui.mjs",
     "check": "npm run typecheck && npm run lint && npm test",
     "hooks:install": "node scripts/install-hooks.mjs"
   },

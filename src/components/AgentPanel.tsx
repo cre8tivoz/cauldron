@@ -103,13 +103,23 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
     setMessage(null);
     setLines([]);
     setRunning(true);
-    const result = await window.cauldron.agentSend({
-      tool,
-      request: request.trim(),
-    });
-    if (!result.ok) {
+    try {
+      const result = await window.cauldron.agentSend({
+        tool,
+        request: request.trim(),
+      });
+      if (!result.ok) {
+        setRunning(false);
+        setMessage(result.problem ?? 'The agent could not start.');
+      }
+    } catch (error) {
+      // An IPC failure must never leave the chat stuck on "running".
       setRunning(false);
-      setMessage(result.problem ?? 'The agent could not start.');
+      setMessage(
+        `The agent could not start: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   };
 

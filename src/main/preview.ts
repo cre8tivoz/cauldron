@@ -11,6 +11,7 @@ export class Preview {
   private view: WebContentsView | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
   private window: BrowserWindow | null = null;
+  private visible = false;
 
   attach(window: BrowserWindow, preloadPath: string): void {
     this.window = window;
@@ -54,7 +55,11 @@ export class Preview {
       width: Math.max(0, Math.round(next.width)),
       height: Math.max(0, Math.round(next.height)),
     };
-    if (this.view) this.view.setBounds(this.bounds);
+    if (!this.view) return;
+    this.view.setBounds(this.bounds);
+    // A zero-size stage means the interface is not showing the build view
+    // (project home or another panel): the preview must not cover it.
+    this.setVisible(this.bounds.width > 0 && this.bounds.height > 0);
   }
 
   getBounds(): Rectangle {
@@ -73,10 +78,62 @@ export class Preview {
 
   setVisible(visible: boolean): void {
     if (!this.view) return;
+    this.visible = visible;
     try {
       this.view.setVisible(visible);
     } catch {
       // The view went away with its window; nothing left to show.
+    }
+  }
+
+  /**
+   * Test-only introspection (used by CAULDRON_BACKGROUND_TEST runs): the real
+   * layout state of the child view, without changing anything.
+   */
+  introspect(): {
+    hasView: boolean;
+    bounds: Rectangle;
+    visible: boolean;
+    url: string | null;
+  } {
+    const view = this.view;
+    return {
+      hasView: Boolean(view && !view.webContents.isDestroyed()),
+      bounds: { ...this.bounds },
+      visible: this.visible,
+      url: this.webContents?.getURL() ?? null,
+    };
+  }
+
+  /** The child page's own rendering, as a data URL (test-only). */
+  async captureChild(): Promise<string | null> {
+    const contents = this.webContents;
+    if (!contents) return null;
+    try {
+      // stayHidden: the background test never shows the window, and a plain
+      // capture of a hidden window's contents comes back empty.
+      const image = await contents.capturePage(undefined, {
+        stayHidden: true,
+        stayAwake: true,
+      });
+      return image.isEmpty() ? null : image.toDataURL();
+    } catch {
+      return null;
+    }
+  }
+
+  /** The parent window's own capture, as a data URL (test-only). */
+  async captureWindow(): Promise<string | null> {
+    const window = this.window;
+    if (!window || window.isDestroyed()) return null;
+    try {
+      const image = await window.capturePage(undefined, {
+        stayHidden: true,
+        stayAwake: true,
+      });
+      return image.isEmpty() ? null : image.toDataURL();
+    } catch {
+      return null;
     }
   }
 
