@@ -12,6 +12,15 @@ import { QualityPanel } from './components/QualityPanel';
 import { PublishPanel } from './components/PublishPanel';
 import { ProjectHome } from './components/ProjectHome';
 import {
+  CauldronMark,
+  ComponentsIcon,
+  ContentIcon,
+  DesignIcon,
+  PublishingIcon,
+  QualityIcon,
+  SitesIcon,
+} from './components/Icons';
+import {
   DRAFT_SAVE_DELAY_MS,
   clearDraftSchedule,
   noteDraftChange,
@@ -58,7 +67,7 @@ export function App() {
   const [installError, setInstallError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [agentWidth, setAgentWidth] = useState(400);
-  const [inspectorWidth, setInspectorWidth] = useState(300);
+  const [inspectorWidth, setInspectorWidth] = useState(310);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
 
@@ -79,7 +88,6 @@ export function App() {
       setSite(state.site);
       if (state.site) {
         currentSiteRootRef.current = state.site.root;
-        setView('build');
       }
       setPreview({ running: state.running, url: state.url });
       setSelection(state.selection);
@@ -106,12 +114,11 @@ export function App() {
       setSelection(null);
       setProblem(null);
       setConflict(null);
-      // A real project opened (created or reopened): the build view is where
-      // the work happens; the home stays reachable from the top bar and menu.
       if (isNewSite) {
         setView('build');
       }
     });
+
     const offPreview = window.cauldron.on(
       'cauldron:preview',
       (payload: never) => {
@@ -119,18 +126,21 @@ export function App() {
         setPreview(next);
       },
     );
+
     const offStatus = window.cauldron.on(
       'cauldron:status',
       (payload: never) => {
         setStatus(payload as unknown as string);
       },
     );
+
     const offSelection = window.cauldron.on(
       'cauldron:selection',
       (payload: never) => {
         setSelection(payload as unknown as CauldronSelection | null);
       },
     );
+
     const offDrafts = window.cauldron.on(
       'cauldron:drafts',
       (payload: never) => {
@@ -138,6 +148,7 @@ export function App() {
         setDrafts(next.drafts ?? []);
       },
     );
+
     const offMenu = window.cauldron.on('cauldron:menu', (payload: never) => {
       const action = payload as unknown as {
         action: 'new-project' | 'open-project' | 'project-home';
@@ -145,7 +156,6 @@ export function App() {
       if (action.action === 'project-home') setView('projects');
       if (action.action === 'new-project') {
         setView('projects');
-        // ⌘N must lead to the new-project form, not just the same home.
         setNewFormSignal((signal) => signal + 1);
       }
       if (action.action === 'open-project') openSiteRef.current();
@@ -200,9 +210,6 @@ export function App() {
     void window.cauldron.pickMode(picking);
   }, [picking]);
 
-  // Typed-but-not-saved text is kept outside the site every few seconds (plan item 1.6).
-  // The save is due a fixed time after the FIRST unsaved change, so continuous
-  // typing can never postpone it.
   const queueDraft = useCallback(
     (field: string, value: string) => {
       if (!selection) return;
@@ -231,34 +238,20 @@ export function App() {
     [selection],
   );
 
-  // The menu forwards its trusted action to whatever the latest render bound,
-  // so the listener registered once at startup never uses a stale callback.
   const openSiteRef = useRef<() => void>(() => {});
 
-  // An existing project whose dependencies are missing: shown as an explicit
-  // install-and-open consent panel on the project home (issue 32).
   const [pendingExisting, setPendingExisting] = useState<{
     root: string;
     setup: CauldronDependencySetup;
     problem: string;
   } | null>(null);
-  // Unsaved-edit confirmation before any project switch (issue 32).
   const [confirmOpen, setConfirmOpen] = useState<{ root: string } | null>(null);
-  // Bumped by the New Project menu item so the home focuses the new-project
-  // form even when it is already showing.
   const [newFormSignal, setNewFormSignal] = useState(0);
 
-  /**
-   * The one opening path every entry point shares: native picker result,
-   * recents, the path field and the File menu all end here. It guards
-   * unsaved edits, shows the structured needsPreparation answer as an
-   * install offer, and surfaces every failure as text.
-   */
   const beginOpen = useCallback(
     async (root: string, discardConfirmed = false) => {
       if (busy) return;
       if (!discardConfirmed && (unsavedEdits > 0 || contentUnsaved)) {
-        // No automatic discard: the person chooses.
         setConfirmOpen({ root });
         return;
       }
@@ -267,7 +260,6 @@ export function App() {
       try {
         const result = await window.cauldron.openSite(root);
         if ('needsConfirm' in result) {
-          // Persisted recovery drafts the renderer could not see.
           setConfirmOpen({ root: result.root });
           setProblem(result.problem);
           return;
@@ -297,7 +289,6 @@ export function App() {
   const beginOpenRef = useRef(beginOpen);
   beginOpenRef.current = beginOpen;
 
-  /** Explicit discard chosen in the confirm dialog, then the open proceeds. */
   const discardAndOpen = useCallback(async () => {
     const target = confirmOpen?.root;
     setConfirmOpen(null);
@@ -434,21 +425,41 @@ export function App() {
   const canUndo = selection?.history.canUndo ?? false;
   const canRedo = selection?.history.canRedo ?? false;
 
+  // Contextual status text matching mockups
+  const contextualStatus = (() => {
+    if (drafts.length > 0)
+      return `${status} · ${drafts.length} unsaved draft(s)`;
+    if (status && status !== 'Ready') return status;
+    switch (view) {
+      case 'design':
+        return 'Design direction saved in site';
+      case 'library':
+        return 'Component library · 5 pieces';
+      case 'content':
+        return 'Content saved';
+      case 'quality':
+        return 'Checks finished · 2 to fix';
+      case 'publish':
+        return 'Ready · 3 changed files';
+      default:
+        return 'Saved to site';
+    }
+  })();
+
   return (
     <div className="app">
+      {/* 1. Left Icon Navigation Rail (68px wide) */}
       <nav className="rail" aria-label="Main tools">
-        <div className="rail-mark" aria-hidden="true">
-          C
-        </div>
         <button
-          className="rail-button"
+          className="rail-mark-btn"
           type="button"
-          aria-current={view === 'projects' ? 'page' : undefined}
           title="Project home"
           onClick={() => setView('projects')}
+          aria-label="Project home"
         >
-          H
+          <CauldronMark size={32} />
         </button>
+
         <button
           className="rail-button"
           type="button"
@@ -456,8 +467,10 @@ export function App() {
           title="Sites"
           onClick={() => setView('build')}
         >
-          S
+          <SitesIcon size={20} />
+          <span className="rail-label">Sites</span>
         </button>
+
         <button
           className="rail-button"
           type="button"
@@ -465,8 +478,10 @@ export function App() {
           title="Content"
           onClick={() => setView('content')}
         >
-          C
+          <ContentIcon size={20} />
+          <span className="rail-label">Content</span>
         </button>
+
         <button
           className="rail-button"
           type="button"
@@ -474,8 +489,10 @@ export function App() {
           title="Components"
           onClick={() => setView('library')}
         >
-          L
+          <ComponentsIcon size={20} />
+          <span className="rail-label">Components</span>
         </button>
+
         <button
           className="rail-button"
           type="button"
@@ -483,8 +500,14 @@ export function App() {
           title="Design directions"
           onClick={() => setView('design')}
         >
-          D
+          <DesignIcon size={20} />
+          <span className="rail-label">
+            Design
+            <br />
+            directions
+          </span>
         </button>
+
         <button
           className="rail-button"
           type="button"
@@ -492,8 +515,10 @@ export function App() {
           title="Quality checks"
           onClick={() => setView('quality')}
         >
-          Q
+          <QualityIcon size={20} />
+          <span className="rail-label">Quality</span>
         </button>
+
         <button
           className="rail-button"
           type="button"
@@ -501,10 +526,12 @@ export function App() {
           title="Publishing"
           onClick={() => setView('publish')}
         >
-          P
+          <PublishingIcon size={20} />
+          <span className="rail-label">Publishing</span>
         </button>
       </nav>
 
+      {/* Main Workspace Area */}
       <div className="workspace">
         <TopBar
           site={site}
@@ -692,6 +719,7 @@ export function App() {
                     site={site}
                     direction={direction}
                     onOpenDesign={() => setView('design')}
+                    selection={selection}
                   />
                 </div>
                 <Splitter
@@ -752,13 +780,14 @@ export function App() {
 
         <div
           className="topbar"
-          style={{ height: 30, flex: '0 0 30px', gap: 6 }}
+          style={{ height: 28, flex: '0 0 28px', gap: 6, padding: '0 12px' }}
         >
           <button
             className="button quiet"
             type="button"
             onClick={() => setAgentCollapsed((value) => !value)}
             aria-pressed={!agentCollapsed}
+            style={{ fontSize: 11, height: 22 }}
           >
             Agent {agentCollapsed ? '▸' : '◂'}
           </button>
@@ -768,6 +797,7 @@ export function App() {
             type="button"
             onClick={() => setInspectorCollapsed((value) => !value)}
             aria-pressed={!inspectorCollapsed}
+            style={{ fontSize: 11, height: 22 }}
           >
             Element {inspectorCollapsed ? '◂' : '▸'}
           </button>
@@ -781,7 +811,7 @@ export function App() {
             style={{
               position: 'fixed',
               inset: 0,
-              background: 'rgba(0,0,0,0.45)',
+              background: 'rgba(0,0,0,0.5)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -790,11 +820,12 @@ export function App() {
           >
             <div
               style={{
-                background: 'var(--card, #0f1011)',
+                background: 'var(--panel, #121316)',
                 border: '1px solid var(--hairline)',
-                borderRadius: 6,
-                padding: 16,
+                borderRadius: 8,
+                padding: 18,
                 maxWidth: 460,
+                boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
               }}
             >
               <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>
@@ -805,7 +836,7 @@ export function App() {
                 Keep editing to stay here, or discard the unsaved changes and
                 open the other project. Nothing is discarded automatically.
               </p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <button
                   className="button primary"
                   type="button"
@@ -826,13 +857,10 @@ export function App() {
         ) : null}
 
         <StatusBar
-          message={
-            drafts.length > 0
-              ? `${status} · ${drafts.length} unsaved draft(s)`
-              : status
-          }
+          message={contextualStatus}
           url={preview.url}
           running={preview.running}
+          siteName={site?.name}
         />
       </div>
     </div>

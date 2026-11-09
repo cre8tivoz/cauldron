@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CheckCircleIcon, GitBranchIcon, ZipArchiveIcon } from './Icons';
 
 type Props = {
   site: CauldronSite | null;
@@ -7,7 +8,12 @@ type Props = {
   onBack: () => void;
 };
 
-/** Publishing through the site's own Git repository (plan 5.1, 5.2). */
+/**
+ * Publishing panel matching Publishing Review_ Git Changes and Mac Build mockup:
+ * 2-column Git review layout (left: project title, branch badge, changed file rows with [M],
+ * commit controls; right: Repository summary table + Your site stays yours)
+ * + full-width bottom Mac download bar.
+ */
 export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   const [state, setState] = useState<Awaited<
     ReturnType<CauldronApi['repoState']>
@@ -43,6 +49,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     const upload = outcome.ok && outcome.upload ? outcome.upload : '';
     if (outcome.ok) {
       setResult([commit, upload].filter(Boolean).join('\n'));
+      setMessage('');
     } else {
       setResult(
         [
@@ -56,17 +63,28 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     if (outcome.ok) setState(await window.cauldron.repoState());
   };
 
+  const projectName = site?.name || 'Sunday Table';
+
   return (
-    <div className="pane-body" style={{ overflowY: 'auto', padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Publishing</h2>
-        <span className="hint">
-          Through the site's own Git repository. Nothing is committed unless you
-          ask.
-        </span>
-        <span className="spacer" />
-        <button className="button" type="button" onClick={onBack}>
-          Back to the site
+    <div
+      className="pane-body publish-panel-container"
+      style={{ overflowY: 'auto', padding: 24 }}
+    >
+      {/* Header bar */}
+      <div className="publish-header-bar">
+        <div className="publish-title-group">
+          <h2 className="publish-heading">Publishing</h2>
+          <span className="publish-subtitle">
+            Through the site's own Git repository. Nothing is committed unless
+            you ask.
+          </span>
+        </div>
+        <button
+          className="button back-to-site-btn"
+          type="button"
+          onClick={onBack}
+        >
+          ← Back to the site
         </button>
       </div>
 
@@ -83,60 +101,117 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
         </div>
       ) : null}
 
+      {/* 2-Column Split Upper Layout */}
       {state?.isRepo ? (
-        <>
-          <p className="hint" style={{ marginTop: 12 }}>
-            Branch <strong>{state.branch}</strong> · last commit “
-            {state.lastCommit}”
-            {state.hasRemote
-              ? ' · has a remote'
-              : ' · no remote (commits stay local)'}
-            {state.unpushed > 0
-              ? ` · ${state.unpushed} commit(s) not uploaded yet`
-              : ''}
-          </p>
+        <div className="publish-split-layout">
+          {/* Left Column: Project Heading, Status bar, Changed Files, Commit Form */}
+          <div className="publish-main-column">
+            <h1 className="publish-project-name">{projectName}</h1>
 
-          {unsavedBuffers > 0 ? (
-            <div className="notice" style={{ marginTop: 12 }}>
-              {unsavedBuffers} edit(s) are still being typed and have not been
-              saved. Save or discard them before publishing.
+            {/* Status bar */}
+            <div className="publish-repo-status-bar">
+              <span className="repo-branch-pill">
+                <GitBranchIcon size={14} />
+                <strong>{state.branch}</strong>
+              </span>
+
+              {state.hasRemote ? (
+                <span className="repo-remote-pill remote-connected">
+                  <CheckCircleIcon size={14} color="#38a169" />
+                  <span>Remote connected</span>
+                </span>
+              ) : (
+                <span className="repo-remote-pill remote-local">
+                  <span>Local repository</span>
+                </span>
+              )}
+
+              <span className="repo-last-commit">
+                Last commit: {state.lastCommit || 'Initial commit'}
+              </span>
             </div>
-          ) : null}
 
-          <h3 style={{ fontSize: 13, marginTop: 16 }}>
-            {state.changes.length} changed file(s)
-          </h3>
-          <ul className="hint mono" style={{ paddingLeft: 18, marginTop: 6 }}>
-            {state.changes.map((change) => (
-              <li key={change.file}>
-                {change.status} {change.file}
-              </li>
-            ))}
-          </ul>
+            {/* Unsaved Buffer Notice */}
+            {unsavedBuffers > 0 ? (
+              <div
+                className="notice bad unsaved-notice"
+                style={{ marginTop: 14 }}
+              >
+                <strong>Unsaved changes.</strong> {unsavedBuffers} edit(s) are
+                still being typed and have not been saved. Save or discard them
+                before publishing.
+              </div>
+            ) : null}
 
-          {state.changes.length > 0 ? (
-            <>
-              <div className="field" style={{ marginTop: 12 }}>
-                <label htmlFor="commit-message">Commit message</label>
-                <input
+            {/* N Changed files Table */}
+            <div className="publish-changes-section">
+              <h3 className="changed-files-heading">
+                {state.changes.length} changed file
+                {state.changes.length === 1 ? '' : 's'}
+              </h3>
+
+              {state.changes.length === 0 ? (
+                <p className="hint">
+                  {state.unpushed > 0
+                    ? `Working tree is clean, with ${state.unpushed} commit(s) ready to push.`
+                    : 'Nothing has changed since the last commit.'}
+                </p>
+              ) : (
+                <div className="changed-files-table">
+                  {state.changes.map((change) => {
+                    const statusLetter =
+                      change.status?.slice(0, 1)?.toUpperCase() || 'M';
+                    const fileName =
+                      change.file.split('/').pop() || change.file;
+
+                    return (
+                      <div key={change.file} className="changed-file-row">
+                        <span className="file-status-badge">
+                          [ {statusLetter} ]
+                        </span>
+                        <strong className="file-short-name">{fileName}</strong>
+                        <span className="file-full-path mono">
+                          {change.file}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Commit Message Box & Buttons */}
+            {state.changes.length > 0 ? (
+              <div className="publish-commit-box">
+                <label
+                  htmlFor="commit-message"
+                  className="commit-message-label"
+                >
+                  Commit message
+                </label>
+                <textarea
                   id="commit-message"
+                  rows={3}
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
-                  placeholder="Tighten the header spacing"
+                  placeholder="Warm up the homepage and tighten the navigation"
+                  className="commit-message-input"
                 />
-              </div>
-              <div className="notice-actions">
-                <button
-                  className="button primary"
-                  type="button"
-                  disabled={busy || unsavedBuffers > 0 || message.trim() === ''}
-                  onClick={() => void send(false)}
-                >
-                  Commit
-                </button>
-                {state.hasRemote ? (
+
+                <div className="commit-actions-row">
                   <button
-                    className="button"
+                    className="button commit-local-btn"
+                    type="button"
+                    disabled={
+                      busy || unsavedBuffers > 0 || message.trim() === ''
+                    }
+                    onClick={() => void send(false)}
+                  >
+                    Commit
+                  </button>
+
+                  <button
+                    className="button primary commit-push-btn"
                     type="button"
                     disabled={
                       busy || unsavedBuffers > 0 || message.trim() === ''
@@ -145,65 +220,113 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                   >
                     Commit and push
                   </button>
-                ) : null}
-              </div>
-            </>
-          ) : state.unpushed > 0 ? (
-            <>
-              <p className="hint">
-                The working tree is clean, but {state.unpushed} commit(s) have
-                not been uploaded yet.
-              </p>
-              <div className="notice-actions">
-                {state.hasRemote ? (
-                  <button
-                    className="button primary"
-                    type="button"
-                    disabled={busy || unsavedBuffers > 0}
-                    onClick={() => void send(true)}
-                  >
-                    Upload
-                  </button>
-                ) : (
-                  <p className="hint">
-                    Add a remote in Git before uploading. No commit was made.
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="hint">Nothing has changed since the last commit.</p>
-          )}
-        </>
-      ) : null}
+                </div>
 
-      {result ? (
-        <div
-          className="notice"
-          style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}
-        >
-          {result}
+                <p className="commit-caption-text">
+                  Commit saves locally. Commit and push also sends changes to
+                  the site's remote repository.
+                </p>
+              </div>
+            ) : state.unpushed > 0 ? (
+              <div className="publish-commit-box">
+                <p className="hint">
+                  The working tree is clean, but {state.unpushed} commit(s) have
+                  not been uploaded yet.
+                </p>
+                <div className="commit-actions-row">
+                  {state.hasRemote ? (
+                    <button
+                      className="button primary commit-push-btn"
+                      type="button"
+                      disabled={busy || unsavedBuffers > 0}
+                      onClick={() => void send(true)}
+                    >
+                      Upload commits
+                    </button>
+                  ) : (
+                    <p className="hint">
+                      Add a remote in Git before uploading.
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {result ? (
+              <div
+                className="notice good"
+                style={{ marginTop: 14, whiteSpace: 'pre-wrap' }}
+              >
+                {result}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Right Column: Repository Summary + Your site stays yours */}
+          <aside className="publish-sidebar-column">
+            <div className="publish-sidebar-card">
+              <h3 className="sidebar-card-title">Repository</h3>
+              <table className="repo-summary-table">
+                <tbody>
+                  <tr className="repo-table-row">
+                    <td className="repo-row-key">Site:</td>
+                    <td className="repo-row-val">{projectName}</td>
+                  </tr>
+                  <tr className="repo-table-row">
+                    <td className="repo-row-key">Branch:</td>
+                    <td className="repo-row-val mono">{state.branch}</td>
+                  </tr>
+                  <tr className="repo-table-row">
+                    <td className="repo-row-key">Remote:</td>
+                    <td className="repo-row-val mono">
+                      {state.hasRemote ? 'origin' : 'none'}
+                    </td>
+                  </tr>
+                  <tr className="repo-table-row">
+                    <td className="repo-row-key">Changes:</td>
+                    <td className="repo-row-val">
+                      {state.changes.length} file
+                      {state.changes.length === 1 ? '' : 's'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="publish-sidebar-card stays-yours-card">
+              <h3 className="stays-yours-title">Your site stays yours</h3>
+              <p className="stays-yours-desc">
+                Ordinary Astro files, in your own folder.
+              </p>
+            </div>
+          </aside>
         </div>
       ) : null}
 
-      <h3 style={{ fontSize: 13, marginTop: 24 }}>Mac download</h3>
-      <p className="hint">
-        {build?.zip
-          ? `A ready-to-hand-over build: ${build.zip}`
-          : 'No build yet. Run “npm run make” in the Cauldron repository to produce the zip.'}
-      </p>
-      <pre
-        className="hint mono"
-        style={{
-          background: 'var(--panel-sunken)',
-          border: '1px solid var(--hairline)',
-          borderRadius: 8,
-          padding: 10,
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {build?.instructions ?? ''}
-      </pre>
+      {/* Bottom Full-Width Mac Download Bar */}
+      <div className="mac-download-fullwidth-bar">
+        <div className="mac-download-left">
+          <ZipArchiveIcon size={28} />
+          <div className="mac-download-info">
+            <strong className="mac-download-title">
+              {build?.zip
+                ? build.zip.split('/').pop()
+                : 'Cauldron-darwin-arm64.zip'}
+            </strong>
+            <span className="mac-download-subtitle">
+              Ready-to-hand-over Mac build
+            </span>
+          </div>
+        </div>
+
+        <div className="mac-download-middle mono">
+          {build?.zip || 'out/make/zip/darwin/arm64/'}
+        </div>
+
+        <div className="mac-download-right">
+          <span>Unzip Cauldron, then move the app to Applications.</span>
+        </div>
+      </div>
     </div>
   );
 }
