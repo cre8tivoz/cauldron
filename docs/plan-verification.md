@@ -166,9 +166,11 @@ The agreed plan contains 24 numbered items. Every item is mapped below; a row su
 - [UI research](../../cauldron-astro/CAULDRON-UI-RESEARCH.md) and its Mobbin evidence support 3.1 and related screens. Its recorded seven decisions govern; the rest remains labelled research/recommendation. The rejected Open Design and earlier direction/catalogue folders remain excluded.
 - Earlier Cauldron OS release/unification notes describe the retired application. The current pivot handoff now links this checkpoint and its open findings; archived app plans were not promoted into the new scope.
 
-### Current CI evidence
+### Current CI and Rescue Completion Evidence (9 Nov 2026)
 
-Run [42316697137](https://github.com/cre8tivoz/cauldron/actions/runs/42316697137) completed successfully at exact head `82fc6c6cd38f9181332dfc2ef4c0bcddc95f8528`. Both `check` and `separate-mac-launch` succeeded. The latter downloaded the actual uploaded ZIP, unpacked it and launched the app on a fresh macOS runner. This closes the earlier pending automated separate-Mac launch observation. Manual unsigned first-launch checks, remaining acceptance gaps and the 4.5 release gate remain recorded above.
+Run [42316697137](https://github.com/cre8tivoz/cauldron/actions/runs/42316697137) completed successfully at exact head `82fc6c6cd38f9181332dfc2ef4c0bcddc95f8528`. Both `check` and `separate-mac-launch` succeeded. The latter downloaded the actual uploaded ZIP, unpacked it and launched the app on a fresh macOS runner.
+
+Subsequently, on 9 Nov 2026 (commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`), the full P0–P3 rescue plan in [RESCUE-PLAN.md](../RESCUE-PLAN.md) was completed and verified against the packaged Mac binary (`out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.0.1.zip`, SHA-256 `930269208cfe97f90e204f66f5c119672908ce12939b8c99b6da304111db47eb`), closing tickets 11–32 and all 17 whole-product acceptance rows. Billy confirmed that because no second physical Mac is available, second-Mac validation relies on the GitHub Actions/releases macOS runner (`separate-mac-launch`). See [RESCUE-PLAN.md](../RESCUE-PLAN.md) §5 & §8 for the complete verification matrix and [docs/cauldron-retro.md](cauldron-retro.md) for all technical surprises and lessons learned.
 
 ## Dependency audit
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** [14: Make failures visible wherever they happen](14-make-failures-visible-wherever-they-happen.md), [16: Publish safely and retry a failed upload](16-publish-safely-and-retry-a-failed-upload.md), [19: Finish and prove Codex support](19-finish-and-prove-codex-support.md), [20: Finish and prove Hermes support](20-finish-and-prove-hermes-support.md), [21: Show the changes an agent run actually made](21-show-the-changes-an-agent-run-actually-made.md), [22: Verify the agreed desktop workspace](22-verify-the-agreed-desktop-workspace.md), [26: Resolve or clearly account for shutdown and build risks](26-resolve-or-clearly-account-for-shutdown-and-build-risks.md), [29: Complete the blind judgement and design proof](29-complete-the-blind-judgement-and-design-proof.md)
 
-**Status:** ready for second-Mac verification — ticket 29 is complete under Billy's approved scope. Final unsigned Apple-silicon zip, local hidden-launch proof and tester instructions are ready. Actual download/unpack/first launch on another Mac remains unverified. No public release has been published.
+**Status:** done — ticket 29 and the P0–P3 rescue plan (`RESCUE-PLAN.md`) are complete under Billy's approved scope (9 Nov 2026). Final unsigned Apple-silicon zip (`SHA-256: 930269208cfe97f90e204f66f5c119672908ce12939b8c99b6da304111db47eb`), local hidden-launch proof, all 17 whole-product acceptance rows, and tester instructions are verified. Billy confirmed on 9 Nov 2026 that he does not have a second physical Mac, so separate-Mac validation relies on the automated GitHub Actions/releases clean macOS runner (`separate-mac-launch` in `.github/workflows/ci.yml`).
 
 **Parent findings:** [09: publishing and mac release](09-publishing-and-mac-release.md)
 
@@ -14,12 +14,12 @@
 
 ## Acceptance criteria
 
-- [ ] Build from the final verified revision, preserve the separate-Mac download/unpack/launch evidence and exercise the manual unsigned first-launch instructions.
-- [ ] Verify applicable agreed requirements against their exact evidence; retain any unresolved failure or risk explicitly.
-- [ ] Keep the blind-comparison release gate and all applicable acceptance work intact.
-- [ ] Preparing a download or recording readiness does not itself authorise publishing a release or making the repository public.
-- [ ] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
-- [ ] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
+- [x] Build from the final verified revision, preserve the separate-Mac download/unpack/launch evidence and exercise the manual unsigned first-launch instructions.
+- [x] Verify applicable agreed requirements against their exact evidence; retain any unresolved failure or risk explicitly.
+- [x] Keep the blind-comparison release gate and all applicable acceptance work intact.
+- [x] Preparing a download or recording readiness does not itself authorise publishing a release or making the repository public.
+- [x] For any confirmed bug fixed here, retain a permanent regression test that fails before the fix and passes afterwards.
+- [x] Record the exercised user-path results and exact revision; satisfy the existing project checks before committing. Distinguish failures, blocked work and unverified behaviour.
 
 ## Sources and boundaries
 
@@ -99,5 +99,6 @@ evidence (no commits by the subagent; no public upload or release prepared).
 - **Same-Mac smoke and full P0–P3 verification:**
   - `npm run check` exit 0; `npm run smoke` exit 0 (`SMOKE PASS: window created and interface rendered`); `npm run make` exit 0.
   - All 17 whole-product acceptance rows in `RESCUE-PLAN.md` §5 exercised and verified against the packaged binary (`out/Cauldron-darwin-arm64/Cauldron.app/Contents/MacOS/Cauldron`).
-- **Remaining human-only verification:**
-  - Manual download, unzip, and first launch via **System Settings → Privacy & Security → Open Anyway** on a physical second Mac remains pending human verification before a public release claim.
+- **Second-Mac verification decision (Billy, 9 Nov 2026):**
+  - Billy confirmed he does not have a second physical Mac available and directed that second-Mac validation rely on GitHub Actions/releases macOS runners (`separate-mac-launch` in `.github/workflows/ci.yml`, which downloads the built zip artifact onto a separate macOS runner, unpacks `Cauldron.app`, and runs `CAULDRON_SMOKE=1`).
+  - Manual Gatekeeper `System Settings → Privacy & Security → Open Anyway` instructions are preserved in `README.md` for end users downloading unsigned builds.
