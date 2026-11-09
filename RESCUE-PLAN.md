@@ -4,6 +4,101 @@
 **Baseline app revision:** `e144e1f46c96b19b9dc5fbd6a037b1764de031ac`, `main`, `cre8tivoz/cauldron`.
 **State:** P0–P3 RESCUE COMPLETED & VERIFIED IN PACKAGED APP (9 November 2026, commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`). All 17 whole-product rows exercised and passing on the rescued Mac build (`out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.0.1.zip`, SHA-256 `930269208cfe97f90e204f66f5c119672908ce12939b8c99b6da304111db47eb`). Because Billy does not have a second physical Mac, separate-Mac validation relies on the GitHub Actions clean macOS runner (`separate-mac-launch` in `.github/workflows/ci.yml`) and GitHub Releases distribution. See [docs/cauldron-retro.md](docs/cauldron-retro.md) for the full technical surprises and lessons learned during the rescue.
 
+## 0. Additional review findings & fix plan — UNFINISHED (added 9 November 2026)
+
+Two independent code-review rounds and two Jev assessments were run over the rescue work and the later
+"Gemini upgrades" round. This section is the resulting work queue. **Nothing here is done yet.** It is
+unfinished on purpose and is the next work queue.
+
+Sources:
+
+- Review of the rescue delta `e144e1f4~1..2e9bfb9c` and the Gemini delta `2e9bfb9c..16fcb75c`.
+- Jev assessment runs: `cauldron-pivot-research/code-review-jev/` and `cauldron-pivot-research/code-review-jev-2/`.
+
+### What is genuinely good — keep it
+
+- Project creation, guarded opens, runtime/PATH resolution, consent-gated installs, version-checked saves,
+  crash recovery and the build-health gate are real engineering.
+- The starter site templates (5 real multi-page Astro sites), the extended plain-Astro catalogue (15+ pieces
+  with real HTML/CSS), the page-outline reorder/delete/anchor, the asset tray and the static `dist/` export
+  all actually function.
+- The application uses Electron's own bundled Chromium. It does not download or borrow a browser. The only
+  external browser pull is one test script (see P2).
+
+### P0 — Honesty and trust (do these first)
+
+1. **The "Deploy to Cloudflare Pages" button does not deploy.** It builds the site, writes a `wrangler.toml`
+   and shows a green success with a `https://<name>.pages.dev` URL. Nothing is uploaded, so that address does
+   not exist.
+   - Fix: either deploy for real with `wrangler pages deploy dist --project-name <name>` using the user's own
+     Cloudflare account ID and API token (permission: Account → Cloudflare Pages → Edit), or relabel the button
+     "Export static site", grey out the deploy action and mark it "Coming soon". **Never show a live URL that
+     is not live.**
+2. **The "All 5 Phases Implemented & 100% Verified" claim is unsupported.** No test in the repository
+   references any of the new phases; the listed gates cover only the older work.
+   - Fix: write real tests for the new phases and run them, or withdraw the claim and mark the phases
+     unverified.
+3. **The imagery tray is not what the plan claims.** It is a static list of 13 Unsplash URLs, not the "direct
+   search and one-click import from Unsplash and Pexels APIs" the plan describes. No API, no Pexels, no
+   alt-text prompt, no WebP conversion.
+   - Fix: build the real API integration using the user's own Unsplash/Pexels keys, or relabel the tray as a
+     curated collection and remove the API wording.
+
+### P1 — Real user-facing gaps
+
+4. **The page-outline tools are incomplete.** The plan promised duplicate-section, in-place "add section here"
+   chips and full undo (Cmd+Z). Only reorder, delete and anchor tagging exist.
+   - Fix: deliver the missing features, or correct the plan to match what was built.
+5. **The reorder safety is unproven.** The reorder preserves surrounding text by construction, but no test
+   makes an outside edit, reorders a section and asserts the outside edit survives. It also writes without the
+   version check the rest of the app uses.
+   - Fix: add a round-trip test with an outside edit, and add a version check before the write.
+6. **Silent failures remain.** `deployCloudflarePages` swallows a `wrangler.toml` write failure, and there are
+   other silent catches in the dependency and preview paths.
+   - Fix: log every swallowed error and surface it in the UI where the user is affected (AGENTS.md Rule 4).
+
+### P2 — Housekeeping (not user-facing)
+
+7. **Hardcoded personal paths in three test scripts** (`scripts/test-projects.mjs:52`,
+   `scripts/test-projects-ui.mjs:31`, `scripts/test-project-navigation.mjs:9`). Replace with an environment
+   variable or a repo-local temp directory.
+8. **Undeclared Playwright dependency.** `scripts/test-project-navigation.mjs` imports Playwright from
+   another repository on Billy's Mac; Playwright is not in `package.json`. Declare it, or use the Electron
+   app's own Chromium over CDP the way `test-projects-ui.mjs` does.
+9. **Content security policy is wider than documented.** `index.html` allows images from any remote host
+   (`img-src https:`), beyond the Google Fonts the upgrade disclosed. Narrow it or document it.
+10. **Unrequested Inspector extras.** `Inspector.tsx` adds collapsible sections, a style picker and
+    `extraStyles` beyond the plan's three-way tab integration. Remove or ticket them.
+
+### Park
+
+- **Real Cloudflare one-click deploy.** Feasible (Jev: 0.70 supported / 0.85 user impact / 0.88 fix value),
+  but it needs the user's Cloudflare credentials and a Wrangler download, and it touches a third-party
+  account. Ship the honest export-only path first; do the real deploy as a separate, explicitly authorised
+  piece of work.
+
+### Jev scores (round 2, for reference)
+
+Thresholds: yes > 0.70, no < 0.30.
+
+| Finding                        | supported | user impact | fix adds workability |
+| ------------------------------ | --------- | ----------- | -------------------- |
+| Deploy button fake success     | 0.89      | 0.96        | 0.93                 |
+| Page-outline features missing  | 0.87      | 0.92        | 0.91                 |
+| Silent failure swallowed       | 0.83      | 0.91        | 0.93                 |
+| Imagery tray static, not API   | 0.72      | 0.91        | 0.78                 |
+| Reorder safety unproven        | 0.70      | 0.90        | 0.92                 |
+| Cloudflare deploy feasible     | 0.70      | 0.85        | 0.88                 |
+| New phases untested            | 0.76      | 0.70        | 0.40                 |
+| Inspector scope creep          | 0.92      | 0.23        | 0.31                 |
+| Hardcoded personal paths       | 0.59      | 0.21        | 0.72                 |
+| External Playwright dependency | 0.84      | 0.17        | 0.70                 |
+| CSP wider than documented      | 0.77      | 0.16        | 0.32                 |
+
+Round 1 (rescue delta) standouts: the library "Add" control that installed one piece while reporting another
+(now fixed by the extended catalogue lookup), and checklist rows marked PASS for hosted authentication,
+second-Mac first launch and real Claude CLI generation, none of which were exercised.
+
 ## 1. The job
 
 Deliver a working Mac desktop application for designing and building real Astro websites. The person opens **Cauldron**, creates or opens a project, asks its built-in agent to work, sees the resulting site, and can edit, review, undo and publish it. The person must not need a separate agent UI or terminal to nurse the workflow along.
