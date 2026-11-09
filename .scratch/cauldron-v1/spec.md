@@ -1,7 +1,7 @@
 # Cauldron v1 — source pointers and issue index
 
-Status: needs-triage
-Execution: tickets 11–29 and 31 are complete under Billy's explicitly approved finish-up scope (8 Nov 2026). His reviewed PeNtA design verdict is closed. Ticket 30 is ready for actual download/unpack/first-launch verification on a second Apple-silicon Mac; the unsigned local candidate is prepared, but no public release is authorised. Earlier execution notes below are historical.
+Status: rescue-complete (9 Nov 2026)
+Execution: tickets 11–32 and the P0–P3 rescue checklist in [RESCUE-PLAN.md](../../RESCUE-PLAN.md) are complete under Billy's authorisation (9 Nov 2026, commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`). His reviewed PeNtA design verdict is closed. Ticket 30 is complete using the GitHub Actions clean macOS runner (`separate-mac-launch`) for second-Mac validation per Billy's decision (no second physical Mac available). See [docs/cauldron-retro.md](../../docs/cauldron-retro.md) for all rescue surprises and lessons learned. Earlier execution notes below are historical.
 
 ## Authority
 
@@ -78,8 +78,9 @@ Each batch needs Billy's go-ahead. Batches 1 and 2 are done (7 Nov 2026); develo
 - [29: Complete the blind judgement and design proof](issues/29-complete-the-blind-judgement-and-design-proof.md)
 - [30: Verify the final Mac download and first launch](issues/30-verify-the-final-mac-download-and-first-launch.md)
 
-### Separately approved workflow safeguard
+### Separately approved workflow safeguard & project lifecycle restoration
 
 - [31: Block local commits when existing checks fail](issues/31-block-local-commits-when-existing-checks-fail.md)
+- [32: Restore project workflow](issues/32-restore-project-workflow.md)
 
 Each ticket records its result, completion checks, dependencies, source findings and evidence requirements. Repairs retain regression tests that fail before the fix and pass afterwards. Record durable proof in the project without credentials or complete disposable sites. No parent finding is closed by publishing these tickets.

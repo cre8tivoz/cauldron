@@ -4,7 +4,7 @@ Cauldron is a free Mac app for building websites with [Astro](https://astro.buil
 
 It's open source and free, and it stays that way.
 
-**Rescued Mac test build — pending manual second-Mac Gatekeeper verification.** The P0–P3 rescue checklist in [RESCUE-PLAN.md](RESCUE-PLAN.md) has been exercised and verified on the packaged app (including ordinary site generation without unresolved `@fontsource` imports, explicit missing-package installation into the shared `pnpm` store, build/import health verification before marking a run finished, and all 17 whole-product acceptance rows). Because the build is unsigned and not notarised, manual first-launch verification on a physical second Mac (`System Settings → Privacy & Security → Open Anyway`) remains an explicit human-only check before a public release claim.
+**Rescued Mac build — P0–P3 verified (9 Nov 2026).** The P0–P3 rescue checklist in [RESCUE-PLAN.md](RESCUE-PLAN.md) has been exercised and verified on the packaged app (including ordinary site generation without unresolved `@fontsource` imports, explicit missing-package installation into the shared `pnpm` store, build/import health verification before marking a run finished, and all 17 whole-product acceptance rows). Second-Mac download, unpack, and launch verification runs automatically on a clean macOS runner in GitHub Actions (`separate-mac-launch` in `.github/workflows/ci.yml`). Because the build is unsigned and not notarised, users opening a downloaded zip on macOS for the first time should use `System Settings → Privacy & Security → Open Anyway`. See [docs/cauldron-retro.md](docs/cauldron-retro.md) for lessons learned during development and rescue.
 
 ## Try it
 

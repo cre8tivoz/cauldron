@@ -70,4 +70,44 @@ Real production-function probes exposed failures missed by the routine checks. I
 
 This retrospective establishes observed workflow failures; it does not establish the model switch as their cause. No extra product feature was proved by the review. Structural changes remain outside the authorised scope.
 
-Only this retrospective document was created for this request. No application source, tests, hooks, CI, instructions, dependencies or approval settings were changed. Neither the review nor this retrospective has been committed or pushed in this step.
+---
+
+## Rescue Lessons Learned & Technical Surprises (9 Nov 2026)
+
+Following the P0–P3 rescue plan execution (`RESCUE-PLAN.md`, commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`), six concrete engineering lessons and surprises emerged from repairing the `tinydogs` workflow failure and verifying all 17 whole-product acceptance rows in the packaged macOS app:
+
+### 1. Agent process exit `0` is not site generation success
+
+- **Surprise:** When Billy ran Codex on `tinydogs`, Codex exited with status `0` after writing 4 files (`src/layouts/Base.astro`, etc.) that imported uninstalled `@fontsource/...` packages. Because `finishAgentRun` in `src/main/index.ts` only checked whether the CLI process returned an error note, it recorded `status: "finished"` and `problems: []` even though `npm run build` failed with exit `1` and the live preview rendered an Astro error overlay.
+- **Lesson:** Any agent run that modifies site files must pass an automated post-run verification gate (`findMissingPackages`, `buildSite`, and `inspectPreviewError` on the live preview DOM) before being marked `finished`. If packages are missing or the build/preview fails, the run must transition to `status: "failed"`, persist the exact diagnostic in `run.problems` on disk, surface an actionable error banner with one-click package installation (`Install missing packages`) or whole-run undo, and never masquerade as a clean completion.
+
+### 2. Design direction tokens must explicitly tell agents how fonts are loaded (and `read_design` must expose `tokensCss`)
+
+- **Surprise:** `cauldron/tokens.css` already loaded the chosen direction's Google Fonts via `@import url('https://fonts.googleapis.com/css2?...')`, while `DESIGN.md` listed the font family names without stating that `tokens.css` already loaded them. Compounding this, `read_source` intentionally blocks reading `cauldron/tokens.css` (to keep agents from hand-editing generated token files), so agents could not see the `@import` rule and hallucinated `@fontsource/...` imports into `Base.astro`.
+- **Lesson:** When a file is protected from direct agent reads/writes, the dedicated MCP tool (`read_design`) must return its contents (`tokensCss` and `designMarkdown`), and both `DESIGN.md` and the agent system prompt must explicitly instruct agents to import `../cauldron/tokens.css` rather than adding uninstalled `@fontsource/*` packages.
+
+### 3. macOS GUI `PATH` vs. terminal `PATH` (and caching pitfalls)
+
+- **Surprise:** Packaged macOS GUI apps launched from Finder do not inherit the user's interactive shell `PATH` (`~/.nvm/...`, `/opt/homebrew/bin`). While `site.ts` and `dependencies.ts` used `resolveToolPath` and `childEnvForTools`, `buildSite` in `src/main/quality.ts` and `src/main/e2e.ts` called bare `spawnSync("npm", ...)` and failed with `spawnSync npm ENOENT` under GUI launch. Furthermore, `resolveInstalledExecutables` in `src/main/runtime.ts` cached executable lookup results without keying on `process.env.PATH`, causing stale lookups when `PATH` changed between test phases.
+- **Lesson:** Every child-process spawn in an Electron main process must route through a single `PATH`-hydrated helper (`resolveToolPath` + `childEnvForTools`), and any memoized executable discovery must include `process.env.PATH` in its cache key.
+
+### 4. Keep unreadable-file tracking separate from build/preview diagnostics on `AgentRun`
+
+- **Surprise:** `Runs.undo` originally checked `run.problems.length > 0` to decide whether pre-run file snapshots had failed to be read, refusing whole-run undo whenever `run.problems` was non-empty. Once post-run build/import failures were recorded in `run.problems`, `Runs.undo` refused to undo broken runs—the exact moment a user most needs whole-run undo!
+- **Lesson:** User-facing run diagnostics (`run.problems`) and internal snapshot integrity tracking (`private unreadable = new Map<string, string[]>()`) serve different purposes and must never share the same field.
+
+### 5. Event-driven MCP readiness vs. fixed timers for background agent gateways
+
+- **Surprise:** The Hermes integration originally waited a fixed `HERMES_PICKUP_MS` (`90_000` ms) when a background gateway was active. However, the Hermes gateway's internal `_PARKED_RETRY_INTERVAL` is `300` seconds (`5` minutes): if a gateway had parked a failed self-probe before Cauldron started its MCP server, waiting 90 seconds always timed out before switching to direct CLI fallback. Conversely, when the gateway was healthy, it connected to Cauldron's MCP server and called `tools/list` within `~300` ms.
+- **Lesson:** Track actual MCP client connection events (`hasClientConnected` / `onClientConnected` triggered on `tools/list` or `tools/call` in `src/main/mcp.ts`). When the gateway connects immediately, grant the full run budget; if no MCP client connects within a short readiness window (`15` seconds), fall back to direct `hermes chat -q` execution immediately instead of blocking the user for 90 seconds.
+
+### 6. Scoped keyboard Tab-reach testing requires full-document focus sequence indexing
+
+- **Surprise:** `CAULDRON_LIBRARY_TEST` had an intermittent 68/69 failure (`glow-action keyboard: 1 of 2 controls reached by Tab`). Root-cause analysis revealed two interacting causes:
+  1. In `src/main/taste-check.ts`, `activeIndex()` only indexed controls _inside_ the scoped library component (`[data-cauldron-component="glow-action"]`) and returned `-1` whenever focus landed on any link or button earlier on the page. When `pressTab` saw `before === after` (`-1 === -1`), it fired **two extra `Tab` keystrokes** per iteration—jumping 3 focusable elements at a time and skipping straight over the first button inside `glow-action`!
+  2. In `src/main/e2e.ts`, when `before` (the element preceding the inserted component) was non-focusable (such as a `<section>` or `<p>`), calling `before.focus()` without a temporary `tabindex="-1"` left focus at the top of the document.
+- **Lesson:** Keyboard Tab-reach probes must assign a unique `data-cauldron-focus-seq` attribute across _all_ visible focusable elements in the document so `pressTab` knows when focus is advancing outside the scoped component and never double- or triple-tabs. And when starting Tab traversal just before a target component, temporarily set `tabindex="-1"` on the preceding element so `before.focus()` reliably positions the browser's sequential focus navigation starting point.
+
+### 7. Second-Mac validation via GitHub Actions macOS runners
+
+- **Decision:** Because Billy does not have a second physical Mac available, separate-Mac download, unpack, and launch verification relies on the automated GitHub Actions macOS runner job (`separate-mac-launch` in `.github/workflows/ci.yml`), which downloads the built release zip artifact on a clean macOS machine, unpacks `Cauldron.app`, and verifies first-launch rendering (`CAULDRON_SMOKE=1`).
