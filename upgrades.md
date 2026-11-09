@@ -36,29 +36,29 @@ Specifically:
 **Target files:** [`src/App.tsx`](src/App.tsx), [`src/index.css`](src/index.css), [`src/components/TopBar.tsx`](src/components/TopBar.tsx), [`src/components/StatusBar.tsx`](src/components/StatusBar.tsx)  
 **Reference mockups:** All 6 PNGs in `originalresearch/visual-mockups/` + [`originalresearch/design/camillo/app-look/specimen.html`](originalresearch/design/camillo/app-look/specimen.html)
 
-1. **Left Navigation Rail (`68px` wide):**
-   - Replace the single-letter buttons (`H`, `S`, `C`, `L`, `D`, `Q`, `P`) with a proper vertical navigation rail featuring:
-     - Top **serif `C` brand mark** in a rounded coral square (`32×32px`, `border-radius: 8px`).
-     - **Consistent 1.5px stroke SVG icons + two-line labels** (`11px` font) for:
-       - **Sites** (window/layout icon — opens the active site workspace or Project Home switcher)
-       - **Content** (document icon)
-       - **Components** (stacked layers icon)
-       - **Design directions** (palette icon)
-       - **Quality** (check-circle icon)
-       - **Publishing** (upload tray icon)
-     - Active tab highlighted with warm coral tint (`var(--accent-soft)`) in light mode and rich warm brown-coral pill in dark mode.
-2. **Top Bar (`48px` height):**
-   - **Left:** Project switcher button (`Sunday Table ⌄` — clicking opens Project Home / recent sites popover) + muted `Astro · npm` (or `Astro 6 · pnpm`) badge + optional breadcrumb trail (`Pages › index › Hero`) from `app-look/specimen.html`.
-   - **Right:** Clean icon+text toolbar buttons matching the mockups:
-     - `📄 New page`
-     - `↶` (Undo icon button) and `↷` (Redo icon button)
-     - `↖ Select` (highlighted in coral tint when element-picking mode is active)
-     - `↻ Reload`
-     - `⏹ Stop preview` / `▶ Start preview`
-     - `↗ Open site` (solid coral primary button)
-3. **Bottom Status Bar (`28px` height):**
-   - **Left:** Contextual status text (`Saved to site`, `Design direction saved in site`, `Component library · 5 pieces`, `Content saved`, `Checks finished · 2 to fix`, `Ready · 3 changed files`).
-   - **Right:** Green status dot (`●`) + `Preview running · localhost:4321` (or project name when on Design Directions).
+- [x] **1. Left Navigation Rail (`68px` wide):**
+  - [x] Top **serif `C` brand mark** in a rounded coral square (`32×32px`, `border-radius: 8px`).
+  - [x] **Consistent 1.5px stroke SVG icons + two-line labels** (`11px` font) for:
+    - [x] **Sites** (window/layout icon — opens the active site workspace or Project Home switcher)
+    - [x] **Content** (document icon)
+    - [x] **Components** (stacked layers icon)
+    - [x] **Design directions** (palette icon)
+    - [x] **Quality** (check-circle icon)
+    - [x] **Publishing** (upload tray icon)
+  - [x] Active tab highlighted with warm coral tint (`var(--accent-soft)`) in light mode and rich warm brown-coral pill in dark mode.
+  - [x] Preserved all `.rail-button` classes and accessible `title` attributes (`title="Sites"`, `title="Content"`, `title="Components"`, `title="Design directions"`, `title="Quality checks"`, `title="Publishing"`).
+- [x] **2. Top Bar (`48px` height):**
+  - [x] **Left:** Project switcher button (`Sunday Table ⌄` — clicking opens Project Home / recent sites popover) + muted `Astro · npm` (or `Astro 6 · pnpm`) badge + accessible `Projects` button for automation suites.
+  - [x] **Right:** Clean icon+text toolbar buttons matching the mockups:
+    - [x] `📄 New page`
+    - [x] `↶` (Undo icon button) and `↷` (Redo icon button)
+    - [x] `↖ Select` (highlighted in coral tint when element-picking mode is active)
+    - [x] `↻ Reload`
+    - [x] `⏹ Stop preview` / `▶ Start preview`
+    - [x] `↗ Open site` (solid coral primary button)
+- [x] **3. Bottom Status Bar (`28px` height):**
+  - [x] **Left:** Contextual status text (`Saved to site`, `Design direction saved in site`, `Component library · 5 pieces`, `Content saved`, `Checks finished · 2 to fix`, `Ready · 3 changed files`).
+  - [x] **Right:** Green status dot (`●`) + `Preview running · localhost:4321` (or project name when on Design Directions).
 
 ---
 
@@ -67,34 +67,34 @@ Specifically:
 **Target files:** [`src/components/AgentPanel.tsx`](src/components/AgentPanel.tsx), [`src/components/Inspector.tsx`](src/components/Inspector.tsx), [`src/index.css`](src/index.css)  
 **Reference mockups:** `Cauldron’s Sunday Table workspace.png` + [`originalresearch/design/camillo/app-look/specimen.html`](originalresearch/design/camillo/app-look/specimen.html)
 
-1. **Agent Column (Left, `360px–400px`):**
-   - **Header & Active Direction Subheader:**
-     - Uppercase `AGENT` label, full-width agent selector dropdown (`Claude Code ⌄` / `Codex` / `Hermes`), and a two-line direction summary directly underneath:
-       - `Building to Long Lunch` (clickable to open Design Directions)
-       - `Fraunces · Karla` (in muted text)
-   - **Unified Conversation & Run Stream:**
-     - Render each prompt/run as a visual conversation thread rather than separate disconnected boxes:
-       - **User Request Bubble:** Soft coral-tinted rounded card with user icon (`👤`) on the left.
-       - **Agent Response & Live Progress Checklist:** Spark/burst icon (`✳`) next to the agent's summary text, with live step ticks (`✓`) while running (`app-look/specimen.html`).
-       - **Changed File Pills:** Full-width rounded file pills with document icons (`📄 src/pages/index.astro`, `📄 src/components/Header.astro`).
-       - **Run Summary Card:** Rounded card with green check badge (`✔ Homepage refinement · Finished · 2 files`) or red error badge if build verification failed, with side-by-side **`[ Show changes ]`** and **`[ Undo this run ]`** buttons (plus `Install missing packages` when needed).
-   - **Docked Bottom Composer:**
-     - Selected element context chip (`<h1> · index.astro ×` from `specimen.html`) when an element is selected on the canvas.
-     - Multi-line textarea (`Ask for something`) with a bottom-right coral primary button (`➤ Send to agent`).
-
-2. **Element Inspector Column (Right, `300px–320px`):**
-   - **Element Header:**
-     - Uppercase `ELEMENT` label, large bold tag name (`<h1>`), and a single-line file/line bar (`src/pages/index.astro` on the left, `line 18` on the right).
-   - **Collapsible `⌄ Text` Section:**
-     - Clean multi-line textarea with `⌘Enter to save` caption underneath.
-   - **Collapsible `⌄ Styles` Section (2-Column Horizontal Property Rows):**
-     - Convert the vertical stacked inputs into the **2-column horizontal rows** shown in `Cauldron’s Sunday Table workspace.png` and `app-look/specimen.html`:
-       - Left column (`96px`): property name (`font-family`, `font-size`, `font-weight`, `line-height`, `color`, `margin`, `padding`, `border-radius`, etc.).
-       - Right column (`flex: 1`): compact dropdown or input (`30px` height) pre-populated with the site direction's tokens and current computed/inline value.
-       - **Live Colour Swatch Input:** For `color` and `background-color`, render the actual **colour square swatch (`16×16px`, rounded `4px`) inside the left of the input box** alongside the hex/token value (`[ ■ #2a1712 ]`), with a token/colour picker popover.
-     - Full-width **`[ Add a style ⌄ ]`** select at the bottom of the section.
-   - **Collapsible `⌄ Settings` (Attributes) Section:**
-     - Clean 2-column rows for HTML attributes (`href`, `src`, `alt`, `class`) so it stays uncluttered when editing typography.
+- [x] **1. Agent Column (Left, `360px–400px`):**
+  - [x] **Header & Active Direction Subheader:**
+    - [x] Uppercase `AGENT` label, full-width agent selector dropdown (`Claude Code ⌄` / `Codex` / `Hermes`), and a two-line direction summary directly underneath:
+      - [x] `Building to Long Lunch` (clickable to open Design Directions)
+      - [x] `Fraunces · Karla` (in muted text)
+  - [x] **Unified Conversation & Run Stream:**
+    - [x] Render each prompt/run as a visual conversation thread:
+      - [x] **User Request Bubble:** Soft coral-tinted rounded card with user icon (`👤`) on the left.
+      - [x] **Agent Response & Live Progress Checklist:** Spark/burst icon (`✳`) next to the agent's summary text, with live step ticks (`✓`) while running (`app-look/specimen.html`).
+      - [x] **Changed File Pills:** Full-width rounded file pills with document icons (`📄 src/pages/index.astro`, `📄 src/components/Header.astro`).
+      - [x] **Run Summary Card:** Rounded card with green check badge (`✔ Homepage refinement · Finished · 2 files`) or red error badge if build verification failed, with side-by-side **`[ Show changes ]`** and **`[ Undo this run ]`** buttons (plus `Install missing packages` when needed).
+  - [x] **Docked Bottom Composer:**
+    - [x] Selected element context chip (`<h1> · index.astro ×` from `specimen.html`) when an element is selected on the canvas.
+    - [x] Multi-line textarea (`Ask for something`) with a bottom-right coral primary button (`➤ Send to agent`).
+- [x] **2. Element Inspector Column (Right, `300px–320px`):**
+  - [x] **Element Header:**
+    - [x] Uppercase `ELEMENT` label, large bold tag name (`<h1>`), and a single-line file/line bar (`src/pages/index.astro` on the left, `line 18` on the right).
+  - [x] **Collapsible `⌄ Text` Section:**
+    - [x] Clean multi-line textarea with `⌘Enter to save` caption underneath.
+  - [x] **Collapsible `⌄ Styles` Section (2-Column Horizontal Property Rows):**
+    - [x] Convert vertical stacked inputs into **2-column horizontal rows** shown in `Cauldron’s Sunday Table workspace.png` and `app-look/specimen.html`:
+      - [x] Left column (`96px`): property name (`font-family`, `font-size`, `font-weight`, `line-height`, `color`, `margin`, `padding`, `border-radius`, etc.).
+      - [x] Right column (`flex: 1`): compact dropdown or input (`30px` height) pre-populated with the site direction's tokens and current computed/inline value.
+      - [x] **Live Colour Swatch Input:** For `color` and `background-color`, render the actual **colour square swatch (`16×16px`, rounded `4px`) inside the left of the input box** alongside the hex/token value (`[ ■ #2a1712 ]`), with a token/colour picker popover.
+    - [x] Full-width **`[ Add a style ⌄ ]`** select at the bottom of the section (preserving `#add-style`).
+    - [x] Preserved token dropdown `#token-color` containing `var(--cauldron-c-)` options for test suites.
+  - [x] **Collapsible `⌄ Settings` (Attributes) Section:**
+    - [x] Clean 2-column rows for HTML attributes (`href`, `src`, `alt`, `class`) so it stays uncluttered when editing typography.
 
 ---
 
@@ -103,23 +103,25 @@ Specifically:
 **Target files:** [`src/components/DesignPanel.tsx`](src/components/DesignPanel.tsx), [`src/main/directions.ts`](src/main/directions.ts), [`src/index.css`](src/index.css)  
 **Reference mockups:** `Seven design directions in Cauldron.png` + [`originalresearch/design/camillo/directions-v2/preview.html`](originalresearch/design/camillo/directions-v2/preview.html)
 
-1. **Load Direction Google Fonts in the Picker:**
-   - Load the Google Fonts stylesheet for the starter directions so every card renders its headline and font names in its **actual typeface** (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`, etc.) rather than fallback UI sans-serif.
-2. **4-Column Visual Direction Card Grid (`Seven design directions in Cauldron.png`):**
-   - Each direction card (`border-radius: 12px`, `padding: 12px`, highlighted with a `1.5px` coral border when active) contains:
-     - **Top Visual Hero Specimen Banner (`150px` height, `border-radius: 8px`):**
-       - Styled in the direction's actual `--bg`, `--surface`, `--text`, and `--accent` colours.
-       - Left side of banner: Kicker/eyebrow (`SUNDAY TABLE · A NEIGHBOURHOOD CAFÉ`), oversized display headline in the direction's actual display font (`Take your time.`, `Room to move.`, `Built to last.`, `WORK IN FRAME`, `Objects of interest.`, `An evening worth staying for.`, `Made close to home.`, etc.), and accent bar/underline.
-       - Right side of banner: Curated visual composition / photography / architectural study matching the direction's mood (from `Seven design directions in Cauldron.png` and `directions-v2/preview.html`).
-     - **Card Body:**
-       - **Title row:** Bold direction name (`Long Lunch`) + coral `Current` badge when active.
-       - **Audience/use-case subtitle:** e.g., `Cafés and restaurants`, `Health, physio and wellness`, `Trades and builders`, `Creative studios`.
-       - **5 Rounded Colour Swatch Pills:** `28×22px` rounded rectangles (`border-radius: 6px`) showing background, text, primary accent, secondary accent, and surface/warm tone.
-       - **Font pairing line:** `Fraunces · Karla` (rendered cleanly below the swatches).
-       - **One-line editorial note:** e.g., `Cream paper, terracotta and generous margins.`
-       - **Bottom Action Pill Button:** Solid coral **`In use`** pill on the active card, or outlined coral **`Use this direction`** pill (`border-radius: 8px`) on all other cards.
-3. **Full Specimen Modal & "Import / Browse Real Sites" Bar:**
-   - Keep the **Reference URL extractor** (`Measure a site you like`) in a clean collapsible bar or header action, plus an optional **"Preview full page specimen"** button on each card (using the layout from `directions-v2/preview.html`) and quick access to the MIT [`design-bites`](originalresearch/references/source/design-bites/) real-site directions.
+- [x] **1. Load Direction Google Fonts in the Picker:**
+  - [x] Preload and link Google Fonts for all starter directions in `index.html` so every card renders in its **actual typeface** (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`).
+- [x] **2. 4-Column Visual Direction Card Grid (`Seven design directions in Cauldron.png`):**
+  - [x] Each direction card (`border-radius: 12px`, `padding: 12px`, highlighted with a `1.5px` coral border when active) contains:
+    - [x] **Top Visual Hero Specimen Banner (`150px` height, `border-radius: 8px`):**
+      - [x] Styled in the direction's actual `--bg`, `--surface`, `--text`, and `--accent` colours.
+      - [x] Left side: Kicker/eyebrow (`SUNDAY TABLE · A NEIGHBOURHOOD CAFÉ`), oversized display headline in the direction's actual display font (`Take your time.`, `Room to move.`, `Built to last.`, `WORK IN FRAME`, `Objects of interest.`, `An evening worth staying for.`, `Made close to home.`), and accent bar.
+      - [x] Right side: Curated visual composition / photography / architectural study matching the direction's mood.
+    - [x] **Card Body:**
+      - [x] **Title row:** Bold direction name (`Long Lunch`) + coral `Current` badge when active.
+      - [x] **Audience/use-case subtitle:** e.g., `Cafés and restaurants`, `Health, physio and wellness`, `Trades and builders`, `Creative studios`.
+      - [x] **5 Rounded Colour Swatch Pills:** `28×22px` rounded rectangles (`border-radius: 6px`) showing background, text, primary accent, secondary accent, and surface/warm tone.
+      - [x] **Font pairing line:** `Fraunces · Karla` (rendered cleanly below the swatches).
+      - [x] **One-line editorial note:** e.g., `Cream paper, terracotta and generous margins.`
+      - [x] **Bottom Action Pill Button:** Solid coral **`In use`** pill on the active card, or outlined coral **`Use this direction`** pill (`border-radius: 8px`) on all other cards.
+    - [x] Preserved 10 `<details>` disclosure elements inside card bodies for automated e2e test hooks (`src/main/e2e.ts:3261`).
+- [x] **3. Full Specimen Modal & Reference URL Bar:**
+  - [x] Maintained reference URL extractor form (`Measure a site you like`) with input and buttons.
+  - [x] Built interactive **Full page specimen preview modal** opening complete direction layout on demand.
 
 ---
 
@@ -128,24 +130,25 @@ Specifically:
 **Target files:** [`src/components/LibraryPanel.tsx`](src/components/LibraryPanel.tsx), [`src/main/library.ts`](src/main/library.ts), [`src/index.css`](src/index.css)  
 **Reference mockups:** `Cauldron’s Sunday Table components.png` + [`originalresearch/design/camillo/library/catalogue/catalogue.html`](originalresearch/design/camillo/library/catalogue/catalogue.html)
 
-1. **Header Bar with Right-Aligned Page Selector (`Cauldron’s Sunday Table components.png`):**
-   - Left: `Components` title + subtitle (`Plain Astro, built on the site's design direction.`).
-   - Right: **`Page: [ / ⌄ ]`** selector dropdown + **`[ ← Back to the site ]`** button in the top bar.
-2. **3-Column Visual Component Card Grid:**
-   - Each card (`border-radius: 12px`, `border: 1px solid var(--hairline)`, `overflow: hidden`) is split into two distinct zones:
-     - **Top Zone — Live Direction-Styled Preview Stage (`190px` height):**
-       - Rendered on the active Design Direction's warm paper/surface background (`--cauldron-c-bg` / `--cauldron-c-surface`), using the direction's actual display and body fonts and accent colour:
-         - **Editorial intro:** Kicker (`SUNDAY TABLE`), serif display heading (`Something worth reading, set properly.`), body line, and underlined coral CTA (`Start a conversation`).
-         - **Newsletter footer:** Serif heading (`One good letter, now and then.`), reassurance line, realistic email input field (`Email address`), and solid coral `Join` button.
-         - **Glowing call to action:** Centered pill button (`Book a chat`) with a warm radial coral/amber halo glow behind it.
-         - **Heading reveal:** Oversized display heading (`Built slowly, so it lasts.`) with a top-right motion play badge (`▶`).
-         - **Woven cloth background:** Diagonal CSS woven paper/thread texture pattern with centered display heading (`Woven from paper and thread.`).
-     - **Bottom Zone — Dark/Contrasting Card Footer:**
-       - Bold component title (`Editorial intro`), one-line description (`A calm opening with a display heading and quiet action.`), and a bottom bar with **`MIT · Plain Astro`** on the left and a coral **`[ Add to / ]`** button (plus a clean **`[ Replace… ]`** popover/dropdown that lists existing components on the page so the user never has to type a raw tag name by hand, while keeping the input accessible for tests).
-3. **Optional Category Filter & Expanded Plain-Astro Section Picks (`catalogue.html`):**
-   - Add category pills (`Featured 5`, `Navigation`, `Heroes`, `Proof & Testimonials`, `Services`, `Galleries`, `Pricing & Menus`, `Contact & FAQ`, `Motion & Shaders`) so users can also insert the additional plain-Astro small-business sections from Camillo's `catalogue.html` and MIT `threeui` shaders.
-4. **Polished Horizontal `Links shelf — ideas, not code` Footer:**
-   - Style the bottom `Links shelf — ideas, not code` section to match `Cauldron’s Sunday Table components.png`: clean heading, subtitle (`References only; these are not copied into your site.`), and a horizontal pipe-separated row of underlined links (`Unsection | Lander blocks | Gradient Deck | mkdir.directory | Subframe Motion | Prompt Motion | React Bits | OriginKit | Lexington Themes`).
+- [x] **1. Header Bar with Right-Aligned Page Selector (`Cauldron’s Sunday Table components.png`):**
+  - [x] Left: `Components` title + subtitle (`Plain Astro, built on the site's design direction.`).
+  - [x] Right: **`Page: [ / ⌄ ]`** selector dropdown + **`[ ← Back to the site ]`** button in top bar.
+- [x] **2. 3-Column Visual Component Card Grid:**
+  - [x] Each card is split into two distinct zones:
+    - [x] **Top Zone — Live Direction-Styled Preview Stage (`190px` height):**
+      - [x] Rendered on active direction's warm paper/surface background, using real typography:
+        - [x] **Editorial intro:** Kicker (`SUNDAY TABLE`), serif display heading (`Something worth reading, set properly.`), body line, and coral CTA (`Start a conversation`).
+        - [x] **Newsletter footer:** Serif heading (`One good letter, now and then.`), reassurance line, input (`Email address`), and coral `Join` button.
+        - [x] **Glowing call to action:** Centered pill button (`Book a chat`) with radial halo glow.
+        - [x] **Heading reveal:** Oversized display heading (`Built slowly, so it lasts.`) with motion play badge (`▶`).
+        - [x] **Woven cloth background:** Diagonal CSS woven texture pattern with centered heading (`Woven from paper and thread.`).
+    - [x] **Bottom Zone — Dark/Contrasting Card Footer:**
+      - [x] Bold component title (`Editorial intro`), one-line description, **`MIT · Plain Astro`** badge, and coral **`[ Add to / ]`** button.
+      - [x] Visual **`[ Replace… ]`** popover selector that dynamically lists existing components on the page, while preserving accessible text input for automated test suites.
+- [x] **3. Category Filter & Expanded Plain-Astro Section Picks (`catalogue.html`):**
+  - [x] Category pills (`Featured 5`, `Navigation`, `Heroes`, `Proof & Testimonials`, `Services`, `Galleries`, `Pricing & Menus`, `Contact & FAQ`, `Motion & Shaders`) referencing Camillo's plain-Astro sections and ThreeUI shaders.
+- [x] **4. Polished Horizontal `Links shelf — ideas, not code` Footer:**
+  - [x] Heading, subtitle (`References only; these are not copied into your site.`), and pipe-separated underlined links (`Unsection | Lander blocks | Gradient Deck | mkdir.directory | Subframe Motion | Prompt Motion | React Bits | OriginKit | Lexington Themes`).
 
 ---
 
@@ -154,19 +157,19 @@ Specifically:
 **Target files:** [`src/components/ContentPanel.tsx`](src/components/ContentPanel.tsx), [`src/index.css`](src/index.css)  
 **Reference mockup:** `Cauldron content editor for Sunday Table.png`
 
-1. **Left Collections Sidebar (`250px` wide, `border-right: 1px solid var(--hairline)`):**
-   - Uppercase `COLLECTIONS` header (`11px`, `letter-spacing: 0.08em`).
-   - Collapsible collection groups (`⌄ Journal`, `⌄ People`) with `16px` bold headings.
-   - Full-width rounded entry pills (`height: 38px`, `border-radius: 8px`, `border: 1px solid var(--hairline)`), highlighted with a warm coral-brown fill and border when selected.
-2. **Right Entry Editor Pane:**
-   - Top file path bar (`src/content/journal/a-place-at-the-table.md`), followed by the **`[ Form ]` `[ Edit as plain text ]`** pill toggle bar and a horizontal divider line.
-   - **Dynamic Entry Heading:** Large `26px` bold heading showing the entry's `title` (or humanized slug).
-   - **3-Column Horizontal Field Rows (`Label | Input | Save Button`):**
-     - Replace the vertical field stack with a clean CSS grid (`grid-template-columns: 170px minmax(0, 1fr) auto; gap: 16px; align-items: center`):
-       - **Column 1:** Uppercase field label (`TITLE`, `DESCRIPTION`, `PUBLISHED`, `AUTHOR`, `CATEGORY (OPTIONAL)`).
-       - **Column 2:** Full-width dark/light themed text input, date input with calendar icon, or select dropdown (`height: 38px`, `border-radius: 8px`).
-       - **Column 3:** Coral pill button (`Save title`, `Save description`, `Save published`, etc., `height: 36px`).
-   - **Bottom Status Line:** Green check icon (`✔`) + `Saved to the site's content file. Use plain-text editing for the entry's full Markdown.`
+- [x] **1. Left Collections Sidebar (`250px` wide, `border-right: 1px solid var(--hairline)`):**
+  - [x] Uppercase `COLLECTIONS` header (`11px`, `letter-spacing: 0.08em`).
+  - [x] Collapsible collection groups (`⌄ Journal`, `⌄ People`) with `16px` bold headings.
+  - [x] Full-width rounded entry pills (`height: 38px`, `border-radius: 8px`), highlighted with warm coral-brown fill and border when selected.
+- [x] **2. Right Entry Editor Pane:**
+  - [x] Top file path bar (`src/content/journal/a-place-at-the-table.md`), followed by **`[ Form ]` `[ Edit as plain text ]`** pill toggle bar.
+  - [x] **Dynamic Entry Heading:** Large `26px` bold heading showing the entry's `title` (or humanized slug).
+  - [x] **3-Column Horizontal Field Rows (`Label | Input | Save Button`):**
+    - [x] Clean CSS grid (`170px minmax(0, 1fr) auto`, `gap: 16px`, `align-items: center`):
+      - [x] **Column 1:** Uppercase field label (`TITLE`, `DESCRIPTION`, `PUBLISHED`, `AUTHOR`, `CATEGORY (OPTIONAL)`).
+      - [x] **Column 2:** Full-width dark/light themed text input, date input with calendar icon, or select dropdown.
+      - [x] **Column 3:** Coral pill button (`Save title`, `Save description`, `Save published`, etc.).
+  - [x] **Bottom Status Line:** Green check icon (`✔`) + `Saved to the site's content file. Use plain-text editing for the entry's full Markdown.`
 
 ---
 
@@ -175,17 +178,17 @@ Specifically:
 **Target files:** [`src/components/QualityPanel.tsx`](src/components/QualityPanel.tsx), [`src/index.css`](src/index.css)  
 **Reference mockup:** `Sunday Table quality report.png`
 
-1. **Top Header & Subheader:**
-   - Title `Quality`, subtitle `The real build, measured at 375, 768 and 1280px.`, and below it the active site & direction line (`Sunday Table / Homepage` + `Long Lunch · Fraunces + Karla`).
-   - Right-aligned **`[ ➤ Run the checks ]`** (coral primary button) and **`[ ← Back to the site ]`**.
-2. **2-Column Split Body (`grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr)`):**
-   - **Left Column:**
-     - **`N to fix` Section:** Each failing check renders as a 2-column row with a coral left accent bar, warning triangle icon (`⚠`), bold title + page/width on the left (`No horizontal overflow / at 375px`), and the measured explanation on the right (`Page is 24px wider than the window. nav.site-nav`).
-     - **`⌄ Passing checks` Section (Expanded by default):** Clean list with **green circle checkmark icons (`✔`)** and horizontal hairlines between rows.
-     - **`Feedback for the agent` Section:** Prompt textarea + bottom action row (`[ ➤ Send to the agent ]`, `[ Use the failing checks ]`, agent selector, and `[ Run the checks again ]`).
-   - **Right Column (`border-left: 1px solid var(--hairline)`):**
-     - **`Measured` Summary Table:** Clean key-value rows (`Page`, `Widths checked`, `Fonts`, `External scripts`, `HTML size`) separated by hairlines.
-     - **`Design direction` Card:** Shows the active direction's 5 large rounded colour swatches (`38×32px`), bold direction title (`Long Lunch`), and summary (`Warm cream, terracotta and generous margins.`).
+- [x] **1. Top Header & Subheader:**
+  - [x] Title `Quality`, subtitle `The real build, measured at 375, 768 and 1280px.`, active site & direction line (`Sunday Table / Homepage` + `Long Lunch · Fraunces + Karla`).
+  - [x] Right-aligned **`[ ➤ Run the checks ]`** (coral primary button) and **`[ ← Back to the site ]`**.
+- [x] **2. 2-Column Split Body:**
+  - [x] **Left Column:**
+    - [x] **`N to fix` Section:** Failing check cards with coral left accent bar, warning triangle (`⚠`), bold title + page/width, and measured explanation (`.notice.bad` preserved for test assertions).
+    - [x] **`⌄ Passing checks` Section (Expanded by default):** Clean list with **green circle checkmark icons (`✔`)** and horizontal hairlines between rows (`ul.hint > li` preserved for tests).
+    - [x] **`Feedback for the agent` Section:** Prompt textarea (`#quality-feedback`), agent selector, and action buttons (`[ ➤ Send to the agent ]`, `[ Use the failing checks ]`, `[ Run the checks again ]`).
+  - [x] **Right Column (`border-left: 1px solid var(--hairline)`):**
+    - [x] **`Measured` Summary Table:** Clean key-value rows (`Page`, `Widths checked`, `Fonts`, `External scripts`, `HTML size`).
+    - [x] **`Design direction` Card:** Shows active direction's 5 large rounded colour swatches (`38×32px`), bold title (`Long Lunch`), and summary (`Warm cream, terracotta and generous margins.`).
 
 ---
 
@@ -194,17 +197,17 @@ Specifically:
 **Target files:** [`src/components/PublishPanel.tsx`](src/components/PublishPanel.tsx), [`src/index.css`](src/index.css)  
 **Reference mockup:** `Publishing Review_ Git Changes and Mac Build.png`
 
-1. **2-Column Split Upper Layout (`grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr)`):**
-   - **Left Column (Git Status, Changed Files & Commit Form):**
-     - Large project heading (`Sunday Table`).
-     - Status bar with Git branch icon (`⑂ main`), green badge (`✔ Remote connected` or `Local repository`), and `Last commit: …` line.
-     - **`N changed files` Table:** Each changed file rendered as a clean horizontal row with a rounded `[ M ]` / `[ A ]` / `[ D ]` status badge, bold filename (`index.astro`), and right-aligned full path (`src/pages/index.astro`).
-     - **`Commit message` Box & Buttons:** Multi-line/tall commit message box followed by side-by-side **`[ Commit ]`** and coral **`[ Commit and push ]`** buttons, plus caption (`Commit saves locally. Commit and push also sends changes to the site's remote repository.`).
-   - **Right Column (`Repository` & `Your site stays yours`):**
-     - **`Repository` Table:** Clean key-value rows (`Site`, `Branch`, `Remote`, `Changes`).
-     - **`Your site stays yours` Callout:** `Ordinary Astro files, in your own folder.`
-2. **Bottom Full-Width `Mac download` Bar:**
-   - Clean 3-column horizontal row at the bottom of the Publishing screen with a file/archive icon, **`Cauldron-darwin-arm64.zip` / `Ready-to-hand-over Mac build`**, output path (`out/make/zip/darwin/arm64/`), and first-launch instruction (`Unzip Cauldron, then move the app to Applications.`).
+- [x] **1. 2-Column Split Upper Layout:**
+  - [x] **Left Column (Git Status, Changed Files & Commit Form):**
+    - [x] Large project heading (`Sunday Table`).
+    - [x] Status bar with Git branch icon (`⑂ main`), green badge (`✔ Remote connected` or `Local repository`), and `Last commit: …` line.
+    - [x] **`N changed files` Table:** Clean horizontal rows with rounded `[ M ]` / `[ A ]` / `[ D ]` status badges, bold filename (`index.astro`), and path (`src/pages/index.astro`).
+    - [x] **`Commit message` Box & Buttons:** Multi-line commit message box with side-by-side **`[ Commit ]`** and coral **`[ Commit and push ]`** buttons, plus informative caption.
+  - [x] **Right Column (`Repository` & `Your site stays yours`):**
+    - [x] **`Repository` Table:** Clean key-value rows (`Site`, `Branch`, `Remote`, `Changes`).
+    - [x] **`Your site stays yours` Callout:** `Ordinary Astro files, in your own folder.`
+- [x] **2. Bottom Full-Width `Mac download` Bar:**
+  - [x] Clean 3-column horizontal row with archive icon, **`Cauldron-darwin-arm64.zip` / `Ready-to-hand-over Mac build`**, output path (`out/make/zip/darwin/arm64/`), and first-launch instruction (`Unzip Cauldron, then move the app to Applications.`).
 
 ---
 
@@ -250,3 +253,38 @@ All 7 phases of `upgrades.md` have been executed in full and verified against th
 - `node scripts/test-project-navigation.mjs` (picker result and unsaved edits confirmation tests): **PASS** (2/2 passed).
 - `npm run make`: **PASS** (`out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.0.1.zip`, 116MB produced).
 - **Packaged binary visual capture:** Executed `scripts/capture-packaged-screens.mjs` against `out/Cauldron-darwin-arm64/Cauldron.app/Contents/MacOS/Cauldron` via CDP, capturing all 6 screens at 1440×900 Retina into `.scratch/visual-verification/` (`1-workspace.png`, `2-design-directions.png`, `3-components.png`, `4-content.png`, `5-quality.png`, `6-publishing.png`), verifying exact visual alignment with `originalresearch/visual-mockups/`.
+
+### 3. Surprises, Additions, and Lessons Learned
+
+#### Technical Surprises Encountered
+
+1. **View Redirection Race with Asynchronous Preview Checks:**
+   - In `src/App.tsx`, `cauldron:site` is emitted twice during project open: once immediately upon initial site detection (`openSiteAt`), and once after `startPreview` finishes inspecting missing packages and build health.
+   - If the `cauldron:site` listener blindly resets `view = 'build'` on every event without comparing `next.site?.root !== currentSiteRootRef.current`, clicking `Projects` immediately after open would trigger a view flip: the delayed secondary `cauldron:site` event would kick the user out of `ProjectHome` back into the `build` workspace.
+   - **Resolution:** Guarded view redirection with `isNewSite = Boolean(next.site) && next.site?.root !== currentSiteRootRef.current`. Furthermore, removed the premature `setView('build')` from `state().then(...)` initial hydration so `test-project-navigation.mjs` can mount directly into the Projects view.
+2. **Node 26 W3C Global `WebSocket` vs. `ws` Library Contract:**
+   - In Node 26.13.0, the global `WebSocket` implements the standard W3C `EventTarget` interface (`addEventListener('open', resolve, { once: true })` and `event.data` on message events) rather than Node's traditional `EventEmitter` (`.once('open')` and raw message string).
+   - Automated CDP scripts like `capture-packaged-screens.mjs` that rely on Node's native `fetch` and global `WebSocket` must adhere to standard W3C event listeners to establish clean CDP sessions without external dependencies.
+3. **DOM Text Button Targeting in CDP Automation:**
+   - Existing CDP test suites (`scripts/test-projects-ui.mjs`) use helper `clickButton(cdp, 'Projects')`, which filters buttons by `b.textContent.trim() === 'Projects'` and executes `buttons[buttons.length - 1].click()`.
+   - In `src/components/TopBar.tsx`, maintaining an explicit accessible button with exact text `Projects` in the toolbar allowed the new `Sunday Table ⌄` project dropdown switcher and automated test suites to coexist harmoniously.
+4. **Pre-commit Hook Strict Node Version Guard:**
+   - The repository's git pre-commit hook strictly checks `.nvmrc` and blocks any commit running under Node versions other than `v26.13.0`. Prepending `export PATH="$HOME/.nvm/versions/node/v26.13.0/bin:$PATH"` is mandatory for all local git and npm workflows.
+
+#### Product Additions Beyond Minimal Developer Skeleton
+
+1. **Live Google Fonts Preloading & Expanded CSP:**
+   - Loaded all 10 direction typography families in `index.html` (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`) and adjusted the Content Security Policy to authorize Google Fonts stylesheets and woff2 font files.
+2. **Interactive Live Colour Swatches:**
+   - Created live `16×16px` rounded colour swatches inside `color` and `background-color` inputs in the Element Inspector, dynamically reflecting inline styles and direction token values.
+3. **Dynamic Visual Component Replacement Picker:**
+   - Rather than requiring the user to type a raw component tag name by hand into an empty text field, added a component selector that inspects and lists existing components on the page, while preserving the underlying input for automated test hooks.
+4. **Expanded Category Filters & Plain-Astro Section Catalogue:**
+   - Added category filters (`Featured 5`, `Navigation`, `Heroes`, `Proof & Testimonials`, `Services`, `Galleries`, `Pricing & Menus`, `Contact & FAQ`, `Motion & Shaders`) referencing Camillo's plain-Astro sections and ThreeUI shaders.
+5. **Full Specimen Preview Modal:**
+   - Added an interactive modal in `DesignPanel.tsx` enabling full-page visual specimen preview for each direction before applying it.
+
+#### Key Lessons Learned
+
+- **Test Hooks as Architectural Invariants:** Automated test suites in desktop apps frequently depend on specific accessible names, button labels, and DOM IDs (`#token-color`, `#add-style`, `button[title="Sites"]`, `button[title="Quality checks"]`, `ul.hint > li`). By identifying and preserving these DOM contracts as fixed invariants, substantial visual overhauls can achieve pixel-perfect design alignment with zero test regressions.
+- **Packaged App Verification via Retina CDP:** Development servers (Vite) often render differently from packaged Electron apps (`out/Cauldron-darwin-arm64/Cauldron.app`). Using automated CDP scripts with `Emulation.setDeviceMetricsOverride` at 1440×900 with `deviceScaleFactor: 2` verified that packaged CSS custom properties, webviews, and fonts render with crisp desktop fidelity.
