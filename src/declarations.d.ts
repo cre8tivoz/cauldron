@@ -98,13 +98,34 @@ type QualityReport = {
 type CauldronPiece = {
   id: string;
   name: string;
-  category: 'intro' | 'footer' | 'button' | 'heading' | 'background';
+  category: string;
   description: string;
   licence: string;
   source: string;
   needsScript: boolean;
   codeAllowed: boolean;
   previewHtml: string;
+};
+
+type CauldronPageSection = {
+  index: number;
+  tag: string;
+  name: string;
+  anchorId: string | null;
+  line: number;
+  preview: string;
+};
+
+type CauldronStockPhoto = {
+  id: string;
+  title: string;
+  photographer: string;
+  source: 'Unsplash' | 'Pexels';
+  sourceUrl: string;
+  thumbUrl: string;
+  fullUrl: string;
+  directionId: string;
+  category: string;
 };
 
 type CauldronCollection = {
@@ -195,6 +216,19 @@ type CauldronPrepareEvent =
       problem: string | null;
       detail: string;
     };
+
+type CauldronStarterTemplate = {
+  id: 'sunday-table' | 'penta' | 'good-trade' | 'the-desk' | 'minimal';
+  name: string;
+  category: string;
+  description: string;
+  direction: string;
+  directionId: string;
+  badge: string;
+  swatches: string[];
+  fonts: string;
+  pages: string[];
+};
 
 type CauldronCreatedProject = {
   root: string;
@@ -302,6 +336,28 @@ type CauldronApi = {
     message?: string;
   }>;
   macBuild: () => Promise<{ zip: string | null; instructions: string }>;
+  exportStatic: () => Promise<{
+    ok: boolean;
+    distPath?: string;
+    problem?: string;
+    log?: string;
+  }>;
+  deployCloudflare: (projectName?: string) => Promise<{
+    ok: boolean;
+    url?: string;
+    problem?: string;
+    log?: string;
+  }>;
+  stockPhotos: (
+    query?: string,
+    directionId?: string,
+  ) => Promise<CauldronStockPhoto[]>;
+  saveAssetImage: (payload: {
+    fileName: string;
+    base64: string;
+  }) => Promise<
+    { ok: true; relativePath: string } | { ok: false; problem: string }
+  >;
   qualityRun: (payload: { pages?: string[] }) => Promise<QualityReport>;
   library: () => Promise<{
     pieces: CauldronPiece[];
@@ -317,6 +373,37 @@ type CauldronApi = {
     problem?: string;
     page?: string;
     runId?: string;
+  }>;
+  pageSections: (page: string) => Promise<{
+    ok: boolean;
+    sections?: CauldronPageSection[];
+    problem?: string;
+  }>;
+  reorderPageSections: (payload: {
+    page: string;
+    fromIndex: number;
+    toIndex: number;
+  }) => Promise<{
+    ok: boolean;
+    sections?: CauldronPageSection[];
+    problem?: string;
+  }>;
+  deletePageSection: (payload: {
+    page: string;
+    sectionIndex: number;
+  }) => Promise<{
+    ok: boolean;
+    sections?: CauldronPageSection[];
+    problem?: string;
+  }>;
+  setPageSectionAnchor: (payload: {
+    page: string;
+    sectionIndex: number;
+    anchorId: string;
+  }) => Promise<{
+    ok: boolean;
+    sections?: CauldronPageSection[];
+    problem?: string;
   }>;
 
   refreshSelection: () => Promise<CauldronSelection | null>;
@@ -347,10 +434,12 @@ type CauldronApi = {
   createProject: (payload: {
     name: string;
     parent: string;
+    template?: string;
   }) => Promise<
     | { ok: true; project: CauldronCreatedProject }
     | { problem: string; detail: string }
   >;
+  starterTemplates: () => Promise<CauldronStarterTemplate[]>;
   chooseProjectParent: () => Promise<{
     cancelled: boolean;
     path: string | null;

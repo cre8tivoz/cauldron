@@ -761,6 +761,7 @@ export function App() {
                   }}
                 >
                   <Inspector
+                    site={site}
                     direction={direction}
                     selection={selection}
                     problem={problem}
@@ -771,6 +772,7 @@ export function App() {
                     onKeepMine={keepMine}
                     onUseDisk={useDisk}
                     onDraft={queueDraft}
+                    onNavigateToLibrary={() => setView('library')}
                   />
                 </div>
               </>

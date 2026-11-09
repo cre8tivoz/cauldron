@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DIRECTIONS, writeDirection } from './directions';
+import { getTemplateFiles, STARTER_TEMPLATES } from './templates';
 
 /**
  * Persistent recent-project library and new Astro project creation. Every
@@ -219,6 +221,7 @@ export function createProject(options: {
   parent: string;
   name: string;
   astroVersion: string;
+  template?: string;
 }): { ok: true; project: CreatedProject } | CreateProblem {
   const nameProblem = validateProjectName(options.name);
   if (nameProblem) return { problem: nameProblem, detail: options.name };
@@ -297,17 +300,33 @@ export function createProject(options: {
     fs.mkdirSync(path.join(root, 'src/pages'), { recursive: true });
     fs.mkdirSync(path.join(root, 'src/layouts'), { recursive: true });
     fs.mkdirSync(path.join(root, 'public'), { recursive: true });
-    // The display name is arbitrary user text. It is carried into the page as
-    // data (a string in the frontmatter), never interpolated into markup, so
-    // characters like < and > render as text rather than becoming markup.
-    fs.writeFileSync(
-      path.join(root, 'src/layouts/Base.astro'),
-      `---\ninterface Props {\n  title: string;\n}\nconst { title } = Astro.props;\n---\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>{title}</title>\n  </head>\n  <body>\n    <slot />\n  </body>\n</html>\n`,
-    );
-    fs.writeFileSync(
-      path.join(root, 'src/pages/index.astro'),
-      `---\nimport Base from '../layouts/Base.astro';\n\n// The project's display name, kept as data. Astro renders {projectName} as\n// plain text, so any characters it contains stay text.\nconst projectName = ${JSON.stringify(options.name)};\n---\n<Base title={projectName}>\n  <main>\n    <h1>{projectName}</h1>\n    <p>A new Astro site, ready to design.</p>\n  </main>\n</Base>\n`,
-    );
+    if (options.template && options.template !== 'minimal') {
+      const files = getTemplateFiles(options.template, options.name);
+      for (const [relPath, content] of Object.entries(files)) {
+        const fullPath = path.join(root, relPath);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, content, 'utf8');
+      }
+      const match = STARTER_TEMPLATES.find((t) => t.id === options.template);
+      if (match && match.directionId && match.directionId !== 'minimal') {
+        const dir = DIRECTIONS.find((d) => d.id === match.directionId);
+        if (dir) {
+          writeDirection(root, dir);
+        }
+      }
+    } else {
+      // The display name is arbitrary user text. It is carried into the page as
+      // data (a string in the frontmatter), never interpolated into markup, so
+      // characters like < and > render as text rather than becoming markup.
+      fs.writeFileSync(
+        path.join(root, 'src/layouts/Base.astro'),
+        `---\ninterface Props {\n  title: string;\n}\nconst { title } = Astro.props;\n---\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>{title}</title>\n  </head>\n  <body>\n    <slot />\n  </body>\n</html>\n`,
+      );
+      fs.writeFileSync(
+        path.join(root, 'src/pages/index.astro'),
+        `---\nimport Base from '../layouts/Base.astro';\n\n// The project's display name, kept as data. Astro renders {projectName} as\n// plain text, so any characters it contains stay text.\nconst projectName = ${JSON.stringify(options.name)};\n---\n<Base title={projectName}>\n  <main>\n    <h1>{projectName}</h1>\n    <p>A new Astro site, ready to design.</p>\n  </main>\n</Base>\n`,
+      );
+    }
     return {
       ok: true,
       project: { root, name: options.name, astroVersion: version, slug },

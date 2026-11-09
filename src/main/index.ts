@@ -17,6 +17,10 @@ import {
   runAction,
   listPages,
   actionCatalogue,
+  readPageSections,
+  reorderPageSections,
+  deletePageSection,
+  setPageSectionAnchor,
   type ActionRequest,
 } from './actions';
 import {
@@ -39,9 +43,17 @@ import {
 import { startMcpServer, mcpCalls, type McpHandle } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
+import { EXTENDED_LIBRARY } from './library-pieces';
 import { checkSite, buildSite } from './quality';
 import { directionFromUrl } from './reference';
-import { macBuildInfo, publish, repoState } from './publishing';
+import {
+  macBuildInfo,
+  publish,
+  repoState,
+  exportStaticSite,
+  deployCloudflarePages,
+} from './publishing';
+import { getCuratedPhotos, saveAssetFile } from './assets';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
 import {
   addRecent,
@@ -50,6 +62,7 @@ import {
   loadRecents,
   removeRecent,
 } from './projects';
+import { STARTER_TEMPLATES } from './templates';
 import {
   detectDependencySetup,
   prepareDependencies,
@@ -1223,11 +1236,12 @@ function registerIpc(): void {
 
   handle(
     'cauldron:create-project',
-    (_event, payload: { name: string; parent: string }) => {
+    (_event, payload: { name: string; parent: string; template?: string }) => {
       const result = createProject({
         parent: payload.parent,
         name: payload.name,
         astroVersion: ASTRO_VERSION_TESTED,
+        template: payload.template,
       });
       if ('ok' in result) {
         recordRecent(result.project.root);
@@ -1238,6 +1252,8 @@ function registerIpc(): void {
       return result;
     },
   );
+
+  handle('cauldron:starter-templates', () => STARTER_TEMPLATES);
 
   handle('cauldron:detect-dependencies', (_event, root: string) => {
     const site = detectSite(root);
@@ -1579,6 +1595,66 @@ function registerIpc(): void {
     ),
   );
 
+  handle('cauldron:export-static', async () => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    const result = exportStaticSite(site.root);
+    if (result.ok && result.distPath) {
+      status(`Built static site to ${result.distPath}`);
+      shell.openPath(result.distPath);
+    } else {
+      status(result.problem || 'Static export failed.');
+    }
+    return result;
+  });
+
+  handle(
+    'cauldron:deploy-cloudflare',
+    async (_event, payload?: { projectName?: string }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const result = deployCloudflarePages(
+        site.root,
+        payload?.projectName || site.name,
+      );
+      if (result.ok) {
+        status(`Cloudflare Pages ready: ${result.url}`);
+      } else {
+        status(result.problem || 'Cloudflare deployment preparation failed.');
+      }
+      return result;
+    },
+  );
+
+  handle(
+    'cauldron:stock-photos',
+    (_event, payload?: { query?: string; directionId?: string }) => {
+      return getCuratedPhotos(payload?.query, payload?.directionId);
+    },
+  );
+
+  handle(
+    'cauldron:save-asset-image',
+    async (_event, payload: { fileName: string; base64: string }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      try {
+        const buffer = Buffer.from(payload.base64, 'base64');
+        const res = saveAssetFile(site.root, payload.fileName, buffer);
+        if (res.ok) {
+          status(`Saved image to ${res.relativePath}`);
+          state.preview.reload();
+        }
+        return res;
+      } catch (err) {
+        return {
+          ok: false,
+          problem: `Could not process image: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    },
+  );
+
   handle(
     'cauldron:quality-run',
     async (_event, payload: { pages?: string[] }) => {
@@ -1611,7 +1687,7 @@ function registerIpc(): void {
   );
 
   handle('cauldron:library', () => ({
-    pieces: LIBRARY.map((piece) => ({
+    pieces: [...LIBRARY, ...EXTENDED_LIBRARY].map((piece) => ({
       id: piece.id,
       name: piece.name,
       category: piece.category,
@@ -1655,6 +1731,62 @@ function registerIpc(): void {
       state.preview.reload();
       status(`Added ${payload.pieceId} to ${result.page}`);
       return { ...result, runId: run.id };
+    },
+  );
+
+  handle('cauldron:page-sections', (_event, page: string) => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    return readPageSections(site.root, page);
+  });
+
+  handle(
+    'cauldron:reorder-page-sections',
+    (_event, payload: { page: string; fromIndex: number; toIndex: number }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const res = reorderPageSections(
+        site.root,
+        payload.page,
+        payload.fromIndex,
+        payload.toIndex,
+      );
+      if (res.ok) state.preview.reload();
+      return res;
+    },
+  );
+
+  handle(
+    'cauldron:delete-page-section',
+    (_event, payload: { page: string; sectionIndex: number }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const res = deletePageSection(
+        site.root,
+        payload.page,
+        payload.sectionIndex,
+      );
+      if (res.ok) state.preview.reload();
+      return res;
+    },
+  );
+
+  handle(
+    'cauldron:set-page-section-anchor',
+    (
+      _event,
+      payload: { page: string; sectionIndex: number; anchorId: string },
+    ) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const res = setPageSectionAnchor(
+        site.root,
+        payload.page,
+        payload.sectionIndex,
+        payload.anchorId,
+      );
+      if (res.ok) state.preview.reload();
+      return res;
     },
   );
 

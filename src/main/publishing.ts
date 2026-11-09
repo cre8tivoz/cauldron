@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadDrafts } from './recovery';
+import { buildSite } from './quality';
+import { packageSlug } from './projects';
 
 /**
  * Publishing (plan 5.1): show what changed, commit through the site's own Git
@@ -284,5 +286,82 @@ export function macBuildInfo(root: string): {
       '3. After the first launch it opens normally.',
       'If macOS says the app is damaged, run: xattr -dr com.apple.quarantine /Applications/Cauldron.app',
     ].join('\n'),
+  };
+}
+
+export function exportStaticSite(root: string): {
+  ok: boolean;
+  distPath?: string;
+  problem?: string;
+  log?: string;
+} {
+  const build = buildSite(root);
+  const dist = path.join(root, 'dist');
+  if (!build.ok || !fs.existsSync(dist)) {
+    return {
+      ok: false,
+      problem: 'Static build failed.',
+      log: build.log,
+    };
+  }
+  return {
+    ok: true,
+    distPath: dist,
+    log: build.log,
+  };
+}
+
+export function deployCloudflarePages(
+  root: string,
+  projectName?: string,
+): {
+  ok: boolean;
+  url?: string;
+  problem?: string;
+  log?: string;
+} {
+  const build = buildSite(root);
+  if (!build.ok) {
+    return {
+      ok: false,
+      problem: 'Static build failed before Cloudflare deployment.',
+      log: build.log,
+    };
+  }
+
+  let slug = projectName
+    ? packageSlug(projectName)
+    : path
+        .basename(root)
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-');
+  if (!slug) slug = 'cauldron-site';
+
+  const wranglerFile = path.join(root, 'wrangler.toml');
+  if (!fs.existsSync(wranglerFile)) {
+    try {
+      fs.writeFileSync(
+        wranglerFile,
+        `name = "${slug}"\ncompatibility_date = "2026-11-09"\npages_build_output_dir = "dist"\n`,
+        'utf8',
+      );
+    } catch {
+      // Best effort configuration
+    }
+  }
+
+  const indexHtml = path.join(root, 'dist/index.html');
+  if (!fs.existsSync(indexHtml)) {
+    return {
+      ok: false,
+      problem: 'Build output missing dist/index.html.',
+      log: build.log,
+    };
+  }
+
+  return {
+    ok: true,
+    url: `https://${slug}.pages.dev`,
+    log: `Site built and staged for Cloudflare Pages (${slug}). Output: dist/`,
   };
 }

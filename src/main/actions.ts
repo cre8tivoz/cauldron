@@ -4,6 +4,7 @@ import {
   applyEdit,
   findTag,
   findClosingTag,
+  parseTag,
   decodeEntities,
   escapeText,
   type EditOperation,
@@ -71,6 +72,20 @@ export type ActionRequest =
       file: string;
       content: string;
       baseHash: string | null;
+    }
+  | { action: 'readPageSections'; page: string }
+  | {
+      action: 'reorderPageSections';
+      page: string;
+      fromIndex: number;
+      toIndex: number;
+    }
+  | { action: 'deletePageSection'; page: string; sectionIndex: number }
+  | {
+      action: 'setPageSectionAnchor';
+      page: string;
+      sectionIndex: number;
+      anchorId: string;
     };
 
 export type ActionOk = { ok: true; [key: string]: unknown };
@@ -270,6 +285,283 @@ export function readPageOutline(root: string, page: string): ActionResult {
     file: path.relative(root, file),
     headings,
     hash: hashOf(text),
+  };
+}
+
+export type PageSection = {
+  index: number;
+  tag: string;
+  name: string;
+  anchorId: string | null;
+  line: number;
+  preview: string;
+};
+
+type InternalSectionBlock = PageSection & {
+  start: number;
+  end: number;
+};
+
+const CONTAINER_TAGS = new Set([
+  'base',
+  'layout',
+  'html',
+  'body',
+  'main',
+  'slot',
+  'head',
+]);
+
+function resolvePageFile(root: string, page: string): string | null {
+  const relative = page.replace(/^\/+/, '');
+  const candidates = [
+    path.join(root, 'src/pages', `${relative}.astro`),
+    path.join(root, 'src/pages', relative, 'index.astro'),
+    path.join(root, 'src/pages', `${relative.replace(/\/$/, '')}.astro`),
+  ];
+  return (
+    candidates.find(
+      (candidate) => isInside(root, candidate) && fs.existsSync(candidate),
+    ) ?? null
+  );
+}
+
+function findSectionBlocks(text: string): InternalSectionBlock[] {
+  let searchStart = 0;
+  if (text.startsWith('---\n')) {
+    const endFm = text.indexOf('\n---\n', 4);
+    if (endFm !== -1) searchStart = endFm + 5;
+  }
+
+  const blocks: InternalSectionBlock[] = [];
+  let index = searchStart;
+  let sectionIndex = 0;
+
+  while (index < text.length) {
+    const nextTagStart = text.indexOf('<', index);
+    if (nextTagStart === -1) break;
+
+    // Check if it's a closing tag or comment
+    if (text[nextTagStart + 1] === '/') {
+      const endClose = text.indexOf('>', nextTagStart);
+      index = endClose === -1 ? text.length : endClose + 1;
+      continue;
+    }
+    if (text.startsWith('<!--', nextTagStart)) {
+      const endComment = text.indexOf('-->', nextTagStart);
+      index = endComment === -1 ? text.length : endComment + 3;
+      continue;
+    }
+
+    const tag = parseTag(text, nextTagStart);
+    if (!tag) {
+      index = nextTagStart + 1;
+      continue;
+    }
+
+    const lower = tag.name.toLowerCase();
+    if (CONTAINER_TAGS.has(lower)) {
+      // Step inside container without capturing it as a section
+      index = tag.tagEnd;
+      continue;
+    }
+
+    // Determine start and end of this block
+    const blockStart = tag.start;
+    let blockEnd = tag.tagEnd;
+    let innerText = '';
+
+    if (!tag.selfClosing) {
+      const closing = findClosingTag(text, tag);
+      if (closing) {
+        blockEnd = closing.end;
+        innerText = text.slice(tag.tagEnd, closing.start);
+      }
+    }
+
+    const anchorAttr = tag.attributes.find((a) => a.name === 'id');
+    const anchorId = anchorAttr?.value
+      ? decodeEntities(anchorAttr.value)
+      : null;
+
+    let name = tag.name;
+    if (/^[A-Z]/.test(tag.name)) {
+      name = tag.name.replace(/([A-Z])/g, ' $1').trim();
+    } else if (anchorId) {
+      name = `${tag.name} #${anchorId}`;
+    } else {
+      const classAttr = tag.attributes.find((a) => a.name === 'class');
+      if (classAttr?.value) {
+        name = `${tag.name}.${classAttr.value.split(/\s+/)[0]}`;
+      } else {
+        name = `${tag.name} ${sectionIndex + 1}`;
+      }
+    }
+
+    const before = text.slice(0, blockStart);
+    const line = before.split('\n').length;
+    const preview = innerText
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+
+    blocks.push({
+      index: sectionIndex++,
+      tag: tag.name,
+      name,
+      anchorId,
+      line,
+      preview,
+      start: blockStart,
+      end: blockEnd,
+    });
+
+    index = blockEnd;
+  }
+
+  return blocks;
+}
+
+export function readPageSections(
+  root: string,
+  page: string,
+): ActionResult & { sections?: PageSection[] } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+
+  const text = fs.readFileSync(file, 'utf8');
+  const blocks = findSectionBlocks(text).map(
+    ({ start: _s, end: _e, ...rest }) => rest,
+  );
+  return {
+    ok: true,
+    file: path.relative(root, file),
+    sections: blocks,
+    hash: hashOf(text),
+  };
+}
+
+export function reorderPageSections(
+  root: string,
+  page: string,
+  fromIndex: number,
+  toIndex: number,
+): ActionResult & { sections?: PageSection[] } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+
+  const text = fs.readFileSync(file, 'utf8');
+  const blocks = findSectionBlocks(text);
+  if (
+    fromIndex < 0 ||
+    fromIndex >= blocks.length ||
+    toIndex < 0 ||
+    toIndex >= blocks.length ||
+    fromIndex === toIndex
+  ) {
+    return { ok: false, problem: 'Invalid section indices to reorder.' };
+  }
+
+  const i = Math.min(fromIndex, toIndex);
+  const j = Math.max(fromIndex, toIndex);
+  const blockA = blocks[i];
+  const blockB = blocks[j];
+
+  const textBefore = text.slice(0, blockA.start);
+  const sliceA = text.slice(blockA.start, blockA.end);
+  const textBetween = text.slice(blockA.end, blockB.start);
+  const sliceB = text.slice(blockB.start, blockB.end);
+  const textAfter = text.slice(blockB.end);
+
+  const newText = textBefore + sliceB + textBetween + sliceA + textAfter;
+  fs.writeFileSync(file, newText, 'utf8');
+
+  const updated = findSectionBlocks(newText).map(
+    ({ start: _s, end: _e, ...rest }) => rest,
+  );
+  return {
+    ok: true,
+    file: path.relative(root, file),
+    sections: updated,
+    hash: hashOf(newText),
+  };
+}
+
+export function deletePageSection(
+  root: string,
+  page: string,
+  sectionIndex: number,
+): ActionResult & { sections?: PageSection[] } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+
+  const text = fs.readFileSync(file, 'utf8');
+  const blocks = findSectionBlocks(text);
+  if (sectionIndex < 0 || sectionIndex >= blocks.length) {
+    return { ok: false, problem: 'Invalid section index to delete.' };
+  }
+
+  const target = blocks[sectionIndex];
+  let delEnd = target.end;
+  if (text[delEnd] === '\r') delEnd++;
+  if (text[delEnd] === '\n') delEnd++;
+
+  const newText = text.slice(0, target.start) + text.slice(delEnd);
+  fs.writeFileSync(file, newText, 'utf8');
+
+  const updated = findSectionBlocks(newText).map(
+    ({ start: _s, end: _e, ...rest }) => rest,
+  );
+  return {
+    ok: true,
+    file: path.relative(root, file),
+    sections: updated,
+    hash: hashOf(newText),
+  };
+}
+
+export function setPageSectionAnchor(
+  root: string,
+  page: string,
+  sectionIndex: number,
+  anchorId: string,
+): ActionResult & { sections?: PageSection[] } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+
+  const text = fs.readFileSync(file, 'utf8');
+  const blocks = findSectionBlocks(text);
+  if (sectionIndex < 0 || sectionIndex >= blocks.length) {
+    return { ok: false, problem: 'Invalid section index.' };
+  }
+
+  const target = blocks[sectionIndex];
+  const slice = text.slice(target.start, target.end);
+  const cleanAnchor = anchorId.replace(/^#+/, '').trim();
+
+  let updatedSlice = slice;
+  if (/\bid=["'][^"']*["']/.test(slice)) {
+    updatedSlice = slice.replace(/\bid=["'][^"']*["']/, `id="${cleanAnchor}"`);
+  } else {
+    updatedSlice = slice.replace(
+      new RegExp(`^<${target.tag}(\\s|>)`),
+      `<${target.tag} id="${cleanAnchor}"$1`,
+    );
+  }
+
+  const newText =
+    text.slice(0, target.start) + updatedSlice + text.slice(target.end);
+  fs.writeFileSync(file, newText, 'utf8');
+
+  const updated = findSectionBlocks(newText).map(
+    ({ start: _s, end: _e, ...rest }) => rest,
+  );
+  return {
+    ok: true,
+    file: path.relative(root, file),
+    sections: updated,
+    hash: hashOf(newText),
   };
 }
 
@@ -487,6 +779,28 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
     case 'writeSource':
       return writeSource(root, request.file, request.content, request.baseHash);
 
+    case 'readPageSections':
+      return readPageSections(root, request.page);
+
+    case 'reorderPageSections':
+      return reorderPageSections(
+        root,
+        request.page,
+        request.fromIndex,
+        request.toIndex,
+      );
+
+    case 'deletePageSection':
+      return deletePageSection(root, request.page, request.sectionIndex);
+
+    case 'setPageSectionAnchor':
+      return setPageSectionAnchor(
+        root,
+        request.page,
+        request.sectionIndex,
+        request.anchorId,
+      );
+
     default:
       return { ok: false, problem: 'Unknown action.' };
   }
@@ -497,6 +811,22 @@ export function actionCatalogue(): Array<{ name: string; what: string }> {
   return [
     { name: 'listPages', what: "List the site's pages and their files." },
     { name: 'readPageOutline', what: 'Read the headings of one page.' },
+    {
+      name: 'readPageSections',
+      what: 'Read the top-level sections and components of one page.',
+    },
+    {
+      name: 'reorderPageSections',
+      what: 'Reorder sections on a page by swapping positions.',
+    },
+    {
+      name: 'deletePageSection',
+      what: 'Delete a section from a page by index.',
+    },
+    {
+      name: 'setPageSectionAnchor',
+      what: 'Set or update an anchor ID on a page section.',
+    },
     {
       name: 'editElementText',
       what: 'Change the text of one element, given its file and position.',
