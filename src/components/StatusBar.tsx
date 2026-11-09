@@ -2,13 +2,36 @@ type Props = {
   message: string;
   url: string | null;
   running: boolean;
+  siteName?: string | null;
 };
 
-export function StatusBar({ message, url, running }: Props) {
+export function StatusBar({ message, url, running, siteName }: Props) {
+  const host = url ? url.replace(/^https?:\/\//, '') : 'localhost:4321';
+
   return (
-    <div className="statusbar">
-      <span>{message}</span>
-      <span className="url">{running && url ? url : ''}</span>
-    </div>
+    <footer className="statusbar" role="status" aria-label="Status bar">
+      <span className="status-message">{message}</span>
+      <span className="spacer" />
+      <span className="status-right">
+        {running ? (
+          <span className="status-live">
+            <span className="status-dot green" aria-hidden="true">
+              ●
+            </span>
+            <span>Preview running · {host}</span>
+          </span>
+        ) : siteName ? (
+          <span className="status-live">
+            <span className="status-dot green" aria-hidden="true">
+              ●
+            </span>
+            <span>{siteName}</span>
+          </span>
+        ) : null}
+        <span className="url" style={{ display: 'none' }}>
+          {running && url ? url : ''}
+        </span>
+      </span>
+    </footer>
   );
 }

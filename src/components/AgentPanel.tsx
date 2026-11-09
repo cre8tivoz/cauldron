@@ -1,18 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  CheckCircleIcon,
+  ChevronDownIcon,
+  FileIcon,
+  SparkleIcon,
+  WarningTriangleIcon,
+} from './Icons';
 
 type Props = {
   site: CauldronSite | null;
   direction: CauldronDirectionSummary | null;
   onOpenDesign: () => void;
+  selection?: CauldronSelection | null;
 };
 
 type Line = { kind: 'agent' | 'tool' | 'status' | 'error'; text: string };
 
 /**
- * The agent column: run the tool you already have, with the selected element as
- * context. Every job becomes a run that can be reviewed and undone (plan 2.2, 3.2).
+ * The conversational agent column: run Claude Code, Codex, or Hermes with the
+ * selected element as context. Every job is rendered as a clean conversation
+ * card with prompt bubbles, live progress, changed file pills, and run summary cards.
  */
-export function AgentPanel({ site, direction, onOpenDesign }: Props) {
+export function AgentPanel({
+  site,
+  direction,
+  onOpenDesign,
+  selection,
+}: Props) {
   const [runs, setRuns] = useState<CauldronRun[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [request, setRequest] = useState('');
@@ -20,18 +34,21 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [showing, setShowing] = useState<string | null>(null);
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement | null>(null);
   const [connection, setConnection] = useState<{
     url: string;
     code: string;
   } | null>(null);
   const [installingMissing, setInstallingMissing] = useState(false);
+
   useEffect(() => {
     void window.cauldron.mcpInfo().then(setConnection);
   }, [site?.root, site]);
 
   const refresh = useCallback(async () => {
-    setRuns(await window.cauldron.runs());
+    const fetchedRuns = await window.cauldron.runs();
+    setRuns(fetchedRuns);
   }, []);
 
   useEffect(() => {
@@ -97,24 +114,27 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
 
   useEffect(() => {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
-  }, [lines]);
+  }, [lines, running]);
 
   const send = async () => {
     if (!site || request.trim() === '') return;
+    const promptText = request.trim();
+    setActivePrompt(promptText);
     setMessage(null);
     setLines([]);
     setRunning(true);
+    setRequest('');
+
     try {
       const result = await window.cauldron.agentSend({
         tool,
-        request: request.trim(),
+        request: promptText,
       });
       if (!result.ok) {
         setRunning(false);
         setMessage(result.problem ?? 'The agent could not start.');
       }
     } catch (error) {
-      // An IPC failure must never leave the chat stuck on "running".
       setRunning(false);
       setMessage(
         `The agent could not start: ${
@@ -144,260 +164,324 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
     );
   };
 
+  const toolLabels: Record<string, string> = {
+    claude: 'Claude Code',
+    codex: 'Codex',
+    hermes: 'Hermes',
+  };
+
   return (
-    <>
-      <div className="pane-header">
-        Agent
-        <select
-          aria-label="Agent tool"
-          value={tool}
-          onChange={(event) => setTool(event.target.value as typeof tool)}
-          style={{ marginLeft: 'auto', height: 22, fontSize: 12 }}
-          disabled={running}
-        >
-          <option value="claude">Claude Code</option>
-          <option value="codex">Codex</option>
-          <option value="hermes">Hermes</option>
-        </select>
+    <div className="agent-column-container">
+      {/* 1. Header & Active Direction Subheader */}
+      <div className="agent-header-block">
+        <div className="agent-header-row">
+          <span className="agent-eyebrow">AGENT</span>
+          <div className="agent-select-wrap">
+            <select
+              aria-label="Agent tool"
+              value={tool}
+              onChange={(event) => setTool(event.target.value as typeof tool)}
+              className="agent-tool-select"
+              disabled={running}
+            >
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+              <option value="hermes">Hermes</option>
+            </select>
+            <ChevronDownIcon size={12} />
+          </div>
+        </div>
+
+        {direction ? (
+          <div className="agent-direction-subhead">
+            <button
+              type="button"
+              className="agent-direction-link"
+              onClick={onOpenDesign}
+              title="Change design direction"
+            >
+              Building to <strong>{direction.name}</strong>
+            </button>
+            <span className="agent-direction-fonts">
+              {direction.fonts.display} · {direction.fonts.body}
+            </span>
+          </div>
+        ) : (
+          <div className="agent-direction-subhead">
+            <button
+              type="button"
+              className="agent-direction-link"
+              onClick={onOpenDesign}
+            >
+              Choose a design direction
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* 2. Unified Conversation & Run Stream */}
       <div
-        className="pane-body"
-        style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+        className="agent-stream-pane pane-body"
+        ref={transcript}
+        aria-live="polite"
       >
         {!site ? <p className="hint">Open a site to work on it.</p> : null}
+
         {site ? (
           <details
-            className="hint"
+            className="mcp-outside-connect hint"
             onToggle={() => {
               void window.cauldron.mcpInfo().then(setConnection);
             }}
           >
             <summary>Connect an outside agent</summary>
             {connection ? (
-              <>
+              <div className="mcp-details-body">
                 <p>
                   Local MCP HTTP connection. Only works while this site is open.
                 </p>
-                <label>
-                  URL
-                  <input
-                    readOnly
-                    value={connection.url}
-                    style={{ width: '100%' }}
-                  />
+                <label className="field-compact">
+                  <span>URL</span>
+                  <input readOnly value={connection.url} />
                 </label>
-                <label>
-                  Access code (x-cauldron-code header)
-                  <input
-                    readOnly
-                    value={connection.code}
-                    style={{ width: '100%' }}
-                  />
+                <label className="field-compact">
+                  <span>Access code (x-cauldron-code header)</span>
+                  <input readOnly value={connection.code} />
                 </label>
-              </>
+              </div>
             ) : (
               <p>Start the site preview to enable the connection.</p>
             )}
           </details>
         ) : null}
 
-        {site && !direction ? (
-          <div className="notice">
-            <strong>Pick a design direction first.</strong> Every agent job
-            carries the taste rules and the site's look, so there has to be a
-            look.
-            <div className="notice-actions">
-              <button
-                className="button primary"
-                type="button"
-                onClick={onOpenDesign}
-              >
-                Choose a direction
-              </button>
+        {message ? (
+          <div className="notice" role="status">
+            {message}
+          </div>
+        ) : null}
+
+        {/* Live / Active run output */}
+        {activePrompt ? (
+          <div className="chat-bubble-user">
+            <span className="bubble-avatar" aria-hidden="true">
+              👤
+            </span>
+            <div className="bubble-content">
+              <p>{activePrompt}</p>
             </div>
           </div>
         ) : null}
 
-        {direction ? (
-          <p className="hint">
-            Building to <strong>{direction.name}</strong> —{' '}
-            {direction.fonts.display} and {direction.fonts.body}.
-          </p>
+        {running || lines.length > 0 ? (
+          <div className="chat-bubble-agent">
+            <div className="agent-bubble-header">
+              <span className="agent-avatar" aria-hidden="true">
+                <SparkleIcon size={14} />
+              </span>
+              <strong>{toolLabels[tool] || 'Agent'}</strong>
+              <span className="agent-state-pill">
+                {running ? 'Thinking…' : 'Finished'}
+              </span>
+            </div>
+
+            <div className="agent-transcript-lines">
+              {lines.map((line, index) => (
+                <div
+                  key={`${index}-${line.kind}`}
+                  className={`agent-line line-${line.kind}`}
+                >
+                  {line.kind === 'tool' ? '✓ ' : ''}
+                  {line.text}
+                </div>
+              ))}
+            </div>
+          </div>
         ) : null}
 
-        {message ? <div className="notice">{message}</div> : null}
-
-        <div
-          ref={transcript}
-          style={{
-            flex: 1,
-            minHeight: 120,
-            overflowY: 'auto',
-            border: '1px solid var(--hairline)',
-            borderRadius: 8,
-            padding: 8,
-            fontSize: 12.5,
-            lineHeight: 1.5,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-          }}
-          aria-live="polite"
-        >
-          {lines.length === 0 ? (
-            <span className="hint">Nothing yet.</span>
-          ) : null}
-          {lines.map((line, index) => (
-            <div
-              key={`${index}-${line.kind}`}
-              style={{
-                color:
-                  line.kind === 'error'
-                    ? 'var(--danger)'
-                    : line.kind === 'status' || line.kind === 'tool'
-                      ? 'var(--muted)'
-                      : 'var(--text)',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {line.text}
+        {/* Existing Runs list rendered as conversational cards */}
+        <div className="runs-section">
+          {runs.length === 0 && !running && !activePrompt ? (
+            <div className="agent-welcome-card">
+              <span className="welcome-sparkle">✳</span>
+              <h4>Ask Cauldron’s Agent</h4>
+              <p>
+                Describe what to refine, adjust typography or add new sections.
+                Every run is verified and can be undone cleanly.
+              </p>
             </div>
-          ))}
-        </div>
+          ) : null}
 
-        <div className="field">
-          <label htmlFor="agent-request">Ask for something</label>
-          <textarea
-            id="agent-request"
-            rows={3}
-            value={request}
-            onChange={(event) => setRequest(event.target.value)}
-            placeholder="Make the header bolder and tighten the spacing"
-            disabled={!direction || running}
-          />
-        </div>
+          {runs.map((run) => {
+            const hasClashes = run.problems && run.problems.length > 0;
+            const isFailed = run.status === 'failed' || hasClashes;
 
-        <div className="notice-actions">
-          <button
-            className="button primary"
-            type="button"
-            onClick={() => void send()}
-            disabled={!direction || running || request.trim() === ''}
-          >
-            {running ? 'Working…' : 'Send to agent'}
-          </button>
+            return (
+              <div
+                key={run.id}
+                className={`run-card ${isFailed ? 'run-card-error' : ''}`}
+              >
+                {/* Run summary badge */}
+                <div className="run-card-header">
+                  <span className="run-status-icon">
+                    {isFailed ? (
+                      <WarningTriangleIcon size={16} />
+                    ) : (
+                      <CheckCircleIcon size={16} />
+                    )}
+                  </span>
+                  <div className="run-title-group">
+                    <strong>
+                      {run.note || `${toolLabels[run.tool] || run.tool} run`}
+                    </strong>
+                    <span className="run-meta-text">
+                      {run.status} · {run.files.length} file
+                      {run.files.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                </div>
+
+                {hasClashes ? (
+                  <div className="notice bad" role="alert">
+                    <strong>Problems encountered:</strong>
+                    <ul>
+                      {run.problems?.map((p, i) => (
+                        <li key={i}>{p}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {/* Changed file pills */}
+                {run.files.length > 0 ? (
+                  <div className="run-file-pills">
+                    {run.files.map((file) => (
+                      <span key={file} className="file-pill">
+                        <FileIcon size={13} />
+                        <span className="mono">{file}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* Highlighted removed elements */}
+                {run.highlighted.some((item) => item.removed) ? (
+                  <ul className="hint removed-elements-list">
+                    {run.highlighted
+                      .filter((item) => item.removed)
+                      .map((item, index) => (
+                        <li key={`${item.file}:${item.loc}:${index}`}>
+                          {item.label}
+                        </li>
+                      ))}
+                  </ul>
+                ) : null}
+
+                {/* Missing packages action */}
+                {site?.missingPackages && site.missingPackages.length > 0 ? (
+                  <div className="notice-actions" style={{ marginBottom: 6 }}>
+                    <button
+                      className="button primary"
+                      type="button"
+                      disabled={installingMissing}
+                      onClick={async () => {
+                        setInstallingMissing(true);
+                        try {
+                          await window.cauldron.installMissingPackages(
+                            site.missingPackages,
+                          );
+                        } finally {
+                          setInstallingMissing(false);
+                        }
+                      }}
+                    >
+                      {installingMissing
+                        ? 'Installing…'
+                        : `Install missing packages (${site.missingPackages.join(', ')})`}
+                    </button>
+                  </div>
+                ) : null}
+
+                {/* Action buttons */}
+                <div className="run-actions-row">
+                  <button
+                    className="button quiet-pill-btn"
+                    type="button"
+                    onClick={() => void toggle(run)}
+                    aria-pressed={showing === run.id}
+                    disabled={run.highlighted.length === 0}
+                  >
+                    {showing === run.id ? 'Hide changes' : 'Show changes'}
+                  </button>
+                  <button
+                    className="button quiet-pill-btn"
+                    type="button"
+                    onClick={() => void undoRun(run)}
+                    disabled={
+                      (run.status !== 'finished' && run.status !== 'failed') ||
+                      run.files.length === 0 ||
+                      run.note.includes('Undone.')
+                    }
+                  >
+                    Undo this run
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. Docked Bottom Composer */}
+      <div className="agent-docked-composer">
+        {selection ? (
+          <div className="composer-context-chip">
+            <span className="mono">
+              &lt;{selection.name}&gt; · {selection.file.split('/').pop()}
+            </span>
+          </div>
+        ) : null}
+
+        <label htmlFor="agent-request" className="composer-label">
+          Ask for something
+        </label>
+        <textarea
+          id="agent-request"
+          rows={3}
+          value={request}
+          onChange={(event) => setRequest(event.target.value)}
+          placeholder="Ask for something"
+          disabled={!direction || running}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+        />
+
+        <div className="composer-actions-bar">
           {running ? (
             <button
-              className="button"
+              className="button cancel-btn"
               type="button"
               onClick={() => void window.cauldron.agentCancel()}
             >
               Cancel
             </button>
           ) : null}
-        </div>
-
-        <div className="section">
-          <h3>Runs</h3>
-          {runs.length === 0 ? (
-            <p className="hint">No agent runs yet.</p>
-          ) : null}
-          {runs.map((run) => (
-            <div key={run.id} style={{ marginBottom: 12 }}>
-              <div className="hint">
-                <strong>{run.tool}</strong> · {run.status} · {run.note}
-              </div>
-              {run.problems && run.problems.length > 0 ? (
-                <div
-                  className="notice bad"
-                  role="alert"
-                  style={{ margin: '6px 0', padding: '6px 8px' }}
-                >
-                  <strong>Problems encountered:</strong>
-                  <ul style={{ margin: '4px 0', paddingLeft: 16 }}>
-                    {run.problems.map((p, i) => (
-                      <li key={i}>{p}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {site?.missingPackages && site.missingPackages.length > 0 ? (
-                <div className="notice-actions" style={{ marginBottom: 6 }}>
-                  <button
-                    className="button primary"
-                    type="button"
-                    disabled={installingMissing}
-                    onClick={async () => {
-                      setInstallingMissing(true);
-                      try {
-                        await window.cauldron.installMissingPackages(
-                          site.missingPackages,
-                        );
-                      } finally {
-                        setInstallingMissing(false);
-                      }
-                    }}
-                  >
-                    {installingMissing
-                      ? 'Installing…'
-                      : `Install missing packages (${site.missingPackages.join(', ')})`}
-                  </button>
-                </div>
-              ) : null}
-              {run.files.length > 0 ? (
-                <ul
-                  className="hint"
-                  style={{ margin: '4px 0', paddingLeft: 18 }}
-                >
-                  {run.files.map((file) => (
-                    <li key={file} className="mono">
-                      {file}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {run.highlighted.some((item) => item.removed) ? (
-                <ul
-                  className="hint"
-                  style={{ margin: '4px 0', paddingLeft: 18 }}
-                >
-                  {run.highlighted
-                    .filter((item) => item.removed)
-                    .map((item, index) => (
-                      <li key={`${item.file}:${item.loc}:${index}`}>
-                        {item.label}
-                      </li>
-                    ))}
-                </ul>
-              ) : null}
-              <div className="notice-actions">
-                <button
-                  className="button"
-                  type="button"
-                  onClick={() => void toggle(run)}
-                  aria-pressed={showing === run.id}
-                  disabled={run.highlighted.length === 0}
-                >
-                  {showing === run.id ? 'Hide changes' : 'Show changes'}
-                </button>
-                <button
-                  className="button"
-                  type="button"
-                  onClick={() => void undoRun(run)}
-                  disabled={
-                    (run.status !== 'finished' && run.status !== 'failed') ||
-                    run.files.length === 0 ||
-                    run.note.includes('Undone.')
-                  }
-                >
-                  Undo this run
-                </button>
-              </div>
-            </div>
-          ))}
+          <span className="spacer" />
+          <button
+            className="button primary agent-send-btn"
+            type="button"
+            onClick={() => void send()}
+            disabled={!direction || running || request.trim() === ''}
+          >
+            <span>➤</span>
+            <span>{running ? 'Working…' : 'Send to agent'}</span>
+          </button>
         </div>
       </div>
-    </>
+    </div>
   );
 }

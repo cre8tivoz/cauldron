@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { CheckCircleIcon, ChevronDownIcon } from './Icons';
 
 type Props = {
   site: CauldronSite | null;
@@ -8,8 +9,9 @@ type Props = {
 };
 
 /**
- * Content editing (plan 3.4): a form built from the site's own content definitions,
- * a warning when the file has moved on, and plain-text editing as the fallback.
+ * Content Editor matching Cauldron content editor for Sunday Table mockup:
+ * Left COLLECTIONS pill sidebar, large entry title, and 3-column horizontal
+ * `Label | Input | Save` field rows.
  */
 export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
   const [collections, setCollections] = useState<CauldronCollection[]>([]);
@@ -24,6 +26,20 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
   const load = useCallback(async () => {
     const result = await window.cauldron.collections();
     setCollections(result.collections);
+    // If no entry is open yet and there is an entry available, select the first one
+    if (
+      result.collections.length > 0 &&
+      result.collections[0].entries.length > 0
+    ) {
+      const firstFile = result.collections[0].entries[0].file;
+      void window.cauldron.entry(firstFile).then((entryRes) => {
+        if ('hash' in entryRes) {
+          setOpenFile(firstFile);
+          setEntry(entryRes);
+          setValues(entryRes.values);
+        }
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -57,9 +73,9 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
       : Object.keys({ ...entry.values, ...values }).some(
           (field) => (values[field] ?? '') !== (entry.values[field] ?? ''),
         ));
+
   useEffect(() => {
     onUnsavedChange(dirty);
-    // Leaving the panel keeps the last report, so publish still refuses.
     return () => onUnsavedChange(dirty);
   }, [dirty, onUnsavedChange]);
 
@@ -81,6 +97,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
           setProblem(message);
         });
   };
+
   const save = async (change: Record<string, string>, keepMine = false) => {
     if (!openFile || !entry) return;
     setProblem(null);
@@ -92,7 +109,6 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     });
     if (!result.ok) {
       if (result.conflict) {
-        // Both versions are kept until the person chooses (plan 1.4).
         setConflict(change);
         return;
       }
@@ -106,7 +122,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     setSaved(
       result.conflictCopy
         ? `Saved. The disk version was kept as a copy: ${result.conflictCopy}`
-        : 'Saved.',
+        : "Saved to the site's content file.",
     );
     await open(openFile);
   };
@@ -118,16 +134,36 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     await open(openFile);
   };
 
+  const displayTitle =
+    values.title ||
+    entry?.values.title ||
+    (openFile
+      ? openFile
+          .split('/')
+          .pop()
+          ?.replace(/\.[^.]+$/, '')
+      : '') ||
+    'Content Entry';
+
   return (
-    <div className="pane-body" style={{ overflowY: 'auto', padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Content</h2>
-        <span className="hint">
-          Forms built from this site's own content definitions.
-        </span>
-        <span className="spacer" />
-        <button className="button" type="button" onClick={onBack}>
-          Back to the site
+    <div
+      className="pane-body content-panel-container"
+      style={{ overflowY: 'auto', padding: 24 }}
+    >
+      {/* Header bar */}
+      <div className="content-header-bar">
+        <div className="content-title-group">
+          <h2 className="content-heading">Content</h2>
+          <span className="content-subtitle">
+            Forms built from this site's own content definitions.
+          </span>
+        </div>
+        <button
+          className="button back-to-site-btn"
+          type="button"
+          onClick={onBack}
+        >
+          ← Back to the site
         </button>
       </div>
 
@@ -138,6 +174,13 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
           {problem}
         </div>
       ) : null}
+
+      {saved ? (
+        <div className="notice good" style={{ marginTop: 12 }}>
+          {saved}
+        </div>
+      ) : null}
+
       {conflict ? (
         <div className="notice bad" style={{ marginTop: 12 }} role="alert">
           <strong>Changed on disk.</strong> This entry changed since the form
@@ -160,70 +203,72 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
           </div>
         </div>
       ) : null}
-      {saved ? (
-        <div className="notice good" style={{ marginTop: 12 }}>
-          {saved}
-        </div>
-      ) : null}
 
-      <div
-        style={{
-          display: 'flex',
-          gap: 20,
-          marginTop: 16,
-          alignItems: 'flex-start',
-        }}
-      >
-        <div style={{ width: 260, flex: '0 0 260px' }}>
+      <div className="content-split-workspace">
+        {/* Left COLLECTIONS Sidebar */}
+        <aside
+          className="collections-sidebar"
+          aria-label="Collections and entries"
+        >
+          <div className="collections-sidebar-header">COLLECTIONS</div>
+
           {collections.length === 0 ? (
             <p className="hint">This site has no content collections.</p>
           ) : null}
+
           {collections.map((collection) => (
-            <div key={collection.name} style={{ marginBottom: 14 }}>
-              <h3 style={{ fontSize: 13, margin: '0 0 6px' }}>
-                {collection.name}
-              </h3>
+            <div key={collection.name} className="collection-group">
+              <div className="collection-group-title">
+                <ChevronDownIcon size={12} />
+                <span>
+                  {collection.name.charAt(0).toUpperCase() +
+                    collection.name.slice(1)}
+                </span>
+              </div>
+
               {collection.entries.length === 0 ? (
-                <p className="hint">No entries.</p>
+                <p className="hint" style={{ paddingLeft: 16 }}>
+                  No entries.
+                </p>
               ) : null}
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                {collection.entries.map((item) => (
-                  <li key={item.file}>
-                    <button
-                      className="button quiet"
-                      type="button"
-                      style={{
-                        width: '100%',
-                        justifyContent: 'flex-start',
-                        marginBottom: 2,
-                        background:
-                          openFile === item.file
-                            ? 'var(--accent-soft)'
-                            : 'transparent',
-                      }}
-                      onClick={() => void open(item.file)}
-                    >
-                      {item.id}
-                    </button>
-                  </li>
-                ))}
+
+              <ul className="collection-entries-list">
+                {collection.entries.map((item) => {
+                  const isSelected = openFile === item.file;
+                  return (
+                    <li key={item.file} className="collection-entry-item">
+                      <button
+                        className={`entry-pill-btn ${isSelected ? 'selected-entry-pill' : ''}`}
+                        type="button"
+                        onClick={() => void open(item.file)}
+                      >
+                        {item.id}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
-        </div>
+        </aside>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Right Entry Editor Pane */}
+        <main className="entry-editor-pane">
           {!entry ? (
-            <p className="hint">Choose an entry to edit.</p>
+            <div className="entry-empty-state">
+              <p className="hint">Choose an entry from the sidebar to edit.</p>
+            </div>
           ) : (
             <>
-              <div className="file-line">
+              {/* File Path Bar */}
+              <div className="entry-file-path-bar">
                 <span className="mono">{entry.file}</span>
               </div>
 
-              <div className="notice-actions" style={{ marginBottom: 12 }}>
+              {/* Form / Plain text Toggle */}
+              <div className="entry-view-toggle-bar">
                 <button
-                  className={asText === null ? 'button' : 'button primary'}
+                  className={`toggle-tab-btn ${asText === null ? 'active-tab' : ''}`}
                   type="button"
                   onClick={() => setAsText(null)}
                   aria-pressed={asText === null}
@@ -231,7 +276,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                   Form
                 </button>
                 <button
-                  className={asText !== null ? 'button' : 'button primary'}
+                  className={`toggle-tab-btn ${asText !== null ? 'active-tab' : ''}`}
                   type="button"
                   onClick={() => setAsText(entry.text)}
                   aria-pressed={asText !== null}
@@ -240,8 +285,13 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                 </button>
               </div>
 
+              <div className="entry-content-divider" />
+
+              {/* Dynamic Entry Heading */}
+              <h2 className="entry-large-heading">{displayTitle}</h2>
+
               {asText !== null ? (
-                <>
+                <div className="plain-text-editor-wrap">
                   <textarea
                     rows={18}
                     value={asText}
@@ -249,20 +299,10 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                       setAsText(event.target.value);
                       keepDraft('text', event.target.value);
                     }}
-                    style={{
-                      width: '100%',
-                      fontFamily:
-                        'ui-monospace, SFMono-Regular, Menlo, monospace',
-                      fontSize: 12.5,
-                      background: 'var(--panel-sunken)',
-                      color: 'var(--text)',
-                      border: '1px solid var(--hairline)',
-                      borderRadius: 8,
-                      padding: 10,
-                    }}
+                    className="plain-text-textarea"
                     aria-label="Entry text"
                   />
-                  <div className="notice-actions">
+                  <div className="notice-actions" style={{ marginTop: 12 }}>
                     <button
                       className="button primary"
                       type="button"
@@ -271,67 +311,84 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                       Save the text
                     </button>
                   </div>
-                </>
+                </div>
               ) : (
-                <>
+                /* 3-Column Horizontal Field Rows: Label | Input | Save Button */
+                <div className="entry-fields-grid">
                   {currentCollection?.fields.map((field) => {
                     const plainTextOnly =
                       field.type === 'unknown' ||
                       (field.type === 'list' && !field.options);
+                    const labelText = `${field.name.toUpperCase()}${field.optional ? ' (OPTIONAL)' : ''}`;
+
                     return (
-                      <div className="field" key={field.name}>
-                        <label htmlFor={`content-${field.name}`}>
-                          {field.name}
-                          {field.optional ? ' (optional)' : ''}
+                      <div className="horizontal-field-row" key={field.name}>
+                        {/* Column 1: Uppercase Label */}
+                        <label
+                          htmlFor={`content-${field.name}`}
+                          className="field-row-label"
+                        >
+                          {labelText}
                         </label>
-                        {field.options ? (
-                          <select
-                            id={`content-${field.name}`}
-                            value={values[field.name] ?? ''}
-                            onChange={(event) => {
-                              setValues((current) => ({
-                                ...current,
-                                [field.name]: event.target.value,
-                              }));
-                              keepDraft(field.name, event.target.value);
-                            }}
-                          >
-                            <option value="">—</option>
-                            {field.options.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        ) : plainTextOnly ? (
-                          <span className="hint">
-                            This field needs plain-text editing to keep its
-                            structure.
-                          </span>
-                        ) : (
-                          <input
-                            id={`content-${field.name}`}
-                            type={
-                              field.type === 'number'
-                                ? 'number'
-                                : field.type === 'date'
-                                  ? 'date'
-                                  : 'text'
-                            }
-                            value={values[field.name] ?? ''}
-                            onChange={(event) => {
-                              setValues((current) => ({
-                                ...current,
-                                [field.name]: event.target.value,
-                              }));
-                              keepDraft(field.name, event.target.value);
-                            }}
-                          />
-                        )}
-                        <span className="notice-actions">
+
+                        {/* Column 2: Full-Width Input */}
+                        <div className="field-row-input-wrap">
+                          {field.options ? (
+                            <div className="content-select-wrapper">
+                              <select
+                                id={`content-${field.name}`}
+                                value={values[field.name] ?? ''}
+                                className="content-field-select"
+                                onChange={(event) => {
+                                  setValues((current) => ({
+                                    ...current,
+                                    [field.name]: event.target.value,
+                                  }));
+                                  keepDraft(field.name, event.target.value);
+                                }}
+                              >
+                                <option value="">—</option>
+                                {field.options.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDownIcon size={12} />
+                            </div>
+                          ) : plainTextOnly ? (
+                            <span className="hint">
+                              This field needs plain-text editing to keep its
+                              structure.
+                            </span>
+                          ) : (
+                            <input
+                              id={`content-${field.name}`}
+                              type={
+                                field.type === 'number'
+                                  ? 'number'
+                                  : field.type === 'date'
+                                    ? 'date'
+                                    : 'text'
+                              }
+                              value={values[field.name] ?? ''}
+                              className="content-field-input"
+                              onChange={(event) => {
+                                setValues((current) => ({
+                                  ...current,
+                                  [field.name]: event.target.value,
+                                }));
+                                keepDraft(field.name, event.target.value);
+                              }}
+                            />
+                          )}
+                        </div>
+
+                        {/* Column 3: Save Button */}
+                        <div className="field-row-action">
                           {plainTextOnly ? (
                             <button
-                              className="button"
+                              className="button content-save-pill-btn"
                               type="button"
                               onClick={() => setAsText(entry.text)}
                             >
@@ -339,7 +396,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                             </button>
                           ) : (
                             <button
-                              className="button"
+                              className="button primary content-save-pill-btn"
                               type="button"
                               onClick={() =>
                                 void save({
@@ -351,22 +408,26 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                               Save {field.name}
                             </button>
                           )}
-                        </span>
+                        </div>
                       </div>
                     );
                   })}
-                  {currentCollection &&
-                  currentCollection.fields.length === 0 ? (
-                    <p className="hint">
-                      No fields were found in this collection's definition. Use
-                      plain-text editing.
-                    </p>
-                  ) : null}
-                </>
+                </div>
               )}
+
+              {/* Bottom Status Line matching mockup */}
+              <div className="content-save-notice-bar">
+                <span className="notice-check-icon">
+                  <CheckCircleIcon size={18} color="#38a169" />
+                </span>
+                <span className="notice-text">
+                  Saved to the site's content file. Use plain-text editing for
+                  the entry's full Markdown.
+                </span>
+              </div>
             </>
           )}
-        </div>
+        </main>
       </div>
     </div>
   );

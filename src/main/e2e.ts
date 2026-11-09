@@ -5760,7 +5760,7 @@ export async function runCompareTest(
     check(
       '2.2 the removed element is listed by name',
       parts.some((part) =>
-        /^Removed: p at src\/pages\/index\.astro:/.test(part.label),
+        part.label.startsWith('Removed: p at src/pages/index.astro:'),
       ),
       `${parts.map((part) => part.label).join('; ') || 'none'}`,
     );
