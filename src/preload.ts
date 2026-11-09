@@ -77,6 +77,13 @@ const api = {
     unsavedBuffers?: number;
   }) => ipcRenderer.invoke('cauldron:publish', payload),
   macBuild: () => ipcRenderer.invoke('cauldron:mac-build'),
+  exportStatic: () => ipcRenderer.invoke('cauldron:export-static'),
+  deployCloudflare: (projectName?: string) =>
+    ipcRenderer.invoke('cauldron:deploy-cloudflare', { projectName }),
+  stockPhotos: (query?: string, directionId?: string) =>
+    ipcRenderer.invoke('cauldron:stock-photos', { query, directionId }),
+  saveAssetImage: (payload: { fileName: string; base64: string }) =>
+    ipcRenderer.invoke('cauldron:save-asset-image', payload),
   qualityRun: (payload: { pages?: string[] }) =>
     ipcRenderer.invoke('cauldron:quality-run', payload),
   addPiece: (payload: {
@@ -85,6 +92,20 @@ const api = {
     mode: 'add' | 'replace';
     replaceSelector?: string;
   }) => ipcRenderer.invoke('cauldron:add-piece', payload),
+  pageSections: (page: string) =>
+    ipcRenderer.invoke('cauldron:page-sections', page),
+  reorderPageSections: (payload: {
+    page: string;
+    fromIndex: number;
+    toIndex: number;
+  }) => ipcRenderer.invoke('cauldron:reorder-page-sections', payload),
+  deletePageSection: (payload: { page: string; sectionIndex: number }) =>
+    ipcRenderer.invoke('cauldron:delete-page-section', payload),
+  setPageSectionAnchor: (payload: {
+    page: string;
+    sectionIndex: number;
+    anchorId: string;
+  }) => ipcRenderer.invoke('cauldron:set-page-section-anchor', payload),
 
   refreshSelection: () => ipcRenderer.invoke('cauldron:refresh-selection'),
   undo: () => ipcRenderer.invoke('cauldron:undo'),
@@ -109,8 +130,12 @@ const api = {
   // Project home (issue 32). The native folder picker is invoked through the
   // main process only; the renderer never gets raw dialog power.
   projectsHome: () => ipcRenderer.invoke('cauldron:projects-home'),
-  createProject: (payload: { name: string; parent: string }) =>
-    ipcRenderer.invoke('cauldron:create-project', payload),
+  createProject: (payload: {
+    name: string;
+    parent: string;
+    template?: string;
+  }) => ipcRenderer.invoke('cauldron:create-project', payload),
+  starterTemplates: () => ipcRenderer.invoke('cauldron:starter-templates'),
   chooseProjectParent: () =>
     ipcRenderer.invoke('cauldron:choose-project-parent'),
   detectDependencies: (root: string) =>

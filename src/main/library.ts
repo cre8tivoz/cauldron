@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isInside } from './files';
+import { EXTENDED_LIBRARY } from './library-pieces';
 
 /**
  * The starter component library (plan 4.3). Five pieces, built on the direction's
@@ -12,7 +13,7 @@ import { isInside } from './files';
 export type LibraryPiece = {
   id: string;
   name: string;
-  category: 'intro' | 'footer' | 'button' | 'heading' | 'background';
+  category: string;
   description: string;
   licence: string;
   source: string;
@@ -503,7 +504,9 @@ export function addPiece(
     replaceSelector?: string;
   },
 ): AddResult {
-  const piece_ = LIBRARY.find((item) => item.id === options.pieceId);
+  const piece_ = [...LIBRARY, ...EXTENDED_LIBRARY].find(
+    (item) => item.id === options.pieceId,
+  );
   if (!piece_)
     return { ok: false, problem: 'That piece is not in the starter set.' };
   if (!piece_.codeAllowed)

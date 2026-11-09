@@ -93,9 +93,10 @@ const CATEGORIES = [
   'Featured 5',
   'Navigation',
   'Heroes',
-  'Proof & Testimonials',
   'Services',
+  'Proof & Testimonials',
   'Contact & FAQ',
+  'Footers',
 ];
 
 const CURATED_LINKS = [
@@ -254,19 +255,278 @@ export function LibraryPanel({ site, onBack }: Props) {
             </h3>
           </div>
         );
+      case 'centered-brand-nav':
+        return (
+          <div className="comp-stage-inner" style={{ textAlign: 'center' }}>
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--muted)',
+                display: 'block',
+                marginBottom: 4,
+              }}
+            >
+              Work · Services
+            </span>
+            <h3
+              className="comp-stage-display-heading"
+              style={{ margin: '4px 0' }}
+            >
+              STUDIO
+            </h3>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              About · Contact
+            </span>
+          </div>
+        );
+      case 'split-studio-nav':
+        return (
+          <div
+            className="comp-stage-inner"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <div>
+              <strong style={{ fontSize: 13, display: 'block' }}>
+                Atelier
+              </strong>
+              <span style={{ fontSize: 10, color: '#22c55e' }}>
+                ● Available Q1
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: 11,
+                padding: '3px 8px',
+                borderRadius: 4,
+                background: 'var(--accent)',
+                color: '#fff',
+              }}
+            >
+              Inquire
+            </span>
+          </div>
+        );
+      case 'sticky-pill-nav':
+        return (
+          <div className="comp-stage-inner" style={{ textAlign: 'center' }}>
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '4px 12px',
+                borderRadius: 99,
+                background: 'rgba(255,255,255,0.15)',
+                border: '1px solid var(--hairline)',
+                fontSize: 11,
+              }}
+            >
+              ● Studio · Work · About · Talk
+            </span>
+          </div>
+        );
+      case 'split-editorial-hero':
+        return (
+          <div className="comp-stage-inner comp-stage-editorial">
+            <span className="comp-stage-kicker">AUTHENTIC CRAFT</span>
+            <h3 className="comp-stage-display-heading">Permanent Integrity.</h3>
+            <p className="comp-stage-body">
+              Built to mature with dignity over centuries.
+            </p>
+          </div>
+        );
+      case 'typographic-statement-hero':
+        return (
+          <div className="comp-stage-inner" style={{ textAlign: 'center' }}>
+            <h3
+              className="comp-stage-display-heading"
+              style={{ fontSize: 18, lineHeight: 1.1 }}
+            >
+              QUIET LIVING.
+            </h3>
+            <p className="comp-stage-body">
+              Residential architecture & crafted joinery.
+            </p>
+          </div>
+        );
+      case 'threeui-shader-hero':
+        return (
+          <div
+            className="comp-stage-inner"
+            style={{
+              background: '#111',
+              color: '#fff',
+              borderRadius: 4,
+              padding: 12,
+            }}
+          >
+            <span style={{ fontSize: 10, color: 'var(--accent)' }}>
+              SHADER FIELD
+            </span>
+            <h3
+              className="comp-stage-display-heading"
+              style={{ color: '#fff' }}
+            >
+              Tactile Systems
+            </h3>
+          </div>
+        );
+      case 'tabbed-menu':
+        return (
+          <div className="comp-stage-inner">
+            <span className="comp-stage-kicker">DAILY SERVICE</span>
+            <h3 className="comp-stage-display-heading" style={{ fontSize: 14 }}>
+              Morning · Lunch · Wine
+            </h3>
+            <p className="comp-stage-body">
+              Country Sourdough Toast $9.50 · Porchetta $36
+            </p>
+          </div>
+        );
+      case 'trade-bento-grid':
+        return (
+          <div className="comp-stage-inner">
+            <span className="comp-stage-kicker">TRADE BENTO</span>
+            <h3 className="comp-stage-display-heading" style={{ fontSize: 14 }}>
+              Timber Framing & Decks
+            </h3>
+            <p className="comp-stage-body">
+              Licensed Builder #381920C · 20-Year Guarantee
+            </p>
+          </div>
+        );
+      case 'capability-cards':
+        return (
+          <div className="comp-stage-inner">
+            <span className="comp-stage-kicker">01 / 02 / 03</span>
+            <h3 className="comp-stage-display-heading" style={{ fontSize: 14 }}>
+              Structural Scope
+            </h3>
+            <p className="comp-stage-body">
+              Extensions, Wall Removals, Heritage Joinery
+            </p>
+          </div>
+        );
+      case 'editorial-pullquote':
+        return (
+          <div
+            className="comp-stage-inner"
+            style={{ textAlign: 'center', fontStyle: 'italic' }}
+          >
+            <h3 className="comp-stage-display-heading" style={{ fontSize: 14 }}>
+              “Room to breathe without erasing character.”
+            </h3>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              — Carlton Residence
+            </span>
+          </div>
+        );
+      case 'masonry-reviews':
+        return (
+          <div className="comp-stage-inner">
+            <span style={{ color: 'var(--accent)', fontSize: 12 }}>★★★★★</span>
+            <h3
+              className="comp-stage-display-heading"
+              style={{ fontSize: 13, marginTop: 4 }}
+            >
+              “Uncompromising attention to detail.”
+            </h3>
+            <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+              Verified Client · Northcote
+            </span>
+          </div>
+        );
+      case 'studio-contact-hours':
+        return (
+          <div className="comp-stage-inner">
+            <h3 className="comp-stage-display-heading" style={{ fontSize: 14 }}>
+              Start a Conversation
+            </h3>
+            <p className="comp-stage-body">
+              Mon–Fri: 8am–5pm · Victoria Lane Studio
+            </p>
+          </div>
+        );
+      case 'accordion-faq':
+        return (
+          <div className="comp-stage-inner">
+            <h3 className="comp-stage-display-heading" style={{ fontSize: 14 }}>
+              ▾ Common Inquiries
+            </h3>
+            <p className="comp-stage-body">
+              Timelines, permits, and sustainable timbers
+            </p>
+          </div>
+        );
+      case 'studio-directory':
+        return (
+          <div
+            className="comp-stage-inner"
+            style={{
+              background: '#181818',
+              color: '#fff',
+              borderRadius: 4,
+              padding: 12,
+            }}
+          >
+            <strong style={{ fontSize: 12, display: 'block', color: '#fff' }}>
+              STUDIO PRACTICE
+            </strong>
+            <p style={{ fontSize: 10, color: '#aaa', margin: '4px 0' }}>
+              Selected Works · Practice · Contact
+            </p>
+            <span style={{ fontSize: 9, color: '#666' }}>© 2026 Studio</span>
+          </div>
+        );
       default:
         return (
           <div className="comp-stage-inner comp-stage-generic">
-            <h3 className="comp-stage-display-heading">Plain Astro section</h3>
-            <p className="comp-stage-body">Built to match the open site.</p>
+            <h3 className="comp-stage-display-heading">
+              {id.replace(/-/g, ' ')}
+            </h3>
+            <p className="comp-stage-body">Plain Astro component.</p>
           </div>
         );
     }
   };
 
-  const displayPieces =
+  const filteredPieces =
     category === 'Featured 5'
-      ? pieces
+      ? pieces.slice(0, 5)
+      : pieces.filter((p) => {
+          const cat = (p.category || '').toLowerCase();
+          const target = category.toLowerCase();
+          if (cat === target || cat.includes(target)) return true;
+          if (
+            target === 'proof & testimonials' &&
+            (cat.includes('proof') || cat.includes('testimonial'))
+          )
+            return true;
+          if (
+            target === 'contact & faq' &&
+            (cat.includes('contact') || cat.includes('faq'))
+          )
+            return true;
+          if (
+            target === 'footers' &&
+            (cat.includes('footer') || cat === 'footer')
+          )
+            return true;
+          if (target === 'navigation' && cat.includes('nav')) return true;
+          if (target === 'heroes' && cat.includes('hero')) return true;
+          if (
+            target === 'services' &&
+            (cat.includes('service') || cat.includes('menu'))
+          )
+            return true;
+          return false;
+        });
+
+  const displayPieces =
+    filteredPieces.length > 0
+      ? filteredPieces
       : ADDITIONAL_PIECES.filter((p) => p.category === category);
 
   return (

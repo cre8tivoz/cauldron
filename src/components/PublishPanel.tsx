@@ -25,6 +25,13 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState<{
+    ok: boolean;
+    message: string;
+    url?: string;
+  } | null>(null);
 
   useEffect(() => {
     void window.cauldron.repoState().then(setState);
@@ -61,6 +68,61 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
       );
     }
     if (outcome.ok) setState(await window.cauldron.repoState());
+  };
+
+  const handleExportStatic = async () => {
+    setExporting(true);
+    setDeployResult(null);
+    try {
+      const res = await window.cauldron.exportStatic();
+      if (res.ok) {
+        setDeployResult({
+          ok: true,
+          message:
+            'Static site built successfully into dist/. Opened folder in Finder.',
+        });
+      } else {
+        setDeployResult({
+          ok: false,
+          message: res.problem ?? 'Static export failed.',
+        });
+      }
+    } catch (e) {
+      setDeployResult({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleDeployCloudflare = async () => {
+    setDeploying(true);
+    setDeployResult(null);
+    try {
+      const res = await window.cauldron.deployCloudflare(site?.name);
+      if (res.ok && res.url) {
+        setDeployResult({
+          ok: true,
+          message:
+            'Staged for Cloudflare Pages with wrangler.toml and static dist/ output!',
+          url: res.url,
+        });
+      } else {
+        setDeployResult({
+          ok: false,
+          message: res.problem ?? 'Cloudflare deployment preparation failed.',
+        });
+      }
+    } catch (e) {
+      setDeployResult({
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setDeploying(false);
+    }
   };
 
   const projectName = site?.name || 'Sunday Table';
@@ -298,6 +360,84 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
               <p className="stays-yours-desc">
                 Ordinary Astro files, in your own folder.
               </p>
+            </div>
+
+            {/* Cloudflare Pages & Static Export Card */}
+            <div className="publish-sidebar-card" style={{ marginTop: 14 }}>
+              <h3 className="sidebar-card-title">Production & Cloudflare</h3>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  margin: '4px 0 12px 0',
+                  lineHeight: 1.4,
+                }}
+              >
+                1-click export to pure static HTML/CSS, or stage directly for
+                Cloudflare Pages edge hosting.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={exporting || deploying}
+                  onClick={handleExportStatic}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    fontSize: 12,
+                  }}
+                >
+                  {exporting
+                    ? 'Building dist/…'
+                    : '📦 Build Static Site (dist/)'}
+                </button>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={exporting || deploying}
+                  onClick={handleDeployCloudflare}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    fontSize: 12,
+                  }}
+                >
+                  {deploying
+                    ? 'Staging Cloudflare…'
+                    : '⚡ Deploy to Cloudflare Pages'}
+                </button>
+              </div>
+
+              {deployResult && (
+                <div
+                  className={`notice ${deployResult.ok ? 'good' : 'bad'}`}
+                  style={{ marginTop: 10, fontSize: 11, padding: '6px 8px' }}
+                >
+                  {deployResult.message}
+                  {deployResult.url && (
+                    <div style={{ marginTop: 6, fontWeight: 600 }}>
+                      Live Edge Preview:{' '}
+                      <a
+                        href={deployResult.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          color: 'inherit',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        {deployResult.url} ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </aside>
         </div>
