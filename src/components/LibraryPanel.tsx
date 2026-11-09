@@ -133,8 +133,8 @@ export function LibraryPanel({ site, onBack }: Props) {
     window.cauldron
       .library()
       .then((result) => {
-        setPieces(result.pieces);
-        setLinks(result.links);
+        setPieces(result?.pieces ?? []);
+        setLinks(result?.links ?? []);
       })
       .catch((error: unknown) => {
         setMessage(
@@ -492,10 +492,11 @@ export function LibraryPanel({ site, onBack }: Props) {
     }
   };
 
+  const pieceList = pieces ?? [];
   const filteredPieces =
     category === 'Featured 5'
-      ? pieces.slice(0, 5)
-      : pieces.filter((p) => {
+      ? pieceList.slice(0, 5)
+      : pieceList.filter((p) => {
           const cat = (p.category || '').toLowerCase();
           const target = category.toLowerCase();
           if (cat === target || cat.includes(target)) return true;

@@ -341,27 +341,32 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
                 </p>
 
                 {/* Collapsible Structure Details for Tests & Guidance */}
-                <details className="direction-structure-details">
-                  <summary className="hint">Layout, states and mobile</summary>
-                  <div className="structure-guidance-content">
-                    <p className="hint">
-                      <strong>Density:</strong> {direction.structure.density}
-                    </p>
-                    <p className="hint">
-                      <strong>Display:</strong>{' '}
-                      {direction.structure.displayType}
-                    </p>
-                    <p className="hint">
-                      <strong>Surfaces:</strong> {direction.structure.surfaces}
-                    </p>
-                    <p className="hint">
-                      <strong>States:</strong> {direction.structure.states}
-                    </p>
-                    <p className="hint">
-                      <strong>Mobile:</strong> {direction.structure.mobile}
-                    </p>
-                  </div>
-                </details>
+                {direction.structure ? (
+                  <details className="direction-structure-details">
+                    <summary className="hint">
+                      Layout, states and mobile
+                    </summary>
+                    <div className="structure-guidance-content">
+                      <p className="hint">
+                        <strong>Density:</strong> {direction.structure.density}
+                      </p>
+                      <p className="hint">
+                        <strong>Display:</strong>{' '}
+                        {direction.structure.displayType}
+                      </p>
+                      <p className="hint">
+                        <strong>Surfaces:</strong>{' '}
+                        {direction.structure.surfaces}
+                      </p>
+                      <p className="hint">
+                        <strong>States:</strong> {direction.structure.states}
+                      </p>
+                      <p className="hint">
+                        <strong>Mobile:</strong> {direction.structure.mobile}
+                      </p>
+                    </div>
+                  </details>
+                ) : null}
 
                 <p
                   className="hint direction-source-credit"

@@ -315,7 +315,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
               ) : (
                 /* 3-Column Horizontal Field Rows: Label | Input | Save Button */
                 <div className="entry-fields-grid">
-                  {currentCollection?.fields.map((field) => {
+                  {(currentCollection?.fields ?? []).map((field) => {
                     const plainTextOnly =
                       field.type === 'unknown' ||
                       (field.type === 'list' && !field.options);
