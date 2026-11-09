@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DIRECTIONS, writeDirection } from './directions';
+import { DIRECTIONS, tokensCss, writeDirection } from './directions';
 import { getTemplateFiles, STARTER_TEMPLATES } from './templates';
 
 /**
@@ -75,7 +75,19 @@ export function canonicalProjectPath(projectPath: string): string {
   try {
     return fs.realpathSync(projectPath);
   } catch {
-    return path.resolve(projectPath);
+    const resolved = path.resolve(projectPath);
+    let current = path.dirname(resolved);
+    const parts = [path.basename(resolved)];
+    while (current && current !== path.dirname(current)) {
+      try {
+        const real = fs.realpathSync(current);
+        return path.join(real, ...parts);
+      } catch {
+        parts.unshift(path.basename(current));
+        current = path.dirname(current);
+      }
+    }
+    return resolved;
   }
 }
 
@@ -312,9 +324,25 @@ export function createProject(options: {
         const dir = DIRECTIONS.find((d) => d.id === match.directionId);
         if (dir) {
           writeDirection(root, dir);
+          const stylesDir = path.join(root, 'src/styles');
+          fs.mkdirSync(stylesDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(stylesDir, 'tokens.css'),
+            tokensCss(dir),
+            'utf8',
+          );
         }
       }
     } else {
+      if (options.template === 'minimal') {
+        const stylesDir = path.join(root, 'src/styles');
+        fs.mkdirSync(stylesDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(stylesDir, 'tokens.css'),
+          `:root {\n  --font-family: system-ui, -apple-system, sans-serif;\n}\n`,
+          'utf8',
+        );
+      }
       // The display name is arbitrary user text. It is carried into the page as
       // data (a string in the frontmatter), never interpolated into markup, so
       // characters like < and > render as text rather than becoming markup.
@@ -327,9 +355,15 @@ export function createProject(options: {
         `---\nimport Base from '../layouts/Base.astro';\n\n// The project's display name, kept as data. Astro renders {projectName} as\n// plain text, so any characters it contains stay text.\nconst projectName = ${JSON.stringify(options.name)};\n---\n<Base title={projectName}>\n  <main>\n    <h1>{projectName}</h1>\n    <p>A new Astro site, ready to design.</p>\n  </main>\n</Base>\n`,
       );
     }
+    const canonicalRoot = canonicalProjectPath(root);
     return {
       ok: true,
-      project: { root, name: options.name, astroVersion: version, slug },
+      project: {
+        root: canonicalRoot,
+        name: options.name,
+        astroVersion: version,
+        slug,
+      },
     };
   } catch (error) {
     // Recoverable: remove only the half-made folder this call created. A

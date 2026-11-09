@@ -44,6 +44,8 @@ ${strongStyles}
     needsScript: false,
     codeAllowed: true,
     astro,
+    code: astro,
+    plainAstro: true,
     styles: common + styles,
     markup,
   };
@@ -824,6 +826,88 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   font-size: var(--cauldron-size-2);
   color: var(--cauldron-c-muted);
   font-weight: 600;
+}`,
+  ),
+
+  cataloguePiece(
+    'trade-accreditations',
+    'Trade Accreditation & Partner Badges',
+    'Proof & Testimonials',
+    'Clean monochrome badge strip for trade licenses, master associations, and warranties.',
+    `<div class="badge-strip-container">
+  <p class="strip-label">Certified Licences & Trust Guarantees</p>
+  <div class="badges-row">
+    <div class="badge-item">
+      <span class="badge-icon">✓</span>
+      <span class="badge-text">Licensed Builder #49201</span>
+    </div>
+    <div class="badge-item">
+      <span class="badge-icon">✓</span>
+      <span class="badge-text">Master Trades Association</span>
+    </div>
+    <div class="badge-item">
+      <span class="badge-icon">✓</span>
+      <span class="badge-text">Fully Insured & Bonded</span>
+    </div>
+    <div class="badge-item">
+      <span class="badge-icon">✓</span>
+      <span class="badge-text">10-Year Craft Guarantee</span>
+    </div>
+  </div>
+</div>`,
+    `.cauldron-trade-accreditations {
+  background: var(--cauldron-c-surface);
+  border-top: 1px solid var(--cauldron-c-line);
+  border-bottom: 1px solid var(--cauldron-c-line);
+  padding: var(--cauldron-space-5) var(--cauldron-space-4);
+}
+.cauldron-trade-accreditations .badge-strip-container {
+  max-width: 1080px;
+  margin: 0 auto;
+  text-align: center;
+}
+.cauldron-trade-accreditations .strip-label {
+  font-size: var(--cauldron-size-1);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--cauldron-c-muted);
+  margin-bottom: var(--cauldron-space-3);
+  font-weight: 600;
+}
+.cauldron-trade-accreditations .badges-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--cauldron-space-6);
+}
+.cauldron-trade-accreditations .badge-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cauldron-trade-accreditations .badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--cauldron-c-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.cauldron-trade-accreditations .badge-text {
+  font-size: var(--cauldron-size-2);
+  font-weight: 500;
+  color: var(--cauldron-c-ink);
+}
+@media (max-width: 640px) {
+  .cauldron-trade-accreditations .badges-row {
+    flex-direction: column;
+    gap: var(--cauldron-space-3);
+  }
 }`,
   ),
 

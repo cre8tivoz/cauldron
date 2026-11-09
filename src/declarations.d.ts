@@ -378,32 +378,66 @@ type CauldronApi = {
     ok: boolean;
     sections?: CauldronPageSection[];
     problem?: string;
+    hash?: string;
+    file?: string;
   }>;
   reorderPageSections: (payload: {
     page: string;
     fromIndex: number;
     toIndex: number;
+    baseHash?: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
     problem?: string;
+    hash?: string;
+    file?: string;
   }>;
   deletePageSection: (payload: {
     page: string;
     sectionIndex: number;
+    baseHash?: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
     problem?: string;
+    hash?: string;
+    file?: string;
   }>;
   setPageSectionAnchor: (payload: {
     page: string;
     sectionIndex: number;
     anchorId: string;
+    baseHash?: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
     problem?: string;
+    hash?: string;
+    file?: string;
+  }>;
+  duplicatePageSection: (payload: {
+    page: string;
+    sectionIndex: number;
+    baseHash?: string;
+  }) => Promise<{
+    ok: boolean;
+    sections?: CauldronPageSection[];
+    problem?: string;
+    hash?: string;
+    file?: string;
+  }>;
+  insertPageSection: (payload: {
+    page: string;
+    afterIndex: number;
+    sectionCode: string;
+    baseHash?: string;
+  }) => Promise<{
+    ok: boolean;
+    sections?: CauldronPageSection[];
+    problem?: string;
+    hash?: string;
+    file?: string;
   }>;
 
   refreshSelection: () => Promise<CauldronSelection | null>;

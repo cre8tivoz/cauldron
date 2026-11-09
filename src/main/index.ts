@@ -21,6 +21,8 @@ import {
   reorderPageSections,
   deletePageSection,
   setPageSectionAnchor,
+  duplicatePageSection,
+  insertPageSection,
   type ActionRequest,
 } from './actions';
 import {
@@ -1742,7 +1744,15 @@ function registerIpc(): void {
 
   handle(
     'cauldron:reorder-page-sections',
-    (_event, payload: { page: string; fromIndex: number; toIndex: number }) => {
+    (
+      _event,
+      payload: {
+        page: string;
+        fromIndex: number;
+        toIndex: number;
+        baseHash?: string;
+      },
+    ) => {
       const site = requireSite();
       if ('problem' in site) return site;
       const res = reorderPageSections(
@@ -1750,6 +1760,7 @@ function registerIpc(): void {
         payload.page,
         payload.fromIndex,
         payload.toIndex,
+        payload.baseHash,
       );
       if (res.ok) state.preview.reload();
       return res;
@@ -1758,13 +1769,17 @@ function registerIpc(): void {
 
   handle(
     'cauldron:delete-page-section',
-    (_event, payload: { page: string; sectionIndex: number }) => {
+    (
+      _event,
+      payload: { page: string; sectionIndex: number; baseHash?: string },
+    ) => {
       const site = requireSite();
       if ('problem' in site) return site;
       const res = deletePageSection(
         site.root,
         payload.page,
         payload.sectionIndex,
+        payload.baseHash,
       );
       if (res.ok) state.preview.reload();
       return res;
@@ -1775,7 +1790,12 @@ function registerIpc(): void {
     'cauldron:set-page-section-anchor',
     (
       _event,
-      payload: { page: string; sectionIndex: number; anchorId: string },
+      payload: {
+        page: string;
+        sectionIndex: number;
+        anchorId: string;
+        baseHash?: string;
+      },
     ) => {
       const site = requireSite();
       if ('problem' in site) return site;
@@ -1784,6 +1804,55 @@ function registerIpc(): void {
         payload.page,
         payload.sectionIndex,
         payload.anchorId,
+        payload.baseHash,
+      );
+      if (res.ok) state.preview.reload();
+      return res;
+    },
+  );
+
+  handle(
+    'cauldron:duplicate-page-section',
+    (
+      _event,
+      payload: {
+        page: string;
+        sectionIndex: number;
+        baseHash?: string;
+      },
+    ) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const res = duplicatePageSection(
+        site.root,
+        payload.page,
+        payload.sectionIndex,
+        payload.baseHash,
+      );
+      if (res.ok) state.preview.reload();
+      return res;
+    },
+  );
+
+  handle(
+    'cauldron:insert-page-section',
+    (
+      _event,
+      payload: {
+        page: string;
+        afterIndex: number;
+        sectionCode: string;
+        baseHash?: string;
+      },
+    ) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const res = insertPageSection(
+        site.root,
+        payload.page,
+        payload.afterIndex,
+        payload.sectionCode,
+        payload.baseHash,
       );
       if (res.ok) state.preview.reload();
       return res;

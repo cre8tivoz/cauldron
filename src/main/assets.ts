@@ -2,6 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isInside } from './files';
 
+/**
+ * Asset management: curated starter photography and local asset storage.
+ *
+ * NOTE: Live API search against Unsplash and Pexels requires developer API
+ * keys and is marked Coming Soon in the UI. In the meantime, Cauldron provides
+ * a hand-curated starter set of high-resolution royalty-free photos attributed
+ * to their original Unsplash photographers, and allows dropping any local image
+ * file directly into the site's `public/images/` directory.
+ */
+
 export type StockPhoto = {
   id: string;
   title: string;
@@ -180,6 +190,10 @@ export const CURATED_STOCK_PHOTOS: StockPhoto[] = [
   },
 ];
 
+/**
+ * Returns curated starter photos matching the optional filter query or direction.
+ * Note: This searches the static curated collection, not live external APIs.
+ */
 export function getCuratedPhotos(
   query?: string,
   directionId?: string,
@@ -201,6 +215,10 @@ export function getCuratedPhotos(
   return list;
 }
 
+/**
+ * Saves a local image buffer directly into the site's `public/images/` directory,
+ * sanitizing the file name and ensuring it stays within the site root.
+ */
 export function saveAssetFile(
   root: string,
   fileName: string,
@@ -210,6 +228,14 @@ export function saveAssetFile(
   if (!isInside(root, imagesDir)) {
     return { ok: false, problem: 'Images path is outside the site.' };
   }
+  if (
+    fileName.includes('..') ||
+    path.isAbsolute(fileName) ||
+    fileName.startsWith('/') ||
+    fileName.startsWith('\\')
+  ) {
+    return { ok: false, problem: 'Path traversal attempt rejected.' };
+  }
   try {
     fs.mkdirSync(imagesDir, { recursive: true });
     // Sanitize filename
@@ -217,7 +243,16 @@ export function saveAssetFile(
       .basename(fileName)
       .toLowerCase()
       .replace(/[^a-z0-9._-]/g, '-');
+    if (!cleanName) {
+      return { ok: false, problem: 'Invalid file name.' };
+    }
     const targetFile = path.join(imagesDir, cleanName);
+    if (!isInside(imagesDir, targetFile)) {
+      return {
+        ok: false,
+        problem: 'Target file is outside the images directory.',
+      };
+    }
     fs.writeFileSync(targetFile, buffer);
     return { ok: true, relativePath: `/images/${cleanName}` };
   } catch (e) {

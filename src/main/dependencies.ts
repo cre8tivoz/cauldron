@@ -26,15 +26,21 @@ export type ManagerSetup = {
 
 /** The manager named by a package.json `packageManager` field, if parseable. */
 function declaredManager(root: string): ManagerSetup['manager'] | null {
+  const pkgPath = path.join(root, 'package.json');
   try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
-    ) as { packageManager?: string };
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as {
+      packageManager?: string;
+    };
     const declared = pkg.packageManager?.split('@')[0];
     if (declared === 'pnpm' || declared === 'yarn' || declared === 'npm')
       return declared;
-  } catch {
-    // No readable package.json: lockfiles decide.
+  } catch (err) {
+    if (fs.existsSync(pkgPath)) {
+      console.warn(
+        `[dependencies] Could not read package.json at ${pkgPath}:`,
+        err,
+      );
+    }
   }
   return null;
 }
@@ -287,12 +293,16 @@ export function findMissingPackages(root: string): string[] {
     peerDependencies?: Record<string, string>;
     optionalDependencies?: Record<string, string>;
   } = {};
+  const pkgPath = path.join(root, 'package.json');
   try {
-    pkgJson = JSON.parse(
-      fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
-    );
-  } catch {
-    // Unreadable or missing package.json
+    pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  } catch (err) {
+    if (fs.existsSync(pkgPath)) {
+      console.warn(
+        `[dependencies] Could not read package.json at ${pkgPath}:`,
+        err,
+      );
+    }
   }
 
   const declared = new Set([
@@ -308,7 +318,8 @@ export function findMissingPackages(root: string): string[] {
     let entries: fs.Dirent[] = [];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      console.warn(`[dependencies] Could not scan directory at ${dir}:`, err);
       return;
     }
     for (const ent of entries) {
@@ -337,7 +348,8 @@ export function findMissingPackages(root: string): string[] {
     let content = '';
     try {
       content = fs.readFileSync(file, 'utf8');
-    } catch {
+    } catch (err) {
+      console.warn(`[dependencies] Could not read file at ${file}:`, err);
       continue;
     }
     let textToScan = '';
@@ -466,8 +478,11 @@ export function installMissingPackages(
     if (effectiveStoreDir) {
       try {
         fs.mkdirSync(effectiveStoreDir, { recursive: true });
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn(
+          `[dependencies] Could not create pnpm store at ${effectiveStoreDir}:`,
+          err,
+        );
       }
     }
     args = [
