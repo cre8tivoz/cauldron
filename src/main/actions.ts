@@ -79,13 +79,33 @@ export type ActionRequest =
       page: string;
       fromIndex: number;
       toIndex: number;
+      baseHash?: string;
     }
-  | { action: 'deletePageSection'; page: string; sectionIndex: number }
+  | {
+      action: 'deletePageSection';
+      page: string;
+      sectionIndex: number;
+      baseHash?: string;
+    }
   | {
       action: 'setPageSectionAnchor';
       page: string;
       sectionIndex: number;
       anchorId: string;
+      baseHash?: string;
+    }
+  | {
+      action: 'duplicatePageSection';
+      page: string;
+      sectionIndex: number;
+      baseHash?: string;
+    }
+  | {
+      action: 'insertPageSection';
+      page: string;
+      afterIndex: number;
+      sectionCode: string;
+      baseHash?: string;
     };
 
 export type ActionOk = { ok: true; [key: string]: unknown };
@@ -366,6 +386,24 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
       continue;
     }
 
+    if (lower === 'script' || lower === 'style') {
+      const closing = findClosingTag(text, tag);
+      index = closing ? closing.end : tag.tagEnd;
+      continue;
+    }
+
+    const isSection =
+      lower === 'section' || lower === 'article' || /^[A-Z]/.test(tag.name);
+    if (!isSection) {
+      if (!tag.selfClosing) {
+        const closing = findClosingTag(text, tag);
+        index = closing ? closing.end : tag.tagEnd;
+      } else {
+        index = tag.tagEnd;
+      }
+      continue;
+    }
+
     // Determine start and end of this block
     const blockStart = tag.start;
     let blockEnd = tag.tagEnd;
@@ -447,11 +485,21 @@ export function reorderPageSections(
   page: string,
   fromIndex: number,
   toIndex: number,
-): ActionResult & { sections?: PageSection[] } {
+  baseHash?: string,
+): ActionResult & { sections?: PageSection[]; hash?: string } {
   const file = resolvePageFile(root, page);
   if (!file) return { ok: false, problem: `No page file for ${page}.` };
 
-  const text = fs.readFileSync(file, 'utf8');
+  const disk = readFile(file);
+  if (baseHash && disk.hash !== baseHash) {
+    return {
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+    };
+  }
+
+  const text = disk.text;
   const blocks = findSectionBlocks(text);
   if (
     fromIndex < 0 ||
@@ -475,7 +523,7 @@ export function reorderPageSections(
   const textAfter = text.slice(blockB.end);
 
   const newText = textBefore + sliceB + textBetween + sliceA + textAfter;
-  fs.writeFileSync(file, newText, 'utf8');
+  writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(
     ({ start: _s, end: _e, ...rest }) => rest,
@@ -492,11 +540,21 @@ export function deletePageSection(
   root: string,
   page: string,
   sectionIndex: number,
-): ActionResult & { sections?: PageSection[] } {
+  baseHash?: string,
+): ActionResult & { sections?: PageSection[]; hash?: string } {
   const file = resolvePageFile(root, page);
   if (!file) return { ok: false, problem: `No page file for ${page}.` };
 
-  const text = fs.readFileSync(file, 'utf8');
+  const disk = readFile(file);
+  if (baseHash && disk.hash !== baseHash) {
+    return {
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+    };
+  }
+
+  const text = disk.text;
   const blocks = findSectionBlocks(text);
   if (sectionIndex < 0 || sectionIndex >= blocks.length) {
     return { ok: false, problem: 'Invalid section index to delete.' };
@@ -508,7 +566,7 @@ export function deletePageSection(
   if (text[delEnd] === '\n') delEnd++;
 
   const newText = text.slice(0, target.start) + text.slice(delEnd);
-  fs.writeFileSync(file, newText, 'utf8');
+  writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(
     ({ start: _s, end: _e, ...rest }) => rest,
@@ -526,11 +584,21 @@ export function setPageSectionAnchor(
   page: string,
   sectionIndex: number,
   anchorId: string,
-): ActionResult & { sections?: PageSection[] } {
+  baseHash?: string,
+): ActionResult & { sections?: PageSection[]; hash?: string } {
   const file = resolvePageFile(root, page);
   if (!file) return { ok: false, problem: `No page file for ${page}.` };
 
-  const text = fs.readFileSync(file, 'utf8');
+  const disk = readFile(file);
+  if (baseHash && disk.hash !== baseHash) {
+    return {
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+    };
+  }
+
+  const text = disk.text;
   const blocks = findSectionBlocks(text);
   if (sectionIndex < 0 || sectionIndex >= blocks.length) {
     return { ok: false, problem: 'Invalid section index.' };
@@ -552,7 +620,115 @@ export function setPageSectionAnchor(
 
   const newText =
     text.slice(0, target.start) + updatedSlice + text.slice(target.end);
-  fs.writeFileSync(file, newText, 'utf8');
+  writeFileAtomic(file, newText);
+
+  const updated = findSectionBlocks(newText).map(
+    ({ start: _s, end: _e, ...rest }) => rest,
+  );
+  return {
+    ok: true,
+    file: path.relative(root, file),
+    sections: updated,
+    hash: hashOf(newText),
+  };
+}
+
+export function duplicatePageSection(
+  root: string,
+  page: string,
+  sectionIndex: number,
+  baseHash?: string,
+): ActionResult & { sections?: PageSection[]; hash?: string } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+
+  const disk = readFile(file);
+  if (baseHash && disk.hash !== baseHash) {
+    return {
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+    };
+  }
+
+  const text = disk.text;
+  const blocks = findSectionBlocks(text);
+  if (sectionIndex < 0 || sectionIndex >= blocks.length) {
+    return { ok: false, problem: 'Invalid section index to duplicate.' };
+  }
+
+  const target = blocks[sectionIndex];
+  const sectionText = text.slice(target.start, target.end);
+
+  const newText =
+    text.slice(0, target.end) + '\n' + sectionText + text.slice(target.end);
+  writeFileAtomic(file, newText);
+
+  const updated = findSectionBlocks(newText).map(
+    ({ start: _s, end: _e, ...rest }) => rest,
+  );
+  return {
+    ok: true,
+    file: path.relative(root, file),
+    sections: updated,
+    hash: hashOf(newText),
+  };
+}
+
+export function insertPageSection(
+  root: string,
+  page: string,
+  afterIndex: number,
+  sectionCode: string,
+  baseHash?: string,
+): ActionResult & { sections?: PageSection[]; hash?: string } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+
+  const disk = readFile(file);
+  if (baseHash && disk.hash !== baseHash) {
+    return {
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+    };
+  }
+
+  const text = disk.text;
+  const blocks = findSectionBlocks(text);
+  const code = sectionCode.trim();
+
+  let newText: string;
+  if (afterIndex === -1) {
+    if (blocks.length > 0) {
+      const insertPos = blocks[0].start;
+      newText = text.slice(0, insertPos) + code + '\n' + text.slice(insertPos);
+    } else {
+      const mainClose = text.indexOf('</main>');
+      const bodyClose = text.indexOf('</body>');
+      const insertPos =
+        mainClose !== -1
+          ? mainClose
+          : bodyClose !== -1
+            ? bodyClose
+            : text.length;
+      newText = text.slice(0, insertPos) + code + '\n' + text.slice(insertPos);
+    }
+  } else if (afterIndex >= 0 && afterIndex < blocks.length) {
+    const insertPos = blocks[afterIndex].end;
+    const separator =
+      text[insertPos] === '\n' || text[insertPos] === '\r' ? '' : '\n';
+    newText =
+      text.slice(0, insertPos) +
+      '\n' +
+      code +
+      separator +
+      text.slice(insertPos);
+  } else {
+    return { ok: false, problem: 'Invalid section index to insert after.' };
+  }
+
+  writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(
     ({ start: _s, end: _e, ...rest }) => rest,
@@ -788,10 +964,16 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         request.page,
         request.fromIndex,
         request.toIndex,
+        request.baseHash,
       );
 
     case 'deletePageSection':
-      return deletePageSection(root, request.page, request.sectionIndex);
+      return deletePageSection(
+        root,
+        request.page,
+        request.sectionIndex,
+        request.baseHash,
+      );
 
     case 'setPageSectionAnchor':
       return setPageSectionAnchor(
@@ -799,6 +981,24 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         request.page,
         request.sectionIndex,
         request.anchorId,
+        request.baseHash,
+      );
+
+    case 'duplicatePageSection':
+      return duplicatePageSection(
+        root,
+        request.page,
+        request.sectionIndex,
+        request.baseHash,
+      );
+
+    case 'insertPageSection':
+      return insertPageSection(
+        root,
+        request.page,
+        request.afterIndex,
+        request.sectionCode,
+        request.baseHash,
       );
 
     default:
@@ -826,6 +1026,14 @@ export function actionCatalogue(): Array<{ name: string; what: string }> {
     {
       name: 'setPageSectionAnchor',
       what: 'Set or update an anchor ID on a page section.',
+    },
+    {
+      name: 'duplicatePageSection',
+      what: 'Duplicate an existing section on a page by index.',
+    },
+    {
+      name: 'insertPageSection',
+      what: 'Insert markup for a new section on a page after a given section index (-1 for start of page).',
     },
     {
       name: 'editElementText',

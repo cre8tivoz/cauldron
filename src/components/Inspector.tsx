@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ChevronDownIcon } from './Icons';
 import { PageOutline } from './PageOutline';
 import { AssetTray } from './AssetTray';
 
@@ -17,24 +16,6 @@ type Props = {
   onDraft: (field: string, value: string) => void;
   onNavigateToLibrary?: (targetPage: string) => void;
 };
-
-const STYLE_FIELDS = [
-  'color',
-  'background-color',
-  'font-family',
-  'font-size',
-  'font-weight',
-  'line-height',
-  'letter-spacing',
-  'text-align',
-  'padding',
-  'margin',
-  'gap',
-  'border-radius',
-  'border',
-  'max-width',
-  'display',
-];
 
 /** Which style properties can use the direction's tokens, and how they map (plan 4.2). */
 const TOKEN_STYLES: Record<
@@ -116,14 +97,9 @@ export function Inspector({
   const [text, setText] = useState('');
   const [newAttribute, setNewAttribute] = useState('');
   const [newValue, setNewValue] = useState('');
-  const [extraStyles, setExtraStyles] = useState<string[]>([]);
-  const [textOpen, setTextOpen] = useState(true);
-  const [stylesOpen, setStylesOpen] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(true);
 
   useEffect(() => {
     setText(selection?.text ?? '');
-    setExtraStyles([]);
     if (selection) {
       setTab('element');
     }
@@ -136,11 +112,6 @@ export function Inspector({
   const styleEntries: Array<[string, string]> = selection
     ? Object.entries(selection.style)
     : [];
-  const configured = new Set([
-    ...styleEntries.map(([name]) => name),
-    ...extraStyles,
-  ]);
-  const spare = STYLE_FIELDS.filter((name) => !configured.has(name));
 
   // Determine current color for swatch display
   const currentColor =
@@ -297,281 +268,153 @@ export function Inspector({
               </div>
             ) : null}
 
-            {/* Collapsible Text Section */}
+            {/* Text Section */}
             <section className="inspector-accordion-section">
-              <button
-                type="button"
-                className="inspector-section-toggle"
-                onClick={() => setTextOpen((v) => !v)}
-                aria-expanded={textOpen}
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  color: 'var(--text)',
+                  marginBottom: 8,
+                }}
               >
-                <ChevronDownIcon size={12} />
-                <strong>Text</strong>
-              </button>
-
-              {textOpen ? (
-                <div className="inspector-section-content">
-                  {selection.textEditable ? (
-                    <div className="field inspector-text-field">
-                      <textarea
-                        rows={4}
-                        value={text}
-                        onChange={(event) => {
-                          setText(event.target.value);
-                          onDraft('text', event.target.value);
-                        }}
-                        onBlur={commitText}
-                        onKeyDown={(event) => {
-                          if (
-                            event.key === 'Enter' &&
-                            (event.metaKey || event.ctrlKey)
-                          ) {
-                            event.preventDefault();
-                            commitText();
-                          }
-                        }}
-                        aria-label="Element text"
-                        className="inspector-textarea"
-                      />
-                      <div className="field-caption">
-                        <span className="hint">⌘Enter to save</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="hint">
-                      This element holds other child elements. Select the text
-                      inside it directly to edit.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-            </section>
-
-            {/* Collapsible Styles Section (2-Column Horizontal Rows) */}
-            <section className="inspector-accordion-section">
-              <button
-                type="button"
-                className="inspector-section-toggle"
-                onClick={() => setStylesOpen((v) => !v)}
-                aria-expanded={stylesOpen}
-              >
-                <ChevronDownIcon size={12} />
-                <strong>Styles</strong>
-              </button>
-
-              {stylesOpen ? (
-                <div className="inspector-section-content">
-                  {direction ? (
-                    <div className="inspector-styles-grid">
-                      {Object.keys(TOKEN_STYLES).map((property) => {
-                        const isColorProp =
-                          property === 'color' ||
-                          property === 'background-color';
-                        const tokenOptions = TOKEN_STYLES[property](direction);
-                        const matchingInline = selection.style[property];
-
-                        return (
-                          <div
-                            className="inspector-grid-row"
-                            key={`token-${property}`}
-                          >
-                            <label
-                              htmlFor={`token-${property}`}
-                              className="inspector-row-label"
-                            >
-                              {property}
-                            </label>
-                            <div className="inspector-row-control">
-                              {isColorProp ? (
-                                <span
-                                  className="color-swatch-badge"
-                                  style={{
-                                    background: matchingInline || currentColor,
-                                  }}
-                                  aria-hidden="true"
-                                />
-                              ) : null}
-                              <select
-                                id={`token-${property}`}
-                                defaultValue=""
-                                className="inspector-row-select"
-                                onChange={(event) => {
-                                  if (event.target.value !== '')
-                                    onApplyStyle({
-                                      [property]: event.target.value,
-                                    });
-                                  event.target.value = '';
-                                }}
-                              >
-                                <option value="">
-                                  {matchingInline || 'Choose token…'}
-                                </option>
-                                {tokenOptions.map((token) => (
-                                  <option key={token.value} value={token.value}>
-                                    {token.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-
-                  {/* Explicit inline styles */}
-                  {styleEntries.length > 0 ? (
-                    <div
-                      className="inspector-styles-grid"
-                      style={{ marginTop: 10 }}
-                    >
-                      {styleEntries.map(([name, value]) => (
-                        <div className="inspector-grid-row" key={name}>
-                          <label
-                            htmlFor={`style-${name}`}
-                            className="inspector-row-label"
-                          >
-                            {name}
-                          </label>
-                          <div className="inspector-row-control">
-                            <input
-                              id={`style-${name}`}
-                              defaultValue={value}
-                              className="inspector-row-input"
-                              onChange={(event) =>
-                                onDraft(`style:${name}`, event.target.value)
-                              }
-                              onBlur={(event) => {
-                                if (event.target.value !== value) {
-                                  onApplyStyle({ [name]: event.target.value });
-                                }
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter')
-                                  event.currentTarget.blur();
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {/* Extra added style rows */}
-                  {extraStyles.length > 0 ? (
-                    <div
-                      className="inspector-styles-grid"
-                      style={{ marginTop: 10 }}
-                    >
-                      {extraStyles.map((name) => (
-                        <div className="inspector-grid-row" key={name}>
-                          <label
-                            htmlFor={`style-new-${name}`}
-                            className="inspector-row-label"
-                          >
-                            {name}
-                          </label>
-                          <div className="inspector-row-control">
-                            <input
-                              id={`style-new-${name}`}
-                              placeholder="value"
-                              className="inspector-row-input"
-                              onChange={(event) =>
-                                onDraft(`style:${name}`, event.target.value)
-                              }
-                              onBlur={(event) => {
-                                if (event.target.value.trim() !== '') {
-                                  onApplyStyle({ [name]: event.target.value });
-                                }
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter')
-                                  event.currentTarget.blur();
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {/* Add a style picker */}
-                  <div className="inspector-add-style-row">
-                    <label htmlFor="add-style" className="inspector-add-label">
-                      Add a style
-                    </label>
-                    <div className="inspector-select-wrap">
-                      <select
-                        id="add-style"
-                        value=""
-                        className="inspector-add-select"
-                        onChange={(event) => {
-                          const name = event.target.value;
-                          if (name)
-                            setExtraStyles((current) => [...current, name]);
-                        }}
-                      >
-                        <option value="">Choose a property…</option>
-                        {spare.map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDownIcon size={12} />
+                Text
+              </div>
+              <div className="inspector-section-content">
+                {selection.textEditable ? (
+                  <div className="field inspector-text-field">
+                    <textarea
+                      rows={4}
+                      value={text}
+                      onChange={(event) => {
+                        setText(event.target.value);
+                        onDraft('text', event.target.value);
+                      }}
+                      onBlur={commitText}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === 'Enter' &&
+                          (event.metaKey || event.ctrlKey)
+                        ) {
+                          event.preventDefault();
+                          commitText();
+                        }
+                      }}
+                      aria-label="Element text"
+                      className="inspector-textarea"
+                    />
+                    <div className="field-caption">
+                      <span className="hint">⌘Enter to save</span>
                     </div>
                   </div>
-                </div>
-              ) : null}
+                ) : (
+                  <p className="hint">
+                    This element holds other child elements. Select the text
+                    inside it directly to edit.
+                  </p>
+                )}
+              </div>
             </section>
 
-            {/* Collapsible Settings (Attributes) Section */}
+            {/* Styles Section */}
             <section className="inspector-accordion-section">
-              <button
-                type="button"
-                className="inspector-section-toggle"
-                onClick={() => setSettingsOpen((v) => !v)}
-                aria-expanded={settingsOpen}
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  color: 'var(--text)',
+                  marginBottom: 8,
+                }}
               >
-                <ChevronDownIcon size={12} />
-                <strong>Settings</strong>
-              </button>
-
-              {settingsOpen ? (
-                <div className="inspector-section-content">
-                  {selection.attributes.length === 0 ? (
-                    <p className="hint">No attributes on this element.</p>
-                  ) : null}
-
+                Styles
+              </div>
+              <div className="inspector-section-content">
+                {direction ? (
                   <div className="inspector-styles-grid">
-                    {selection.attributes.map((attribute) => (
-                      <div
-                        className="inspector-grid-row"
-                        key={`attr-row-${attribute.name}`}
-                      >
+                    {Object.keys(TOKEN_STYLES).map((property) => {
+                      const isColorProp =
+                        property === 'color' || property === 'background-color';
+                      const tokenOptions = TOKEN_STYLES[property](direction);
+                      const matchingInline = selection.style[property];
+
+                      return (
+                        <div
+                          className="inspector-grid-row"
+                          key={`token-${property}`}
+                        >
+                          <label
+                            htmlFor={`token-${property}`}
+                            className="inspector-row-label"
+                          >
+                            {property}
+                          </label>
+                          <div className="inspector-row-control">
+                            {isColorProp ? (
+                              <span
+                                className="color-swatch-badge"
+                                style={{
+                                  background: matchingInline || currentColor,
+                                }}
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                            <select
+                              id={`token-${property}`}
+                              defaultValue=""
+                              className="inspector-row-select"
+                              onChange={(event) => {
+                                if (event.target.value !== '')
+                                  onApplyStyle({
+                                    [property]: event.target.value,
+                                  });
+                                event.target.value = '';
+                              }}
+                            >
+                              <option value="">
+                                {matchingInline || 'Choose token…'}
+                              </option>
+                              {tokenOptions.map((token) => (
+                                <option key={token.value} value={token.value}>
+                                  {token.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {/* Explicit inline styles */}
+                {styleEntries.length > 0 ? (
+                  <div
+                    className="inspector-styles-grid"
+                    style={{ marginTop: 10 }}
+                  >
+                    {styleEntries.map(([name, value]) => (
+                      <div className="inspector-grid-row" key={name}>
                         <label
-                          htmlFor={`attr-${attribute.name}`}
+                          htmlFor={`style-${name}`}
                           className="inspector-row-label"
                         >
-                          {attribute.name}
+                          {name}
                         </label>
                         <div className="inspector-row-control">
                           <input
-                            id={`attr-${attribute.name}`}
-                            defaultValue={attribute.value}
+                            id={`style-${name}`}
+                            defaultValue={value}
                             className="inspector-row-input"
                             onChange={(event) =>
-                              onDraft(
-                                `attribute:${attribute.name}`,
-                                event.target.value,
-                              )
+                              onDraft(`style:${name}`, event.target.value)
                             }
                             onBlur={(event) => {
-                              if (event.target.value !== attribute.value) {
-                                onApplyAttribute(
-                                  attribute.name,
-                                  event.target.value,
-                                );
+                              if (event.target.value !== value) {
+                                onApplyStyle({ [name]: event.target.value });
                               }
                             }}
                             onKeyDown={(event) => {
@@ -583,51 +426,111 @@ export function Inspector({
                       </div>
                     ))}
                   </div>
+                ) : null}
+              </div>
+            </section>
 
-                  {/* Add setting row */}
-                  <div className="inspector-add-setting-box">
-                    <label
-                      htmlFor="new-attribute"
-                      className="inspector-row-label"
-                      style={{ marginBottom: 6, display: 'block' }}
+            {/* Settings (Attributes) Section */}
+            <section className="inspector-accordion-section">
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  color: 'var(--text)',
+                  marginBottom: 8,
+                }}
+              >
+                Settings
+              </div>
+              <div className="inspector-section-content">
+                {selection.attributes.length === 0 ? (
+                  <p className="hint">No attributes on this element.</p>
+                ) : null}
+
+                <div className="inspector-styles-grid">
+                  {selection.attributes.map((attribute) => (
+                    <div
+                      className="inspector-grid-row"
+                      key={`attr-row-${attribute.name}`}
                     >
-                      Add a setting
-                    </label>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        id="new-attribute"
-                        placeholder="name"
-                        value={newAttribute}
-                        className="inspector-row-input"
-                        style={{ flex: 1 }}
-                        onChange={(event) =>
-                          setNewAttribute(event.target.value)
-                        }
-                      />
-                      <input
-                        placeholder="value"
-                        value={newValue}
-                        className="inspector-row-input"
-                        style={{ flex: 1.4 }}
-                        onChange={(event) => setNewValue(event.target.value)}
-                        aria-label="Setting value"
-                      />
-                      <button
-                        className="button"
-                        type="button"
-                        disabled={newAttribute.trim() === ''}
-                        onClick={() => {
-                          onApplyAttribute(newAttribute.trim(), newValue);
-                          setNewAttribute('');
-                          setNewValue('');
-                        }}
+                      <label
+                        htmlFor={`attr-${attribute.name}`}
+                        className="inspector-row-label"
                       >
-                        Add
-                      </button>
+                        {attribute.name}
+                      </label>
+                      <div className="inspector-row-control">
+                        <input
+                          id={`attr-${attribute.name}`}
+                          defaultValue={attribute.value}
+                          className="inspector-row-input"
+                          onChange={(event) =>
+                            onDraft(
+                              `attribute:${attribute.name}`,
+                              event.target.value,
+                            )
+                          }
+                          onBlur={(event) => {
+                            if (event.target.value !== attribute.value) {
+                              onApplyAttribute(
+                                attribute.name,
+                                event.target.value,
+                              );
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter')
+                              event.currentTarget.blur();
+                          }}
+                        />
+                      </div>
                     </div>
+                  ))}
+                </div>
+
+                {/* Add setting row */}
+                <div className="inspector-add-setting-box">
+                  <label
+                    htmlFor="new-attribute"
+                    className="inspector-row-label"
+                    style={{ marginBottom: 6, display: 'block' }}
+                  >
+                    Add a setting
+                  </label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      id="new-attribute"
+                      placeholder="name"
+                      value={newAttribute}
+                      className="inspector-row-input"
+                      style={{ flex: 1 }}
+                      onChange={(event) => setNewAttribute(event.target.value)}
+                    />
+                    <input
+                      placeholder="value"
+                      value={newValue}
+                      className="inspector-row-input"
+                      style={{ flex: 1.4 }}
+                      onChange={(event) => setNewValue(event.target.value)}
+                      aria-label="Setting value"
+                    />
+                    <button
+                      className="button"
+                      type="button"
+                      disabled={newAttribute.trim() === ''}
+                      onClick={() => {
+                        onApplyAttribute(newAttribute.trim(), newValue);
+                        setNewAttribute('');
+                        setNewValue('');
+                      }}
+                    >
+                      Add
+                    </button>
                   </div>
                 </div>
-              ) : null}
+              </div>
             </section>
           </div>
         </>

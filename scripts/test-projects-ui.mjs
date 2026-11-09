@@ -28,7 +28,9 @@ const exe = path.join(
 if (!fs.existsSync(exe))
   throw new Error('Package the app first (out/ missing).');
 
-const scratch = '/Users/habibi/.hermes/profiles/claudia/cache/scratch';
+const scratch =
+  process.env.CAULDRON_TEST_DIR ||
+  path.join(os.tmpdir(), 'cauldron-test-scratch');
 const proofDir = path.join(scratch, 'cauldron-projects-ui-proof');
 fs.rmSync(proofDir, { recursive: true, force: true });
 fs.mkdirSync(path.join(proofDir, 'workspace'), { recursive: true });

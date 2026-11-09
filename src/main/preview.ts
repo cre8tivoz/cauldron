@@ -117,7 +117,8 @@ export class Preview {
         stayAwake: true,
       });
       return image.isEmpty() ? null : image.toDataURL();
-    } catch {
+    } catch (err) {
+      console.warn('[preview] Child view capture failed:', err);
       return null;
     }
   }
@@ -132,7 +133,8 @@ export class Preview {
         stayAwake: true,
       });
       return image.isEmpty() ? null : image.toDataURL();
-    } catch {
+    } catch (err) {
+      console.warn('[preview] Window capture failed:', err);
       return null;
     }
   }

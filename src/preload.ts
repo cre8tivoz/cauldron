@@ -98,14 +98,30 @@ const api = {
     page: string;
     fromIndex: number;
     toIndex: number;
+    baseHash?: string;
   }) => ipcRenderer.invoke('cauldron:reorder-page-sections', payload),
-  deletePageSection: (payload: { page: string; sectionIndex: number }) =>
-    ipcRenderer.invoke('cauldron:delete-page-section', payload),
+  deletePageSection: (payload: {
+    page: string;
+    sectionIndex: number;
+    baseHash?: string;
+  }) => ipcRenderer.invoke('cauldron:delete-page-section', payload),
   setPageSectionAnchor: (payload: {
     page: string;
     sectionIndex: number;
     anchorId: string;
+    baseHash?: string;
   }) => ipcRenderer.invoke('cauldron:set-page-section-anchor', payload),
+  duplicatePageSection: (payload: {
+    page: string;
+    sectionIndex: number;
+    baseHash?: string;
+  }) => ipcRenderer.invoke('cauldron:duplicate-page-section', payload),
+  insertPageSection: (payload: {
+    page: string;
+    afterIndex: number;
+    sectionCode: string;
+    baseHash?: string;
+  }) => ipcRenderer.invoke('cauldron:insert-page-section', payload),
 
   refreshSelection: () => ipcRenderer.invoke('cauldron:refresh-selection'),
   undo: () => ipcRenderer.invoke('cauldron:undo'),

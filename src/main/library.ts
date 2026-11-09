@@ -22,6 +22,8 @@ export type LibraryPiece = {
   astro: string;
   styles: string;
   markup: string;
+  code: string;
+  plainAstro: boolean;
 };
 
 function piece(
@@ -73,6 +75,8 @@ ${strongStyles}
     needsScript: false,
     codeAllowed: true,
     astro,
+    code: astro,
+    plainAstro: true,
     styles: common + styles,
     markup,
   };

@@ -162,7 +162,12 @@ export function ProjectHome({
       const event = payload as unknown as CauldronPrepareEvent;
       if (!alive.current) return;
       setPrepare((current) => {
-        if (!current || current.root !== event.root) return current;
+        if (!current) return null;
+        const isMatch =
+          current.root === event.root ||
+          current.root.replace(/^\/private/, '') ===
+            event.root.replace(/^\/private/, '');
+        if (!isMatch) return current;
         if (event.type === 'progress')
           return {
             ...current,

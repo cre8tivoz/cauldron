@@ -40,7 +40,16 @@ registerHooks({
     return next(specifier, context);
   },
 });
-const { runAction, actionCatalogue } = await import('../src/main/actions.ts');
+const {
+  runAction,
+  actionCatalogue,
+  readPageSections,
+  reorderPageSections,
+  deletePageSection,
+  setPageSectionAnchor,
+  duplicatePageSection,
+  insertPageSection,
+} = await import('../src/main/actions.ts');
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
 // Ticket 27/28: the outside-agent connection must offer the same source actions.
@@ -2582,5 +2591,179 @@ await (async () => {
     console.error(`FAIL ${name}: ${error.message}`);
   }
 })();
+
+test('Finding 5: section reorder preserves outside edits and requires matching baseHash', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-reorder-'));
+  const pagesDir = path.join(dir, 'src/pages');
+  fs.mkdirSync(pagesDir, { recursive: true });
+  const initialContent = `---
+const title = 'Outside Frontmatter Edit';
+---
+<!-- Unrelated top comment -->
+<main>
+  <section id="hero">
+    <h1>Hero</h1>
+  </section>
+  <section id="about">
+    <h2>About</h2>
+  </section>
+  <section id="contact">
+    <h3>Contact</h3>
+  </section>
+</main>
+<!-- Unrelated bottom comment -->
+`;
+  const file = path.join(pagesDir, 'index.astro');
+  fs.writeFileSync(file, initialContent, 'utf8');
+
+  const initialRead = readPageSections(dir, '/');
+  assert.equal(initialRead.ok, true);
+  assert.equal(initialRead.sections.length, 3);
+  const initialHash = initialRead.hash;
+
+  // Make an outside edit outside the sections
+  const outsideEdited = initialContent.replace(
+    'Outside Frontmatter Edit',
+    'Preserved Outside Edit',
+  );
+  fs.writeFileSync(file, outsideEdited, 'utf8');
+
+  // Attempting reorder with the stale initialHash must be refused
+  const staleRes = reorderPageSections(dir, '/', 0, 1, initialHash);
+  assert.equal(staleRes.ok, false);
+  assert.equal(
+    staleRes.problem,
+    'That file changed since this action was prepared. Read it again before editing.',
+  );
+
+  // Reorder with the fresh baseHash
+  const freshHash = hashOf(outsideEdited);
+  const reorderRes = reorderPageSections(dir, '/', 0, 1, freshHash);
+  assert.equal(reorderRes.ok, true);
+  assert.equal(reorderRes.sections.length, 3);
+  assert.equal(reorderRes.sections[0].anchorId, 'about');
+  assert.equal(reorderRes.sections[1].anchorId, 'hero');
+
+  // Verify the outside edit survived
+  const finalText = fs.readFileSync(file, 'utf8');
+  assert.ok(
+    finalText.includes('Preserved Outside Edit'),
+    'Outside frontmatter edit was lost',
+  );
+  assert.ok(
+    finalText.includes('<!-- Unrelated top comment -->'),
+    'Top comment was lost',
+  );
+  assert.ok(
+    finalText.includes('<!-- Unrelated bottom comment -->'),
+    'Bottom comment was lost',
+  );
+});
+
+test('Finding 4: duplicatePageSection duplicates section block and validates baseHash', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-duplicate-'));
+  const pagesDir = path.join(dir, 'src/pages');
+  fs.mkdirSync(pagesDir, { recursive: true });
+  const content = `<main>\n  <section id="hero">\n    <h1>Original Hero</h1>\n  </section>\n</main>\n`;
+  const file = path.join(pagesDir, 'index.astro');
+  fs.writeFileSync(file, content, 'utf8');
+
+  const read = readPageSections(dir, '/');
+  assert.equal(read.ok, true);
+
+  // Stale hash refusal
+  const staleRes = duplicatePageSection(dir, '/', 0, 'stale-hash-1234');
+  assert.equal(staleRes.ok, false);
+  assert.equal(
+    staleRes.problem,
+    'That file changed since this action was prepared. Read it again before editing.',
+  );
+
+  // Valid duplicate
+  const dupRes = duplicatePageSection(dir, '/', 0, read.hash);
+  assert.equal(dupRes.ok, true);
+  assert.equal(dupRes.sections.length, 2);
+
+  const updatedText = fs.readFileSync(file, 'utf8');
+  assert.equal(
+    (updatedText.match(/Original Hero/g) || []).length,
+    2,
+    'Section text should be duplicated',
+  );
+});
+
+test('Finding 4: insertPageSection inserts at start (-1) or after index and validates baseHash', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-insert-'));
+  const pagesDir = path.join(dir, 'src/pages');
+  fs.mkdirSync(pagesDir, { recursive: true });
+  const content = `<main>\n  <section id="s1">First</section>\n  <section id="s2">Second</section>\n</main>\n`;
+  const file = path.join(pagesDir, 'index.astro');
+  fs.writeFileSync(file, content, 'utf8');
+
+  const read = readPageSections(dir, '/');
+  assert.equal(read.ok, true);
+
+  // Insert before first section (-1)
+  const insTop = insertPageSection(
+    dir,
+    '/',
+    -1,
+    '<section id="top">Top Section</section>',
+    read.hash,
+  );
+  assert.equal(insTop.ok, true);
+  assert.equal(insTop.sections.length, 3);
+  assert.equal(insTop.sections[0].anchorId, 'top');
+
+  // Insert after index 1 (which is now s1)
+  const insAfter = insertPageSection(
+    dir,
+    '/',
+    1,
+    '<section id="mid">Middle Section</section>',
+    insTop.hash,
+  );
+  assert.equal(insAfter.ok, true);
+  assert.equal(insAfter.sections.length, 4);
+  assert.equal(insAfter.sections[2].anchorId, 'mid');
+});
+
+test('Finding 5: deletePageSection and setPageSectionAnchor validate baseHash', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-anchor-del-'));
+  const pagesDir = path.join(dir, 'src/pages');
+  fs.mkdirSync(pagesDir, { recursive: true });
+  const content = `<main>\n  <section id="s1">First</section>\n  <section id="s2">Second</section>\n</main>\n`;
+  const file = path.join(pagesDir, 'index.astro');
+  fs.writeFileSync(file, content, 'utf8');
+
+  const read = readPageSections(dir, '/');
+  assert.equal(read.ok, true);
+
+  // Stale baseHash for setPageSectionAnchor is refused
+  const staleAnchor = setPageSectionAnchor(dir, '/', 0, 'new-anchor', 'stale');
+  assert.equal(staleAnchor.ok, false);
+  assert.equal(
+    staleAnchor.problem,
+    'That file changed since this action was prepared. Read it again before editing.',
+  );
+
+  // Matching baseHash succeeds
+  const goodAnchor = setPageSectionAnchor(dir, '/', 0, 'new-anchor', read.hash);
+  assert.equal(goodAnchor.ok, true);
+  assert.equal(goodAnchor.sections[0].anchorId, 'new-anchor');
+
+  // Stale baseHash for deletePageSection is refused
+  const staleDel = deletePageSection(dir, '/', 0, 'stale');
+  assert.equal(staleDel.ok, false);
+  assert.equal(
+    staleDel.problem,
+    'That file changed since this action was prepared. Read it again before editing.',
+  );
+
+  // Matching baseHash deletes the section
+  const goodDel = deletePageSection(dir, '/', 0, goodAnchor.hash);
+  assert.equal(goodDel.ok, true);
+  assert.equal(goodDel.sections.length, 1);
+});
 
 process.exitCode = failures ? 1 : 0;

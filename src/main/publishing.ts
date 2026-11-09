@@ -4,6 +4,7 @@ import path from 'node:path';
 import { loadDrafts } from './recovery';
 import { buildSite } from './quality';
 import { packageSlug } from './projects';
+import { childEnvForTools, resolveToolPath } from './runtime';
 
 /**
  * Publishing (plan 5.1): show what changed, commit through the site's own Git
@@ -329,6 +330,15 @@ export function deployCloudflarePages(
     };
   }
 
+  const indexHtml = path.join(root, 'dist/index.html');
+  if (!fs.existsSync(indexHtml)) {
+    return {
+      ok: false,
+      problem: 'Build output missing dist/index.html.',
+      log: build.log,
+    };
+  }
+
   let slug = projectName
     ? packageSlug(projectName)
     : path
@@ -345,23 +355,70 @@ export function deployCloudflarePages(
         `name = "${slug}"\ncompatibility_date = "2026-11-09"\npages_build_output_dir = "dist"\n`,
         'utf8',
       );
-    } catch {
-      // Best effort configuration
+    } catch (err) {
+      console.error('[publishing] Failed to write wrangler.toml:', err);
     }
   }
 
-  const indexHtml = path.join(root, 'dist/index.html');
-  if (!fs.existsSync(indexHtml)) {
+  const env = childEnvForTools({
+    ...process.env,
+    CI: '1',
+    FORCE_COLOR: '0',
+    NO_COLOR: '1',
+  });
+
+  const wranglerBin = resolveToolPath('wrangler');
+  const npxBin = resolveToolPath('npx') ?? 'npx';
+
+  let deployResult: ReturnType<typeof spawnSync> | null = null;
+  try {
+    if (wranglerBin) {
+      deployResult = spawnSync(
+        wranglerBin,
+        ['pages', 'deploy', 'dist', '--project-name', slug],
+        { cwd: root, env, encoding: 'utf8', timeout: 120000 },
+      );
+    } else {
+      deployResult = spawnSync(
+        npxBin,
+        [
+          '--no-install',
+          'wrangler',
+          'pages',
+          'deploy',
+          'dist',
+          '--project-name',
+          slug,
+        ],
+        { cwd: root, env, encoding: 'utf8', timeout: 120000 },
+      );
+    }
+  } catch (err) {
+    console.error('[publishing] Cloudflare deployment process failed:', err);
+  }
+
+  const output =
+    `${deployResult?.stdout ?? ''}\n${deployResult?.stderr ?? ''}`.trim();
+
+  if (!deployResult || deployResult.status !== 0) {
+    const errorDetails = output ? `\n${output}` : '';
+    console.error(
+      `[publishing] Cloudflare Pages deployment failed:${errorDetails}`,
+    );
     return {
       ok: false,
-      problem: 'Build output missing dist/index.html.',
-      log: build.log,
+      problem:
+        'Cloudflare Pages deployment requires Wrangler authentication or CLOUDFLARE_API_TOKEN. Static site was built to dist/.',
+      log: `${build.log}\n${output}`.trim(),
     };
   }
 
+  const urlMatch = output.match(/https:\/\/[a-z0-9._-]+\.pages\.dev/i);
+  const liveUrl = urlMatch ? urlMatch[0] : `https://${slug}.pages.dev`;
+
   return {
     ok: true,
-    url: `https://${slug}.pages.dev`,
-    log: `Site built and staged for Cloudflare Pages (${slug}). Output: dist/`,
+    url: liveUrl,
+    log: output || `Site deployed to Cloudflare Pages: ${liveUrl}`,
   };
 }

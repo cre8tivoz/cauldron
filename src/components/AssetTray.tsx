@@ -13,7 +13,6 @@ export function AssetTray({
   selection,
   onApplyAttribute,
 }: Props) {
-  const [query, setQuery] = useState('');
   const [photos, setPhotos] = useState<CauldronStockPhoto[]>([]);
   const [loading, setLoading] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -38,13 +37,8 @@ export function AssetTray({
   };
 
   useEffect(() => {
-    void fetchPhotos(query, direction?.id);
+    void fetchPhotos('', direction?.id);
   }, [direction?.id]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    void fetchPhotos(query, direction?.id);
-  };
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -133,10 +127,10 @@ export function AssetTray({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: -0.01 }}>
-          Photography & Assets
+          Photography &amp; Assets
         </span>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Royalty-free photography from Unsplash & Pexels for real work.
+          Curated starter photography and local asset management.
         </span>
       </div>
 
@@ -149,6 +143,98 @@ export function AssetTray({
           {statusMessage}
         </div>
       )}
+
+      {/* Live Search feature with Coming Soon frosted overlay */}
+      <div
+        style={{
+          position: 'relative',
+          borderRadius: 6,
+          border: '1px solid var(--hairline)',
+          background: 'var(--bg, #141414)',
+          padding: '10px 12px',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
+            opacity: 0.35,
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          <input
+            type="text"
+            tabIndex={-1}
+            readOnly
+            placeholder="Search Unsplash &amp; Pexels photos…"
+            style={{
+              flex: 1,
+              fontSize: 11,
+              padding: '4px 8px',
+              borderRadius: 4,
+              border: '1px solid var(--hairline)',
+              background: 'rgba(0, 0, 0, 0.2)',
+              color: 'inherit',
+            }}
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            disabled
+            className="button"
+            style={{ fontSize: 11, padding: '4px 8px' }}
+          >
+            Search
+          </button>
+        </div>
+
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(18, 18, 18, 0.85)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            padding: '8px 12px',
+            gap: 4,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.3,
+              padding: '2px 8px',
+              borderRadius: 10,
+              background: 'rgba(49, 130, 206, 0.15)',
+              border: '1px solid var(--accent, #3182ce)',
+              color: 'var(--accent, #60a5fa)',
+            }}
+          >
+            Live Unsplash &amp; Pexels Search (Coming Soon)
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              color: 'var(--muted)',
+              lineHeight: 1.35,
+              maxWidth: 320,
+            }}
+          >
+            Direct live API search will be available in an upcoming release. In
+            the meantime, use the curated starter assets or drag and drop your
+            own images below.
+          </span>
+        </div>
+      </div>
 
       {/* Drag & Drop Target for local files */}
       <div
@@ -192,71 +278,56 @@ export function AssetTray({
         </div>
       </div>
 
-      {/* Search Input */}
-      <form
-        onSubmit={handleSearch}
-        style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+      {/* Curated Starter Photos Section */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          marginTop: 2,
+        }}
       >
-        <input
-          type="text"
-          placeholder="Search photos (coffee, tools, wood)…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          style={{
-            flex: 1,
-            fontSize: 11,
-            padding: '4px 8px',
-            borderRadius: 4,
-            border: '1px solid var(--hairline)',
-            background: 'var(--bg, #141414)',
-            color: 'inherit',
-          }}
-        />
-        <button
-          type="submit"
-          className="button"
-          style={{ fontSize: 11, padding: '4px 8px' }}
-        >
-          Search
-        </button>
-      </form>
+        <span style={{ fontSize: 11, fontWeight: 600 }}>
+          Curated Starter Photos
+        </span>
 
-      {/* Category Pills */}
-      {categories.length > 1 && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 4,
-            alignItems: 'center',
-          }}
-        >
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setCategoryFilter(cat)}
-              style={{
-                fontSize: 10,
-                padding: '2px 7px',
-                borderRadius: 10,
-                border:
-                  categoryFilter === cat
-                    ? '1px solid var(--accent, #3182ce)'
-                    : '1px solid var(--hairline)',
-                background:
-                  categoryFilter === cat
-                    ? 'var(--accent, #3182ce)'
-                    : 'transparent',
-                color: categoryFilter === cat ? '#fff' : 'var(--muted)',
-                cursor: 'pointer',
-              }}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      )}
+        {/* Category Pills */}
+        {categories.length > 1 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 4,
+              alignItems: 'center',
+            }}
+          >
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                style={{
+                  fontSize: 10,
+                  padding: '2px 7px',
+                  borderRadius: 10,
+                  border:
+                    categoryFilter === cat
+                      ? '1px solid var(--accent, #3182ce)'
+                      : '1px solid var(--hairline)',
+                  background:
+                    categoryFilter === cat
+                      ? 'var(--accent, #3182ce)'
+                      : 'transparent',
+                  color: categoryFilter === cat ? '#fff' : 'var(--muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Photo Cards Grid */}
       <div
@@ -264,7 +335,7 @@ export function AssetTray({
           display: 'flex',
           flexDirection: 'column',
           gap: 10,
-          marginTop: 4,
+          marginTop: 2,
         }}
       >
         {loading ? (
@@ -273,7 +344,7 @@ export function AssetTray({
           </p>
         ) : displayedPhotos.length === 0 ? (
           <p className="hint" style={{ fontSize: 11, margin: 0 }}>
-            No photos found matching "{query}".
+            No photos found in category "{categoryFilter}".
           </p>
         ) : (
           displayedPhotos.map((photo) => (

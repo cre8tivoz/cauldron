@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { registerHooks } from 'node:module';
@@ -49,7 +50,9 @@ const { buildSite } = await import('../src/main/quality.ts');
 const runtime = await import('../src/main/runtime.ts');
 const { detectSite, startDevServer } = await import('../src/main/site.ts');
 
-const scratch = '/Users/habibi/.hermes/profiles/claudia/cache/scratch';
+const scratch =
+  process.env.CAULDRON_TEST_DIR ||
+  path.join(os.tmpdir(), 'cauldron-test-scratch');
 const proofRoot = path.join(scratch, 'cauldron-projects-proof');
 spawnSync('/bin/rm', ['-rf', proofRoot]);
 fs.mkdirSync(proofRoot, { recursive: true });

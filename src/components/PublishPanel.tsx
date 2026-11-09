@@ -105,14 +105,15 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
       if (res.ok && res.url) {
         setDeployResult({
           ok: true,
-          message:
-            'Staged for Cloudflare Pages with wrangler.toml and static dist/ output!',
+          message: 'Deployed successfully to Cloudflare Pages!',
           url: res.url,
         });
       } else {
         setDeployResult({
           ok: false,
-          message: res.problem ?? 'Cloudflare deployment preparation failed.',
+          message:
+            res.problem ??
+            'Cloudflare Pages deployment requires Wrangler authentication or CLOUDFLARE_API_TOKEN. Static site was built to dist/.',
         });
       }
     } catch (e) {
@@ -409,7 +410,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                   }}
                 >
                   {deploying
-                    ? 'Staging Cloudflare…'
+                    ? 'Deploying to Cloudflare…'
                     : '⚡ Deploy to Cloudflare Pages'}
                 </button>
               </div>
@@ -417,10 +418,10 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
               {deployResult && (
                 <div
                   className={`notice ${deployResult.ok ? 'good' : 'bad'}`}
-                  style={{ marginTop: 10, fontSize: 11, padding: '6px 8px' }}
+                  style={{ marginTop: 10, fontSize: 11, padding: '8px 10px' }}
                 >
                   {deployResult.message}
-                  {deployResult.url && (
+                  {deployResult.ok && deployResult.url && (
                     <div style={{ marginTop: 6, fontWeight: 600 }}>
                       Live Edge Preview:{' '}
                       <a
@@ -434,6 +435,50 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                       >
                         {deployResult.url} ↗
                       </a>
+                    </div>
+                  )}
+                  {!deployResult.ok && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        paddingTop: 8,
+                        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <span
+                        style={{
+                          alignSelf: 'flex-start',
+                          fontSize: 9,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          color: '#f87171',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                        }}
+                      >
+                        Coming Soon / Setup Required
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: 'var(--muted)',
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        To deploy directly to Cloudflare Pages, run{' '}
+                        <code className="mono">npx wrangler login</code> in your
+                        terminal or configure{' '}
+                        <code className="mono">CLOUDFLARE_API_TOKEN</code> in
+                        your environment. In the meantime, your static site is
+                        built and ready in the{' '}
+                        <code className="mono">dist/</code> folder.
+                      </span>
                     </div>
                   )}
                 </div>
