@@ -219,6 +219,7 @@ export async function measureTaste(
       if(judgeRules) declarations(el.style);
       if(el.matches('a[href],button,input,select,textarea,[tabindex]')&&!el.disabled&&el.tabIndex>=0){el.setAttribute('data-cauldron-audit-control',String(controls.length));controls.push(controls.length);}
     });
+    [...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex],summary')].filter(el=>!el.disabled&&el.tabIndex>=0&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0).forEach((el,i)=>el.setAttribute('data-cauldron-focus-seq',String(i)));
     const totalControls=[...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')].filter(el=>!el.disabled&&el.tabIndex>=0&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0).length;
     // The approved focus check measures the indicator's contrast (3:1), not just
     // that one is present.
@@ -378,6 +379,10 @@ export async function measureTaste(
   // thickness/offset are in the property list because a hover that only
   // thickens an underline changes none of the shorthand properties.
   const signature = `(() => [el, ...[...el.querySelectorAll('*')].slice(0, 40)].map(node => { const s = getComputedStyle(node); return [${INTERACTION_PROPERTIES.map((p) => `'${p}'`).join(',')}].map(p => s[p]).join('|'); }).join('::'))()`;
+  const activeFocusSeq = () =>
+    window.webContents.executeJavaScript(
+      `(() => document.activeElement?.getAttribute?.('data-cauldron-focus-seq') ?? '')()`,
+    ) as Promise<string>;
   const activeIndex = () =>
     window.webContents.executeJavaScript(
       `(() => {const el=document.activeElement;return Number(el?.getAttribute?.('data-cauldron-audit-control')??-1);})()`,
@@ -387,18 +392,19 @@ export async function measureTaste(
   // page in one report disagreed (5/7 then 7/7), so wait for focus to actually
   // move and press again only when the first press did nothing.
   const pressTab = async (): Promise<number> => {
-    const before = await activeIndex();
+    const before = await activeFocusSeq();
     for (let attempt = 0; attempt < 3; attempt++) {
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
       for (let wait = 0; wait < 4; wait++) {
         await new Promise((resolve) => setTimeout(resolve, 25));
-        const after = await activeIndex();
-        if (after !== before) return after;
+        const after = await activeFocusSeq();
+        if (after !== before) return await activeIndex();
       }
     }
-    return before;
+    return await activeIndex();
   };
+  window.webContents.focus();
   await window.webContents.executeJavaScript(
     `document.body.tabIndex=-1;document.body.focus()`,
   );

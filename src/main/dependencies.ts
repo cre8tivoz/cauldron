@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { builtinModules } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { childEnvForTools, resolveToolPath } from './runtime';
@@ -273,4 +274,258 @@ export function defaultStoreDir(pnpmPath?: string): string | null {
   });
   const out = result.stdout?.trim();
   return result.status === 0 && out ? out : null;
+}
+
+/**
+ * Scans a site's source files for bare package imports that are neither
+ * declared in package.json nor installed in node_modules.
+ */
+export function findMissingPackages(root: string): string[] {
+  let pkgJson: {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+  } = {};
+  try {
+    pkgJson = JSON.parse(
+      fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+    );
+  } catch {
+    // Unreadable or missing package.json
+  }
+
+  const declared = new Set([
+    ...Object.keys(pkgJson.dependencies ?? {}),
+    ...Object.keys(pkgJson.devDependencies ?? {}),
+    ...Object.keys(pkgJson.peerDependencies ?? {}),
+    ...Object.keys(pkgJson.optionalDependencies ?? {}),
+  ]);
+
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    if (!fs.existsSync(dir)) return;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (['node_modules', '.git', 'dist', '.astro'].includes(ent.name))
+        continue;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        walk(full);
+      } else if (/\.(astro|css|ts|tsx|js|jsx|mjs|cjs)$/.test(ent.name)) {
+        files.push(full);
+      }
+    }
+  };
+  walk(path.join(root, 'src'));
+
+  for (const ext of ['mjs', 'ts', 'js', 'cjs', 'mts']) {
+    const configPath = path.join(root, `astro.config.${ext}`);
+    if (fs.existsSync(configPath)) files.push(configPath);
+  }
+
+  const specifiers = new Set<string>();
+  const pkgNameRe = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+  const nodeBuiltins = new Set(builtinModules);
+
+  for (const file of files) {
+    let content = '';
+    try {
+      content = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    let textToScan = '';
+    if (file.endsWith('.astro')) {
+      const fmMatch = content.match(/^\s*---[\s\S]*?---/);
+      if (fmMatch) textToScan += `${fmMatch[0]}\n`;
+      const scriptMatches = content.matchAll(
+        /<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gi,
+      );
+      for (const m of scriptMatches) textToScan += `${m[1]}\n`;
+      const styleMatches = content.matchAll(
+        /<style(?:\s+[^>]*)?>([\s\S]*?)<\/style>/gi,
+      );
+      for (const m of styleMatches) textToScan += `${m[1]}\n`;
+    } else {
+      textToScan = content;
+    }
+
+    textToScan = textToScan.replace(/\/\*[\s\S]*?\*\//g, '');
+    textToScan = textToScan.replace(/(?<!:)\/\/.*$/gm, '');
+
+    const importPatterns = [
+      /import\s+.*?from\s+['"]([^'"]+)['"]/g,
+      /import\s+['"]([^'"]+)['"]/g,
+      /export\s+.*?from\s+['"]([^'"]+)['"]/g,
+      /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+      /@import\s+(?:url\(\s*)?['"]([^'"]+)['"]/g,
+    ];
+
+    for (const pat of importPatterns) {
+      for (const match of textToScan.matchAll(pat)) {
+        if (match[1]) specifiers.add(match[1]);
+      }
+    }
+  }
+
+  const missing = new Set<string>();
+  for (const spec of specifiers) {
+    if (!spec || /^[./]/.test(spec)) continue;
+    if (/^(https?:|data:|file:|mailto:)/.test(spec)) continue;
+    if (/^[~@#]\//.test(spec) || spec === '~' || spec === '@') continue;
+    if (/^(astro:|virtual:)/.test(spec)) continue;
+    if (spec.startsWith('node:') || nodeBuiltins.has(spec)) continue;
+
+    let pkgName = '';
+    if (spec.startsWith('@')) {
+      const parts = spec.split('/');
+      if (parts.length >= 2) pkgName = `${parts[0]}/${parts[1]}`;
+    } else {
+      pkgName = spec.split('/')[0];
+    }
+
+    if (!pkgName || !pkgNameRe.test(pkgName)) continue;
+
+    const onDisk = fs.existsSync(
+      path.join(root, 'node_modules', ...pkgName.split('/')),
+    );
+    if (!declared.has(pkgName) || !onDisk) {
+      missing.add(pkgName);
+    }
+  }
+
+  return [...missing].sort();
+}
+
+export type InstallMissingPackagesResult = {
+  ok: boolean;
+  manager: string;
+  storeDir?: string;
+  log: string;
+  problem?: string;
+};
+
+/**
+ * Installs specified missing packages using the project's own package manager.
+ * For pnpm projects, uses the supplied shared store directory.
+ */
+export function installMissingPackages(
+  root: string,
+  packages: string[],
+  storeDirOrUserData?: string,
+): Promise<InstallMissingPackagesResult> {
+  const pkgNameRe = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+  const valid = [...new Set(packages.filter((p) => pkgNameRe.test(p)))];
+  if (valid.length === 0) {
+    return Promise.resolve({
+      ok: true,
+      manager: 'none',
+      log: 'No valid packages to install.',
+    });
+  }
+
+  const setup = detectDependencySetup(root);
+  const manager = setup.manager;
+  const resolved =
+    resolveToolPath(manager) ??
+    (manager === 'pnpm' ? resolveToolPath('npm') : null);
+  if (!resolved) {
+    return Promise.resolve({
+      ok: false,
+      manager,
+      storeDir: storeDirOrUserData,
+      log: '',
+      problem: `No ${manager} executable was found in PATH or standard locations.`,
+    });
+  }
+
+  let effectiveStoreDir: string | undefined = undefined;
+  if (storeDirOrUserData) {
+    effectiveStoreDir = storeDirOrUserData.endsWith('pnpm-store')
+      ? storeDirOrUserData
+      : path.join(storeDirOrUserData, 'pnpm-store');
+  } else if (process.env.CAULDRON_PNPM_STORE) {
+    effectiveStoreDir = process.env.CAULDRON_PNPM_STORE;
+  } else if (process.env.HOME) {
+    effectiveStoreDir = path.join(
+      process.env.HOME,
+      'Library/Application Support/Cauldron/pnpm-store',
+    );
+  }
+
+  let cmd = resolved;
+  let args: string[] = [];
+
+  if (manager === 'pnpm') {
+    if (effectiveStoreDir) {
+      try {
+        fs.mkdirSync(effectiveStoreDir, { recursive: true });
+      } catch {
+        // ignore
+      }
+    }
+    args = [
+      'add',
+      ...valid,
+      ...(effectiveStoreDir ? ['--store-dir', effectiveStoreDir] : []),
+      '--reporter=append-only',
+    ];
+  } else if (manager === 'yarn') {
+    args = ['add', ...valid];
+  } else {
+    const npmPath = resolveToolPath('npm') ?? 'npm';
+    cmd = npmPath;
+    args = ['install', '--save', '--no-audit', '--no-fund', ...valid];
+  }
+
+  const env = childEnvForTools({
+    ...process.env,
+    FORCE_COLOR: '0',
+    NO_COLOR: '1',
+  });
+
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      cwd: root,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let output = '';
+    child.stdout.on('data', (d: Buffer) => {
+      output += d.toString('utf8');
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      output += d.toString('utf8');
+    });
+
+    child.on('error', (err) => {
+      resolve({
+        ok: false,
+        manager,
+        storeDir: effectiveStoreDir,
+        log: output,
+        problem: err.message,
+      });
+    });
+
+    child.on('close', (code) => {
+      resolve({
+        ok: code === 0,
+        manager,
+        storeDir: effectiveStoreDir,
+        log: output,
+        problem:
+          code === 0
+            ? undefined
+            : `${manager} add failed with exit code ${code ?? 'unknown'}.`,
+      });
+    });
+  });
 }

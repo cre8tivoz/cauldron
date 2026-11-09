@@ -88,3 +88,16 @@ That requirement stays explicitly pending until a tester supplies it.
 `npm run check` exit 0; `npm run smoke` exit 0; `npm run make` exit 0. Exact revision:
 HEAD `79aef82` plus the uncommitted finish-up changes listed in ticket 29's finish-up
 evidence (no commits by the subagent; no public upload or release prepared).
+
+## Rescue distribution update — 9 Nov 2026 (P0–P3 completed)
+
+- **Rescued unsigned macOS zip (`npm run make`, exit 0):**
+  - Primary artifact: `/Users/habibi/hermes/apps-codebases/cauldron/out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.0.1.zip`
+  - Copy in builds directory: `/Users/habibi/hermes/cauldron-builds/Cauldron-darwin-arm64-0.0.1-rescued.zip`
+  - Size: `121,590,206` bytes (`121.6 MB`)
+  - SHA-256: `930269208cfe97f90e204f66f5c119672908ce12939b8c99b6da304111db47eb` (supersedes `ff4831cb81a7…` and `9d80823791fe…`)
+- **Same-Mac smoke and full P0–P3 verification:**
+  - `npm run check` exit 0; `npm run smoke` exit 0 (`SMOKE PASS: window created and interface rendered`); `npm run make` exit 0.
+  - All 17 whole-product acceptance rows in `RESCUE-PLAN.md` §5 exercised and verified against the packaged binary (`out/Cauldron-darwin-arm64/Cauldron.app/Contents/MacOS/Cauldron`).
+- **Remaining human-only verification:**
+  - Manual download, unzip, and first launch via **System Settings → Privacy & Security → Open Anyway** on a physical second Mac remains pending human verification before a public release claim.

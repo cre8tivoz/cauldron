@@ -814,6 +814,8 @@ cannot carry button text at 4.5:1, use \`ink\` as the fill or an \`ink\` border 
 - Body: ${direction.fonts.body.family} (${direction.fonts.body.package}), weights ${direction.fonts.body.weights.join(', ')}
 ${direction.fonts.detail ? `- Detail mono: ${direction.fonts.detail.family} (${direction.fonts.detail.package}), weights ${direction.fonts.detail.weights.join(', ')}. Use it for prices, codes and small metadata, never for essential body copy.` : ''}
 
+The fonts are loaded directly by \`cauldron/tokens.css\` using Google Fonts stylesheet links, and the CSS variables \`var(--cauldron-font-display)\` and \`var(--cauldron-font-body)\`${direction.fonts.detail ? ' (and `var(--cauldron-font-detail)`)' : ''} are already defined there. Pages and layouts should import \`cauldron/tokens.css\` (for example \`@import '../../cauldron/tokens.css';\` in \`src/styles/global.css\`) and use those CSS variables directly. Never add \`import '@fontsource/...'\` or other npm package imports unless the package is already installed in \`package.json\`.
+
 Sizes, in rem: ${direction.typeScale.map((size) => size / 16).join(', ')}.
 No other sizes.
 
@@ -850,6 +852,7 @@ defines (many sites use short names like \`--c-bg\`).
 
 Read \`cauldron/tokens.css\` and use \`var(--cauldron-c-…)\`, \`var(--cauldron-size-…)\`, \`var(--cauldron-space-…)\` and
 \`var(--cauldron-radius-…)\` everywhere. Do not hard-code a colour, size or spacing value.
+Import \`cauldron/tokens.css\` in your global styles to get fonts and tokens; do not add uninstalled npm font packages.
 `;
 }
 

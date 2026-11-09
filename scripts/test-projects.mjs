@@ -7,11 +7,9 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { registerHooks } from 'node:module';
-import { pathToFileURL } from 'node:url';
 
 registerHooks({
   load(url, context, next) {
@@ -44,13 +42,16 @@ const {
   detectDependencySetup,
   prepareDependencies,
   prepareDependenciesCollect,
+  findMissingPackages,
 } = await import('../src/main/dependencies.ts');
+const { Runs } = await import('../src/main/runs.ts');
+const { buildSite } = await import('../src/main/quality.ts');
 const runtime = await import('../src/main/runtime.ts');
 const { detectSite, startDevServer } = await import('../src/main/site.ts');
 
 const scratch = '/Users/habibi/.hermes/profiles/claudia/cache/scratch';
 const proofRoot = path.join(scratch, 'cauldron-projects-proof');
-fs.rmSync(proofRoot, { recursive: true, force: true });
+spawnSync('/bin/rm', ['-rf', proofRoot]);
 fs.mkdirSync(proofRoot, { recursive: true });
 let passed = 0;
 const check = (name, fn) => {
@@ -575,6 +576,95 @@ check('unsafe display name is rendered as text, not markup', () => {
     'name never interpolated into markup',
   );
   assert.ok(page.includes('const projectName = '), 'name stays data');
+});
+
+check(
+  'findMissingPackages detects missing bare imports and ignores relative/URL/builtins',
+  () => {
+    const testRoot = path.join(proofRoot, 'test-missing-pkg');
+    fs.mkdirSync(path.join(testRoot, 'src/pages'), { recursive: true });
+    fs.mkdirSync(path.join(testRoot, 'src/styles'), { recursive: true });
+    fs.writeFileSync(
+      path.join(testRoot, 'package.json'),
+      JSON.stringify({ name: 'test-site', dependencies: { astro: '7.4.7' } }),
+    );
+    fs.writeFileSync(
+      path.join(testRoot, 'src/styles/global.css'),
+      `@import "https://fonts.googleapis.com/css2?family=Roboto";\n@import "./local.css";\n@import "missing-css-lib/style.css";`,
+    );
+    fs.writeFileSync(
+      path.join(testRoot, 'src/pages/index.astro'),
+      `---
+import fs from 'node:fs';
+import path from 'path';
+import './local.css';
+import '@fontsource/playfair-display/500.css';
+import { notInstalled } from 'uninstalled-helper';
+---
+<script>
+  import 'client-side-missing';
+</script>
+<style>
+  @import 'style-missing/index.css';
+</style>
+<p>Just markup with imports in prose: import not-a-pkg from somewhere</p>`,
+    );
+    const missing = findMissingPackages(testRoot);
+    assert.deepEqual(missing, [
+      '@fontsource/playfair-display',
+      'client-side-missing',
+      'missing-css-lib',
+      'style-missing',
+      'uninstalled-helper',
+    ]);
+  },
+);
+
+check(
+  'Runs.recordBuildFailure records failure while preserving files for undo',
+  () => {
+    const runs = new Runs();
+    const testRoot = path.join(proofRoot, 'test-runs-undo');
+    fs.mkdirSync(path.join(testRoot, 'src'), { recursive: true });
+    const testFile = path.join(testRoot, 'src/index.astro');
+    fs.writeFileSync(testFile, 'original text');
+    const run = runs.start(testRoot, 'codex', 'test prompt');
+    fs.writeFileSync(testFile, 'broken text with bad import');
+    const finished = runs.finish(testRoot, run.id);
+    assert.equal(finished?.status, 'finished');
+    assert.equal(finished?.files.length, 1);
+
+    const failedRun = runs.recordBuildFailure(
+      run.id,
+      ['Missing package imports: @fontsource/bad'],
+      '1 file changed · Build failed',
+    );
+    assert.equal(failedRun?.status, 'failed');
+    assert.deepEqual(failedRun?.problems, [
+      'Missing package imports: @fontsource/bad',
+    ]);
+    assert.equal(failedRun?.files.length, 1);
+
+    const undone = runs.undo(testRoot, run.id);
+    assert.equal(undone.ok, true);
+    assert.equal(fs.readFileSync(testFile, 'utf8'), 'original text');
+  },
+);
+
+check('buildSite resolves npm/node and builds under GUI PATH', () => {
+  const origPath = process.env.PATH;
+  try {
+    process.env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+    const built = buildSite(site1);
+    assert.equal(
+      built.ok,
+      true,
+      `Expected build to succeed, got: ${built.log}`,
+    );
+    assert.ok(fs.existsSync(built.dist));
+  } finally {
+    process.env.PATH = origPath;
+  }
 });
 
 server.stop();

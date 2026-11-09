@@ -2,7 +2,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
+import electron from 'electron';
+
+const ElectronBrowserWindow =
+  (
+    electron as unknown as {
+      BrowserWindow?: new (options: unknown) => BrowserWindow;
+      default?: { BrowserWindow?: new (options: unknown) => BrowserWindow };
+    }
+  ).BrowserWindow ??
+  (
+    electron as unknown as {
+      default?: { BrowserWindow?: new (options: unknown) => BrowserWindow };
+    }
+  ).default?.BrowserWindow;
+import { childEnvForTools, resolveToolPath } from './runtime';
 // The accessibility engine is bundled at build time: the packaged app has no
 // node_modules on disk, so reading it from there never worked outside development.
 import axeScript from 'axe-core/axe.min.js?raw';
@@ -137,16 +152,28 @@ export function buildSite(root: string): {
   dist: string;
 } {
   const dist = path.join(root, 'dist');
-  const result = spawnSync('npm', ['run', 'build'], {
+  try {
+    if (fs.existsSync(dist)) fs.rmSync(dist, { recursive: true, force: true });
+  } catch {
+    // Stale dist removal best effort
+  }
+  const env = childEnvForTools({ ...process.env, CI: '1' });
+  const npm = resolveToolPath('npm') ?? 'npm';
+  const result = spawnSync(npm, ['run', 'build'], {
     cwd: root,
     encoding: 'utf8',
     timeout: 300000,
-    env: { ...process.env, CI: '1' },
+    env,
   });
-  const log = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  const errorMsg = result.error ? `${result.error.message}\n` : '';
+  const log = `${errorMsg}${result.stdout ?? ''}\n${result.stderr ?? ''}`
     .trim()
     .slice(-2000);
-  return { ok: result.status === 0 && fs.existsSync(dist), log, dist };
+  return {
+    ok: result.status === 0 && !result.error && fs.existsSync(dist),
+    log,
+    dist,
+  };
 }
 
 /** Serves the built output, so checks run against what actually ships. */
@@ -461,7 +488,10 @@ export async function runAxe(
 
 /** Loads a page in a headless window, for tests that need to look at the built site. */
 export function inspectionWindow(): BrowserWindow {
-  return new BrowserWindow({
+  if (!ElectronBrowserWindow) {
+    throw new Error('BrowserWindow is only available inside Electron.');
+  }
+  return new ElectronBrowserWindow({
     show: false,
     width: 1280,
     height: 900,

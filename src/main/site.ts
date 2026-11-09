@@ -11,7 +11,11 @@ export type Site = {
   astroVersion: string;
   packageManager: PackageManager;
   hasDependencies: boolean;
+  missingPackages?: string[];
+  buildError?: string | null;
 };
+
+export type SiteSummary = Site;
 
 export type Problem = { problem: string; detail: string };
 
@@ -134,10 +138,14 @@ export function startDevServer(
 
   return new Promise((resolve) => {
     // A GUI launch has no terminal PATH; the astro shebang needs a real Node.
+    // Astro 7+ detects agent environments and attempts to auto-daemonize with a
+    // detached process unless ASTRO_DEV_BACKGROUND is set.
     const env = childEnvForTools({
       ...process.env,
       FORCE_COLOR: '0',
       NO_COLOR: '1',
+      ASTRO_DEV_BACKGROUND: '1',
+      ASTRO_PREVIEW_BACKGROUND: '1',
     });
     const child = spawn(astroBin, ['dev', '--host', '127.0.0.1'], {
       cwd: site.root,
@@ -159,6 +167,13 @@ export function startDevServer(
       const line = raw.replace(/\u001b\[[0-9;]*m/g, '').trimEnd();
       if (!line) return;
       onOutput(line);
+      if (/already running|already in use/i.test(line)) {
+        finish({
+          problem: 'Another dev server is already running on this address.',
+          detail: line,
+        });
+        return;
+      }
       const match = LOCAL_URL.exec(line);
       if (match && !settled) {
         const port = Number(match[1]);

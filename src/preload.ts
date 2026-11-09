@@ -118,6 +118,8 @@ const api = {
   prepareDependencies: (root: string) =>
     ipcRenderer.invoke('cauldron:prepare-dependencies', root),
   cancelPrepare: () => ipcRenderer.invoke('cauldron:prepare-cancel'),
+  installMissingPackages: (packages?: string[]) =>
+    ipcRenderer.invoke('cauldron:install-missing-packages', packages),
   removeRecent: (projectPath: string) =>
     ipcRenderer.invoke('cauldron:remove-recent', projectPath),
   /** Test-only preview introspection; the main process answers only under CAULDRON_BACKGROUND_TEST. */

@@ -4,7 +4,7 @@ Cauldron is a free Mac app for building websites with [Astro](https://astro.buil
 
 It's open source and free, and it stays that way.
 
-**Rescue in progress — not release-ready.** The editor and packaged test build exist, but ordinary site generation has a confirmed failure: unresolved generated font imports can break rendering while the run is recorded as finished. Start with [RESCUE-PLAN.md](RESCUE-PLAN.md) for the consolidated specification, priority order, audit evidence and whole-product acceptance checklist. Existing test totals do not establish a working product.
+**Rescued Mac test build — pending manual second-Mac Gatekeeper verification.** The P0–P3 rescue checklist in [RESCUE-PLAN.md](RESCUE-PLAN.md) has been exercised and verified on the packaged app (including ordinary site generation without unresolved `@fontsource` imports, explicit missing-package installation into the shared `pnpm` store, build/import health verification before marking a run finished, and all 17 whole-product acceptance rows). Because the build is unsigned and not notarised, manual first-launch verification on a physical second Mac (`System Settings → Privacy & Security → Open Anyway`) remains an explicit human-only check before a public release claim.
 
 ## Try it
 
