@@ -6,6 +6,17 @@ A Mac desktop app for designing and building real Astro websites, with design ta
 
 Read `RESCUE-PLAN.md` before implementation or completion claims. Billy requested this consolidated, prioritised handoff after the delivered app failed his tinydogs workflow. It supplies the current scope amendments, known failure, whole-product acceptance checklist and execution order. The older pause/batch/ticket status sections below are historical where they conflict with that plan; they are not proof of readiness or permission to omit core functionality. Preserve safety rules and work only under Billy's actual implementation authorisation. This documentation handoff makes no application repair or release-ready claim.
 
+## Review findings & fix plan — UNFINISHED (added 9 November 2026)
+
+`RESCUE-PLAN.md` section 0 records two code-review rounds and two Jev assessments over the rescue work and the
+"Gemini upgrades" round, with a prioritised fix plan. **Nothing in it is done.** Read it before claiming any
+phase complete.
+
+The headline items: the "Deploy to Cloudflare Pages" button does not deploy (it shows a live URL that is not
+live); the "100% Verified" claim is unsupported by any test; and the imagery tray is a static list rather than
+the advertised Unsplash/Pexels APIs. The editorial tools (starter sites, catalogue, outline, asset tray,
+static export) are real and work.
+
 ## What this repository is
 
 The application only. Research, design references and the delivered plan live outside this repository, in Billy's research workspace, and are reference only: nothing is copied from them as code (see `docs/adr/0002`).

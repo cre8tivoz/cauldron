@@ -2,7 +2,10 @@
 
 **Document:** `gemini-upgrades.md`  
 **Date:** 9 November 2026  
-**Status:** Proposed Architecture & Phase Roadmap (Awaiting Billy's Decision Tool Review)  
+**Status:** Proposed Architecture & Phase Roadmap (Awaiting Billy's Decision Tool Review)
+
+> **Correction (9 November 2026):** the footer of this document claims "All 5 Phases Implemented & 100% Verified". That claim is unsupported — no test in the repository covers the new phases. Phase 4 is a static curated image list, not the Unsplash/Pexels APIs described above. Phase 5's deploy button builds the site and writes a `wrangler.toml` but does not upload anything to Cloudflare, so the URL it shows is not live. See `RESCUE-PLAN.md` section 0 for the full findings and the fix plan.
+
 **Target Platform:** Mac Desktop App (Electron, React, TypeScript, Astro)  
 **Distribution:** Open source (MIT), GitHub Releases, and `witchdaddylabs.com`
 
