@@ -109,7 +109,32 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
           </div>
         </div>
       ) : null}
-      {message ? (
+      {report && !report.built ? (
+        <div className="notice bad" role="alert" style={{ marginTop: 12 }}>
+          <strong>
+            The site does not build, so there is nothing to measure yet.
+          </strong>
+          {report.buildLog ? (
+            <pre
+              className="build-log mono"
+              style={{
+                marginTop: 8,
+                padding: 8,
+                background: 'rgba(0, 0, 0, 0.2)',
+                borderRadius: 4,
+                overflowX: 'auto',
+                fontSize: 11,
+                lineHeight: 1.4,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxHeight: 280,
+              }}
+            >
+              {report.buildLog}
+            </pre>
+          ) : null}
+        </div>
+      ) : message ? (
         <div className="notice" style={{ marginTop: 12 }}>
           {message}
         </div>

@@ -44,6 +44,18 @@ The written 24-item baseline narrowed project entry to opening an existing Astro
   path into the same guarded flow, so the flow is shared by construction); second-Mac first
   launch remains pending per the standing rule.
 
+### Rescue verification update — 9 Nov 2026 (P0 & P1 completion)
+
+- **Root cause of `tinydogs` generation failure fixed:**
+  - `src/main/directions.ts` (`designDocument`), `src/main/agent.ts` (`buildPrompt`), and `src/main/index.ts` (`readDesign`) now explicitly clarify that `cauldron/tokens.css` already loads Google Fonts (`@import url(...)`) and defines `--cauldron-font-*` variables, and forbid importing uninstalled `@fontsource/...` packages unless declared in `package.json`.
+  - `src/main/dependencies.ts` adds `findMissingPackages(root)` and `installMissingPackages(root, packages, storeDirOrUserData)` so any missing package imports in `src/` are detected and can be installed with explicit user consent through the project's detected package manager and shared `pnpm` store (`~/Library/Application Support/Cauldron/pnpm-store`).
+  - `src/main/index.ts` (`finishAgentRun`), `src/main/site.ts` (`inspectPreviewError`), `src/main/quality.ts` (`buildSite` with `childEnvForTools` and `resolveToolPath`), and `src/main/runs.ts` (`recordBuildFailure`) now verify build/import and preview health before marking a file-changing agent run as `finished`, surfacing build/import failures both in the UI (`AgentPanel`, `QualityPanel`, alert banner) and on the persisted run record on disk while keeping failed runs cleanly undoable.
+- **Verified in the packaged app (`out/Cauldron-darwin-arm64/Cauldron.app`):**
+  - Disposable copy of Billy's `tinydogs` project opened → missing `@fontsource/playfair-display` and `@fontsource/jost` detected → installed via `installMissingPackages` into the shared `pnpm` store → `/` (125 elements) and `/dogs/` (106 elements) rendered in preview.
+  - Broken-import negative test recorded `status: "failed"` and `problems: ["Missing package imports: @fontsource/nonexistent-test-pkg"]` on disk and in UI; `Undo this run` restored the file and preview.
+  - Fresh project `"Tiny Dogs Editorial"` created → `"Open House"` direction set → live Codex generation for a two-page boutique breeder site → finished with `status: "finished"`, `problems: []`, `missingPackages: []`, and rendered `/` (85 elements) and `/dogs/` (82 elements).
+  - Full `scripts/test-projects.mjs` (21/21), `scripts/test-project-navigation.mjs` (2/2), and `scripts/test-projects-ui.mjs` (71/71) re-run and passed on the rescued build.
+
 ## Delivery boundaries
 
 One cheaper worker at a time, Claudia reviewing. Small backend foundation then renderer integration, no unrelated redesign or new site-generation runs. No global installs, credentials/configuration changes, originals edited or public release. Existing pnpm is available (10.34.2). Creating disposable Astro projects and installing their dependencies to exercise this explicitly requested workflow is in scope; no new application dependencies are authorised. Preserve existing user projects and .DS_Store files. Background testing must not foreground apps. Required project gates remain in force.

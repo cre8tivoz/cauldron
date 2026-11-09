@@ -183,6 +183,7 @@ export function resolveInstalledExecutables(options?: {
     names,
     options?.extraDirs ?? [],
     Boolean(options?.noCache),
+    process.env.PATH ?? '',
   ]);
   const cached = options?.noCache ? undefined : resolutionCache.get(cacheKey);
   if (cached && Date.now() < cached.expires) return cached.value;

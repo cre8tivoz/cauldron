@@ -14,6 +14,8 @@ type CauldronSite = {
   astroVersion: string;
   packageManager: 'npm' | 'pnpm' | 'yarn';
   hasDependencies: boolean;
+  missingPackages?: string[];
+  buildError?: string | null;
 };
 
 type CauldronSelection = {
@@ -135,6 +137,7 @@ type CauldronRun = {
   startedAt: number;
   finishedAt: number | null;
   files: string[];
+  problems?: string[];
   highlighted: Array<{
     file: string;
     loc: string;
@@ -362,6 +365,14 @@ type CauldronApi = {
     problem?: string;
   }>;
   cancelPrepare: () => Promise<boolean>;
+  installMissingPackages: (packages?: string[]) => Promise<{
+    ok: boolean;
+    manager?: string;
+    storeDir?: string;
+    log?: string;
+    problem?: string;
+    site?: CauldronSite;
+  }>;
   removeRecent: (
     projectPath: string,
   ) => Promise<{ ok: boolean; problem?: string }>;

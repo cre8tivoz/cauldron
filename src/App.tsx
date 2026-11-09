@@ -27,6 +27,7 @@ const INSPECTOR_MAX = 460;
 
 export function App() {
   const [site, setSite] = useState<CauldronSite | null>(null);
+  const currentSiteRootRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({
     running: false,
     url: null,
@@ -53,6 +54,8 @@ export function App() {
   const [direction, setDirection] = useState<CauldronDirectionSummary | null>(
     null,
   );
+  const [installingPackages, setInstallingPackages] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [agentWidth, setAgentWidth] = useState(400);
   const [inspectorWidth, setInspectorWidth] = useState(300);
@@ -74,6 +77,10 @@ export function App() {
 
     void window.cauldron.state().then((state) => {
       setSite(state.site);
+      if (state.site) {
+        currentSiteRootRef.current = state.site.root;
+        setView('build');
+      }
       setPreview({ running: state.running, url: state.url });
       setSelection(state.selection);
       setDrafts(state.drafts);
@@ -86,6 +93,9 @@ export function App() {
         site: CauldronSite | null;
         drafts: CauldronDraft[];
       };
+      const isNewSite =
+        Boolean(next.site) && next.site?.root !== currentSiteRootRef.current;
+      currentSiteRootRef.current = next.site?.root ?? null;
       if (draftTimer.current) clearTimeout(draftTimer.current);
       draftValues.current.clear();
       setUnsavedEdits(0);
@@ -98,7 +108,9 @@ export function App() {
       setConflict(null);
       // A real project opened (created or reopened): the build view is where
       // the work happens; the home stays reachable from the top bar and menu.
-      setView('build');
+      if (isNewSite) {
+        setView('build');
+      }
     });
     const offPreview = window.cauldron.on(
       'cauldron:preview',
@@ -510,6 +522,70 @@ export function App() {
           onTogglePick={() => setPicking((current) => !current)}
           onNewPage={newPage}
         />
+
+        {site &&
+        ((site.missingPackages && site.missingPackages.length > 0) ||
+          site.buildError) ? (
+          <div
+            className="notice bad"
+            role="alert"
+            style={{ margin: '8px 12px 0' }}
+          >
+            <strong>
+              {site.missingPackages && site.missingPackages.length > 0
+                ? 'Missing packages'
+                : 'Preview error'}
+            </strong>{' '}
+            {site.missingPackages && site.missingPackages.length > 0
+              ? `Missing packages imported by this site: ${site.missingPackages.join(', ')}.`
+              : site.buildError}
+            {installError ? (
+              <div style={{ marginTop: 4, color: 'var(--danger)' }}>
+                {installError}
+              </div>
+            ) : null}
+            <div className="notice-actions">
+              {site.missingPackages && site.missingPackages.length > 0 ? (
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={installingPackages}
+                  onClick={async () => {
+                    setInstallingPackages(true);
+                    setInstallError(null);
+                    try {
+                      const res = await window.cauldron.installMissingPackages(
+                        site.missingPackages,
+                      );
+                      if (!res.ok) {
+                        setInstallError(
+                          res.problem || res.log || 'Installation failed.',
+                        );
+                      } else if (res.site) {
+                        setSite(res.site);
+                      }
+                    } catch (e) {
+                      setInstallError((e as Error).message);
+                    } finally {
+                      setInstallingPackages(false);
+                    }
+                  }}
+                >
+                  {installingPackages
+                    ? 'Installing packages…'
+                    : 'Install missing packages'}
+                </button>
+              ) : null}
+              <button
+                className="button"
+                type="button"
+                onClick={() => void window.cauldron.reloadPreview()}
+              >
+                Reload preview
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {drafts.length > 0 ? (
           <div

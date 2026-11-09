@@ -112,6 +112,9 @@ Motion: ${direction.motion.quick} and ${direction.motion.settle}, ${direction.mo
 - Mobile: ${direction.structure.mobile}
 
 The full document is in cauldron/DESIGN.md and the CSS variables are in cauldron/tokens.css.
+cauldron/tokens.css already loads the direction's Google Fonts stylesheet and defines var(--cauldron-font-display) and var(--cauldron-font-body)${direction.fonts.detail ? ' (and var(--cauldron-font-detail))' : ''}. Import cauldron/tokens.css in your CSS (for example @import '../../cauldron/tokens.css'; in src/styles/global.css) and use those CSS variables directly.
+Never import @fontsource/... or any other npm package not listed in package.json.
+Use the read_design action (not read_source) to read cauldron/DESIGN.md and cauldron/tokens.css.
 Use var(--cauldron-c-…), var(--cauldron-size-…), var(--cauldron-space-…) and var(--cauldron-radius-…) for every colour, size,
 spacing and corner. Do not hard-code any of them.
 Sizes and spacing are rem against a 16px root: leave html font-size at its default and put size tokens on body and text elements, never on html.
@@ -347,7 +350,15 @@ function normaliseJsonLines(line: string): AgentEvent[] {
     '';
   if (text && !notice) events.push({ type: 'text', text });
   const name = (typeof message.name === 'string' && message.name) || '';
-  if (name) events.push({ type: 'tool', name });
+  const paths = Array.isArray(message.paths)
+    ? (message.paths as string[])
+    : typeof message.path === 'string'
+      ? [message.path]
+      : [];
+  if (name)
+    events.push(
+      paths.length ? { type: 'tool', name, paths } : { type: 'tool', name },
+    );
   // Codex reports each MCP tool call as its own item, named by server and tool.
   if (
     type === 'mcp_tool_call' &&

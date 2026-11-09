@@ -5,6 +5,11 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { app } from 'electron';
 import { hashOf } from './files';
 import { LIBRARY } from './library';
+import {
+  childEnvForTools,
+  resetRuntimeResolutionCache,
+  resolveToolPath,
+} from './runtime';
 import type { BrowserWindow } from 'electron';
 import type { Site } from './site';
 import type { Location } from './edit';
@@ -295,10 +300,12 @@ function buildSite(root: string): {
   log: string;
   warnings: string[];
 } {
-  const result = spawnSync('npm', ['run', 'build'], {
+  const npmCmd = resolveToolPath('npm') ?? 'npm';
+  const result = spawnSync(npmCmd, ['run', 'build'], {
     cwd: root,
     encoding: 'utf8',
     timeout: 300000,
+    env: childEnvForTools({ ...process.env, CI: '1' }),
   });
   const log = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   return { ok: result.status === 0, log, warnings: warningLines(log) };
@@ -390,6 +397,7 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
     const press = async (window: BrowserWindow, keyCode: string) => {
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+      await wait(35);
     };
 
     /** Tabs through the component and actually uses each control with keys. */
@@ -426,11 +434,12 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
             .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getBoundingClientRect().width > 0);
           const first = focusable.findIndex((el) => root.contains(el));
           const before = first > 0 ? focusable[first - 1] : null;
-          if (before) before.setAttribute('data-cauldron-kb-start', '1');
+          if (before) { before.setAttribute('data-cauldron-kb-start', '1'); before.focus(); }
           else { document.body.tabIndex = -1; document.body.focus(); }
           return Boolean(before);
         })()`,
       );
+      window.webContents.focus();
       for (
         let pressCount = 0;
         pressCount < 400 && reached.size < total;
@@ -454,6 +463,7 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
             document.body.focus();
           })()`,
         );
+        window.webContents.focus();
         const trail: string[] = [];
         for (let pressCount = 0; pressCount < 400; pressCount++) {
           await press(window, 'Tab');
@@ -2094,7 +2104,7 @@ export async function runAgentTest(
       started.problem ?? '',
     );
 
-    const finished = await api.waitForAgent(240000);
+    const finished = await api.waitForAgent(420000);
     check(
       '3.2 the agent job finishes and reports back',
       finished.ok,
@@ -2264,6 +2274,7 @@ export async function runClaudeProofTest(
       return false;
     originalPath = process.env.PATH ?? originalPath;
     process.env.PATH = `${fixtureDir}:${originalPath}`;
+    resetRuntimeResolutionCache();
     return true;
   };
 
@@ -2301,7 +2312,7 @@ export async function runClaudeProofTest(
       real.problem ?? '',
     );
     if (real.ok) {
-      const finished = await api.waitForAgent(240000);
+      const finished = await api.waitForAgent(420000);
       const realEvents = api.agentEvents();
       check(
         'REAL the job finishes without an error',
@@ -2604,6 +2615,7 @@ export async function runClaudeProofTest(
     check('CLAUDE PROOF TEST ERROR', false, String(error));
   } finally {
     process.env.PATH = originalPath;
+    resetRuntimeResolutionCache();
     await api.settleRenderer();
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
@@ -2866,12 +2878,14 @@ export async function runCodexProofTest(
       { mode: 0o755 },
     );
     process.env.PATH = `${fake}:${realPath}`;
+    resetRuntimeResolutionCache();
     const failing = api.sendAgent({
       tool: 'codex',
       request: 'Change the home page heading.',
     });
     const failed = await api.waitForAgent(60000);
     process.env.PATH = realPath;
+    resetRuntimeResolutionCache();
     fs.rmSync(fake, { recursive: true, force: true });
     const failedRun = api.runs()[0];
     check(
@@ -2888,6 +2902,7 @@ export async function runCodexProofTest(
     check('CODEX TEST ERROR', false, String(error));
   } finally {
     process.env.PATH = realPath;
+    resetRuntimeResolutionCache();
     await api.settleRenderer();
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
@@ -3057,7 +3072,7 @@ export async function runHermesProofTest(
         sent.ok,
         sent.problem ?? '',
       );
-      const done = await api.waitForAgent(300000);
+      const done = await api.waitForAgent(420000);
       check('20 the job finishes and reports back', done.ok, done.note ?? '');
       const statuses = api.agentStatuses?.() ?? [];
       check(
@@ -4493,12 +4508,19 @@ export async function runEndToEnd(root: string, api: Api): Promise<void> {
 
     // 1.7: a new page shows up without a reload.
     const pageTitle = `Cauldron page ${Date.now()}`;
-    await api.createPage({ path: 'cauldron-test-page', title: pageTitle });
+    const createResult = (await api.createPage({
+      path: 'cauldron-test-page',
+      title: pageTitle,
+    })) as { ok?: boolean; problem?: string } | undefined;
     const pageShown = await waitFor(
       async () => (await api.previewHtml()).includes(pageTitle),
-      15000,
+      25000,
     );
-    check('1.7 a new page appears without a reload', pageShown);
+    check(
+      '1.7 a new page appears without a reload',
+      pageShown,
+      createResult?.problem ?? 'page preview not found',
+    );
     fs.rmSync(path.join(root, 'src/pages/cauldron-test-page.astro'), {
       force: true,
     });
@@ -5031,6 +5053,7 @@ export async function runFailureTest(
     if (!contentRoot) {
       console.log('CASE 6 NOT RUN: no content site supplied');
     } else {
+      fs.rmSync(recoveryFile, { force: true });
       fs.chmodSync(recoveryDir, 0o500);
       await open(contentRoot);
       await js(

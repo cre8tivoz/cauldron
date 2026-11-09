@@ -25,6 +25,8 @@ export type McpHandle = {
   url: string;
   code: string;
   port: number;
+  hasClientConnected: () => boolean;
+  onClientConnected: (listener: () => void) => () => void;
   close: () => void;
 };
 
@@ -308,6 +310,18 @@ function toRequest(
 export function startMcpServer(options: McpOptions): Promise<McpHandle> {
   const code = accessCodeFor(options.root);
   const tools = toolsFor(options.siteName);
+  let clientConnected = false;
+  const connectedListeners = new Set<() => void>();
+  const markClientConnected = () => {
+    clientConnected = true;
+    for (const listener of connectedListeners) {
+      try {
+        listener();
+      } catch {
+        // Listener errors must never affect the MCP response.
+      }
+    }
+  };
 
   const server = http.createServer((request, response) => {
     const send = (status: number, payload: unknown) => {
@@ -401,6 +415,7 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
           return;
         case 'tools/list':
           reply({ tools });
+          markClientConnected();
           return;
         case 'tools/call': {
           const params = message.params ?? {};
@@ -477,7 +492,15 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
         url: `http://127.0.0.1:${port}/mcp`,
         code,
         port,
+        hasClientConnected: () => clientConnected,
+        onClientConnected: (listener: () => void) => {
+          connectedListeners.add(listener);
+          return () => {
+            connectedListeners.delete(listener);
+          };
+        },
         close: () => {
+          connectedListeners.clear();
           note({ event: 'close', port });
           server.close();
         },

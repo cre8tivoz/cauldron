@@ -25,9 +25,10 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
     url: string;
     code: string;
   } | null>(null);
+  const [installingMissing, setInstallingMissing] = useState(false);
   useEffect(() => {
     void window.cauldron.mcpInfo().then(setConnection);
-  }, [site?.root]);
+  }, [site?.root, site]);
 
   const refresh = useCallback(async () => {
     setRuns(await window.cauldron.runs());
@@ -307,6 +308,43 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
               <div className="hint">
                 <strong>{run.tool}</strong> · {run.status} · {run.note}
               </div>
+              {run.problems && run.problems.length > 0 ? (
+                <div
+                  className="notice bad"
+                  role="alert"
+                  style={{ margin: '6px 0', padding: '6px 8px' }}
+                >
+                  <strong>Problems encountered:</strong>
+                  <ul style={{ margin: '4px 0', paddingLeft: 16 }}>
+                    {run.problems.map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {site?.missingPackages && site.missingPackages.length > 0 ? (
+                <div className="notice-actions" style={{ marginBottom: 6 }}>
+                  <button
+                    className="button primary"
+                    type="button"
+                    disabled={installingMissing}
+                    onClick={async () => {
+                      setInstallingMissing(true);
+                      try {
+                        await window.cauldron.installMissingPackages(
+                          site.missingPackages,
+                        );
+                      } finally {
+                        setInstallingMissing(false);
+                      }
+                    }}
+                  >
+                    {installingMissing
+                      ? 'Installing…'
+                      : `Install missing packages (${site.missingPackages.join(', ')})`}
+                  </button>
+                </div>
+              ) : null}
               {run.files.length > 0 ? (
                 <ul
                   className="hint"
@@ -347,7 +385,11 @@ export function AgentPanel({ site, direction, onOpenDesign }: Props) {
                   className="button"
                   type="button"
                   onClick={() => void undoRun(run)}
-                  disabled={run.status !== 'finished' || run.files.length === 0}
+                  disabled={
+                    (run.status !== 'finished' && run.status !== 'failed') ||
+                    run.files.length === 0 ||
+                    run.note.includes('Undone.')
+                  }
                 >
                   Undo this run
                 </button>

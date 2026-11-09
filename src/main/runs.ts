@@ -101,6 +101,8 @@ export class Runs {
   >();
   /** Where each run's site lives, so a later status change can be saved too. */
   private roots = new Map<string, string>();
+  /** Unreadable paths recorded during snapshot diffing, kept distinct from build diagnostics. */
+  private unreadable = new Map<string, string[]>();
 
   start(root: string, tool: string, prompt: string): Run {
     const run: Run = {
@@ -208,7 +210,11 @@ export class Runs {
     run.outside = sorted
       .filter((file) => file.ownership === 'outside')
       .map((file) => file.file);
-    run.problems = [...new Set([...before.problems, ...after.problems])].sort();
+    const unreadable = [
+      ...new Set([...before.problems, ...after.problems]),
+    ].sort();
+    this.unreadable.set(id, unreadable);
+    run.problems = [...unreadable];
     run.finishedAt = Date.now();
     run.status = 'finished';
     run.note =
@@ -236,6 +242,21 @@ export class Runs {
     // reads — and the history on disk — from reporting a failed job as success.
     const root = this.roots.get(id);
     if (root) this.persist(root, run);
+  }
+
+  recordBuildFailure(id: string, problems: string[], note: string): Run | null {
+    const run = this.runs.find((entry) => entry.id === id);
+    if (!run) return null;
+    run.status = 'failed';
+    for (const problem of problems) {
+      if (problem && !run.problems.includes(problem)) {
+        run.problems.push(problem);
+      }
+    }
+    run.note = note;
+    const root = this.roots.get(id);
+    if (root) this.persist(root, run);
+    return run;
   }
 
   setHighlighted(
@@ -283,12 +304,13 @@ export class Runs {
       };
     }
 
+    const unreadablePaths = this.unreadable.get(id) ?? [];
     const uncertain = [
       ...new Set([
         ...run.files
           .filter((file) => file.ownership === 'uncertain')
           .map((file) => file.file),
-        ...run.problems,
+        ...unreadablePaths,
       ]),
     ].sort();
     const clashes: string[] = [];

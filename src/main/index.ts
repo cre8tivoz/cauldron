@@ -32,12 +32,14 @@ import {
   findDirection,
   readDirection,
   writeDirection,
+  tokensCss,
+  designDocument,
   type DesignDirection,
 } from './directions';
 import { startMcpServer, mcpCalls, type McpHandle } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
-import { checkSite } from './quality';
+import { checkSite, buildSite } from './quality';
 import { directionFromUrl } from './reference';
 import { macBuildInfo, publish, repoState } from './publishing';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
@@ -51,10 +53,13 @@ import {
 import {
   detectDependencySetup,
   prepareDependencies,
+  findMissingPackages,
+  installMissingPackages,
   type PrepareHandle,
   type PrepareUpdate,
 } from './dependencies';
 import { draftEditOperation } from '../draft-restore';
+import { resolveToolPath } from './runtime';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
   applyEdit,
@@ -110,6 +115,8 @@ type Controller = {
   /** A running dependency install, one at a time across the app. */
   prepare: PrepareHandle | null;
   prepareRoot: string | null;
+  buildError: string | null;
+  missingPackages: string[];
 };
 
 const state: Controller = {
@@ -128,7 +135,18 @@ const state: Controller = {
   status: [],
   prepare: null,
   prepareRoot: null,
+  buildError: null,
+  missingPackages: [],
 };
+
+function summaryOf(site: Site | null): Site | null {
+  if (!site) return null;
+  return {
+    ...site,
+    missingPackages: state.missingPackages,
+    buildError: state.buildError,
+  };
+}
 
 // --- Project home state -----------------------------------------------------
 
@@ -272,8 +290,25 @@ function pushSelection(): void {
 }
 
 async function stopPreview(): Promise<void> {
-  state.server?.stop();
-  state.server = null;
+  if (state.server) {
+    const s = state.server;
+    state.server = null;
+    if (s.process.exitCode === null) {
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const onExit = () => {
+          if (!done) {
+            done = true;
+            resolve();
+          }
+        };
+        s.process.once('exit', onExit);
+        s.process.once('close', onExit);
+        s.stop();
+        setTimeout(onExit, 2500);
+      });
+    }
+  }
   state.mcp?.close();
   state.mcp = null;
   state.preview.hide();
@@ -305,11 +340,21 @@ async function startPreview(): Promise<
     );
   });
   state.preview.show();
-  try {
-    await state.preview.load(server.url);
-  } catch (error) {
+  let loaded = false;
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await state.preview.load(server.url);
+      loaded = true;
+      break;
+    } catch (error) {
+      lastError = error as Error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+  if (!loaded) {
     await stopPreview();
-    const problem = `The preview could not load: ${(error as Error).message}`;
+    const problem = `The preview could not load: ${lastError?.message ?? 'unknown error'}`;
     status(problem);
     return { problem, detail: server.url };
   }
@@ -329,7 +374,17 @@ async function startMcp(site: Site): Promise<void> {
       siteName: site.name,
       run: (request) => sharedAction(request, true),
       readSelection: () => selectionView(),
-      readDesign: () => directionFor(site.root),
+      readDesign: () => {
+        if (!state.site) return { direction: null };
+        const read = readDirection(state.site.root);
+        return {
+          ...read,
+          tokensCss: read.direction ? tokensCss(read.direction) : null,
+          designMarkdown: read.direction
+            ? designDocument(read.direction)
+            : null,
+        };
+      },
       record: (call) => mcpToolCalls.push(call),
     });
     status(`Outside agents can connect on ${state.mcp.url}`);
@@ -345,6 +400,100 @@ async function startMcp(site: Site): Promise<void> {
       `The outside-agent connection could not start: ${(error as Error).message}`,
     );
   }
+}
+
+/**
+ * Safely inspects the live preview webContents for Vite/Astro build error overlays
+ * or error page text.
+ */
+async function inspectPreviewError(): Promise<string | null> {
+  const contents = state.preview.webContents;
+  if (!contents || contents.isDestroyed()) return null;
+  try {
+    const errorText = (await contents.executeJavaScript(
+      `(() => {
+        try {
+          const overlay = document.querySelector('vite-error-overlay');
+          if (overlay) {
+            const root = overlay.shadowRoot || overlay;
+            const msgEl = root.querySelector('.message-body') || root.querySelector('.message') || root.querySelector('pre');
+            const text = msgEl?.textContent?.trim() || root.textContent?.trim();
+            if (text) {
+              const lines = text.split('\\n').map(l => l.trim()).filter(Boolean);
+              return lines.slice(0, 3).join(' ').slice(0, 300);
+            }
+            return 'Vite build/runtime error';
+          }
+          const astroOverlay = document.querySelector('#astro-error-overlay');
+          if (astroOverlay) {
+            const text = astroOverlay.textContent?.trim();
+            if (text) {
+              const lines = text.split('\\n').map(l => l.trim()).filter(Boolean);
+              return lines.slice(0, 3).join(' ').slice(0, 300);
+            }
+            return 'Astro build error';
+          }
+          const title = document.title || '';
+          const body = document.body ? document.body.innerText || '' : '';
+          if (
+            title.toLowerCase().includes('error') ||
+            body.includes('Internal server error') ||
+            body.includes('Failed to resolve import') ||
+            body.includes('Rolldown failed to resolve import') ||
+            body.includes('Cannot find module')
+          ) {
+            const lines = body.split('\\n').map(l => l.trim()).filter(Boolean);
+            const errLine = lines.find(l =>
+              l.includes('Failed to resolve import') ||
+              l.includes('Rolldown failed') ||
+              l.includes('Cannot find module') ||
+              l.toLowerCase().includes('error')
+            );
+            return errLine ? errLine.slice(0, 300) : (title || 'Preview load error');
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      })()`,
+      true,
+    )) as string | null;
+    return errorText || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rechecks missing package imports and preview overlay errors, updating
+ * state.missingPackages and state.buildError, and sends an updated site summary.
+ */
+async function refreshSiteHealth(): Promise<{
+  missingPackages: string[];
+  buildError: string | null;
+}> {
+  if (!state.site) {
+    state.missingPackages = [];
+    state.buildError = null;
+    return { missingPackages: [], buildError: null };
+  }
+  const missing = findMissingPackages(state.site.root);
+  const previewError = await inspectPreviewError();
+  state.missingPackages = missing;
+  state.buildError =
+    previewError ??
+    (missing.length > 0
+      ? `Missing package imports: ${missing.join(', ')}`
+      : null);
+
+  send('cauldron:site', {
+    site: summaryOf(state.site),
+    drafts: storedDrafts(state.site.root),
+  });
+  return {
+    missingPackages: state.missingPackages,
+    buildError: state.buildError,
+  };
 }
 
 async function openSiteAt(root: string) {
@@ -425,9 +574,10 @@ async function openSiteAt(root: string) {
     readDirection(detected.root).problem,
   ].filter(Boolean);
   if (problems.length > 0) fail(problems.join(' '));
+  await refreshSiteHealth();
   return 'problem' in preview
-    ? { site: detected, ...preview }
-    : { site: detected };
+    ? { site: summaryOf(detected), ...preview }
+    : { site: summaryOf(detected) };
 }
 
 /**
@@ -486,6 +636,7 @@ async function reloadPreview(): Promise<void> {
   });
   state.preview.reload();
   await loaded;
+  await refreshSiteHealth();
 }
 
 /** A run's own comparison: only the files the run changed, never the person's. */
@@ -569,6 +720,7 @@ function runSummary(run: Run) {
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     files: run.files.map((file) => file.file),
+    problems: run.problems,
     highlighted: run.highlighted,
   };
 }
@@ -929,18 +1081,55 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
     }
   }
   const wait =
-    payload.tool === 'hermes' && state.mcp ? hermesPickupWaitMs() : 0;
-  if (wait > 0) {
+    payload.tool === 'hermes' && state.mcp && !state.mcp.hasClientConnected()
+      ? hermesPickupWaitMs()
+      : 0;
+  if (wait > 0 && state.mcp) {
     onEvent({
       type: 'status',
       text: `Waiting for Hermes to connect to this site (up to ${Math.ceil(wait / 1000)} s)…`,
     });
-    const timer = setTimeout(() => {
+    let launched = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    const launch = () => {
+      if (launched) return;
+      launched = true;
+      if (timer) clearTimeout(timer);
+      if (settleTimer) clearTimeout(settleTimer);
+      offClientConnected();
       if (state.agentRunId === run.id) state.agent = start();
+    };
+    const offClientConnected = state.mcp.onClientConnected(() => {
+      if (launched) return;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(launch, 1500);
+    });
+    timer = setTimeout(() => {
+      const usesRealHermesGateway =
+        !process.env.CAULDRON_HERMES_ENV_FILE &&
+        Boolean(resolveToolPath('hermes')?.includes('.hermes'));
+      if (
+        !launched &&
+        state.mcp &&
+        !state.mcp.hasClientConnected() &&
+        usesRealHermesGateway
+      ) {
+        onEvent({
+          type: 'status',
+          text: 'Still waiting for the parked Hermes gateway to probe this site (up to 220 s)…',
+        });
+        timer = setTimeout(launch, 220_000);
+        return;
+      }
+      launch();
     }, wait);
     state.agent = {
       cancel: () => {
-        clearTimeout(timer);
+        launched = true;
+        if (timer) clearTimeout(timer);
+        if (settleTimer) clearTimeout(settleTimer);
+        offClientConnected();
         onEvent({ type: 'error', text: 'Cancelled.' });
       },
     };
@@ -1158,7 +1347,7 @@ function registerIpc(): void {
   });
 
   handle('cauldron:site-state', () => ({
-    site: state.site,
+    site: summaryOf(state.site),
     running: Boolean(state.server),
     url: state.server?.url ?? null,
     status: state.status,
@@ -1312,7 +1501,7 @@ function registerIpc(): void {
     return { ok: true, run: runSummary(run) };
   });
 
-  handle('cauldron:run-undo', (_event, id: string) => {
+  handle('cauldron:run-undo', async (_event, id: string) => {
     const site = requireSite();
     if ('problem' in site) return site;
     const result = state.runs.undo(site.root, id);
@@ -1320,8 +1509,9 @@ function registerIpc(): void {
       status(result.problem);
       return { ok: false, problem: result.problem, clashes: result.clashes };
     }
-    state.preview.reload();
+    await reloadPreview();
     refreshSelectionFromDisk();
+    await refreshSiteHealth();
     status('Run undone');
     return { ok: true };
   });
@@ -1562,29 +1752,45 @@ async function createPage(page: { path: string; title: string }) {
     `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`,
     'utf8',
   );
-  const url = new URL(`/${clean}/`, state.server?.url ?? 'http://127.0.0.1/')
-    .href;
+  const previewUrl = state.preview.webContents?.getURL();
+  const baseOrigin =
+    previewUrl && previewUrl.startsWith('http')
+      ? `${new URL(previewUrl).origin}/`
+      : 'http://127.0.0.1:4321/';
+  const baseUrl = state.server?.url ?? baseOrigin;
+  const url = new URL(`/${clean}/`, baseUrl).href;
   // Astro 6's route watcher is asynchronous. Wait for the new route, then
   // navigate once; loading its temporary 404 does not subscribe to HMR.
   let ready = false;
-  for (let attempt = 0; attempt < 50; attempt++) {
+  for (let attempt = 0; attempt < 120; attempt++) {
     try {
       const response = await fetch(url);
       if (response.ok) {
         ready = true;
         break;
       }
+      const altResponse = await fetch(url.replace(/\/$/, ''));
+      if (altResponse.ok) {
+        ready = true;
+        break;
+      }
     } catch {
       /* The dev server may still be updating its route table. */
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  if (!ready)
+  if (!ready) {
+    if (BACKGROUND_TEST || E2E_SITE) {
+      console.error(
+        `createPage failed to become ready: ${url} (server url: ${state.server?.url})`,
+      );
+    }
     return {
       ok: false,
       problem:
         'The page was created, but Astro has not made its preview ready yet.',
     };
+  }
   await state.preview.load(url);
   status(`Created ${path.relative(site.root, file)}`);
   return { ok: true, file: path.relative(site.root, file), url };
@@ -1669,10 +1875,48 @@ function registerPreviewIpc(): void {
     return true;
   });
 
-  handle('cauldron:preview-reload', () => {
-    state.preview.reload();
+  handle('cauldron:preview-reload', async () => {
+    await reloadPreview();
     return true;
   });
+
+  handle(
+    'cauldron:install-missing-packages',
+    async (_event, packages?: string[]) => {
+      if (!state.site) return { ok: false, problem: 'No site is open.' };
+      const toInstall =
+        Array.isArray(packages) && packages.length > 0
+          ? packages
+          : findMissingPackages(state.site.root);
+      if (toInstall.length === 0) {
+        return {
+          ok: true,
+          manager: state.site.packageManager,
+          log: 'No missing packages found.',
+          site: summaryOf(state.site),
+        };
+      }
+      status(`Installing missing packages: ${toInstall.join(', ')}…`);
+      const result = await installMissingPackages(
+        state.site.root,
+        toInstall,
+        pnpmStoreDir(),
+      );
+      if (result.ok) {
+        state.buildError = null;
+        status(`Installed ${toInstall.join(', ')}.`);
+        if (state.server) {
+          await reloadPreview();
+        } else {
+          await startPreview();
+        }
+        await refreshSiteHealth();
+      } else {
+        fail(result.problem ?? `Failed to install ${toInstall.join(', ')}.`);
+      }
+      return { ...result, site: summaryOf(state.site) };
+    },
+  );
 
   handle('cauldron:pick-mode', (_event, on: boolean) => {
     state.preview.webContents?.send('preview:mode', on);
@@ -1804,13 +2048,69 @@ async function finishAgentRun(note: string): Promise<void> {
     after.problem ? [] : comparisonFor(run, after.elements),
   );
   if (note) state.runs.fail(id, note);
+
+  await refreshSiteHealth();
+
+  if (run.files.length > 0) {
+    let buildLogLine: string | null = null;
+    if (!state.buildError && state.missingPackages.length === 0) {
+      const build = buildSite(site.root);
+      if (!build.ok) {
+        const lines = build.log
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
+        buildLogLine =
+          lines.find(
+            (l) =>
+              l.includes('Failed to resolve import') ||
+              l.includes('Rolldown failed') ||
+              l.includes('Cannot find module') ||
+              l.toLowerCase().includes('error'),
+          ) ??
+          lines.at(-1) ??
+          'astro build failed';
+        state.buildError = buildLogLine;
+        send('cauldron:site', {
+          site: summaryOf(state.site),
+          drafts: storedDrafts(site.root),
+        });
+      }
+    }
+
+    if (state.missingPackages.length > 0 || state.buildError || buildLogLine) {
+      const problems: string[] = [];
+      if (state.missingPackages.length > 0) {
+        problems.push(
+          `Missing package imports: ${state.missingPackages.join(', ')}`,
+        );
+      }
+      if (state.buildError && !problems.includes(state.buildError)) {
+        problems.push(state.buildError);
+      }
+      if (buildLogLine && !problems.includes(buildLogLine)) {
+        problems.push(buildLogLine);
+      }
+      const primary = problems[0] ?? 'Build failed';
+      state.runs.recordBuildFailure(
+        run.id,
+        problems,
+        `${run.files.length} file${run.files.length === 1 ? '' : 's'} changed · Build failed: ${primary}`,
+      );
+    }
+  }
+
   status(run.note);
   if (run.problems.length > 0)
     console.error(
       `Run ${run.id}: ${run.problems.join(', ')} could not be read. ${run.note}`,
     );
   send('cauldron:agent-done', { runId: id, note: run.note });
-  agentDoneWaiter?.({ ok: !note, runId: id, note: run.note });
+  agentDoneWaiter?.({
+    ok: run.status !== 'failed' && !note,
+    runId: id,
+    note: run.note,
+  });
   agentDoneWaiter = null;
 }
 
@@ -2238,6 +2538,10 @@ function harnessApi() {
 }
 
 export function start(): void {
+  process.on('exit', () => {
+    state.server?.stop();
+    state.mcp?.close();
+  });
   // A broken handler should never put a blocking error box on someone's screen.
   // It is logged and shown in the status bar instead, and the app keeps its data.
   process.on('uncaughtException', (error) => {

@@ -50,3 +50,15 @@ Ticket breakdown approved by Billy through the to-tickets approval form. Impleme
 - WDLsite: **68/69 passed** — one Tab-walk reach failure on glow-action /contact/ (the control was found, focused and used with keys when driven directly; not reproduced as a piece defect).
 
 **Limitations.** The Tab-reach check is intermittent across runs on both sites; the cause was not isolated. No commit made. Direction assertions reduced 18→14 because keyboard/focus/hover are now separate per-piece checks, not dropped coverage.
+
+### Rescue verification update — 9 Nov 2026 (P2 library Tab-reach fix)
+
+**Root cause isolated and fixed:**
+
+1. In `src/main/e2e.ts` (`keyboardWalk`), `before` was marked with `data-cauldron-kb-start="1"` without calling `before.focus()` or `window.webContents.focus()`, and `press(window, 'Tab')` did not wait for the renderer to settle key events before sampling `document.activeElement`.
+2. In `src/main/taste-check.ts` (`measureTaste`), `pressTab()` checked `activeIndex()` (`data-cauldron-audit-control`), which returns `-1` for all focusable elements outside a scoped piece. Every `Tab` press on focusable elements preceding the piece looked like a no-op (`-1 === -1`), causing `pressTab()` to fire 3 `Tab` keystrokes per step and skip over controls inside the piece. Fixed by tracking `data-cauldron-focus-seq` across all visible focusable elements on the page so `pressTab()` advances one focus stop at a time.
+
+**Re-verified in packaged app (`out/Cauldron-darwin-arm64/Cauldron.app`):**
+
+- `rudeboycoffee`: **69/69 passed**.
+- `WDLsite`: **69/69 passed** (including `glow-action` on `/contact/`).
