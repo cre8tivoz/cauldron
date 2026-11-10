@@ -2,15 +2,15 @@
 
 A Mac desktop app for designing and building real Astro websites, with design taste built in. Electron, React and TypeScript. MIT.
 
-**This file is the entry point.** If another document disagrees with this file or with `fablefixes.md`, that document is out of date.
+**This file is the entry point.** If another document disagrees with this file or with Linear, that document is out of date.
 
 ## The three live documents
 
-| Document                         | What it is for                                                               |
-| -------------------------------- | ---------------------------------------------------------------------------- |
-| `AGENTS.md` (this file)          | What the product is, what is settled, the rules, how to work here.           |
-| [`fablefixes.md`](fablefixes.md) | **The one work list.** What is broken, what has been fixed, what to do next. |
-| [`README.md`](README.md)         | The short public description and how to run the app.                         |
+| Document                                                                                     | What it is for                                                     |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `AGENTS.md` (this file)                                                                      | What the product is, what is settled, the rules, how to work here. |
+| [Linear: Cauldron](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b)               | **The one work list.** Open, in-progress and done work lives there. |
+| [`README.md`](README.md)                                                                     | The short public description and how to run the app.               |
 
 Supporting reference, still current: [`GLOSSARY.md`](GLOSSARY.md), the decisions in [`docs/adr/`](docs/adr/), [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`REFERENCE-MATERIAL.md`](REFERENCE-MATERIAL.md).
 
@@ -27,7 +27,7 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 ## Where things honestly stand (10 November 2026)
 
 - The foundations are real: project creation and opening, safe versioned saves, crash recovery, the agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
-- A full audit on 9 November found 80 problems, including screens that said untrue things. They are listed in `fablefixes.md` with their current status.
+- A full audit on 9 November found 80 problems, including screens that said untrue things. They are now Linear issues (see the mapping in [`fablefixes.md`](fablefixes.md)).
 - Type check, lint and the three unit suites pass. CI on `main` is green.
 - **Not proven:** opening the downloaded app on a second Mac by hand (Gatekeeper), publishing to a real hosted Git account, and a full walkthrough of every screen in the packaged app after the audit. Do not claim these without fresh evidence.
 
@@ -54,10 +54,20 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 
 ## How work is tracked
 
-- **`fablefixes.md` is the only work list.** When you fix an item, update its status there in the same commit, with what you actually ran.
-- **No tickets are required.** Billy lifted the old ticket process on 10 November 2026. The files under `.scratch/` are history.
-- Do not start another plan, upgrade or rescue document. If the plan changes, change this file or `fablefixes.md`.
-- Report anything unexpected that falls outside what you were asked to do. Add it to `fablefixes.md` rather than quietly fixing or ignoring it.
+- **Linear is the single source of truth for work.** The project is [Cauldron](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b) on the Witchdaddy Labs (WDL) team. Agents pick up tickets there. Do not start work that is not on a Linear issue.
+- **Work through pull requests, not direct commits to `main`.**
+- **Every branch name or pull-request title must include the WDL issue ID** (for example `wdl-170-linear-source-of-truth` or `WDL-170: …`). Linear then moves the issue to In Review when the PR opens, and to Done when it merges.
+- **Never assign Linear issues to agents.** Assign only to Billy (and later Claudia).
+- **All commits must be authored and committed as** `Billy <119015637+cre8tivoz@users.noreply.github.com>`. Never Claude, `noreply@anthropic.com`, or any other identity.
+- [`fablefixes.md`](fablefixes.md) is the original 9–10 November 2026 audit. Its items are now Linear tickets; see the mapping at the top of that file. Do not treat it as the live work list.
+- The files under `.scratch/` are history. Do not start another plan, upgrade or rescue document. If the plan changes, change this file or a Linear issue.
+- Report anything unexpected that falls outside what you were asked to do. Add it as a Linear issue rather than quietly fixing or ignoring it.
+
+## Review guidelines (for Codex and other automated reviewers)
+
+- Judge commit identity only from the commits actually published on the pull request (the PR's Commits tab, or `git rev-list <base>..<head>` on the PR head). Each published commit must be authored and committed as `119015637+cre8tivoz@users.noreply.github.com`.
+- Your own review sandbox may create a local working commit under its own identity (for example `Codex <codex@openai.com>`). That commit is never pushed and is not part of the PR. Do not report it as an identity violation. Before flagging identity, confirm the SHA appears in the PR's published commits.
+- Raise an identity finding only when a published PR commit has the wrong author or committer.
 
 ## Safety
 
@@ -91,5 +101,6 @@ Vocabulary is fixed in `GLOSSARY.md`. Decisions are in `docs/adr/`; read them be
 | `docs/plan-verification.md`, `docs/cauldron-retro.md`, `docs/cauldron-code-review.md` | Earlier audits and a retrospective.                                                                          |
 | `docs/rescue/`                                                                        | Snapshots of the original plan, starter set and taste tests, plus audit evidence.                            |
 | `.scratch/`, `docs/agents/`                                                           | The old ticket tracker (tickets 00–32) and its settings.                                                     |
+| [`fablefixes.md`](fablefixes.md)                                                      | The 9–10 November 2026 full-project audit. Items are now Linear tickets; see the mapping in that file.       |
 | `originalresearch/`                                                                   | Billy's original research and evaluation material. Reference only; never copy code from it.                  |
 | `v1screenshots/`                                                                      | Design renders made with sample data. They are not screenshots of the real app in use.                       |
