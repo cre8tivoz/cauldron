@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { app } from 'electron';
 import type { ActionRequest, ActionResult } from './actions';
+import { writeFileAtomic } from './files';
 
 /**
  * The local connection for outside agents (plan 3.3). It speaks MCP over HTTP on
@@ -83,7 +84,7 @@ export function accessCodeFor(root: string): string {
   store[root] = code;
   const file = path.join(app.getPath('userData'), 'mcp-codes.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(store, null, 2), 'utf8');
+  writeFileAtomic(file, JSON.stringify(store, null, 2));
   return code;
 }
 

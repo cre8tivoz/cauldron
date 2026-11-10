@@ -1,4 +1,4 @@
-import { hashOf, readFile, writeFileAtomic } from './files';
+import { hashOf } from './files';
 
 export type Location = {
   file: string;
@@ -590,5 +590,3 @@ function differsOnlyOnce(before: string, after: string): boolean {
   }
   return endBefore >= start - 1 && endAfter >= start - 1;
 }
-
-export { readFile, writeFileAtomic };

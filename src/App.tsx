@@ -332,12 +332,22 @@ export function App() {
   const togglePreview = useCallback(async () => {
     setBusy(true);
     setProblem(null);
-    const result = preview.running
-      ? await window.cauldron.stopPreview()
-      : await window.cauldron.startPreview();
-    setBusy(false);
-    if (result && typeof result === 'object' && 'problem' in result) {
-      setProblem((result as { problem: string }).problem);
+    try {
+      const result = preview.running
+        ? await window.cauldron.stopPreview()
+        : await window.cauldron.startPreview();
+      if (result && typeof result === 'object' && 'problem' in result) {
+        setProblem((result as { problem: string }).problem);
+      }
+    } catch (error) {
+      setProblem(
+        `The preview could not be ${preview.running ? 'stopped' : 'started'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    } finally {
+      // Always released, or one failed call would lock the toolbar for good.
+      setBusy(false);
     }
   }, [preview.running]);
 

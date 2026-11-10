@@ -716,6 +716,15 @@ or selected state that stays readable when hovered (a selected filter button mus
 turn into light text on a light background), and a clearly different disabled style.
 Typographic arrows (→, ↗) in labels are punctuation, not emoji icons.`;
 
+/**
+ * DESIGN.md is read by the agent. Naming an npm font package beside each font
+ * invited the very import the document forbids (the tinydogs failure), so a
+ * hosted font carries no note; only a reference font says what it needs.
+ */
+function fontNote(font: FontChoice): string {
+  return font.package.startsWith('@fontsource/') ? '' : ` (${font.package})`;
+}
+
 export function designDocument(direction: DesignDirection): string {
   const colours = Object.entries(direction.colours)
     .map(([name, value]) => `| ${name} | \`${value}\` |`)
@@ -810,9 +819,9 @@ cannot carry button text at 4.5:1, use \`ink\` as the fill or an \`ink\` border 
 
 ## Type
 
-- Display: ${direction.fonts.display.family} (${direction.fonts.display.package}), weights ${direction.fonts.display.weights.join(', ')}
-- Body: ${direction.fonts.body.family} (${direction.fonts.body.package}), weights ${direction.fonts.body.weights.join(', ')}
-${direction.fonts.detail ? `- Detail mono: ${direction.fonts.detail.family} (${direction.fonts.detail.package}), weights ${direction.fonts.detail.weights.join(', ')}. Use it for prices, codes and small metadata, never for essential body copy.` : ''}
+- Display: ${direction.fonts.display.family}${fontNote(direction.fonts.display)}, weights ${direction.fonts.display.weights.join(', ')}
+- Body: ${direction.fonts.body.family}${fontNote(direction.fonts.body)}, weights ${direction.fonts.body.weights.join(', ')}
+${direction.fonts.detail ? `- Detail mono: ${direction.fonts.detail.family}${fontNote(direction.fonts.detail)}, weights ${direction.fonts.detail.weights.join(', ')}. Use it for prices, codes and small metadata, never for essential body copy.` : ''}
 
 The fonts are loaded directly by \`cauldron/tokens.css\` using Google Fonts stylesheet links, and the CSS variables \`var(--cauldron-font-display)\` and \`var(--cauldron-font-body)\`${direction.fonts.detail ? ' (and `var(--cauldron-font-detail)`)' : ''} are already defined there. Pages and layouts should import \`cauldron/tokens.css\` (for example \`@import '../../cauldron/tokens.css';\` in \`src/styles/global.css\`) and use those CSS variables directly. Never add \`import '@fontsource/...'\` or other npm package imports unless the package is already installed in \`package.json\`.
 

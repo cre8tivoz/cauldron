@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { app } from 'electron';
+import { writeFileAtomic } from './files';
 
 export type Draft = {
   key: string;
@@ -38,11 +39,9 @@ export function saveDrafts(siteRoot: string, drafts: Draft[]): void {
     fs.rmSync(target, { force: true });
     return;
   }
-  fs.writeFileSync(
-    target,
-    JSON.stringify({ root: siteRoot, drafts }, null, 2),
-    'utf8',
-  );
+  // Through a temporary sibling, so a crash mid-write can never damage the
+  // very file that exists to survive crashes.
+  writeFileAtomic(target, JSON.stringify({ root: siteRoot, drafts }, null, 2));
 }
 
 export type DraftsRead = { drafts: Draft[]; problem: string | null };

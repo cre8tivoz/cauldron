@@ -401,9 +401,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                     fontSize: 12,
                   }}
                 >
-                  {exporting
-                    ? 'Building dist/…'
-                    : '📦 Build Static Site (dist/)'}
+                  {exporting ? 'Building dist/…' : 'Build Static Site (dist/)'}
                 </button>
                 <button
                   type="button"
@@ -420,7 +418,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                 >
                   {deploying
                     ? 'Deploying to Cloudflare…'
-                    : '⚡ Deploy to Cloudflare Pages'}
+                    : 'Deploy to Cloudflare Pages'}
                 </button>
               </div>
 

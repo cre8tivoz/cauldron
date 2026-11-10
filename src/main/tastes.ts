@@ -87,13 +87,3 @@ export const TASTE_RULES: TasteRule[] = [
 export function tasteRulesText(): string {
   return TASTE_RULES.map((rule) => `- ${rule.title}: ${rule.rule}`).join('\n');
 }
-
-/** What Cauldron says when a direction deliberately breaks a rule. */
-export function clashNote(
-  directionName: string,
-  what: string,
-  why: string,
-  recommendation: string,
-): string {
-  return `${directionName} deliberately uses ${what}. ${why} Recommendation: ${recommendation}`;
-}

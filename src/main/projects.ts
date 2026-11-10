@@ -176,6 +176,7 @@ export function validateProjectName(name: string): string | null {
     return 'The name cannot contain / or \\ — it is one folder name, not a path.';
   if (name.startsWith('.')) return 'The name cannot start with a dot.';
   if (name === '.' || name === '..') return 'That is not a usable folder name.';
+  // oxlint-disable-next-line no-control-regex -- control characters are exactly what is refused.
   if (/[\u0000-\u001f:]/.test(name))
     return 'The name contains a character that is not allowed in folder names.';
   if (name.length > 100) return 'The name is too long (over 100 characters).';

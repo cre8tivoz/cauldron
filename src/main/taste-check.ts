@@ -60,7 +60,7 @@ export function isVisuallyHidden(
 ): boolean {
   if (style.position !== 'absolute' && style.position !== 'fixed') return false;
   if (rect.width <= 1 && rect.height <= 1) return true;
-  if (/^rect\(0/.test(style.clip ?? '')) return true;
+  if ((style.clip ?? '').startsWith('rect(0')) return true;
   const indent = Number.parseFloat(style.textIndent ?? '');
   return Number.isFinite(indent) && indent < -999;
 }

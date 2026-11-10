@@ -2766,4 +2766,124 @@ test('Finding 5: deletePageSection and setPageSectionAnchor validate baseHash', 
   assert.equal(goodDel.sections.length, 1);
 });
 
+test('fablefixes 9: an anchor lands on the section itself and refuses unsafe text', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-anchor-own-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const file = path.join(dir, 'src/pages/index.astro');
+  const content = `<main>\n  <section class="hero">\n    <div data-id="keep" id="child">Hi</div>\n  </section>\n  <section id='two'>Two</section>\n</main>\n`;
+  fs.writeFileSync(file, content, 'utf8');
+
+  const added = setPageSectionAnchor(dir, '/', 0, '#intro');
+  assert.equal(added.ok, true);
+  assert.equal(
+    fs.readFileSync(file, 'utf8'),
+    content.replace(
+      '<section class="hero">',
+      '<section id="intro" class="hero">',
+    ),
+  );
+
+  const replaced = setPageSectionAnchor(dir, '/', 1, 'second');
+  assert.equal(replaced.ok, true);
+  assert.ok(fs.readFileSync(file, 'utf8').includes("<section id='second'>Two"));
+  assert.ok(
+    fs.readFileSync(file, 'utf8').includes('data-id="keep" id="child"'),
+  );
+
+  const before = fs.readFileSync(file, 'utf8');
+  for (const unsafe of ['a" onclick="x', 'two words', '', '9lives', 'a<b']) {
+    const refused = setPageSectionAnchor(dir, '/', 0, unsafe);
+    assert.equal(refused.ok, false, unsafe);
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('fablefixes 10: CSS and element edits are refused outside style and markup files', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-edit-scope-'));
+  fs.mkdirSync(path.join(dir, 'src/styles'), { recursive: true });
+  const pkg = path.join(dir, 'package.json');
+  const pkgText = '{\n  "name": "x"\n}\n';
+  fs.writeFileSync(pkg, pkgText, 'utf8');
+  const config = path.join(dir, 'astro.config.mjs');
+  const configText = 'export default {};\n';
+  fs.writeFileSync(config, configText, 'utf8');
+
+  const css = runAction(dir, {
+    action: 'editCssRule',
+    file: 'package.json',
+    selector: 'x',
+    property: 'y',
+    value: 'z',
+    baseHash: hashOf(pkgText),
+  });
+  assert.equal(css.ok, false);
+  assert.equal(fs.readFileSync(pkg, 'utf8'), pkgText);
+
+  const element = runAction(dir, {
+    action: 'editElementText',
+    target: { file: 'astro.config.mjs', line: 1, column: 1, name: 'export' },
+    value: 'x',
+    baseHash: hashOf(configText),
+  });
+  assert.equal(element.ok, false);
+  assert.equal(fs.readFileSync(config, 'utf8'), configText);
+
+  const sheet = path.join(dir, 'src/styles/global.css');
+  fs.writeFileSync(sheet, 'h1 {\n  color: red;\n}\n', 'utf8');
+  const allowed = runAction(dir, {
+    action: 'editCssRule',
+    file: 'src/styles/global.css',
+    selector: 'p',
+    property: 'color',
+    value: 'blue',
+    baseHash: hashOf(fs.readFileSync(sheet, 'utf8')),
+  });
+  assert.equal(allowed.ok, true);
+
+  const missing = runAction(dir, {
+    action: 'editCssRule',
+    file: 'src/styles/none.css',
+    selector: 'p',
+    property: 'color',
+    value: 'blue',
+    baseHash: '',
+  });
+  assert.equal(missing.ok, false);
+});
+
+const content = await import('../src/main/content.ts');
+test('fablefixes 7: a date field is saved as a date, never as quoted text', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-date-'));
+  fs.mkdirSync(path.join(dir, 'src/content/blog'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'src/content.config.ts'),
+    `import { defineCollection, z } from 'astro:content';\nconst blog = defineCollection({ schema: z.object({ title: z.string(), pubDate: z.date() }) });\nexport const collections = { blog };\n`,
+  );
+  const file = path.join(dir, 'src/content/blog/a.md');
+  fs.writeFileSync(
+    file,
+    `---\ntitle: "Hello"\npubDate: 2026-01-01\n---\nBody\n`,
+  );
+
+  const entry = content.readEntry(dir, 'src/content/blog/a.md');
+  const bad = content.saveEntry(dir, 'src/content/blog/a.md', entry.hash, {
+    field: 'pubDate',
+    value: 'next Tuesday',
+    schemaHash: entry.schemaHash,
+  });
+  assert.equal(bad.ok, false);
+  assert.ok(fs.readFileSync(file, 'utf8').includes('pubDate: 2026-01-01'));
+
+  const good = content.saveEntry(dir, 'src/content/blog/a.md', entry.hash, {
+    field: 'pubDate',
+    value: '2026-02-02',
+    schemaHash: entry.schemaHash,
+  });
+  assert.equal(good.ok, true);
+  assert.equal(
+    fs.readFileSync(file, 'utf8'),
+    `---\ntitle: "Hello"\npubDate: 2026-02-02\n---\nBody\n`,
+  );
+});
+
 process.exitCode = failures ? 1 : 0;

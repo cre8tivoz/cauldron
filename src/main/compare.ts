@@ -100,7 +100,7 @@ function align(
   const rows = before.length;
   const columns = after.length;
   const lengths: number[][] = Array.from({ length: rows + 1 }, () =>
-    new Array<number>(columns + 1).fill(0),
+    Array.from<number>({ length: columns + 1 }).fill(0),
   );
   for (let row = rows - 1; row >= 0; row -= 1) {
     for (let column = columns - 1; column >= 0; column -= 1) {

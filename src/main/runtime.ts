@@ -124,12 +124,15 @@ function loginShellDirs(): { dirs: string[]; problem: string | null } {
       },
     });
     if (result.status !== 0 || typeof result.stdout !== 'string') {
-      return {
+      // Cached like a success: an unanswering shell must not cost up to five
+      // seconds on every lookup. resetRuntimeResolutionCache() clears it.
+      loginShellCache = {
         dirs: [],
         problem: `A login shell (${shell}) did not report its PATH${
           result.stderr?.trim() ? `: ${result.stderr.trim()}` : ''
         }.`,
       };
+      return loginShellCache;
     }
     const dirs = result.stdout
       .trim()
