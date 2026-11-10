@@ -1,5 +1,8 @@
 # START HERE — Cauldron
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is the [Cauldron Linear project](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b); the rules and scope are in [`AGENTS.md`](../AGENTS.md).
+
+
 ## Access and current checkpoint
 
 - App repository: https://github.com/cre8tivoz/cauldron
