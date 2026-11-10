@@ -6,13 +6,14 @@ This is Cauldron's single list of what is broken, what has been fixed and what c
 
 ## Progress
 
-| Date   | Items                                                                        | What changed                                                                                                                                   | What was run                                                                                                                           |
-| ------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 10 Nov | 1, 2, 3, 4, 5                                                                | Untrue messages removed: outline undo, status bar, placeholder site name, content "Saved" tick, publish result.                                | Type check, lint, unit suites, renderer build. **Not run:** the packaged Mac app. Each needs a quick look in the real app (see items). |
-| 10 Nov | 51, 55, 70, part of 71                                                       | Documents aligned: `AGENTS.md` rewritten as the entry point, old plans moved to `docs/history/` and marked historical, README corrected.       | Format check.                                                                                                                          |
-| 10 Nov | 7, 9, 10, 19, 23, 29, 36, 37, 42, 58, 59, 60, 62, 75; part of 40, 73, 74, 76 | Small fixes: three ways to damage a site closed, phantom components removed, false build errors, safe recovery writes, strict lint, dead code. | Type check, lint (now strict, clean), unit suites (3 new tests), renderer build. **Not run:** the packaged Mac app.                    |
+| Date   | Items                                                                        | What changed                                                                                                                                   | What was run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 10 Nov | 1, 2, 3, 4, 5                                                                | Untrue messages removed: outline undo, status bar, placeholder site name, content "Saved" tick, publish result.                                | Type check, lint, unit suites, renderer build. **Not run:** the packaged Mac app. Each needs a quick look in the real app (see items).                                                                                                                                                                                                                                                                                                                                                                                   |
+| 10 Nov | 51, 55, 70, part of 71                                                       | Documents aligned: `AGENTS.md` rewritten as the entry point, old plans moved to `docs/history/` and marked historical, README corrected.       | Format check.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 10 Nov | 7, 9, 10, 19, 23, 29, 36, 37, 42, 58, 59, 60, 62, 75; part of 40, 73, 74, 76 | Small fixes: three ways to damage a site closed, phantom components removed, false build errors, safe recovery writes, strict lint, dead code. | Type check, lint (now strict, clean), unit suites (3 new tests), renderer build. **Not run:** the packaged Mac app.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 10 Nov | 1, 2, 3, 4, 5, 7, 9, 19, 23 checked; new 81, 82                              | Checked in the packaged app on Billy's Mac. All nine work. Two new findings written up (81, 82). No app code changed.                          | Revision `95faffd3`, Node 26.13. `npm run check` pass (137 tests). `npm run smoke` pass. Then the packaged app run hidden (`CAULDRON_BACKGROUND_TEST=1`, fresh test user data) and driven over CDP by a throwaway script: new disposable site made through the form (Sunday Table starter, real pnpm install), then each item done through the real screens, checking both the screen and the files on disk. Details under each item. **Not checked:** a visible window by hand, a real hosted Git remote, a second Mac. |
 
-**Fixed so far: 22 of 80, plus 4 partly fixed.** Open items keep their original wording below. Fixed items are marked **FIXED**.
+**Fixed so far: 22 of 82, plus 4 partly fixed.** Items 1–5, 7, 9, 19 and 23 have also been checked in the packaged app (10 Nov). Open items keep their original wording below. Fixed items are marked **FIXED**.
 
 ## How to read this
 
@@ -47,6 +48,8 @@ Each finding is marked:
 ### FIXED — 1. Outline "Undo" never works [Tested]
 
 > **Fixed 10 Nov.** The outline now reads the right field, so its Undo and ⌘Z have something to restore. Still to do: an automated test, and routing through the main undo (item 15). Check in the real app: delete a section, press Undo.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** Deleted a section with ✕ (prompt accepted), the section left the file. The Undo button put the file back byte-for-byte. Moved a section down, then ⌘Z: also back byte-for-byte.
 
 `src/components/PageOutline.tsx:69` and `:141` read `srcRes.text`, but the `readSource` action returns the file under `content` (`src/main/actions.ts:181`). The saved copy is therefore always empty, so the undo history is never filled. The Undo button and ⌘Z in the Outline tab do nothing.
 
@@ -59,6 +62,8 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 ### FIXED — 2. Status bar shows made-up numbers [Read]
 
 > **Fixed 10 Nov.** The placeholder strings are gone; the bar shows only what the app reported.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** With no site open, every view's status bar read "Ready". None of the old placeholder strings appeared. With a site open it showed the real preview address.
 
 `src/App.tsx:429-447` falls back to fixed mockup text whenever the real status is "Ready": "Checks finished · 2 to fix", "Ready · 3 changed files", "Component library · 5 pieces", "Content saved", "Saved to site". These appear with no site open and no checks run.
 
@@ -67,6 +72,8 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 ### FIXED — 3. "Sunday Table" appears as the site name when no site is open [Read]
 
 > **Fixed 10 Nov.** Now "No site open". Quality shows "<site> / all pages".
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** The top bar and Sites view say "No site open" with nothing open. "Sunday Table" now appears only as the starter-template card on the home screen, which is correct. With a site open the top bar shows its real name.
 
 `src/components/TopBar.tsx:68`, `PublishPanel.tsx:129`, `QualityPanel.tsx:103` (which also hard-codes "/ Homepage" although every page is checked).
 
@@ -75,6 +82,8 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 ### FIXED — 4. Content editor always shows a green "Saved" tick [Read]
 
 > **Fixed 10 Nov.** The permanent tick is removed. The real "Saved" message was also being wiped the moment it appeared; it now stays after a successful save.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** No "Saved" on opening the entry. A refused save (empty date) showed the red "Enter a date as YYYY-MM-DD…" and no "Saved". A real save showed "Saved to the site's content file.", still there 4 seconds later.
 
 `src/components/ContentPanel.tsx:418-428` renders "Saved to the site's content file." permanently, including before anything is saved and after a save fails.
 
@@ -83,6 +92,8 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 ### FIXED — 5. Failed publish is shown in green [Read]
 
 > **Fixed 10 Nov.** Failures show in the error style, and the changed-file list is re-read after every attempt.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** Commit and push with a remote that does not exist: the result box is red. It says "Committed 2 file(s) locally… the upload failed" with Git's own error. The list went from 2 changed files to 0, with "2 commit(s) ready to push". Git confirmed the commit was made. See new item 81 for the "Remote connected" badge on the same screen.
 
 `src/components/PublishPanel.tsx:318-325` puts every result, including "The upload failed", in a `notice good` box. After a commit that succeeded but a push that failed, the file list is not refreshed (`:70` only refreshes on full success), so already-committed files still look uncommitted.
 
@@ -100,6 +111,8 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 ### FIXED — 7. Saving a date in the content form breaks the site [Tested]
 
 > **Fixed 10 Nov.** Date fields are written as plain dates after a format check; anything else is refused. Unit test added.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** Test collection with `pubDate: z.date()` and a home page that calls `.toISOString()` on it. Saving 2026-03-04 in the form wrote `pubDate: 2026-03-04` unquoted. `astro build` then exited 0 and the built page showed the date, as did the live preview.
 
 For a `z.date()` field, the form saves `pubDate: "2026-02-02"` (quoted text). Astro then rejects it because it expects a date, so the site stops building. `src/main/content.ts:368` quotes everything that is not a number or true/false.
 
@@ -114,6 +127,8 @@ Each field has its own Save button. After a save, `ContentPanel.tsx` reloads the
 ### FIXED — 9. Section anchors land on the wrong element and accept broken text [Tested]
 
 > **Fixed 10 Nov.** Only the section's own opening tag is edited, and anchors must be a plain id (letters, numbers, dashes, underscores). Unit test added.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** Anchor "intro" on a section with an inner `data-id="keep"`: the tag became `<section id="intro" class="hero">` and the inner value was untouched. Anchor `a" onclick="x` left the file unchanged and showed "An anchor starts with a letter and uses only letters, numbers, dashes and underscores."
 
 `src/main/actions.ts:612-618`:
 
@@ -193,6 +208,8 @@ The brief lists 15 actions in camelCase (`actionCatalogue`, `actions.ts:1010-105
 ### FIXED — 19. A page with "error" in its title is treated as a broken build [Read]
 
 > **Fixed 10 Nov.** The page title is no longer used; only the dev server's own failure wording counts.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** Home page titled "Error Free Plumbing": after opening and after a preview reload, there was no build error and no "Preview error" banner.
 
 `inspectPreviewError` (`src/main/index.ts:451-468`) flags any page whose title contains "error".
 
@@ -219,6 +236,8 @@ The brief lists 15 actions in camelCase (`actionCatalogue`, `actions.ts:1010-105
 ### FIXED — 23. Component screen has five phantom pieces that install the wrong thing [Read]
 
 > **Fixed 10 Nov.** The phantom list and its wrong-piece fallback are deleted, an unknown piece is refused out loud, the heading counts the real pieces, and the links shelf uses the real list (the fallback list had wrong addresses). Still open: the tiles are hand-drawn previews, not the real piece.
+>
+> **Checked in the packaged app 10 Nov (`95faffd3`): works.** The heading reads "20 pieces, plain Astro…", matching the library's 20, with no phantom ids. "Add to /" on Heading reveal wrote `src/components/Headingreveal.astro` and added its import to `index.astro`, with a message naming the same piece. Asking for `services-grid` directly was refused ("That piece is not in the starter set."). See new item 82 for the message colour.
 
 `LibraryPanel.tsx:23-90` lists five pieces (`nav-simple`, `hero-split-image`, `contact-form`, `proof-quote-wall`, `services-grid`) that do not exist in the catalogue. If shown (when a category is empty or the library fails to load), "Add" installs "Editorial intro" and reports the other name (`:174-177`). `docs/history/RESCUE-PLAN.md` says this class of bug is fixed.
 
@@ -334,6 +353,13 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 78. **Menu items to review**: View → Reload and Toggle Developer Tools are available in the released app (Reload discards unsaved typing); Help → "Cauldron on GitHub" opens a private repository.
 79. **Hundreds of inline styles** in the components (for example `Inspector.tsx:117-190`), next to a 2,535-line `index.css`. Low priority; makes the look harder to keep consistent.
 80. **App version `0.0.1` is typed in twice** (`package.json` and `mcp.ts:406`).
+
+---
+
+## Found 10 November in the packaged-app check (`95faffd3`)
+
+81. **P1 — "Remote connected" shows for a remote that does not exist.** [Tested] On the Publishing screen, a site whose `origin` points at a missing path showed a green "Remote connected" badge. It stayed after the push to that remote had just failed. The badge seems to mean "a remote is configured", not "it can be reached". Fix: say "Remote: origin" (or the real name, see item 25) instead of claiming it is connected.
+82. **P1 — Components shows failures in the green "good" style.** [Read, seen on screen] `LibraryPanel.tsx` puts every message in a `notice good` box. That includes "… is not in the component library." (`:79`) and a failed add from the main process (`:92`), the same class of problem as item 5. Fix: keep a separate ok/failed flag and use `bad` for failures.
 
 ---
 
