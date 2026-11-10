@@ -65,9 +65,9 @@ export function PageOutline({
           const srcRes = (await window.cauldron.runAction({
             action: 'readSource',
             file,
-          })) as { ok: boolean; text?: string; hash?: string };
-          if (srcRes.ok && srcRes.text !== undefined) {
-            setCurrentContent(srcRes.text);
+          })) as { ok: boolean; content?: string | null; hash?: string | null };
+          if (srcRes.ok && typeof srcRes.content === 'string') {
+            setCurrentContent(srcRes.content);
             if (srcRes.hash) setCurrentHash(srcRes.hash);
           }
         }
@@ -137,9 +137,9 @@ export function PageOutline({
         const srcRes = (await window.cauldron.runAction({
           action: 'readSource',
           file: res.file,
-        })) as { ok: boolean; text?: string; hash?: string };
-        if (srcRes.ok && srcRes.text !== undefined) {
-          setCurrentContent(srcRes.text);
+        })) as { ok: boolean; content?: string | null; hash?: string | null };
+        if (srcRes.ok && typeof srcRes.content === 'string') {
+          setCurrentContent(srcRes.content);
           if (srcRes.hash) setCurrentHash(srcRes.hash);
         }
       }

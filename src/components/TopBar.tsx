@@ -65,7 +65,7 @@ export function TopBar({
           onClick={onProjects}
           title="Project home"
         >
-          <span className="site-name">{site ? site.name : 'Sunday Table'}</span>
+          <span className="site-name">{site ? site.name : 'No site open'}</span>
           <ChevronDownIcon size={12} />
         </button>
 

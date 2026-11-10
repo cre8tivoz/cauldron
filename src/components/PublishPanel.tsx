@@ -23,7 +23,9 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     instructions: string;
   } | null>(null);
   const [message, setMessage] = useState('');
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deploying, setDeploying] = useState(false);
@@ -55,19 +57,25 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
           : '';
     const upload = outcome.ok && outcome.upload ? outcome.upload : '';
     if (outcome.ok) {
-      setResult([commit, upload].filter(Boolean).join('\n'));
+      setResult({
+        ok: true,
+        text: [commit, upload].filter(Boolean).join('\n'),
+      });
       setMessage('');
     } else {
-      setResult(
-        [
+      setResult({
+        ok: false,
+        text: [
           commit,
           `${outcome.problem ?? 'That did not go through.'}${outcome.details ? `\n${outcome.details}` : ''}`,
         ]
           .filter(Boolean)
           .join('\n'),
-      );
+      });
     }
-    if (outcome.ok) setState(await window.cauldron.repoState());
+    // Always re-read: a commit can succeed while its upload fails, and the
+    // list must not keep showing files that are already committed.
+    setState(await window.cauldron.repoState());
   };
 
   const handleExportStatic = async () => {
@@ -126,7 +134,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     }
   };
 
-  const projectName = site?.name || 'Sunday Table';
+  const projectName = site?.name ?? 'No site open';
 
   return (
     <div
@@ -317,10 +325,11 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
 
             {result ? (
               <div
-                className="notice good"
+                className={`notice ${result.ok ? 'good' : 'bad'}`}
+                role={result.ok ? 'status' : 'alert'}
                 style={{ marginTop: 14, whiteSpace: 'pre-wrap' }}
               >
-                {result}
+                {result.text}
               </div>
             ) : null}
           </div>
