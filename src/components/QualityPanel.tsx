@@ -100,7 +100,7 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
           </span>
           <div className="quality-context-line">
             <span className="quality-site-page">
-              {site?.name || 'Sunday Table'} / Homepage
+              {site ? `${site.name} / all pages` : 'No site open'}
             </span>
             <span className="quality-divider" aria-hidden="true">
               ·

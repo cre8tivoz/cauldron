@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircleIcon, ChevronDownIcon } from './Icons';
+import { ChevronDownIcon } from './Icons';
 
 type Props = {
   site: CauldronSite | null;
@@ -101,6 +101,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
   const save = async (change: Record<string, string>, keepMine = false) => {
     if (!openFile || !entry) return;
     setProblem(null);
+    setSaved(null);
     const result = await window.cauldron.saveEntry({
       file: openFile,
       baseHash: entry.hash,
@@ -119,12 +120,14 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     }
     setConflict(null);
     keepDraft(change.field ?? 'text', null);
+    // Reload first: opening an entry clears the last message, and the
+    // confirmation must survive it.
+    await open(openFile);
     setSaved(
       result.conflictCopy
         ? `Saved. The disk version was kept as a copy: ${result.conflictCopy}`
         : "Saved to the site's content file.",
     );
-    await open(openFile);
   };
 
   const useDisk = async () => {
@@ -415,16 +418,11 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
                 </div>
               )}
 
-              {/* Bottom Status Line matching mockup */}
-              <div className="content-save-notice-bar">
-                <span className="notice-check-icon">
-                  <CheckCircleIcon size={18} color="#38a169" />
-                </span>
-                <span className="notice-text">
-                  Saved to the site's content file. Use plain-text editing for
-                  the entry's full Markdown.
-                </span>
-              </div>
+              <p className="hint">
+                Each field is saved to the site's content file when you press
+                its Save button. Use plain-text editing for the entry's full
+                Markdown.
+              </p>
             </>
           )}
         </main>

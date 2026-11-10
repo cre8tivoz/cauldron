@@ -425,26 +425,11 @@ export function App() {
   const canUndo = selection?.history.canUndo ?? false;
   const canRedo = selection?.history.canRedo ?? false;
 
-  // Contextual status text matching mockups
-  const contextualStatus = (() => {
-    if (drafts.length > 0)
-      return `${status} · ${drafts.length} unsaved draft(s)`;
-    if (status && status !== 'Ready') return status;
-    switch (view) {
-      case 'design':
-        return 'Design direction saved in site';
-      case 'library':
-        return 'Component library · 5 pieces';
-      case 'content':
-        return 'Content saved';
-      case 'quality':
-        return 'Checks finished · 2 to fix';
-      case 'publish':
-        return 'Ready · 3 changed files';
-      default:
-        return 'Saved to site';
-    }
-  })();
+  // Only what the app actually reported; never placeholder wording.
+  const contextualStatus =
+    drafts.length > 0
+      ? `${status} · ${drafts.length} unsaved draft${drafts.length === 1 ? '' : 's'}`
+      : status;
 
   return (
     <div className="app">
