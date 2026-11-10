@@ -1,5 +1,7 @@
 # Cauldron — development retrospective
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../fablefixes.md); the rules and scope are in [`AGENTS.md`](../AGENTS.md).
+
 ## Bottom line
 
 The existing plan and project rules did not reliably control execution or completion claims. Automated checks were present and working, but their coverage missed serious user-facing failures. Adding more instructions would leave those same gaps open.

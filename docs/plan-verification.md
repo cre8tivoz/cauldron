@@ -1,5 +1,7 @@
 # Plan verification — corrective audit
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../fablefixes.md); the rules and scope are in [`AGENTS.md`](../AGENTS.md).
+
 Source of truth: `cauldron-astro/CAULDRON-ASTRO-PLAN.md` and its approved `design/camillo/taste-tests.md`. This audit does not reduce their acceptance criteria.
 
 **The earlier claim that only blind judgement and a second Mac remained was incorrect.** The earlier test totals described selected assertions, not coverage of every plan requirement. A quality harness passing does not mean the inspected site passes quality.

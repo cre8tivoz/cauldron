@@ -2,43 +2,45 @@
 
 A Mac desktop app for designing and building real Astro websites, with design taste built in. Electron, React and TypeScript. MIT.
 
-## Rescue handoff — current entry point (8 Nov 2026)
+**This file is the entry point.** If another document disagrees with this file or with `fablefixes.md`, that document is out of date.
 
-Read `RESCUE-PLAN.md` before implementation or completion claims. Billy requested this consolidated, prioritised handoff after the delivered app failed his tinydogs workflow. It supplies the current scope amendments, known failure, whole-product acceptance checklist and execution order. The older pause/batch/ticket status sections below are historical where they conflict with that plan; they are not proof of readiness or permission to omit core functionality. Preserve safety rules and work only under Billy's actual implementation authorisation. This documentation handoff makes no application repair or release-ready claim.
+## The three live documents
 
-## Review findings & fix plan — UNFINISHED (added 9 November 2026)
+| Document                         | What it is for                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `AGENTS.md` (this file)          | What the product is, what is settled, the rules, how to work here.           |
+| [`fablefixes.md`](fablefixes.md) | **The one work list.** What is broken, what has been fixed, what to do next. |
+| [`README.md`](README.md)         | The short public description and how to run the app.                         |
 
-`RESCUE-PLAN.md` section 0 records two code-review rounds and two Jev assessments over the rescue work and the
-"Gemini upgrades" round, with a prioritised fix plan. **Nothing in it is done.** Read it before claiming any
-phase complete.
+Supporting reference, still current: [`GLOSSARY.md`](GLOSSARY.md), the decisions in [`docs/adr/`](docs/adr/), [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`REFERENCE-MATERIAL.md`](REFERENCE-MATERIAL.md).
 
-The headline items: the "Deploy to Cloudflare Pages" button does not deploy (it shows a live URL that is not
-live); the "100% Verified" claim is unsupported by any test; and the imagery tray is a static list rather than
-the advertised Unsplash/Pexels APIs. The editorial tools (starter sites, catalogue, outline, asset tray,
-static export) are real and work.
+Everything else is **history** (see "History" at the end). Read it for background if you need it. Do not treat any "done", "verified" or "complete" in it as true today.
 
-## What this repository is
+## The job
 
-The application only. Research, design references and the delivered plan live outside this repository, in Billy's research workspace, and are reference only: nothing is copied from them as code (see `docs/adr/0002`).
+Deliver a working Mac app. A person opens Cauldron, creates or opens a site, asks the built-in agent to work, sees the result, and can edit, review, undo and publish it. They must not need a terminal or a separate agent app to keep things going.
+
+The site stays ordinary Astro files in the person's own folder, buildable without Cauldron.
+
+**Done means it works through the delivered app.** Passing tests, a tidy document or a good-looking demo is not that.
+
+## Where things honestly stand (10 November 2026)
+
+- The foundations are real: project creation and opening, safe versioned saves, crash recovery, the agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
+- A full audit on 9 November found 80 problems, including screens that said untrue things. They are listed in `fablefixes.md` with their current status.
+- Type check, lint and the three unit suites pass. CI on `main` is green.
+- **Not proven:** opening the downloaded app on a second Mac by hand (Gatekeeper), publishing to a real hosted Git account, and a full walkthrough of every screen in the packaged app after the audit. Do not claim these without fresh evidence.
+
+## What is settled — do not reopen
+
+- **In v1:** new site, open existing, a persistent recent list, shared dependency storage. The built-in chat drives installed Claude Code, Codex and Hermes in the background.
+- **Outside v1:** other agent apps controlling Cauldron from outside, bring-your-own API keys, Windows and Linux, a cloud platform. Real one-click Cloudflare deploy is parked until Billy authorises it separately.
+- **Design judgement is closed.** Billy accepted the reviewed PeNtA iteration. No further blind comparisons or regeneration are required.
+- **Ten design directions**, including Componine, Niki Studio and Henry From Online. Keep them.
+- **App look:** Source Sans 3, Coral, system light/dark. Agent on the left, preview in the centre, inspector on the right. Minimum window 1280 × 800. The websites it makes must still work at phone, tablet and desktop widths.
+- The app icon and startup splash are final.
 
 ## Rules
-
-### Required source order for this project
-
-Read Billy's original `WEB BUILDER IDEAS.md`, then the agreed plan in the sibling `cauldron-astro/CAULDRON-ASTRO-PLAN.md`, its `design/STARTER-SET.md` and `design/camillo/taste-tests.md`, then the relevant ADRs and glossary. The local research workspace's `START-HERE.md` is the entry point. Research suggestions and superseded prototypes carry no authority to expand the agreed scope.
-
-Before implementation, read the relevant local ticket and its exact plan/acceptance references. Update that ticket with actual evidence and remaining gaps. Generic skill suggestions about prefactoring, redesign or improvements do not authorise extra work.
-
-### Current state and authorisation
-
-- Tickets **11–28 and 31** are recorded as done. **Billy has accepted the reviewed PeNtA iteration as the design win. That judgement is closed:** preserve earlier comparison results as history, but do not require another Moretti win, another blind judgement or another site generation. Ticket **29** remains open only for the bounded technical finish-up below; ticket **30** still requires final distribution and independent-Mac verification, which must not be claimed without evidence.
-- The supplied app icon and startup splash are integrated. The ten enriched directions include **Componine, Niki Studio and Henry From Online** (`df28b3f`). The recovered Claude-through-Cauldron PeNtA build and its three reviewed corrections are the approved existing output; mobile-navigation and overlap safeguards are in standard guidance (`79aef82`). Preserve it; no redesign.
-- **Billy's current authorisation: one finish-up batch for tickets 29 and 30, with one subagent implementing/testing while Claudia orchestrates and reviews.** Correct demonstrated checker false positives (screen-reader helpers, ordinary arrow symbols, descendant hover feedback and SVG wordmark hierarchy) with focused behavioural regression tests; fix genuine interaction-state defects, including selected controls and disabled gallery filters where confirmed; carry reusable state guidance into standard Cauldron work. Do not weaken accessibility thresholds, suppress real failures or tune assertions merely to pass this site.
-- Recheck the existing PeNtA output once after fixes, including gallery filtering, contact behaviour and relevant mobile/keyboard paths. Record actual findings, tested revision and remaining limitations. The old 65-row report is historical, includes repeated measurements, and is not evidence of 65 current distinct bugs. No new generation or paid agent runs are needed for this batch.
-- Prepare and verify the final unsigned Mac distribution and concise download/first-launch instructions. A local package or same-Mac smoke test does not prove first launch on a second Mac. Leave that requirement explicitly pending until Billy or a tester supplies real evidence; do not fake it or reopen the accepted design decision.
-- Use **one cheaper subagent**, sequentially in the current checkout. It owns implementation, focused red/green tests, real-path proof and a short draft record; Claudia owns this rules file, targeted diff/evidence review, ticket completion decisions and authorised commits/pushes. No separate review-agent chain, unrelated repeated suites, oversized harnesses, new features, libraries, installs or refactors. No agent configuration or credential changes. Subagents must not edit this file. This explicit authorisation resumes only the finish-up work; the implementation-pause wording below does not block this batch.
-- Work on fresh disposable site copies and fresh test user-data only. Never edit original sites or foreground desktop apps without permission. Exclude Finder `.DS_Store` files from commits.
-- Cauldron is an Astro site builder driven from its own built-in agent chat. Reverse control from other agent apps and BYOK are **outside v1**. The Witch Daddy Labs website subpage is not part of this work.
 
 1. **Do what was asked, and nothing more.** No unrequested features, redesigns, new libraries or refactors. If a change seems needed but wasn't asked for, say so instead of building it.
 2. **One official path.** Prefer the plain, documented way of doing something over workarounds, wrappers or clever patches.
@@ -46,47 +48,48 @@ Before implementation, read the relevant local ticket and its exact plan/accepta
 4. **Surface every failure.** Errors reach the person using the app as a visible message, and go to the console. A silent failure is a bug.
 5. **Plain Astro in the sites Cauldron makes.** React only where real interaction needs it (`docs/adr/0008`).
 6. **Nothing copied from studied products.** Read for understanding, write our own code (`docs/adr/0001`, `docs/adr/0002`).
-7. **Current versions only.** Before adding a package, check its latest release. Don't start from something out of date.
-8. **The website preview can never reach the editor.** A site, or a script in one, gets no editing powers (`CAULDRON-ASTRO-PLAN.md` 1.8).
+7. **Current versions only.** Before adding a package, check its latest release.
+8. **The website preview can never reach the editor.** A site, or a script in one, gets no editing powers.
+9. **Tell the truth in the app and in the documents.** No placeholder text presented as real state. No "verified" without saying what was actually run, on which revision. If something was not checked, say so.
 
-## Approved tickets only
+## How work is tracked
 
-Product development is limited to approved tickets **11–31** in `.scratch/cauldron-v1/issues/`, indexed by `.scratch/cauldron-v1/spec.md`. No other development, features, cleanup, refactoring or speculative improvements are authorised while these tickets remain incomplete. Follow their blocking dependencies, prioritising content corruption and unsafe undo. Publishing the tickets does not lift the existing implementation pause; Billy must explicitly resume development.
+- **`fablefixes.md` is the only work list.** When you fix an item, update its status there in the same commit, with what you actually ran.
+- **No tickets are required.** Billy lifted the old ticket process on 10 November 2026. The files under `.scratch/` are history.
+- Do not start another plan, upgrade or rescue document. If the plan changes, change this file or `fablefixes.md`.
+- Report anything unexpected that falls outside what you were asked to do. Add it to `fablefixes.md` rather than quietly fixing or ignoring it.
 
-For every ticket:
+## Safety
 
-- Work only within its approved scope and acceptance criteria.
-- Record any issues encountered, the action taken and the outcome in that ticket. State explicitly if no issues arose.
-- Record actual verification evidence, including the tested revision and remaining limitations. Passing unrelated checks is not completion.
-- Mark it **done** only when all its acceptance criteria are verified. Failed, blocked or unverified work remains open; human judgement stays with Billy where required.
-
-Record and report unexpected out-of-scope findings without acting on them or expanding a ticket. Completing this ticket set does not authorise unrelated follow-on work.
-
-## Decisions
-
-Recorded in `docs/adr/`. Read them before proposing anything that contradicts one. Vocabulary is fixed in `GLOSSARY.md`.
+- Work on fresh, disposable copies of sites and fresh test user-data. Never edit a person's original site.
+- Do not open or drive desktop apps on Billy's Mac without permission.
+- No changes to agent configuration or credentials. No fake models or servers.
+- Never commit Finder `.DS_Store` files, dependency folders or secrets.
+- Do not weaken accessibility thresholds or tune a check just to make it pass.
 
 ## Working here
 
 ```bash
 npm install          # Node 26.13 (.nvmrc), npm 12
 npm start            # run the app in development
-npm run check        # type check and lint — must pass
-npm run smoke        # package, open hidden, confirm the interface renders
+npm run check        # type check, lint and unit tests — must pass
+npm run smoke        # package the app, open it hidden, confirm the interface renders
 ```
 
-Run `npm run check` and `npm run smoke` before every commit. Both also run in CI, and CI must be green.
+Run `npm run check` and `npm run smoke` before every commit. CI runs the same on pushes to `main` and on pull requests, and must be green. If you cannot run one of them (for example, no Mac), say so plainly in your report.
 
-## Agent skills
+## Vocabulary and decisions
 
-### Issue tracker
+Vocabulary is fixed in `GLOSSARY.md`. Decisions are in `docs/adr/`; read them before proposing anything that contradicts one.
 
-Local Markdown under `.scratch/<feature-slug>/`, as configured in `docs/agents/issue-tracker.md`. The current source pointers and retrospective finding records are in `.scratch/cauldron-v1/spec.md` and its `issues/` directory. All retrospective finding records need triage and grant no permission to resume implementation.
+## History — background only
 
-### Triage labels
-
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-One `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+| Where                                                                                 | What it was                                                                                                  |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `docs/history/RESCUE-PLAN.md`                                                         | The 8 November rescue handoff. Its §5 walkthrough table is still a useful checklist of what the app must do. |
+| `docs/history/upgrades.md`, `docs/history/gemini-upgrades.md`                         | The visual upgrade and "Gemini upgrades" plans.                                                              |
+| `docs/plan-verification.md`, `docs/cauldron-retro.md`, `docs/cauldron-code-review.md` | Earlier audits and a retrospective.                                                                          |
+| `docs/rescue/`                                                                        | Snapshots of the original plan, starter set and taste tests, plus audit evidence.                            |
+| `.scratch/`, `docs/agents/`                                                           | The old ticket tracker (tickets 00–32) and its settings.                                                     |
+| `originalresearch/`                                                                   | Billy's original research and evaluation material. Reference only; never copy code from it.                  |
+| `v1screenshots/`                                                                      | Design renders made with sample data. They are not screenshots of the real app in use.                       |

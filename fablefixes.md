@@ -1,8 +1,17 @@
-# Fable fixes — full project audit
+# Fable fixes — the one work list
 
-**Audited:** 9 November 2026, revision `fcd1cfe3` (`main`).
-**Scope:** every file of the app (`src/`, `scripts/`, config, CI, docs, tickets). `originalresearch/` was checked for size, secrets and licence risk only, not read line by line.
-**Nothing was changed.** This file is a list of findings and suggested fixes only. No app code was touched.
+This is Cauldron's single list of what is broken, what has been fixed and what comes next. Rules and scope are in [`AGENTS.md`](AGENTS.md). Older plans are history (`docs/history/`).
+
+**Audited:** 9 November 2026, revision `fcd1cfe3`. Every file of the app was read (`src/`, `scripts/`, config, CI, docs). `originalresearch/` was checked for size, secrets and licence risk only.
+
+## Progress
+
+| Date   | Items                  | What changed                                                                                                                             | What was run                                                                                                                           |
+| ------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 10 Nov | 1, 2, 3, 4, 5          | Untrue messages removed: outline undo, status bar, placeholder site name, content "Saved" tick, publish result.                          | Type check, lint, unit suites, renderer build. **Not run:** the packaged Mac app. Each needs a quick look in the real app (see items). |
+| 10 Nov | 51, 55, 70, part of 71 | Documents aligned: `AGENTS.md` rewritten as the entry point, old plans moved to `docs/history/` and marked historical, README corrected. | Format check.                                                                                                                          |
+
+**Fixed so far: 8 of 80.** Open items keep their original wording below. Fixed items are marked **FIXED**.
 
 ## How to read this
 
@@ -34,35 +43,45 @@ Each finding is marked:
 
 ## P0 — Untrue messages and risk to the person's work
 
-### 1. Outline "Undo" never works [Tested]
+### FIXED — 1. Outline "Undo" never works [Tested]
+
+> **Fixed 10 Nov.** The outline now reads the right field, so its Undo and ⌘Z have something to restore. Still to do: an automated test, and routing through the main undo (item 15). Check in the real app: delete a section, press Undo.
 
 `src/components/PageOutline.tsx:69` and `:141` read `srcRes.text`, but the `readSource` action returns the file under `content` (`src/main/actions.ts:181`). The saved copy is therefore always empty, so the undo history is never filled. The Undo button and ⌘Z in the Outline tab do nothing.
 
 The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with ⤺ Undo or ⌘Z". That is false, so a deleted section is gone unless the site is in Git.
 
-`RESCUE-PLAN.md` §0 item 4 records this as done "with full undo support". No test covers it.
+`docs/history/RESCUE-PLAN.md` §0 item 4 records this as done "with full undo support". No test covers it.
 
 **Fix:** read `content`, add a test that deletes a section and undoes it, and better still route section changes through `sharedAction` so the normal Undo covers them (see item 15).
 
-### 2. Status bar shows made-up numbers [Read]
+### FIXED — 2. Status bar shows made-up numbers [Read]
+
+> **Fixed 10 Nov.** The placeholder strings are gone; the bar shows only what the app reported.
 
 `src/App.tsx:429-447` falls back to fixed mockup text whenever the real status is "Ready": "Checks finished · 2 to fix", "Ready · 3 changed files", "Component library · 5 pieces", "Content saved", "Saved to site". These appear with no site open and no checks run.
 
 **Fix:** delete the fallback strings. Show real state or nothing.
 
-### 3. "Sunday Table" appears as the site name when no site is open [Read]
+### FIXED — 3. "Sunday Table" appears as the site name when no site is open [Read]
+
+> **Fixed 10 Nov.** Now "No site open". Quality shows "<site> / all pages".
 
 `src/components/TopBar.tsx:68`, `PublishPanel.tsx:129`, `QualityPanel.tsx:103` (which also hard-codes "/ Homepage" although every page is checked).
 
 **Fix:** show "No site open".
 
-### 4. Content editor always shows a green "Saved" tick [Read]
+### FIXED — 4. Content editor always shows a green "Saved" tick [Read]
+
+> **Fixed 10 Nov.** The permanent tick is removed. The real "Saved" message was also being wiped the moment it appeared; it now stays after a successful save.
 
 `src/components/ContentPanel.tsx:418-428` renders "Saved to the site's content file." permanently, including before anything is saved and after a save fails.
 
 **Fix:** show it only after a successful save.
 
-### 5. Failed publish is shown in green [Read]
+### FIXED — 5. Failed publish is shown in green [Read]
+
+> **Fixed 10 Nov.** Failures show in the error style, and the changed-file list is re-read after every attempt.
 
 `src/components/PublishPanel.tsx:318-325` puts every result, including "The upload failed", in a `notice good` box. After a commit that succeeded but a push that failed, the file list is not refreshed (`:70` only refreshes on full success), so already-committed files still look uncommitted.
 
@@ -75,7 +94,7 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 - It writes `wrangler.toml` into the person's site without asking (`:350-361`), which then shows up as a change to commit. **[Read]**
 - The button is labelled "Deploy" but the failure box says "Coming Soon / Setup Required".
 
-**Fix:** report the real error text, never guess an address, do not write files without consent, and either finish the feature or relabel the button "Build for Cloudflare (setup needed)". `RESCUE-PLAN.md` "Park" section already says real deploy needs separate authorisation.
+**Fix:** report the real error text, never guess an address, do not write files without consent, and either finish the feature or relabel the button "Build for Cloudflare (setup needed)". `docs/history/RESCUE-PLAN.md` "Park" section already says real deploy needs separate authorisation.
 
 ### 7. Saving a date in the content form breaks the site [Tested]
 
@@ -190,7 +209,7 @@ The brief lists 15 actions in camelCase (`actionCatalogue`, `actions.ts:1010-105
 
 ### 23. Component screen has five phantom pieces that install the wrong thing [Read]
 
-`LibraryPanel.tsx:23-90` lists five pieces (`nav-simple`, `hero-split-image`, `contact-form`, `proof-quote-wall`, `services-grid`) that do not exist in the catalogue. If shown (when a category is empty or the library fails to load), "Add" installs "Editorial intro" and reports the other name (`:174-177`). `RESCUE-PLAN.md` says this class of bug is fixed.
+`LibraryPanel.tsx:23-90` lists five pieces (`nav-simple`, `hero-split-image`, `contact-form`, `proof-quote-wall`, `services-grid`) that do not exist in the catalogue. If shown (when a category is empty or the library fails to load), "Add" installs "Editorial intro" and reports the other name (`:174-177`). `docs/history/RESCUE-PLAN.md` says this class of bug is fixed.
 
 Also the heading says "Five pieces" (`:543`) while 20 exist, and the preview tiles are hand-drawn mock-ups, not the real piece (the real `previewHtml` is built for all 20 pieces on every load and never used).
 
@@ -267,11 +286,11 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 
 ### Inconsistent
 
-51. **AGENTS.md contradicts RESCUE-PLAN.md.** AGENTS.md (9 Nov) says of the review findings "Nothing in it is done" and "the Deploy button does not deploy". RESCUE-PLAN.md §0 says "RESOLVED & VERIFIED". The fix commit `bcc6ee3f` updated one and not the other. AGENTS.md also still says only tickets 11–31 are approved and that an implementation pause applies; ticket 32 and the rescue work came later.
+51. **FIXED 10 Nov — AGENTS.md contradicted RESCUE-PLAN.md.** `AGENTS.md` is rewritten as the single entry point; the rescue plan is in `docs/history/` with a "historical" banner. Original finding: AGENTS.md (9 Nov) says of the review findings "Nothing in it is done" and "the Deploy button does not deploy". RESCUE-PLAN.md §0 says "RESOLVED & VERIFIED". The fix commit `bcc6ee3f` updated one and not the other. AGENTS.md also still says only tickets 11–31 are approved and that an implementation pause applies; ticket 32 and the rescue work came later.
 52. **"Resolved" items that are not** (per this audit): outline undo (item 1), guessed Cloudflare address (6), wrong-piece install (23), "CSP constrained with necessary hashes" (there are no hashes; the policy still allows inline styles and blocks the photo download, item 12).
 53. **Ticket 30 is marked "done"** while AGENTS.md says first launch on a second Mac must not be claimed without evidence. The CI job (`ci.yml` `separate-mac-launch`) runs the binary directly on a build machine; that skips Gatekeeper's quarantine, so it does not prove the download-and-open experience.
 54. **The ten `v1screenshots/` are staged, not real.** `scripts/capture-all-v1-screens.mjs:1010-1050` replaces the whole app backend with sample data (fake site, fake quality report, fake runs). README and RESCUE-PLAN present the visual upgrade as "verified on the packaged app". Label them as design renders or retake them from the real app.
-55. **README inaccuracies:** "check = type check and lint" (it also runs tests); "run on every push" (CI runs on pushes to `main` and on pull requests only); "This repository is the application only" in AGENTS.md vs 1.1 GB of research in `originalresearch/`.
+55. **FIXED 10 Nov — README inaccuracies:** "check = type check and lint" (it also runs tests); "run on every push" (CI runs on pushes to `main` and on pull requests only); "This repository is the application only" in AGENTS.md vs 1.1 GB of research in `originalresearch/`.
 56. **Glossary vs product wording.** `GLOSSARY.md` says use "Site", avoid "Project"; the menus, home screen and code say "Project" throughout. It also says avoid "blocks, templates"; the app has "starter templates". Pick one and update.
 57. **Outside-agent connection is shown in the Agent panel** (`AgentPanel.tsx:232-253`, address and code) although reverse control is "outside v1".
 58. **App UI breaks its own taste rule**: emoji as button icons (`PublishPanel.tsx:397`, `:414`).
@@ -291,7 +310,7 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 67. **`docs/rescue/reference-upload-manifest.json`** — 7.9 MB, 196,549 lines. Goes with item 66.
 68. **`icons/`** — 7 MB of source artwork (two 3–4 MB PNGs and an icon set) used by nothing; the app uses `build/icon.icns`.
 69. **`docs/checkpoints/documentation-audit.zip`** — a zip committed to Git.
-70. **Two overlapping plans in the root**: `upgrades.md` (31 KB) and `gemini-upgrades.md` (23 KB), both "complete", plus `RESCUE-PLAN.md` (58 KB). Archive the finished ones under `docs/`.
+70. **FIXED 10 Nov (moved to `docs/history/`) — Two overlapping plans in the root**: `upgrades.md` (31 KB) and `gemini-upgrades.md` (23 KB), both "complete", plus `docs/history/RESCUE-PLAN.md` (58 KB). Archive the finished ones under `docs/`.
 71. **`.scratch/`** — tickets 00–10 are still "needs-triage" months on; `next-session.md` and `finish-up-closure.md` are stale; screenshots and a 2,557-line JSON measurement are tracked.
 72. **Unused dependency**: `@electron-forge/plugin-auto-unpack-natives` (not in `forge.config.mts`).
 73. **Unused code**: `TEXT_FILES` (`actions.ts:119`), `clashNote` (`tastes.ts`), `defaultStoreDir` and `prepareDependenciesCollect` (`dependencies.ts`), `touchRecent` and `missingRecents` (`projects.ts`), `isDraftDue` (`draft-schedule.ts`), the `readFile`/`writeFileAtomic` re-export at the end of `edit.ts`, the hidden `<span className="url">` in `StatusBar.tsx`, and five unused styles in `index.css` (`inspector-add-label`, `inspector-add-select`, `inspector-add-style-row`, `inspector-section-toggle`, `inspector-select-wrap`).
@@ -307,12 +326,12 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 
 ## Suggested order of work
 
-1. Items 1–5 (untrue messages) — small, self-contained, high trust value.
-2. Items 9–11, 15 (file safety).
-3. Items 7, 8, 12 (content and photo saving).
-4. Item 51–55 (make the documents tell one true story) — do this before anyone else relies on them.
+1. ~~Items 1–5 (untrue messages).~~ Done 10 Nov.
+2. Items 9–11 and 15 (file safety).
+3. Items 7, 8 and 12 (content and photo saving).
+4. Items 52–54 and 56 (remaining document and wording mismatches).
 5. Item 14 (starter sites) — the first thing a new person sees.
 6. Items 32–33 (freezing), then the rest of P1.
 7. P3 clean-up, with item 66 decided before the repository goes public.
 
-None of this is authorised work yet. Under `AGENTS.md`, each fix needs Billy's go-ahead and a ticket.
+When an item is fixed, mark it here in the same commit and add a row to "Progress" saying what was actually run.

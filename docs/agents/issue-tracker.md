@@ -1,5 +1,7 @@
 # Issue tracker: Local Markdown
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../../fablefixes.md); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
+
 Issues and specs for this repo live as markdown files in `.scratch/`.
 
 ## Current effort
