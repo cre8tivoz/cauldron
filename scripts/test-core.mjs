@@ -2886,4 +2886,43 @@ test('fablefixes 7: a date field is saved as a date, never as quoted text', () =
   );
 });
 
+test('fablefixes 25: changed files with spaces, accents and renames are read exactly', () => {
+  const { repoState } = publishApi();
+  const { site, page } = publishFixture('status');
+  gitIn(site, ['mv', 'src/pages/index.astro', 'src/pages/home page.astro']);
+  fs.writeFileSync(path.join(site, 'src/pages/café menu.astro'), '<p>x</p>\n');
+  const files = repoState(site)
+    .changes.map((c) => `${c.status} ${c.file}`)
+    .sort();
+  assert.deepEqual(files, [
+    '?? src/pages/café menu.astro',
+    'R src/pages/index.astro → src/pages/home page.astro',
+  ]);
+  assert.equal(fs.existsSync(page), false);
+});
+
+test('fablefixes 25/81: the remote shown is the one a push would use, by name', () => {
+  const { repoState } = publishApi();
+  const { site } = publishFixture('remote');
+  assert.equal(repoState(site).remote, 'origin');
+  // Renaming keeps the branch's upstream, so the new name is the one shown.
+  assert.equal(gitIn(site, ['remote', 'rename', 'origin', 'studio']).status, 0);
+  assert.equal(repoState(site).remote, 'studio');
+  // Push-specific settings win over the upstream, as they do for `git push`.
+  gitIn(site, ['remote', 'add', 'mirror', path.join(site, 'mirror.git')]);
+  gitIn(site, ['config', 'remote.pushDefault', 'mirror']);
+  assert.equal(repoState(site).remote, 'mirror');
+  gitIn(site, ['config', 'branch.main.pushRemote', 'studio']);
+  assert.equal(repoState(site).remote, 'studio');
+  gitIn(site, ['config', '--unset', 'branch.main.pushRemote']);
+  gitIn(site, ['config', '--unset', 'remote.pushDefault']);
+  gitIn(site, ['remote', 'remove', 'mirror']);
+  // Two remotes and no upstream: nothing is chosen, and none is guessed.
+  gitIn(site, ['remote', 'add', 'backup', path.join(site, 'nowhere.git')]);
+  gitIn(site, ['branch', '--unset-upstream']);
+  const state = repoState(site);
+  assert.equal(state.hasRemote, true);
+  assert.equal(state.remote, null);
+});
+
 process.exitCode = failures ? 1 : 0;
