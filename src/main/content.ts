@@ -370,6 +370,20 @@ export function saveEntry(
     if (!/^-?\d+(\.\d+)?$/.test(change.value ?? ''))
       return { ok: false, problem: 'Enter a valid number.' };
     value = change.value!;
+  } else if (definition?.type === 'date') {
+    // z.date() needs a YAML date, and a quoted value is a string that fails
+    // the site's own schema. Only a plain ISO date or date-time is written.
+    if (
+      !/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(
+        change.value ?? '',
+      ) ||
+      Number.isNaN(Date.parse((change.value ?? '').replace(' ', 'T')))
+    )
+      return {
+        ok: false,
+        problem: 'Enter a date as YYYY-MM-DD (a time is optional).',
+      };
+    value = change.value!;
   } else if (definition?.type === 'boolean') {
     if (!/^(true|false)$/.test(change.value ?? ''))
       return { ok: false, problem: 'Enter true or false.' };

@@ -450,8 +450,9 @@ async function inspectPreviewError(): Promise<string | null> {
           }
           const title = document.title || '';
           const body = document.body ? document.body.innerText || '' : '';
+          // Only the dev server's own failure wording counts. A page that
+          // merely has "error" in its title is an ordinary page.
           if (
-            title.toLowerCase().includes('error') ||
             body.includes('Internal server error') ||
             body.includes('Failed to resolve import') ||
             body.includes('Rolldown failed to resolve import') ||
@@ -462,7 +463,7 @@ async function inspectPreviewError(): Promise<string | null> {
               l.includes('Failed to resolve import') ||
               l.includes('Rolldown failed') ||
               l.includes('Cannot find module') ||
-              l.toLowerCase().includes('error')
+              l.includes('Internal server error')
             );
             return errLine ? errLine.slice(0, 300) : (title || 'Preview load error');
           }
@@ -1960,7 +1961,7 @@ async function createPage(page: { path: string; title: string }) {
       : 'http://127.0.0.1:4321/';
   const baseUrl = state.server?.url ?? baseOrigin;
   const url = new URL(`/${clean}/`, baseUrl).href;
-  // Astro 6's route watcher is asynchronous. Wait for the new route, then
+  // Astro's route watcher is asynchronous. Wait for the new route, then
   // navigate once; loading its temporary 404 does not subscribe to HMR.
   let ready = false;
   for (let attempt = 0; attempt < 120; attempt++) {

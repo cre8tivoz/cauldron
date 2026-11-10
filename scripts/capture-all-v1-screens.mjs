@@ -376,7 +376,7 @@ const DIRECTIONS = RAW_DIRECTIONS.map((d) => ({
 const currentDirection = DIRECTIONS[0];
 
 const initialSite = {
-  root: '/Users/habibi/Projects/sunday-table',
+  root: '/Users/you/Projects/sunday-table',
   name: 'Sunday Table',
   astroVersion: '7.4.7',
   packageManager: 'pnpm',
@@ -928,7 +928,7 @@ try {
         projectsHome: async () => ({
           projects: [
             {
-              path: '/Users/habibi/Projects/sunday-table',
+              path: '/Users/you/Projects/sunday-table',
               name: 'Sunday Table',
               lastOpened: 'Just now',
               direction: 'Long Lunch',
@@ -936,7 +936,7 @@ try {
               ready: true,
             },
             {
-              path: '/Users/habibi/Projects/penta-studio',
+              path: '/Users/you/Projects/penta-studio',
               name: 'PeNtA Architecture',
               lastOpened: '2 hours ago',
               direction: 'The Edit',
@@ -944,7 +944,7 @@ try {
               ready: true,
             },
             {
-              path: '/Users/habibi/Projects/good-trade',
+              path: '/Users/you/Projects/good-trade',
               name: 'Good Trade Joinery',
               lastOpened: 'Yesterday',
               direction: 'Solid Ground',
@@ -1023,9 +1023,9 @@ try {
         },
         saveAssetImage: async () => ({ ok: true, path: '/images/test.jpg' }),
         mcpInfo: async () => ({ url: 'http://127.0.0.1:40123', code: 'cauldron-agent-active' }),
-        openSiteDialog: async () => ({ picked: '/Users/habibi/Projects/sunday-table' }),
+        openSiteDialog: async () => ({ picked: '/Users/you/Projects/sunday-table' }),
         openSite: async () => ({ site: window.__initialData.site }),
-        chooseProjectParent: async () => ({ cancelled: false, path: '/Users/habibi/Projects' }),
+        chooseProjectParent: async () => ({ cancelled: false, path: '/Users/you/Projects' }),
         createProject: async () => ({ ok: true, project: window.__initialData.site }),
         prepareDependencies: async () => ({ ok: true }),
         discardDrafts: async () => true,

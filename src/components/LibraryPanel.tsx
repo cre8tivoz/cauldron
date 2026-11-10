@@ -6,89 +6,6 @@ type Props = {
   onBack: () => void;
 };
 
-type AdditionalPiece = {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  licence: string;
-  previewSnippet: {
-    heading: string;
-    sub: string;
-    kicker?: string;
-    type?: string;
-  };
-};
-
-const ADDITIONAL_PIECES: AdditionalPiece[] = [
-  {
-    id: 'nav-simple',
-    name: 'Simple navigation bar',
-    category: 'Navigation',
-    description: 'Logo, 4 links, and one prominent call-to-action button.',
-    licence: 'MIT · Plain Astro',
-    previewSnippet: {
-      kicker: 'GUM & GRAIN',
-      heading: 'About · Services · Work · Contact',
-      sub: 'Clean single bar header for service businesses.',
-      type: 'nav',
-    },
-  },
-  {
-    id: 'hero-split-image',
-    name: 'Split headline + image',
-    category: 'Heroes',
-    description: 'Balanced 2-column hero: strong headline, copy, and visual.',
-    licence: 'MIT · Plain Astro',
-    previewSnippet: {
-      kicker: 'MELBOURNE BUILDERS',
-      heading: 'Good homes, made to last.',
-      sub: 'Renovations and honest craftsmanship.',
-      type: 'split',
-    },
-  },
-  {
-    id: 'proof-quote-wall',
-    name: 'Testimonial quote wall',
-    category: 'Proof & Testimonials',
-    description: 'Three honest client reflections without confusing carousels.',
-    licence: 'MIT · Plain Astro',
-    previewSnippet: {
-      kicker: 'KIND WORDS',
-      heading: '“Thoughtful from first chat to last detail.”',
-      sub: 'Alex, Carlton · Sam, Northcote',
-      type: 'quote',
-    },
-  },
-  {
-    id: 'services-grid',
-    name: 'Flat services grid',
-    category: 'Services',
-    description:
-      'Three scannable services with numbers and straightforward scope.',
-    licence: 'MIT · Plain Astro',
-    previewSnippet: {
-      kicker: 'WHAT WE DO',
-      heading: '01 / Physiotherapy  02 / Sports rehab',
-      sub: 'Clear answers and a plan that fits your day.',
-      type: 'services',
-    },
-  },
-  {
-    id: 'contact-form',
-    name: 'Project enquiry form',
-    category: 'Contact & FAQ',
-    description: 'Clean conversion form with name, email, and project scope.',
-    licence: 'MIT · Plain Astro',
-    previewSnippet: {
-      kicker: 'START A CONVERSATION',
-      heading: 'Tell us what you’re dreaming of.',
-      sub: 'Name, email, and notes on your space.',
-      type: 'contact',
-    },
-  },
-];
-
 const CATEGORIES = [
   'Featured 5',
   'Navigation',
@@ -97,18 +14,6 @@ const CATEGORIES = [
   'Proof & Testimonials',
   'Contact & FAQ',
   'Footers',
-];
-
-const CURATED_LINKS = [
-  { name: 'Unsection', url: 'https://unsection.com' },
-  { name: 'Lander blocks', url: 'https://landerblocks.com' },
-  { name: 'Gradient Deck', url: 'https://gradientdeck.com' },
-  { name: 'mkdir.directory', url: 'https://mkdir.directory' },
-  { name: 'Subframe Motion', url: 'https://subframe.com' },
-  { name: 'Prompt Motion', url: 'https://promptmotion.com' },
-  { name: 'React Bits', url: 'https://reactbits.dev' },
-  { name: 'OriginKit', url: 'https://originkit.com' },
-  { name: 'Lexington Themes', url: 'https://lexingtonthemes.com' },
 ];
 
 /**
@@ -168,14 +73,16 @@ export function LibraryPanel({ site, onBack }: Props) {
     pieceName: string,
     mode: 'add' | 'replace' = 'add',
   ) => {
-    // If it's one of the extra category pieces not in starter set, map to closest starter or add
-    const targetId = pieces.some((p) => p.id === pieceId)
-      ? pieceId
-      : 'editorial-intro';
+    // Only a piece the catalogue really has can be added. Anything else is
+    // refused out loud; it is never swapped for a different piece.
+    if (!pieces.some((p) => p.id === pieceId)) {
+      setMessage(`${pieceName} is not in the component library.`);
+      return;
+    }
     setBusy(pieceId);
     setMessage(null);
     const result = await window.cauldron.addPiece({
-      pieceId: targetId,
+      pieceId,
       page,
       mode,
       replaceSelector: mode === 'replace' ? replaceTag.trim() : undefined,
@@ -525,10 +432,7 @@ export function LibraryPanel({ site, onBack }: Props) {
           return false;
         });
 
-  const displayPieces =
-    filteredPieces.length > 0
-      ? filteredPieces
-      : ADDITIONAL_PIECES.filter((p) => p.category === category);
+  const displayPieces = filteredPieces;
 
   return (
     <div
@@ -540,7 +444,8 @@ export function LibraryPanel({ site, onBack }: Props) {
         <div className="library-title-group">
           <h2 className="library-heading">Components</h2>
           <span className="library-subtitle">
-            Five pieces, plain Astro, built on the site's design direction.
+            {pieceList.length} piece{pieceList.length === 1 ? '' : 's'}, plain
+            Astro, built on the site's design direction.
           </span>
         </div>
 
@@ -689,25 +594,23 @@ export function LibraryPanel({ site, onBack }: Props) {
         </div>
 
         <div className="links-shelf-row">
-          {(links.length > 0 ? links : CURATED_LINKS).map(
-            (link, index, arr) => (
-              <span key={link.name} className="link-shelf-item">
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="link-shelf-anchor"
-                >
-                  {link.name}
-                </a>
-                {index < arr.length - 1 ? (
-                  <span className="link-divider" aria-hidden="true">
-                    |
-                  </span>
-                ) : null}
-              </span>
-            ),
-          )}
+          {links.map((link, index, arr) => (
+            <span key={link.name} className="link-shelf-item">
+              <a
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="link-shelf-anchor"
+              >
+                {link.name}
+              </a>
+              {index < arr.length - 1 ? (
+                <span className="link-divider" aria-hidden="true">
+                  |
+                </span>
+              ) : null}
+            </span>
+          ))}
         </div>
       </div>
     </div>

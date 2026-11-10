@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { builtinModules } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -267,19 +267,6 @@ export function prepareDependenciesCollect(options: {
       });
     }, options.timeoutMs ?? 600000);
   });
-}
-
-/** The store location a given pnpm would use by default (for display only). */
-export function defaultStoreDir(pnpmPath?: string): string | null {
-  const pnpm = pnpmPath ?? resolveToolPath('pnpm');
-  if (!pnpm) return null;
-  const result = spawnSync(pnpm, ['store', 'path'], {
-    encoding: 'utf8',
-    timeout: 15000,
-    env: childEnvForTools({ ...process.env, NO_COLOR: '1' }),
-  });
-  const out = result.stdout?.trim();
-  return result.status === 0 && out ? out : null;
 }
 
 /**

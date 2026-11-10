@@ -5,7 +5,7 @@ import { ipcRenderer } from 'electron';
 
 let picking = true;
 
-// Astro 6 moves its annotations into the toolbar's private WeakMap after load.
+// Astro (6 and later) moves its annotations into the toolbar's private WeakMap after load.
 // Preserve the compiler's original annotations under our own DOM names first;
 // never restore Astro's names or interfere with its toolbar.
 const annotations = ['data-astro-source-file', 'data-astro-source-loc'];

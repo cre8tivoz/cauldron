@@ -28,9 +28,6 @@ export function StatusBar({ message, url, running, siteName }: Props) {
             <span>{siteName}</span>
           </span>
         ) : null}
-        <span className="url" style={{ display: 'none' }}>
-          {running && url ? url : ''}
-        </span>
       </span>
     </footer>
   );

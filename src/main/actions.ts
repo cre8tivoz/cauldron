@@ -116,7 +116,10 @@ export type ActionProblem = {
 };
 export type ActionResult = ActionOk | ActionProblem;
 
-const TEXT_FILES = /\.(astro|md|mdx|html|css|ts|tsx|js)$/;
+/** Where an element edit may land: files that hold markup. */
+const MARKUP_FILES = /\.(astro|html|md|mdx)$/i;
+/** Where a CSS rule edit may land. */
+const STYLE_FILES = /\.(css|astro)$/i;
 
 /**
  * Whole-site briefs need to write page, layout and component markup, plus the
@@ -605,21 +608,40 @@ export function setPageSectionAnchor(
   }
 
   const target = blocks[sectionIndex];
-  const slice = text.slice(target.start, target.end);
   const cleanAnchor = anchorId.replace(/^#+/, '').trim();
-
-  let updatedSlice = slice;
-  if (/\bid=["'][^"']*["']/.test(slice)) {
-    updatedSlice = slice.replace(/\bid=["'][^"']*["']/, `id="${cleanAnchor}"`);
-  } else {
-    updatedSlice = slice.replace(
-      new RegExp(`^<${target.tag}(\\s|>)`),
-      `<${target.tag} id="${cleanAnchor}"$1`,
-    );
+  // The anchor is written into markup, so only a plain id is accepted.
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(cleanAnchor)) {
+    return {
+      ok: false,
+      problem:
+        'An anchor starts with a letter and uses only letters, numbers, dashes and underscores.',
+    };
   }
 
-  const newText =
-    text.slice(0, target.start) + updatedSlice + text.slice(target.end);
+  // Only the section's own opening tag is touched: an id (or data-id) on
+  // something inside the section is never the section's anchor.
+  const tag = parseTag(text, target.start);
+  if (!tag) return { ok: false, problem: 'That section could not be read.' };
+  const existing = tag.attributes.find((attribute) => attribute.name === 'id');
+  if (existing && !existing.quote && existing.value?.startsWith('{')) {
+    return {
+      ok: false,
+      problem:
+        'This section sets its id with an Astro expression. Edit its source instead.',
+    };
+  }
+  let newText: string;
+  if (existing) {
+    const quote = existing.quote || '"';
+    newText =
+      text.slice(0, existing.start) +
+      `id=${quote}${cleanAnchor}${quote}` +
+      text.slice(existing.end);
+  } else {
+    const insertAt = tag.start + 1 + tag.name.length;
+    newText =
+      text.slice(0, insertAt) + ` id="${cleanAnchor}"` + text.slice(insertAt);
+  }
   writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(
@@ -758,6 +780,12 @@ function writeChecked(
   const full = insideSite(root, file);
   if (!full)
     return { ok: false, problem: 'That file is not inside the open site.' };
+  if (!MARKUP_FILES.test(full))
+    return {
+      ok: false,
+      problem:
+        'Elements can only be edited in .astro, .html, .md or .mdx files.',
+    };
   if (!fs.existsSync(full))
     return { ok: false, problem: 'That file no longer exists.' };
 
@@ -804,6 +832,16 @@ export function editCssRule(
   const full = insideSite(root, file);
   if (!full)
     return { ok: false, problem: 'That file is not inside the open site.' };
+  // A CSS rule belongs in a stylesheet, or in a page or component that
+  // carries its own <style>. Anything else (package.json, config, scripts)
+  // would be corrupted by one.
+  if (!STYLE_FILES.test(full))
+    return {
+      ok: false,
+      problem: 'CSS rules can only be edited in .css or .astro files.',
+    };
+  if (!fs.existsSync(full))
+    return { ok: false, problem: 'That file no longer exists.' };
   const disk = readFile(full);
   if (disk.hash !== baseHash) {
     return {
@@ -1053,5 +1091,3 @@ export function actionCatalogue(): Array<{ name: string; what: string }> {
     },
   ];
 }
-
-export { TEXT_FILES };

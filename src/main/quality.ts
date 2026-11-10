@@ -324,33 +324,7 @@ const PAGE_PROBE = `(async () => {
   // events in taste-check.ts, because programmatic focus cannot see
   // :focus-visible. Nothing is sampled for them here.
 
-  // Type and colour, to compare with the site's direction
-  result.type = [...new Set([...document.querySelectorAll('h1, h2, h3, p, button, a')]
-    .filter(visible)
-    .map((el) => Math.round(Number.parseFloat(getComputedStyle(el).fontSize) * 100) / 100))].sort((a, b) => a - b);
-  result.families = [...new Set([...document.querySelectorAll('h1, h2, h3, p, button')]
-    .filter(visible)
-    .map((el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/["']/g, '').trim()))];
-  result.colours = [...new Set([...document.querySelectorAll('body *')]
-    .filter((el) => visible(el))
-    .map((el) => getComputedStyle(el).color + '|' + getComputedStyle(el).backgroundColor))].slice(0, 80);
-
-  // Spacing rhythm and hierarchy, for the taste checks
-  const spacingValues = new Set();
-  for (const el of [...document.querySelectorAll('body *')].slice(0, 400)) {
-    if (!visible(el)) continue;
-    const style = getComputedStyle(el);
-    for (const value of [
-      style.marginTop, style.marginBottom, style.marginLeft, style.marginRight,
-      style.paddingTop, style.paddingBottom, style.paddingLeft, style.paddingRight,
-      style.rowGap, style.columnGap,
-    ]) {
-      const number = Math.round(Number.parseFloat(value));
-      if (number > 0) spacingValues.add(number);
-    }
-  }
-  result.spacing = [...spacingValues].sort((a, b) => a - b);
-
+  // Hierarchy, for the taste checks
   const headingSizes = {};
   // The hierarchy check compares visible sizes. A heading whose only text is
   // visually hidden (screen-reader-only span, or an SVG wordmark whose glyphs
@@ -386,40 +360,6 @@ const PAGE_PROBE = `(async () => {
     ? [...sizeCounts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
     : 0;
   result.hierarchy = { headingSizes, bodySize };
-
-  // The taste anti-patterns, checked rather than assumed
-  const all = [...document.querySelectorAll('body *')].filter(visible);
-  result.pureBlack = all.filter((el) => {
-    const background = getComputedStyle(el).backgroundColor;
-    return background === 'rgb(0, 0, 0)' || getComputedStyle(el).color === 'rgb(0, 0, 0)';
-  }).length;
-
-  const cardLike = (el) => {
-    const style = getComputedStyle(el);
-    const radius = Number.parseFloat(style.borderTopLeftRadius) || 0;
-    const background = style.backgroundColor;
-    const hasBackground = background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent';
-    const hasBorder = Number.parseFloat(style.borderTopWidth) > 0;
-    return (hasBackground || hasBorder) && radius > 0;
-  };
-  result.cardsInCards = all.filter((el) => cardLike(el) && el.parentElement && cardLike(el.parentElement)).length;
-
-  const gradientTrouble = [];
-  for (const el of all.slice(0, 300)) {
-    const image = getComputedStyle(el).backgroundImage;
-    if (!image || !image.includes('gradient')) continue;
-    const stops = [...image.matchAll(/rgba?(([^)]+))/g)].map((m) => m[1].split(',').map(Number));
-    const blue = stops.filter(([, , b]) => b > 120);
-    const reddish = stops.filter(([r, , b]) => r > 90 && b > 90);
-    if (blue.length >= 2 && reddish.length >= 1) {
-      const hues = stops.map(([r, g, b]) => ({ r, g, b }));
-      const purple = hues.filter(({ r, g, b }) => b > 110 && r > 60 && r < 150 && g < 110);
-      if (purple.length >= 1) {
-        gradientTrouble.push(el.tagName.toLowerCase());
-      }
-    }
-  }
-  result.bluePurpleGradients = gradientTrouble.length;
 
   // Links
   result.links = [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')).filter(Boolean);
@@ -871,7 +811,7 @@ export async function checkSite(options: {
       status: 'info',
       kind: 'opinion',
       detail:
-        'No automatic measurement can decide whether a page feels generic. Camillo or Billy reviews the built page (approved taste test 4.1 #13).',
+        'No automatic measurement can decide whether a page feels generic. Look at the built page yourself and decide.',
     });
     // The run's own output, judged against the site's tokens (ticket 24). The
     // whole-site findings above stay as diagnostics; these are the ones that

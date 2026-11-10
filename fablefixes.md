@@ -6,12 +6,13 @@ This is Cauldron's single list of what is broken, what has been fixed and what c
 
 ## Progress
 
-| Date   | Items                  | What changed                                                                                                                             | What was run                                                                                                                           |
-| ------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 10 Nov | 1, 2, 3, 4, 5          | Untrue messages removed: outline undo, status bar, placeholder site name, content "Saved" tick, publish result.                          | Type check, lint, unit suites, renderer build. **Not run:** the packaged Mac app. Each needs a quick look in the real app (see items). |
-| 10 Nov | 51, 55, 70, part of 71 | Documents aligned: `AGENTS.md` rewritten as the entry point, old plans moved to `docs/history/` and marked historical, README corrected. | Format check.                                                                                                                          |
+| Date   | Items                                                                        | What changed                                                                                                                                   | What was run                                                                                                                           |
+| ------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 10 Nov | 1, 2, 3, 4, 5                                                                | Untrue messages removed: outline undo, status bar, placeholder site name, content "Saved" tick, publish result.                                | Type check, lint, unit suites, renderer build. **Not run:** the packaged Mac app. Each needs a quick look in the real app (see items). |
+| 10 Nov | 51, 55, 70, part of 71                                                       | Documents aligned: `AGENTS.md` rewritten as the entry point, old plans moved to `docs/history/` and marked historical, README corrected.       | Format check.                                                                                                                          |
+| 10 Nov | 7, 9, 10, 19, 23, 29, 36, 37, 42, 58, 59, 60, 62, 75; part of 40, 73, 74, 76 | Small fixes: three ways to damage a site closed, phantom components removed, false build errors, safe recovery writes, strict lint, dead code. | Type check, lint (now strict, clean), unit suites (3 new tests), renderer build. **Not run:** the packaged Mac app.                    |
 
-**Fixed so far: 8 of 80.** Open items keep their original wording below. Fixed items are marked **FIXED**.
+**Fixed so far: 22 of 80, plus 4 partly fixed.** Open items keep their original wording below. Fixed items are marked **FIXED**.
 
 ## How to read this
 
@@ -96,7 +97,9 @@ The delete prompt (`PageOutline.tsx:221`) tells the person "You can undo with �
 
 **Fix:** report the real error text, never guess an address, do not write files without consent, and either finish the feature or relabel the button "Build for Cloudflare (setup needed)". `docs/history/RESCUE-PLAN.md` "Park" section already says real deploy needs separate authorisation.
 
-### 7. Saving a date in the content form breaks the site [Tested]
+### FIXED — 7. Saving a date in the content form breaks the site [Tested]
+
+> **Fixed 10 Nov.** Date fields are written as plain dates after a format check; anything else is refused. Unit test added.
 
 For a `z.date()` field, the form saves `pubDate: "2026-02-02"` (quoted text). Astro then rejects it because it expects a date, so the site stops building. `src/main/content.ts:368` quotes everything that is not a number or true/false.
 
@@ -108,7 +111,9 @@ Each field has its own Save button. After a save, `ContentPanel.tsx` reloads the
 
 **Fix:** keep unsaved values for other fields when reloading, or use one Save for the whole form.
 
-### 9. Section anchors land on the wrong element and accept broken text [Tested]
+### FIXED — 9. Section anchors land on the wrong element and accept broken text [Tested]
+
+> **Fixed 10 Nov.** Only the section's own opening tag is edited, and anchors must be a plain id (letters, numbers, dashes, underscores). Unit test added.
 
 `src/main/actions.ts:612-618`:
 
@@ -117,7 +122,9 @@ Each field has its own Save button. After a save, `ContentPanel.tsx` reloads the
 
 **Fix:** only edit the section's own opening tag using the existing tag parser, and allow letters, numbers, dashes and underscores only.
 
-### 10. An agent can corrupt any file in the site through "edit CSS rule" [Tested]
+### FIXED — 10. An agent can corrupt any file in the site through "edit CSS rule" [Tested]
+
+> **Fixed 10 Nov.** `editCssRule` is limited to `.css` and `.astro`; element edits to `.astro`, `.html`, `.md`, `.mdx`. Unit test added.
 
 `editCssRule` (`src/main/actions.ts:796-847`) only checks the file is inside the site. It is not limited to CSS files. In the test it appended CSS text to `package.json` and left it invalid. The same gap applies to the element edit actions. `TEXT_FILES` at `:119` looks like the intended guard but is never used. This defeats the "narrower than a filesystem tool" rule stated at `:121-127`.
 
@@ -183,7 +190,9 @@ The brief lists 15 actions in camelCase (`actionCatalogue`, `actions.ts:1010-105
 
 **Fix:** read aliases from `tsconfig.json`, and trust a real build over the text scan.
 
-### 19. A page with "error" in its title is treated as a broken build [Read]
+### FIXED — 19. A page with "error" in its title is treated as a broken build [Read]
+
+> **Fixed 10 Nov.** The page title is no longer used; only the dev server's own failure wording counts.
 
 `inspectPreviewError` (`src/main/index.ts:451-468`) flags any page whose title contains "error".
 
@@ -207,7 +216,9 @@ The brief lists 15 actions in camelCase (`actionCatalogue`, `actions.ts:1010-105
 
 **Fix:** either persist enough to undo, or say clearly in the UI that undo lasts for this session only. The welcome text "Every run is verified and can be undone cleanly" (`AgentPanel.tsx:310`) overstates it.
 
-### 23. Component screen has five phantom pieces that install the wrong thing [Read]
+### FIXED — 23. Component screen has five phantom pieces that install the wrong thing [Read]
+
+> **Fixed 10 Nov.** The phantom list and its wrong-piece fallback are deleted, an unknown piece is refused out loud, the heading counts the real pieces, and the links shelf uses the real list (the fallback list had wrong addresses). Still open: the tiles are hand-drawn previews, not the real piece.
 
 `LibraryPanel.tsx:23-90` lists five pieces (`nav-simple`, `hero-split-image`, `contact-form`, `proof-quote-wall`, `services-grid`) that do not exist in the catalogue. If shown (when a category is empty or the library fails to load), "Add" installs "Editorial intro" and reports the other name (`:174-177`). `docs/history/RESCUE-PLAN.md` says this class of bug is fixed.
 
@@ -241,7 +252,9 @@ Every new project is created as pnpm-only, pinned to `pnpm@10.34.2` — "as inst
 
 **Fix:** decide one supported path (npm ships with Node) or offer a consent-gated pnpm setup.
 
-### 29. Design notes still name the font packages the agent must not use [Read]
+### FIXED — 29. Design notes still name the font packages the agent must not use [Read]
+
+> **Fixed 10 Nov.** `DESIGN.md` no longer prints `@fontsource/...` package names.
 
 `DESIGN.md` prints each font with its `@fontsource/...` package name (`directions.ts:813-815`) two lines above "never import @fontsource". This is the exact confusion behind the tinydogs failure.
 
@@ -265,16 +278,16 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 33. **Every agent job reads the whole site into memory twice** (`runs.ts:67-93`), including all images, and keeps both copies for the rest of the session. Only `node_modules`, `dist`, `.git`, `.astro`, `.vercel` are skipped. Fix: hash files instead of holding them, drop old snapshots, skip more build folders.
 34. **Test evidence recorder never empties.** `mcpToolCalls` (`index.ts:2201`) and `calls` (`mcp.ts:35`) store every agent tool call, including whole file contents, forever.
 35. **Quality check is slow by design**: three widths × every page × fixed waits per control (`taste-check.ts:503-572`). It also checks text contrast twice with two different sets of code (`quality.ts` and `taste-check.ts`), which can disagree.
-36. **Dead work in the quality probe.** `quality.ts:328-352` and `:391-422` compute fonts, colours, spacing, pure black, cards-in-cards and gradients on every page and never use them. The gradient pattern at `:411` is also broken (colour values parse as `NaN`). **[Tested]** Delete.
-37. **A failed login-shell lookup is retried every time** (up to 5 s each, blocking) because failures are not cached (`runtime.ts:126-133`).
+36. **FIXED 10 Nov (deleted) — Dead work in the quality probe.** `quality.ts:328-352` and `:391-422` compute fonts, colours, spacing, pure black, cards-in-cards and gradients on every page and never use them. The gradient pattern at `:411` is also broken (colour values parse as `NaN`). **[Tested]** Delete.
+37. **FIXED 10 Nov (failures are cached too) — A failed login-shell lookup is retried every time** (up to 5 s each, blocking) because failures are not cached (`runtime.ts:126-133`).
 38. **Google Fonts are loaded at every app start** for 25 families (`index.html:9-14`) as a blocking stylesheet. README says the interface uses bundled Source Sans 3. Offline or on a slow network this delays or degrades the design screen. Fix: bundle the specimen fonts or load them only on the Design screen.
 39. **Pre-commit hook packages the whole app on every commit** (`.githooks/pre-commit`). Minutes per commit invites `--no-verify`. Consider check-only locally and smoke in CI.
 
 ### Fragile
 
-40. **Crash-recovery file is not written safely** (`recovery.ts:35-46`): a crash mid-write can corrupt the very file meant to survive crashes. Same for `mcp-codes.json` (`mcp.ts:86`), run undo writes (`runs.ts`), library add (`library.ts:591-595`) and new pages. Use the existing `writeFileAtomic`.
+40. **PARTLY FIXED 10 Nov (recovery file and `mcp-codes.json` now written safely; run undo, library add and new pages still open) — Crash-recovery file is not written safely** (`recovery.ts:35-46`): a crash mid-write can corrupt the very file meant to survive crashes. Same for `mcp-codes.json` (`mcp.ts:86`), run undo writes (`runs.ts`), library add (`library.ts:591-595`) and new pages. Use the existing `writeFileAtomic`.
 41. **All unexpected errors are swallowed and the app keeps running** (`index.ts:2748`); promise rejections are not handled at all.
-42. **`togglePreview` can lock the toolbar** if the call throws (`App.tsx:332-342`, no `finally`).
+42. **FIXED 10 Nov — `togglePreview` can lock the toolbar** if the call throws (`App.tsx:332-342`, no `finally`).
 43. **Library "Add" reuses any existing file of the same name** (`library.ts:591`): if the site already has `Footer.astro`, the piece is not written but the app says it was added.
 44. **Preview window has no pop-up or permission rules** (`src/main/preview.ts`). A `target="_blank"` link opens a bare Electron window; camera/location requests are auto-granted by Electron's default.
 45. **Agent job has no time limit.** A hung agent blocks opening another project until cancelled. Hermes can wait up to 90 s + 220 s before starting (`index.ts:1098-1141`).
@@ -293,11 +306,11 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 55. **FIXED 10 Nov — README inaccuracies:** "check = type check and lint" (it also runs tests); "run on every push" (CI runs on pushes to `main` and on pull requests only); "This repository is the application only" in AGENTS.md vs 1.1 GB of research in `originalresearch/`.
 56. **Glossary vs product wording.** `GLOSSARY.md` says use "Site", avoid "Project"; the menus, home screen and code say "Project" throughout. It also says avoid "blocks, templates"; the app has "starter templates". Pick one and update.
 57. **Outside-agent connection is shown in the Agent panel** (`AgentPanel.tsx:232-253`, address and code) although reverse control is "outside v1".
-58. **App UI breaks its own taste rule**: emoji as button icons (`PublishPanel.tsx:397`, `:414`).
-59. **Internal names in user-facing text**: "Camillo or Billy reviews the built page" (`quality.ts:874`).
-60. **Stale comments**: "Astro 6" (`index.ts:1963`, `preview/preload.ts:8`) while the app pins Astro 7.4.7; "Five pieces" in `library.ts:7`.
+58. **FIXED 10 Nov — App UI breaks its own taste rule**: emoji as button icons (`PublishPanel.tsx:397`, `:414`).
+59. **FIXED 10 Nov — Internal names in user-facing text**: "Camillo or Billy reviews the built page" (`quality.ts:874`).
+60. **FIXED 10 Nov — Stale comments**: "Astro 6" (`index.ts:1963`, `preview/preload.ts:8`) while the app pins Astro 7.4.7; "Five pieces" in `library.ts:7`.
 61. **Three copies of the contrast maths** (`contrast.ts`, `taste-change.ts`, inline in `taste-check.ts`) and two `parseColour` functions.
-62. **Lint can never fail on correctness**: `.oxlintrc.json` sets the correctness rules to "warn". Four warnings stand today.
+62. **FIXED 10 Nov (rules set to "error"; the four warnings are fixed) — Lint can never fail on correctness**: `.oxlintrc.json` sets the correctness rules to "warn". Four warnings stand today.
 63. **Most recorded proofs are not re-run by anyone.** `npm test`/CI runs three unit scripts. The 19 in-app proof runs in `src/main/e2e.ts`, plus `test:projects`, `test:projects:ui` and `test-project-navigation.mjs`, are manual only, so the features they proved can regress unnoticed.
 64. **Hand-written type file** (`src/declarations.d.ts`, 511 lines) duplicates the preload API by hand. Drift between the two is how item 1 slipped through the type check.
 
@@ -313,10 +326,10 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 70. **FIXED 10 Nov (moved to `docs/history/`) — Two overlapping plans in the root**: `upgrades.md` (31 KB) and `gemini-upgrades.md` (23 KB), both "complete", plus `docs/history/RESCUE-PLAN.md` (58 KB). Archive the finished ones under `docs/`.
 71. **`.scratch/`** — tickets 00–10 are still "needs-triage" months on; `next-session.md` and `finish-up-closure.md` are stale; screenshots and a 2,557-line JSON measurement are tracked.
 72. **Unused dependency**: `@electron-forge/plugin-auto-unpack-natives` (not in `forge.config.mts`).
-73. **Unused code**: `TEXT_FILES` (`actions.ts:119`), `clashNote` (`tastes.ts`), `defaultStoreDir` and `prepareDependenciesCollect` (`dependencies.ts`), `touchRecent` and `missingRecents` (`projects.ts`), `isDraftDue` (`draft-schedule.ts`), the `readFile`/`writeFileAtomic` re-export at the end of `edit.ts`, the hidden `<span className="url">` in `StatusBar.tsx`, and five unused styles in `index.css` (`inspector-add-label`, `inspector-add-select`, `inspector-add-style-row`, `inspector-section-toggle`, `inspector-select-wrap`).
-74. **Duplicate data in the screens**: `STARTER_FALLBACK` (`ProjectHome.tsx:3`) repeats `STARTER_TEMPLATES`; `CURATED_LINKS` (`LibraryPanel.tsx:102`) repeats `LINKS_SHELF`.
-75. **Personal paths are back** in `scripts/capture-all-v1-screens.mjs` (`/Users/habibi/...`, six places) after the commit that said they were all removed. They are display data only.
-76. **`.gitignore` is a generic template** (Next.js, Gatsby, Serverless, DynamoDB…) and lacks `.DS_Store`, which AGENTS.md says to exclude.
+73. **PARTLY FIXED 10 Nov (removed: `TEXT_FILES`, `clashNote`, `defaultStoreDir`, the `edit.ts` re-export, the hidden span, the five styles; the rest are still used by tests) — Unused code**: `TEXT_FILES` (`actions.ts:119`), `clashNote` (`tastes.ts`), `defaultStoreDir` and `prepareDependenciesCollect` (`dependencies.ts`), `touchRecent` and `missingRecents` (`projects.ts`), `isDraftDue` (`draft-schedule.ts`), the `readFile`/`writeFileAtomic` re-export at the end of `edit.ts`, the hidden `<span className="url">` in `StatusBar.tsx`, and five unused styles in `index.css` (`inspector-add-label`, `inspector-add-select`, `inspector-add-style-row`, `inspector-section-toggle`, `inspector-select-wrap`).
+74. **PARTLY FIXED 10 Nov (`CURATED_LINKS` removed; `STARTER_FALLBACK` still open) — Duplicate data in the screens**: `STARTER_FALLBACK` (`ProjectHome.tsx:3`) repeats `STARTER_TEMPLATES`; `CURATED_LINKS` (`LibraryPanel.tsx:102`) repeats `LINKS_SHELF`.
+75. **FIXED 10 Nov — Personal paths are back** in `scripts/capture-all-v1-screens.mjs` (`/Users/habibi/...`, six places) after the commit that said they were all removed. They are display data only.
+76. **PARTLY FIXED 10 Nov (`.DS_Store` added; template not trimmed) — `.gitignore` is a generic template** (Next.js, Gatsby, Serverless, DynamoDB…) and lacks `.DS_Store`, which AGENTS.md says to exclude.
 77. **`.github/ISSUE_TEMPLATE/task.yml`** exists though the project uses the local Markdown tracker.
 78. **Menu items to review**: View → Reload and Toggle Developer Tools are available in the released app (Reload discards unsaved typing); Help → "Cauldron on GitHub" opens a private repository.
 79. **Hundreds of inline styles** in the components (for example `Inspector.tsx:117-190`), next to a 2,535-line `index.css`. Low priority; makes the look harder to keep consistent.
@@ -327,8 +340,8 @@ With CRLF line endings the front matter is scanned as markup (`actions.ts:349-35
 ## Suggested order of work
 
 1. ~~Items 1–5 (untrue messages).~~ Done 10 Nov.
-2. Items 9–11 and 15 (file safety).
-3. Items 7, 8 and 12 (content and photo saving).
+2. Items 11 and 15 (the rest of file safety; 9 and 10 are done).
+3. Items 8 and 12 (content and photo saving; 7 is done).
 4. Items 52–54 and 56 (remaining document and wording mismatches).
 5. Item 14 (starter sites) — the first thing a new person sees.
 6. Items 32–33 (freezing), then the rest of P1.

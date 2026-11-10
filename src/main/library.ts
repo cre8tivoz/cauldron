@@ -4,7 +4,8 @@ import { isInside } from './files';
 import { EXTENDED_LIBRARY } from './library-pieces';
 
 /**
- * The starter component library (plan 4.3). Five pieces, built on the direction's
+ * The starter component library (plan 4.3). Five starter pieces here (more in
+ * library-pieces.ts), built on the direction's
  * tokens, written as plain Astro so a site stays light. The look comes from ThreeUI
  * Community (MIT, Meng To); the code here is Cauldron's own plain-Astro version.
  * Everything else Billy uses is a link, because its licence does not allow copying.
