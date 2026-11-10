@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircleIcon, GitBranchIcon, ZipArchiveIcon } from './Icons';
+import { GitBranchIcon, ZipArchiveIcon } from './Icons';
 
 type Props = {
   site: CauldronSite | null;
@@ -136,6 +136,128 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
 
   const projectName = site?.name ?? 'No site open';
 
+  // Export and Cloudflare do not need Git, so this card is shown for any open
+  // site, not only a Git repository (fablefixes 25).
+  const productionCard = (
+    <div className="publish-sidebar-card" style={{ marginTop: 14 }}>
+      <h3 className="sidebar-card-title">Production & Cloudflare</h3>
+      <p
+        style={{
+          fontSize: 12,
+          color: 'var(--muted)',
+          margin: '4px 0 12px 0',
+          lineHeight: 1.4,
+        }}
+      >
+        1-click export to pure static HTML/CSS, or stage directly for Cloudflare
+        Pages edge hosting.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          type="button"
+          className="button"
+          disabled={exporting || deploying}
+          onClick={handleExportStatic}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            fontSize: 12,
+          }}
+        >
+          {exporting ? 'Building dist/…' : 'Build Static Site (dist/)'}
+        </button>
+        <button
+          type="button"
+          className="button primary"
+          disabled={exporting || deploying}
+          onClick={handleDeployCloudflare}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            fontSize: 12,
+          }}
+        >
+          {deploying
+            ? 'Deploying to Cloudflare…'
+            : 'Deploy to Cloudflare Pages'}
+        </button>
+      </div>
+
+      {deployResult && (
+        <div
+          className={`notice ${deployResult.ok ? 'good' : 'bad'}`}
+          style={{ marginTop: 10, fontSize: 11, padding: '8px 10px' }}
+        >
+          {deployResult.message}
+          {deployResult.ok && deployResult.url && (
+            <div style={{ marginTop: 6, fontWeight: 600 }}>
+              Live Edge Preview:{' '}
+              <a
+                href={deployResult.url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  color: 'inherit',
+                  textDecoration: 'underline',
+                }}
+              >
+                {deployResult.url} ↗
+              </a>
+            </div>
+          )}
+          {!deployResult.ok && (
+            <div
+              style={{
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <span
+                style={{
+                  alignSelf: 'flex-start',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  color: '#f87171',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                Coming Soon / Setup Required
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: 'var(--muted)',
+                  lineHeight: 1.35,
+                }}
+              >
+                To deploy directly to Cloudflare Pages, run{' '}
+                <code className="mono">npx wrangler login</code> in your
+                terminal or configure{' '}
+                <code className="mono">CLOUDFLARE_API_TOKEN</code> in your
+                environment. In the meantime, your static site is built and
+                ready in the <code className="mono">dist/</code> folder.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
       className="pane-body publish-panel-container"
@@ -172,6 +294,12 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
         </div>
       ) : null}
 
+      {site && state && !state.isRepo ? (
+        <div className="publish-sidebar-column" style={{ maxWidth: 480 }}>
+          {productionCard}
+        </div>
+      ) : null}
+
       {/* 2-Column Split Upper Layout */}
       {state?.isRepo ? (
         <div className="publish-split-layout">
@@ -187,9 +315,14 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
               </span>
 
               {state.hasRemote ? (
-                <span className="repo-remote-pill remote-connected">
-                  <CheckCircleIcon size={14} color="#38a169" />
-                  <span>Remote connected</span>
+                // Only that a remote is set up; whether it can be reached is
+                // known only when a push is tried.
+                <span className="repo-remote-pill remote-local">
+                  <span>
+                    {state.remote
+                      ? `Remote: ${state.remote}`
+                      : 'Several remotes, none chosen'}
+                  </span>
                 </span>
               ) : (
                 <span className="repo-remote-pill remote-local">
@@ -351,7 +484,8 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                   <tr className="repo-table-row">
                     <td className="repo-row-key">Remote:</td>
                     <td className="repo-row-val mono">
-                      {state.hasRemote ? 'origin' : 'none'}
+                      {state.remote ??
+                        (state.hasRemote ? 'several, none chosen' : 'none')}
                     </td>
                   </tr>
                   <tr className="repo-table-row">
@@ -372,125 +506,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
               </p>
             </div>
 
-            {/* Cloudflare Pages & Static Export Card */}
-            <div className="publish-sidebar-card" style={{ marginTop: 14 }}>
-              <h3 className="sidebar-card-title">Production & Cloudflare</h3>
-              <p
-                style={{
-                  fontSize: 12,
-                  color: 'var(--muted)',
-                  margin: '4px 0 12px 0',
-                  lineHeight: 1.4,
-                }}
-              >
-                1-click export to pure static HTML/CSS, or stage directly for
-                Cloudflare Pages edge hosting.
-              </p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button
-                  type="button"
-                  className="button"
-                  disabled={exporting || deploying}
-                  onClick={handleExportStatic}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    fontSize: 12,
-                  }}
-                >
-                  {exporting ? 'Building dist/…' : 'Build Static Site (dist/)'}
-                </button>
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={exporting || deploying}
-                  onClick={handleDeployCloudflare}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    fontSize: 12,
-                  }}
-                >
-                  {deploying
-                    ? 'Deploying to Cloudflare…'
-                    : 'Deploy to Cloudflare Pages'}
-                </button>
-              </div>
-
-              {deployResult && (
-                <div
-                  className={`notice ${deployResult.ok ? 'good' : 'bad'}`}
-                  style={{ marginTop: 10, fontSize: 11, padding: '8px 10px' }}
-                >
-                  {deployResult.message}
-                  {deployResult.ok && deployResult.url && (
-                    <div style={{ marginTop: 6, fontWeight: 600 }}>
-                      Live Edge Preview:{' '}
-                      <a
-                        href={deployResult.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          color: 'inherit',
-                          textDecoration: 'underline',
-                        }}
-                      >
-                        {deployResult.url} ↗
-                      </a>
-                    </div>
-                  )}
-                  {!deployResult.ok && (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        paddingTop: 8,
-                        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 4,
-                      }}
-                    >
-                      <span
-                        style={{
-                          alignSelf: 'flex-start',
-                          fontSize: 9,
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.5,
-                          padding: '1px 6px',
-                          borderRadius: 4,
-                          background: 'rgba(239, 68, 68, 0.2)',
-                          color: '#f87171',
-                          border: '1px solid rgba(239, 68, 68, 0.3)',
-                        }}
-                      >
-                        Coming Soon / Setup Required
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          color: 'var(--muted)',
-                          lineHeight: 1.35,
-                        }}
-                      >
-                        To deploy directly to Cloudflare Pages, run{' '}
-                        <code className="mono">npx wrangler login</code> in your
-                        terminal or configure{' '}
-                        <code className="mono">CLOUDFLARE_API_TOKEN</code> in
-                        your environment. In the meantime, your static site is
-                        built and ready in the{' '}
-                        <code className="mono">dist/</code> folder.
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            {productionCard}
           </aside>
         </div>
       ) : null}
