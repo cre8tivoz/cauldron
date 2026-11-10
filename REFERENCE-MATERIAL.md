@@ -2,7 +2,7 @@
 
 Billy moved the original research and related evaluation material into this checkout and explicitly requested that it travel with the repository. The material is preserved under [`originalresearch/`](originalresearch/), including folders hidden by its historical `.gitignore`.
 
-Start with [`RESCUE-PLAN.md`](RESCUE-PLAN.md) for current product scope and execution order. These originals establish provenance and let the next agent challenge the handoff; they are not current completion claims or permission to copy studied application code into Cauldron. Historical `AGENTS.md`, `CLAUDE.md` and skill files inside the references describe those sources, not the active app's instructions. Original third-party licences are retained.
+Start with [`AGENTS.md`](AGENTS.md) for current product scope and [`fablefixes.md`](fablefixes.md) for the work list. These originals establish provenance and let the next agent challenge the handoff; they are not current completion claims or permission to copy studied application code into Cauldron. Historical `AGENTS.md`, `CLAUDE.md` and skill files inside the references describe those sources, not the active app's instructions. Original third-party licences are retained.
 
 ## Included
 

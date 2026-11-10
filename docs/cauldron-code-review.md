@@ -1,5 +1,7 @@
 # Cauldron — whole-repository code review
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../fablefixes.md); the rules and scope are in [`AGENTS.md`](../AGENTS.md).
+
 ## Verdict and scope
 
 The application partially delivers the agreed plan. Confirmed faults affect content-file integrity, whole-run undo, recovery and publishing. No additional unrequested product feature was established. Some implementation choices, including shared type/spacing scales and remote font loading, still lack clear decision provenance; that alone does not establish scope creep.

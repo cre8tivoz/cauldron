@@ -5,17 +5,17 @@ Cauldron is MIT licensed. Small, clear changes are easiest to review.
 ## Before you start
 
 - Read `AGENTS.md` and the decisions in `docs/adr/`.
-- Check the issue you're working from. This project uses the local Markdown tracker described in `docs/agents/issue-tracker.md`; record a missing issue there before implementation. Read its plan references and acceptance criteria, and record exercised results before closing it.
+- Check [`fablefixes.md`](fablefixes.md), the one work list. When you fix an item, update its status there in the same change and say what you actually ran.
 
 ## Making a change
 
 ```bash
 npm install
-npm run check     # type check and lint
+npm run check     # type check, lint and unit tests
 npm run smoke     # package the app, open it hidden, confirm it renders
 ```
 
-Both must pass. CI runs the same commands on every push and pull request.
+Both must pass. CI runs the same commands on pushes to `main` and on pull requests.
 
 ## Style
 

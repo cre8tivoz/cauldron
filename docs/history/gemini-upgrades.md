@@ -1,5 +1,7 @@
 # Gemini Upgrades Plan: Cauldron for Creators, Makers & Real Work (`gemini-upgrades.md`)
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../../fablefixes.md); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
+
 **Document:** `gemini-upgrades.md`  
 **Date:** 9 November 2026  
 **Status:** Implemented & Verified with Automated Verification Suite (`scripts/test-gemini-upgrades.mjs`)

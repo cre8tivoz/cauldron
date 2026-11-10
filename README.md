@@ -4,7 +4,7 @@ Cauldron is a free Mac app for building websites with [Astro](https://astro.buil
 
 It's open source and free, and it stays that way.
 
-**Rescued Mac build — P0–P3 verified & complete visual upgrade (9 Nov 2026).** The engineering foundation and full visual design upgrade ([upgrades.md](upgrades.md)) have been implemented and verified on the packaged app: left navigation rail, TopBar icon controls, live preview indicators, conversational Agent chat bubbles and run cards, 2-column Element Inspector with live swatches, 4-column visual hero specimen cards in Design Directions with Google Fonts, 3-column component cards with live direction preview stages, collections content sidebar with 3-column field rows, 2-column split quality report, and 2-column Git publishing review with Mac download bar. Second-Mac download, unpack, and launch verification runs automatically on a clean macOS runner in GitHub Actions (`separate-mac-launch` in `.github/workflows/ci.yml`). Because the build is unsigned and not notarised, users opening a downloaded zip on macOS for the first time should use `System Settings → Privacy & Security → Open Anyway`. See [docs/cauldron-retro.md](docs/cauldron-retro.md) and [upgrades.md](upgrades.md) for lessons learned and visual verification evidence.
+**Status: in development, not yet released.** The foundations work, and a full audit on 9 November 2026 listed what still needs fixing. The honest, current state and the work list are in [fablefixes.md](fablefixes.md). Rules and scope for anyone working on the code are in [AGENTS.md](AGENTS.md).
 
 ## Try it
 
@@ -24,20 +24,19 @@ npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-<versi
 ```
 
 The build is **unsigned and not notarised**, so macOS Gatekeeper may warn that it cannot
-verify the developer on first launch. If that happens, do not retry blindly: open
+verify the developer on first launch. If that happens, open
 **System Settings → Privacy & Security**, find the blocked-app message, and press
-**Open Anyway** (then Open). This is the supported macOS path for opening an unsigned,
-not-notarised app you built yourself. No public release has been published yet — this
-is a local test build only.
+**Open Anyway** (then Open). No public release has been published yet. Opening a
+downloaded copy on a second Mac by hand has not been verified.
 
 ## Checks
 
 ```bash
-npm run check   # type check and lint
+npm run check   # type check, lint and unit tests
 npm run smoke   # package the app, open it hidden, confirm it draws
 ```
 
-Both run automatically on every push and pull request.
+Both run automatically on pushes to `main` and on pull requests.
 
 ## How it's made
 

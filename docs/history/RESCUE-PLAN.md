@@ -1,8 +1,10 @@
 # Cauldron rescue plan — start here
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../../fablefixes.md); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
+
 **Owner:** the agent taking over from Claudia. **Requested by Billy:** 8 November 2026.
 **Baseline app revision:** `e144e1f46c96b19b9dc5fbd6a037b1764de031ac`, `main`, `cre8tivoz/cauldron`.
-**State:** P0–P3 RESCUE COMPLETED & VERIFIED IN PACKAGED APP (9 November 2026, commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`). All 17 whole-product rows exercised and passing on the rescued Mac build (`out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.0.1.zip`, SHA-256 `930269208cfe97f90e204f66f5c119672908ce12939b8c99b6da304111db47eb`). Because Billy does not have a second physical Mac, separate-Mac validation relies on the GitHub Actions clean macOS runner (`separate-mac-launch` in `.github/workflows/ci.yml`) and GitHub Releases distribution. See [docs/cauldron-retro.md](docs/cauldron-retro.md) for the full technical surprises and lessons learned during the rescue.
+**State:** P0–P3 RESCUE COMPLETED & VERIFIED IN PACKAGED APP (9 November 2026, commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`). All 17 whole-product rows exercised and passing on the rescued Mac build (`out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.0.1.zip`, SHA-256 `930269208cfe97f90e204f66f5c119672908ce12939b8c99b6da304111db47eb`). Because Billy does not have a second physical Mac, separate-Mac validation relies on the GitHub Actions clean macOS runner (`separate-mac-launch` in `.github/workflows/ci.yml`) and GitHub Releases distribution. See [docs/cauldron-retro.md](../cauldron-retro.md) for the full technical surprises and lessons learned during the rescue.
 
 ## 0. Additional review findings & fix plan — RESOLVED & VERIFIED (9 November 2026)
 
@@ -109,17 +111,17 @@ Visual editing, the built-in agent and built-in design taste are all core. Desig
 
 ## 2. One authority, with history preserved
 
-**Original material is now in this repository.** Billy consolidated the research and evaluation folders under [`originalresearch/`](originalresearch/) and requested their inclusion so the receiving agent can inspect the underlying evidence, not just trust this plan or the audit. See [`REFERENCE-MATERIAL.md`](REFERENCE-MATERIAL.md) for the contents, preserved history, explicit exclusions and credential redactions, and the full transfer manifest. Use the original sources to check claims; reconcile dated decisions rather than treating old status text as current.
+**Original material is now in this repository.** Billy consolidated the research and evaluation folders under [`originalresearch/`](../../originalresearch/) and requested their inclusion so the receiving agent can inspect the underlying evidence, not just trust this plan or the audit. See [`REFERENCE-MATERIAL.md`](../../REFERENCE-MATERIAL.md) for the contents, preserved history, explicit exclusions and credential redactions, and the full transfer manifest. Use the original sources to check claims; reconcile dated decisions rather than treating old status text as current.
 
 This plan is the current rescue execution order and consolidated acceptance checklist, authorised by Billy's handoff request. It reconciles rather than silently replaces the original functional requirements. Resolve any genuinely new product choice with Billy; do not invent a deferral.
 
 Read in this order:
 
 1. This document, including the failure and section checklist.
-2. [Original numbered specification snapshot](docs/rescue/original-plan.md), [approved taste criteria](docs/rescue/approved-taste-tests.md), and [original starter content](docs/rescue/original-starter-set.md). These are historical snapshots; the amendments below control conflicting scope/status text.
-3. Relevant [ADRs](docs/adr/) and [glossary](GLOSSARY.md), then actual source and current user-path evidence.
-4. [Corrected Jev audit](docs/rescue/evidence/audit-report.md), [requirement/evidence ledger](docs/rescue/evidence/requirements.json), [audit corrections](docs/rescue/evidence/correction-record.md), and [documentation inventory](docs/rescue/evidence/documentation-inventory.json). They are evidence assessments, not an automated certificate of functionality.
-5. Existing [.scratch/cauldron-v1/spec.md](.scratch/cauldron-v1/spec.md) and tickets only for implementation history and focused evidence. Retrospective findings 00–10 and `docs/plan-verification.md` describe an earlier checkpoint; later tickets 11–32 contain repairs. Read both before repeating an old gap.
+2. [Original numbered specification snapshot](../rescue/original-plan.md), [approved taste criteria](../rescue/approved-taste-tests.md), and [original starter content](../rescue/original-starter-set.md). These are historical snapshots; the amendments below control conflicting scope/status text.
+3. Relevant [ADRs](../adr/) and [glossary](../../GLOSSARY.md), then actual source and current user-path evidence.
+4. [Corrected Jev audit](../rescue/evidence/audit-report.md), [requirement/evidence ledger](../rescue/evidence/requirements.json), [audit corrections](../rescue/evidence/correction-record.md), and [documentation inventory](../rescue/evidence/documentation-inventory.json). They are evidence assessments, not an automated certificate of functionality.
+5. Existing [.scratch/cauldron-v1/spec.md](../../.scratch/cauldron-v1/spec.md) and tickets only for implementation history and focused evidence. Retrospective findings 00–10 and `docs/plan-verification.md` describe an earlier checkpoint; later tickets 11–32 contain repairs. Read both before repeating an old gap.
 
 ### Settled amendments and boundaries
 

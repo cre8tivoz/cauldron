@@ -1,17 +1,19 @@
 # Cauldron Visual & Product Upgrade Plan (`upgrades.md`)
 
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../../fablefixes.md); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
+
 **Date:** 9 November 2026  
 **Sources:**
 
-1. Billy's 6 visual mockups in [`originalresearch/visual-mockups/`](originalresearch/visual-mockups/):
+1. Billy's 6 visual mockups in [`originalresearch/visual-mockups/`](../../originalresearch/visual-mockups/):
    - `Cauldron’s Sunday Table workspace.png`
    - `Seven design directions in Cauldron.png`
    - `Cauldron’s Sunday Table components.png`
    - `Cauldron content editor for Sunday Table.png`
    - `Sunday Table quality report.png`
    - `Publishing Review_ Git Changes and Mac Build.png`
-2. Camillo's app-look proposal & interactive specimen in [`originalresearch/design/camillo/app-look/`](originalresearch/design/camillo/app-look/) (`proposal.md`, `specimen.html`, `contrast.py`).
-3. Camillo's direction specimen board ([`originalresearch/design/camillo/directions-v2/preview.html`](originalresearch/design/camillo/directions-v2/preview.html)), 35-piece section catalogue ([`originalresearch/design/camillo/library/catalogue/catalogue.html`](originalresearch/design/camillo/library/catalogue/catalogue.html)), MIT [`design-bites`](originalresearch/references/source/design-bites/), and MIT [`threeui`](originalresearch/references/source/threeui/) shaders.
+2. Camillo's app-look proposal & interactive specimen in [`originalresearch/design/camillo/app-look/`](../../originalresearch/design/camillo/app-look/) (`proposal.md`, `specimen.html`, `contrast.py`).
+3. Camillo's direction specimen board ([`originalresearch/design/camillo/directions-v2/preview.html`](../../originalresearch/design/camillo/directions-v2/preview.html)), 35-piece section catalogue ([`originalresearch/design/camillo/library/catalogue/catalogue.html`](../../originalresearch/design/camillo/library/catalogue/catalogue.html)), MIT [`design-bites`](../../originalresearch/references/source/design-bites/), and MIT [`threeui`](../../originalresearch/references/source/threeui/) shaders.
 
 ---
 
@@ -33,8 +35,8 @@ Specifically:
 
 ### Phase 1: App Shell, Left Icon Rail, Top Bar & Theme Polish
 
-**Target files:** [`src/App.tsx`](src/App.tsx), [`src/index.css`](src/index.css), [`src/components/TopBar.tsx`](src/components/TopBar.tsx), [`src/components/StatusBar.tsx`](src/components/StatusBar.tsx)  
-**Reference mockups:** All 6 PNGs in `originalresearch/visual-mockups/` + [`originalresearch/design/camillo/app-look/specimen.html`](originalresearch/design/camillo/app-look/specimen.html)
+**Target files:** [`src/App.tsx`](../../src/App.tsx), [`src/index.css`](../../src/index.css), [`src/components/TopBar.tsx`](../../src/components/TopBar.tsx), [`src/components/StatusBar.tsx`](../../src/components/StatusBar.tsx)  
+**Reference mockups:** All 6 PNGs in `originalresearch/visual-mockups/` + [`originalresearch/design/camillo/app-look/specimen.html`](../../originalresearch/design/camillo/app-look/specimen.html)
 
 - [x] **1. Left Navigation Rail (`68px` wide):**
   - [x] Top **serif `C` brand mark** in a rounded coral square (`32×32px`, `border-radius: 8px`).
@@ -64,8 +66,8 @@ Specifically:
 
 ### Phase 2: Main Workspace — Conversational Agent Column & Visual Element Inspector
 
-**Target files:** [`src/components/AgentPanel.tsx`](src/components/AgentPanel.tsx), [`src/components/Inspector.tsx`](src/components/Inspector.tsx), [`src/index.css`](src/index.css)  
-**Reference mockups:** `Cauldron’s Sunday Table workspace.png` + [`originalresearch/design/camillo/app-look/specimen.html`](originalresearch/design/camillo/app-look/specimen.html)
+**Target files:** [`src/components/AgentPanel.tsx`](../../src/components/AgentPanel.tsx), [`src/components/Inspector.tsx`](../../src/components/Inspector.tsx), [`src/index.css`](../../src/index.css)  
+**Reference mockups:** `Cauldron’s Sunday Table workspace.png` + [`originalresearch/design/camillo/app-look/specimen.html`](../../originalresearch/design/camillo/app-look/specimen.html)
 
 - [x] **1. Agent Column (Left, `360px–400px`):**
   - [x] **Header & Active Direction Subheader:**
@@ -100,8 +102,8 @@ Specifically:
 
 ### Phase 3: Design Directions — Visual Hero Specimen Cards & Real-Site Library
 
-**Target files:** [`src/components/DesignPanel.tsx`](src/components/DesignPanel.tsx), [`src/main/directions.ts`](src/main/directions.ts), [`src/index.css`](src/index.css)  
-**Reference mockups:** `Seven design directions in Cauldron.png` + [`originalresearch/design/camillo/directions-v2/preview.html`](originalresearch/design/camillo/directions-v2/preview.html)
+**Target files:** [`src/components/DesignPanel.tsx`](../../src/components/DesignPanel.tsx), [`src/main/directions.ts`](../../src/main/directions.ts), [`src/index.css`](../../src/index.css)  
+**Reference mockups:** `Seven design directions in Cauldron.png` + [`originalresearch/design/camillo/directions-v2/preview.html`](../../originalresearch/design/camillo/directions-v2/preview.html)
 
 - [x] **1. Load Direction Google Fonts in the Picker:**
   - [x] Preload and link Google Fonts for all starter directions in `index.html` so every card renders in its **actual typeface** (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`).
@@ -127,8 +129,8 @@ Specifically:
 
 ### Phase 4: Component Library — Live Styled Preview Cards, Expanded Catalogue & Links Shelf
 
-**Target files:** [`src/components/LibraryPanel.tsx`](src/components/LibraryPanel.tsx), [`src/main/library.ts`](src/main/library.ts), [`src/index.css`](src/index.css)  
-**Reference mockups:** `Cauldron’s Sunday Table components.png` + [`originalresearch/design/camillo/library/catalogue/catalogue.html`](originalresearch/design/camillo/library/catalogue/catalogue.html)
+**Target files:** [`src/components/LibraryPanel.tsx`](../../src/components/LibraryPanel.tsx), [`src/main/library.ts`](../../src/main/library.ts), [`src/index.css`](../../src/index.css)  
+**Reference mockups:** `Cauldron’s Sunday Table components.png` + [`originalresearch/design/camillo/library/catalogue/catalogue.html`](../../originalresearch/design/camillo/library/catalogue/catalogue.html)
 
 - [x] **1. Header Bar with Right-Aligned Page Selector (`Cauldron’s Sunday Table components.png`):**
   - [x] Left: `Components` title + subtitle (`Plain Astro, built on the site's design direction.`).
@@ -154,7 +156,7 @@ Specifically:
 
 ### Phase 5: Content Editor — Sidebar Pills & 3-Column Horizontal Form Rows
 
-**Target files:** [`src/components/ContentPanel.tsx`](src/components/ContentPanel.tsx), [`src/index.css`](src/index.css)  
+**Target files:** [`src/components/ContentPanel.tsx`](../../src/components/ContentPanel.tsx), [`src/index.css`](../../src/index.css)  
 **Reference mockup:** `Cauldron content editor for Sunday Table.png`
 
 - [x] **1. Left Collections Sidebar (`250px` wide, `border-right: 1px solid var(--hairline)`):**
@@ -175,7 +177,7 @@ Specifically:
 
 ### Phase 6: Quality Report — 2-Column Split Layout, Green Checkmarks & Direction Summary
 
-**Target files:** [`src/components/QualityPanel.tsx`](src/components/QualityPanel.tsx), [`src/index.css`](src/index.css)  
+**Target files:** [`src/components/QualityPanel.tsx`](../../src/components/QualityPanel.tsx), [`src/index.css`](../../src/index.css)  
 **Reference mockup:** `Sunday Table quality report.png`
 
 - [x] **1. Top Header & Subheader:**
@@ -194,7 +196,7 @@ Specifically:
 
 ### Phase 7: Publishing — 2-Column Git Review & Bottom Mac Download Bar
 
-**Target files:** [`src/components/PublishPanel.tsx`](src/components/PublishPanel.tsx), [`src/index.css`](src/index.css)  
+**Target files:** [`src/components/PublishPanel.tsx`](../../src/components/PublishPanel.tsx), [`src/index.css`](../../src/index.css)  
 **Reference mockup:** `Publishing Review_ Git Changes and Mac Build.png`
 
 - [x] **1. 2-Column Split Upper Layout:**
@@ -225,24 +227,24 @@ All 7 phases of `upgrades.md` have been executed in full and verified against th
 ### 1. Phase-by-Phase Delivery Summary
 
 - **Phase 1: App Shell, Navigation Rail, TopBar, and StatusBar:**
-  - Implemented 68px left navigation rail in [`src/App.tsx`](src/App.tsx) with rounded coral brand mark (`CauldronMark`), clean 1.5px stroke SVG icons and two-line labels (`Sites`, `Content`, `Components`, `Design directions`, `Quality`, `Publishing`), preserving all `title` attributes and class `.rail-button`.
-  - Upgraded [`src/components/TopBar.tsx`](src/components/TopBar.tsx) with project switcher dropdown (`Sunday Table ⌄`), Astro metadata badge, icon toolbar (`New page`, `Undo`, `Redo`, `Select`, `Reload`, `Start/Stop preview`, `Open site`), and accessible `Projects` button.
-  - Added live preview indicator with green pulse dot in [`src/components/StatusBar.tsx`](src/components/StatusBar.tsx) showing `● Preview running · localhost:4321` and contextual status messages.
+  - Implemented 68px left navigation rail in [`src/App.tsx`](../../src/App.tsx) with rounded coral brand mark (`CauldronMark`), clean 1.5px stroke SVG icons and two-line labels (`Sites`, `Content`, `Components`, `Design directions`, `Quality`, `Publishing`), preserving all `title` attributes and class `.rail-button`.
+  - Upgraded [`src/components/TopBar.tsx`](../../src/components/TopBar.tsx) with project switcher dropdown (`Sunday Table ⌄`), Astro metadata badge, icon toolbar (`New page`, `Undo`, `Redo`, `Select`, `Reload`, `Start/Stop preview`, `Open site`), and accessible `Projects` button.
+  - Added live preview indicator with green pulse dot in [`src/components/StatusBar.tsx`](../../src/components/StatusBar.tsx) showing `● Preview running · localhost:4321` and contextual status messages.
 - **Phase 2: Main Workspace (Agent Column & Element Inspector):**
-  - Upgraded [`src/components/AgentPanel.tsx`](src/components/AgentPanel.tsx) with conversational user chat bubbles, spark response cards, changed file pills with document icons, run verification cards (`✔ Homepage refinement · Finished · 2 files` with `[Show changes]` and `[Undo this run]`), direction subheader link (`Building to Long Lunch · Fraunces + Karla`), and docked bottom composer with selected element chip (`<h1> · index.astro ×`).
-  - Upgraded [`src/components/Inspector.tsx`](src/components/Inspector.tsx) with 2-column horizontal grid rows (`property` on the left, input/token dropdown on the right), live colour swatches (`16×16px`, rounded `4px`) inside `color` and `background-color` inputs, and preserved `#token-color` and `#add-style` dropdowns.
+  - Upgraded [`src/components/AgentPanel.tsx`](../../src/components/AgentPanel.tsx) with conversational user chat bubbles, spark response cards, changed file pills with document icons, run verification cards (`✔ Homepage refinement · Finished · 2 files` with `[Show changes]` and `[Undo this run]`), direction subheader link (`Building to Long Lunch · Fraunces + Karla`), and docked bottom composer with selected element chip (`<h1> · index.astro ×`).
+  - Upgraded [`src/components/Inspector.tsx`](../../src/components/Inspector.tsx) with 2-column horizontal grid rows (`property` on the left, input/token dropdown on the right), live colour swatches (`16×16px`, rounded `4px`) inside `color` and `background-color` inputs, and preserved `#token-color` and `#add-style` dropdowns.
 - **Phase 3: Design Directions Panel:**
-  - Upgraded [`src/components/DesignPanel.tsx`](src/components/DesignPanel.tsx) to load live Google Fonts across all directions (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`).
+  - Upgraded [`src/components/DesignPanel.tsx`](../../src/components/DesignPanel.tsx) to load live Google Fonts across all directions (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`).
   - Built 4-column visual hero specimen cards matching `Seven design directions in Cauldron.png` with direction palette banners, kickers, oversized typography, visual art compositions, bold direction names, 5 rounded colour pills (`28×22px`), `Current` badges, `In use` / `Use this direction` action pills, and full specimen preview modal, while preserving reference URL analysis and existing details disclosure hooks.
 - **Phase 4: Component Library Panel:**
-  - Upgraded [`src/components/LibraryPanel.tsx`](src/components/LibraryPanel.tsx) with 3-column visual cards featuring a large direction-styled live preview stage on top (`Editorial intro`, `Newsletter footer`, `Glowing call to action`, `Heading reveal`, `Woven cloth background`) and dark contrasting footer bar (`MIT · Plain Astro` + coral `Add to /` button).
+  - Upgraded [`src/components/LibraryPanel.tsx`](../../src/components/LibraryPanel.tsx) with 3-column visual cards featuring a large direction-styled live preview stage on top (`Editorial intro`, `Newsletter footer`, `Glowing call to action`, `Heading reveal`, `Woven cloth background`) and dark contrasting footer bar (`MIT · Plain Astro` + coral `Add to /` button).
   - Added right-aligned `Page: [ / ⌄ ]` selector, visual component replacement picker (populating existing page components while preserving accessible replace input), category filters (`Featured 5`, `Navigation`, `Heroes`, `Proof & Testimonials`, `Services`, `Galleries`, `Pricing & Menus`, `Contact & FAQ`, `Motion & Shaders`), and the horizontal pipe-separated `Links shelf` footer.
 - **Phase 5: Content Editor Panel:**
-  - Upgraded [`src/components/ContentPanel.tsx`](src/components/ContentPanel.tsx) with left `COLLECTIONS` sidebar pill list (`Journal`, `People`), top path and mode toggle bar, large dynamic entry heading, 3-column horizontal `Label | Input | Save` field rows, and bottom confirmation message.
+  - Upgraded [`src/components/ContentPanel.tsx`](../../src/components/ContentPanel.tsx) with left `COLLECTIONS` sidebar pill list (`Journal`, `People`), top path and mode toggle bar, large dynamic entry heading, 3-column horizontal `Label | Input | Save` field rows, and bottom confirmation message.
 - **Phase 6: Quality Report Panel:**
-  - Upgraded [`src/components/QualityPanel.tsx`](src/components/QualityPanel.tsx) into a 2-column split layout matching `Sunday Table quality report.png`: failing checks with coral accent bars and warning icons, expanded `Passing checks` with green `✔` icons, agent feedback prompt card with agent selector, right-side `Measured` summary table, and active `Design direction` colour swatch card.
+  - Upgraded [`src/components/QualityPanel.tsx`](../../src/components/QualityPanel.tsx) into a 2-column split layout matching `Sunday Table quality report.png`: failing checks with coral accent bars and warning icons, expanded `Passing checks` with green `✔` icons, agent feedback prompt card with agent selector, right-side `Measured` summary table, and active `Design direction` colour swatch card.
 - **Phase 7: Publishing Panel:**
-  - Upgraded [`src/components/PublishPanel.tsx`](src/components/PublishPanel.tsx) into a 2-column Git review layout matching `Publishing Review_ Git Changes and Mac Build.png`: branch badge (`⑂ main`), `Remote connected` pill, `[ M ]` changed file rows, commit message box with `[ Commit ]` and `[ Commit and push ]` buttons, repository metadata table, `Your site stays yours` callout, and bottom full-width `Mac download` bar (`Cauldron-darwin-arm64.zip` / `Ready-to-hand-over Mac build`).
+  - Upgraded [`src/components/PublishPanel.tsx`](../../src/components/PublishPanel.tsx) into a 2-column Git review layout matching `Publishing Review_ Git Changes and Mac Build.png`: branch badge (`⑂ main`), `Remote connected` pill, `[ M ]` changed file rows, commit message box with `[ Commit ]` and `[ Commit and push ]` buttons, repository metadata table, `Your site stays yours` callout, and bottom full-width `Mac download` bar (`Cauldron-darwin-arm64.zip` / `Ready-to-hand-over Mac build`).
 
 ### 2. Verification Gates & Test Evidence
 
