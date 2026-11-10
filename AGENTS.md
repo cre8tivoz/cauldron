@@ -63,6 +63,12 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 - The files under `.scratch/` are history. Do not start another plan, upgrade or rescue document. If the plan changes, change this file or a Linear issue.
 - Report anything unexpected that falls outside what you were asked to do. Add it as a Linear issue rather than quietly fixing or ignoring it.
 
+## Review guidelines (for Codex and other automated reviewers)
+
+- Judge commit identity only from the commits actually published on the pull request (the PR's Commits tab, or `git rev-list <base>..<head>` on the PR head). Each published commit must be authored and committed as `119015637+cre8tivoz@users.noreply.github.com`.
+- Your own review sandbox may create a local working commit under its own identity (for example `Codex <codex@openai.com>`). That commit is never pushed and is not part of the PR. Do not report it as an identity violation. Before flagging identity, confirm the SHA appears in the PR's published commits.
+- Raise an identity finding only when a published PR commit has the wrong author or committer.
+
 ## Safety
 
 - Work on fresh, disposable copies of sites and fresh test user-data. Never edit a person's original site.
