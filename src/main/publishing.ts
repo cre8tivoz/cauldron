@@ -71,8 +71,18 @@ function pushRemote(
   branch: string,
   remotes: string[],
 ): string | null {
-  if (branch && branch !== 'HEAD') {
-    const configured = git(root, ['config', `branch.${branch}.remote`]);
+  // Git's own order for where a push goes: the branch's pushRemote, then
+  // remote.pushDefault, then the branch's upstream remote.
+  const keys =
+    branch && branch !== 'HEAD'
+      ? [
+          `branch.${branch}.pushRemote`,
+          'remote.pushDefault',
+          `branch.${branch}.remote`,
+        ]
+      : ['remote.pushDefault'];
+  for (const key of keys) {
+    const configured = git(root, ['config', key]);
     const name = (configured.stdout ?? '').trim();
     if (configured.status === 0 && remotes.includes(name)) return name;
   }

@@ -256,7 +256,7 @@ Also the heading says "Five pieces" (`:543`) while 20 exist, and the preview til
 
 ### FIXED — 25. Publishing details [Read]
 
-> **Fixed 10 Nov.** The remote shown is the one a push would use (the branch upstream, else origin, else the only remote; "several, none chosen" otherwise). `git status` is read with `-z`, so renames, spaces and accents come through exactly. Export and Cloudflare are shown for sites without Git. Two unit tests added. **Checked in the packaged app:** a site without Git showed both buttons. With Git, a rename to `home page.astro` and a new `café menu.astro` were listed exactly, and the remote read "origin" in the pill and the table.
+> **Fixed 10 Nov.** The remote shown is the one a push would use, in Git's own order: the branch's `pushRemote`, then `remote.pushDefault`, then the branch's upstream remote, else origin, else the only remote ("several, none chosen" otherwise; push-specific settings added after Codex review). `git status` is read with `-z`, so renames, spaces and accents come through exactly. Export and Cloudflare are shown for sites without Git. Two unit tests added. **Checked in the packaged app:** a site without Git showed both buttons. With Git, a rename to `home page.astro` and a new `café menu.astro` were listed exactly, and the remote read "origin" in the pill and the table.
 
 - "Remote: origin" is hard-coded (`PublishPanel.tsx:345`).
 - Export and Cloudflare are hidden unless the site is a Git repository, though neither needs Git.

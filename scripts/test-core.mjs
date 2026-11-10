@@ -2908,6 +2908,15 @@ test('fablefixes 25/81: the remote shown is the one a push would use, by name', 
   // Renaming keeps the branch's upstream, so the new name is the one shown.
   assert.equal(gitIn(site, ['remote', 'rename', 'origin', 'studio']).status, 0);
   assert.equal(repoState(site).remote, 'studio');
+  // Push-specific settings win over the upstream, as they do for `git push`.
+  gitIn(site, ['remote', 'add', 'mirror', path.join(site, 'mirror.git')]);
+  gitIn(site, ['config', 'remote.pushDefault', 'mirror']);
+  assert.equal(repoState(site).remote, 'mirror');
+  gitIn(site, ['config', 'branch.main.pushRemote', 'studio']);
+  assert.equal(repoState(site).remote, 'studio');
+  gitIn(site, ['config', '--unset', 'branch.main.pushRemote']);
+  gitIn(site, ['config', '--unset', 'remote.pushDefault']);
+  gitIn(site, ['remote', 'remove', 'mirror']);
   // Two remotes and no upstream: nothing is chosen, and none is guessed.
   gitIn(site, ['remote', 'add', 'backup', path.join(site, 'nowhere.git')]);
   gitIn(site, ['branch', '--unset-upstream']);
