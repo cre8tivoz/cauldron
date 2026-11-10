@@ -2262,10 +2262,6 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
-.repo-remote-pill.remote-connected {
-  color: #38a169;
-}
-
 .repo-last-commit {
   color: var(--muted);
   font-size: 12px;

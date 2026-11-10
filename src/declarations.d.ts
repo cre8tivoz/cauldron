@@ -318,6 +318,7 @@ type CauldronApi = {
     branch: string;
     changes: Array<{ status: string; file: string }>;
     hasRemote: boolean;
+    remote: string | null;
     lastCommit: string;
     unpushed: number;
   }>;

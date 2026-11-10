@@ -45,6 +45,10 @@ export function App() {
   const [drafts, setDrafts] = useState<CauldronDraft[]>([]);
   const [status, setStatus] = useState('Ready');
   const [problem, setProblem] = useState<string | null>(null);
+  // Every failure also goes to the console (rule 4).
+  useEffect(() => {
+    if (problem) console.error(problem);
+  }, [problem]);
   const [conflict, setConflict] = useState<{
     file: string;
     reason: string;
@@ -545,6 +549,26 @@ export function App() {
           onNewPage={newPage}
         />
 
+        {/* Shown in every view, not only the Element panel (fablefixes 21). */}
+        {problem ? (
+          <div
+            className="notice bad"
+            role="alert"
+            style={{ margin: '8px 12px 0' }}
+          >
+            {problem}
+            <div className="notice-actions">
+              <button
+                className="button"
+                type="button"
+                onClick={() => setProblem(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {site &&
         ((site.missingPackages && site.missingPackages.length > 0) ||
           site.buildError) ? (
@@ -759,7 +783,6 @@ export function App() {
                     site={site}
                     direction={direction}
                     selection={selection}
-                    problem={problem}
                     conflict={conflict}
                     onApplyText={applyText}
                     onApplyAttribute={applyAttribute}

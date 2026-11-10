@@ -28,7 +28,15 @@ export function LibraryPanel({ site, onBack }: Props) {
   >([]);
   const [pages, setPages] = useState<Array<{ page: string; file: string }>>([]);
   const [page, setPage] = useState('/');
-  const [message, setMessage] = useState<string | null>(null);
+  // A failure must never look like a success (fablefixes 82).
+  const [message, setNotice] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+  const setMessage = (text: string | null, ok = false) => {
+    if (text === null) return setNotice(null);
+    if (!ok) console.error(text);
+    setNotice({ ok, text });
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [replaceTag, setReplaceTag] = useState('');
   const [lastRun, setLastRun] = useState<string | null>(null);
@@ -95,6 +103,7 @@ export function LibraryPanel({ site, onBack }: Props) {
     setLastRun(result.runId ?? null);
     setMessage(
       `${pieceName} was copied into the site and placed on ${result.page}.`,
+      true,
     );
   };
 
@@ -519,6 +528,7 @@ export function LibraryPanel({ site, onBack }: Props) {
                 result.ok
                   ? 'Library change undone.'
                   : (result.problem ?? 'Undo refused.'),
+                result.ok,
               );
               if (result.ok) setLastRun(null);
             }}
@@ -529,8 +539,12 @@ export function LibraryPanel({ site, onBack }: Props) {
       </div>
 
       {message ? (
-        <div className="notice good" style={{ margin: '12px 0' }}>
-          {message}
+        <div
+          className={`notice ${message.ok ? 'good' : 'bad'}`}
+          role={message.ok ? 'status' : 'alert'}
+          style={{ margin: '12px 0' }}
+        >
+          {message.text}
         </div>
       ) : null}
 

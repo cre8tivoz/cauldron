@@ -6,7 +6,6 @@ type Props = {
   site?: CauldronSite | null;
   direction: CauldronDirectionSummary | null;
   selection: CauldronSelection | null;
-  problem: string | null;
   conflict: { file: string; reason: string; operation: unknown } | null;
   onApplyText: (value: string) => void;
   onApplyAttribute: (name: string, value: string | null) => void;
@@ -83,7 +82,6 @@ export function Inspector({
   site,
   direction,
   selection,
-  problem,
   conflict,
   onApplyText,
   onApplyAttribute,
@@ -259,12 +257,6 @@ export function Inspector({
                     Use the disk version
                   </button>
                 </div>
-              </div>
-            ) : null}
-
-            {problem ? (
-              <div className="notice bad" role="alert">
-                {problem}
               </div>
             ) : null}
 

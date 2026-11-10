@@ -18,6 +18,12 @@ export type RepoState = {
   branch: string;
   changes: Change[];
   hasRemote: boolean;
+  /**
+   * The remote a push would go to: the branch's own upstream remote, else
+   * "origin", else the only remote. Null when there is none, or several and
+   * none chosen. Configured is not the same as reachable.
+   */
+  remote: string | null;
   lastCommit: string;
   /** Commits made locally that the upstream does not have yet. */
   unpushed: number;
@@ -30,6 +36,58 @@ function git(root: string, args: string[]) {
     timeout: 60000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   });
+}
+
+/**
+ * Reads `git status --porcelain -z`. With -z Git never quotes names, so spaces
+ * and non-ASCII names come through as they are, and a rename or copy is
+ * followed by its original name as a separate entry.
+ */
+export function parseStatus(output: string): Change[] {
+  const entries = output.split('\0');
+  const changes: Change[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.length < 4) continue;
+    const status = entry.slice(0, 2);
+    const file = entry.slice(3);
+    if (status.includes('R') || status.includes('C')) {
+      const from = entries[i + 1] ?? '';
+      i++;
+      changes.push({
+        status: status.trim(),
+        file: from ? `${from} → ${file}` : file,
+      });
+    } else {
+      changes.push({ status: status.trim(), file });
+    }
+  }
+  return changes;
+}
+
+/** The remote a push would use (see RepoState.remote). */
+function pushRemote(
+  root: string,
+  branch: string,
+  remotes: string[],
+): string | null {
+  // Git's own order for where a push goes: the branch's pushRemote, then
+  // remote.pushDefault, then the branch's upstream remote.
+  const keys =
+    branch && branch !== 'HEAD'
+      ? [
+          `branch.${branch}.pushRemote`,
+          'remote.pushDefault',
+          `branch.${branch}.remote`,
+        ]
+      : ['remote.pushDefault'];
+  for (const key of keys) {
+    const configured = git(root, ['config', key]);
+    const name = (configured.stdout ?? '').trim();
+    if (configured.status === 0 && remotes.includes(name)) return name;
+  }
+  if (remotes.includes('origin')) return 'origin';
+  return remotes.length === 1 ? remotes[0] : null;
 }
 
 export function repoState(root: string): RepoState {
@@ -45,20 +103,19 @@ export function repoState(root: string): RepoState {
       branch: '',
       changes: [],
       hasRemote: false,
+      remote: null,
       lastCommit: '',
       unpushed: 0,
     };
   }
-  const status = git(root, ['status', '--porcelain']);
-  const changes: Change[] = (status.stdout ?? '')
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) => ({ status: line.slice(0, 2).trim(), file: line.slice(3) }));
+  const status = git(root, ['status', '--porcelain', '-z']);
+  const changes = parseStatus(status.stdout ?? '');
 
   const branch = (
     git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout ?? ''
   ).trim();
   const remotes = (git(root, ['remote']).stdout ?? '').trim();
+  const remoteList = remotes.split('\n').filter(Boolean);
   const lastCommit = (
     git(root, ['log', '-1', '--pretty=%s']).stdout ?? ''
   ).trim();
@@ -87,6 +144,7 @@ export function repoState(root: string): RepoState {
     branch,
     changes,
     hasRemote: remotes !== '',
+    remote: pushRemote(root, branch, remoteList),
     lastCommit,
     unpushed,
   };
@@ -220,15 +278,7 @@ export function publish(
     '--symbolic-full-name',
     '@{u}',
   ]);
-  const remotes = (git(root, ['remote']).stdout ?? '')
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-  const remote = remotes.includes('origin')
-    ? 'origin'
-    : remotes.length === 1
-      ? remotes[0]
-      : null;
+  const remote = state.remote;
   if (upstream.status !== 0 && (!remote || state.branch === 'HEAD'))
     return {
       ok: false,
