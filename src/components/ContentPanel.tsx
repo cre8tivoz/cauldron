@@ -46,7 +46,8 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     void load();
   }, [load, site?.root]);
 
-  const open = async (file: string) => {
+  /** `carry` holds typed values in other fields that must survive a reload. */
+  const open = async (file: string, carry: Record<string, string> = {}) => {
     setProblem(null);
     setSaved(null);
     setConflict(null);
@@ -57,7 +58,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     }
     setOpenFile(file);
     setEntry(result);
-    setValues(result.values);
+    setValues({ ...result.values, ...carry });
     setAsText(null);
   };
 
@@ -120,9 +121,20 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     }
     setConflict(null);
     keepDraft(change.field ?? 'text', null);
+    // Other fields the person has typed in but not saved must survive the
+    // reload that follows a save.
+    // Saving the whole entry as plain text reloads the real values instead.
+    const carry: Record<string, string> = {};
+    if (change.field !== undefined) {
+      for (const [name, value] of Object.entries(values)) {
+        if (name !== change.field && value !== (entry.values[name] ?? '')) {
+          carry[name] = value;
+        }
+      }
+    }
     // Reload first: opening an entry clears the last message, and the
     // confirmation must survive it.
-    await open(openFile);
+    await open(openFile, carry);
     setSaved(
       result.conflictCopy
         ? `Saved. The disk version was kept as a copy: ${result.conflictCopy}`

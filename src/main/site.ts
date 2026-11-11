@@ -65,6 +65,18 @@ function astroVersionOf(root: string): string | null {
 }
 
 export function detectSite(root: string): Site | Problem {
+  if (!fs.existsSync(root)) {
+    return {
+      problem: 'That folder does not exist. Check the path and try again.',
+      detail: root,
+    };
+  }
+  if (!fs.statSync(root).isDirectory()) {
+    return {
+      problem: 'That path is a file, not a folder.',
+      detail: root,
+    };
+  }
   if (!fs.existsSync(path.join(root, 'package.json'))) {
     return {
       problem: 'This folder has no package.json, so it is not an Astro site.',

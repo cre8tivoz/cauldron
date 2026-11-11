@@ -423,7 +423,7 @@ export function ProjectHome({
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: 'var(--text-loud, #f5f5f5)',
+              color: 'var(--text)',
             }}
           >
             Starter Template
@@ -453,10 +453,10 @@ export function ProjectHome({
                       borderRadius: 6,
                       border: active
                         ? '1.5px solid var(--accent, #b84b30)'
-                        : '1px solid var(--hairline, #2a2a2a)',
+                        : '1px solid var(--hairline)',
                       background: active
                         ? 'rgba(184, 75, 48, 0.08)'
-                        : 'var(--surface, #1e1e1e)',
+                        : 'var(--panel)',
                       cursor: canFormEdit ? 'pointer' : 'default',
                       textAlign: 'left',
                       color: 'inherit',
@@ -478,9 +478,9 @@ export function ProjectHome({
                           padding: '1px 5px',
                           borderRadius: 3,
                           background: active
-                            ? 'var(--accent, #b84b30)'
-                            : 'rgba(255,255,255,0.08)',
-                          color: active ? '#fff' : 'var(--muted, #888)',
+                            ? 'var(--accent)'
+                            : 'var(--panel-sunken)',
+                          color: active ? 'var(--accent-text)' : 'var(--muted)',
                           fontWeight: 600,
                         }}
                       >
@@ -502,7 +502,7 @@ export function ProjectHome({
                       style={{
                         fontWeight: 600,
                         fontSize: 12,
-                        color: 'var(--text-loud, #f5f5f5)',
+                        color: 'var(--text)',
                       }}
                     >
                       {tpl.name}
@@ -510,7 +510,7 @@ export function ProjectHome({
                     <div
                       style={{
                         fontSize: 11,
-                        color: 'var(--muted, #888)',
+                        color: 'var(--muted)',
                         lineHeight: 1.25,
                       }}
                     >
