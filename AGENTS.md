@@ -86,7 +86,7 @@ npm run check        # type check, lint and unit tests — must pass
 npm run smoke        # package the app, open it hidden, confirm the interface renders
 ```
 
-Run `npm run check` and `npm run smoke` before every commit. CI runs the same on pushes to `main` and on pull requests, and must be green. If you cannot run one of them (for example, no Mac), say so plainly in your report.
+Run `npm run check` and `npm run smoke` before every commit (`npm run hooks:install` once per checkout makes the pre-commit hook do it). CI runs the same checks on Linux for pushes to `main` and pull requests, and must be green. The Mac build and separate-Mac launch check run on pull requests that change more than docs, or by hand from the Actions tab (Run workflow) — start one before calling a direct push to `main` releasable. If you cannot run one of them (for example, no Mac), say so plainly in your report.
 
 ## Vocabulary and decisions
 
