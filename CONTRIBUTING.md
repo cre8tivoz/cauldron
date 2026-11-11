@@ -5,7 +5,9 @@ Cauldron is MIT licensed. Small, clear changes are easiest to review.
 ## Before you start
 
 - Read `AGENTS.md` and the decisions in `docs/adr/`.
-- Check [`fablefixes.md`](fablefixes.md), the one work list. When you fix an item, update its status there in the same change and say what you actually ran.
+- Work is tracked in [Linear](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b), the one work list. Only start work that has a Linear issue, and put its WDL ID in your branch name or pull-request title (for example `WDL-170: …`), so Linear can follow the change.
+- In the pull request, say what you actually ran to check it.
+- [`fablefixes.md`](fablefixes.md) is the 9–10 November 2026 audit. Its items are now Linear issues; it is not the work list.
 
 ## Making a change
 

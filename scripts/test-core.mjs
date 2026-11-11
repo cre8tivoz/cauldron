@@ -15,7 +15,9 @@ const electronStub = path.join(
 );
 fs.writeFileSync(
   electronStub,
-  `export const app = { getAppPath: () => process.cwd(), getPath: () => globalThis.__cauldronUserData ?? ${JSON.stringify(
+  `export const app = { getAppPath: () => process.cwd(), getVersion: () => ${JSON.stringify(
+    JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
+  )}, getPath: () => globalThis.__cauldronUserData ?? ${JSON.stringify(
     path.join(
       fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-electron-home-')),
       'userData',
@@ -682,8 +684,6 @@ try {
         `a keystroke at ${now} moved the save`,
       );
     }
-    assert.equal(draftSchedule.isDraftDue(schedule, dueAt - 1), false);
-    assert.equal(draftSchedule.isDraftDue(schedule, dueAt), true);
   });
 
   test('1.6 a completed save arms a new recovery save', () => {
@@ -2547,6 +2547,12 @@ await (async () => {
       return response.json();
     };
     try {
+      // WDL-228: the version reported to agents comes from package.json, not a second copy.
+      const init = await post({ jsonrpc: '2.0', id: 0, method: 'initialize' });
+      assert.equal(
+        init.result.serverInfo.version,
+        JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
+      );
       const listed = await post({
         jsonrpc: '2.0',
         id: 1,

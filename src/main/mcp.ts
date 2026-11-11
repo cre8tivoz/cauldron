@@ -404,7 +404,7 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
           reply({
             protocolVersion: '2025-06-18',
             capabilities: { tools: {} },
-            serverInfo: { name: 'cauldron', version: '0.0.1' },
+            serverInfo: { name: 'cauldron', version: app.getVersion() },
             instructions: `Cauldron is editing ${options.siteName}. Read the design direction before changing anything.`,
           });
           return;

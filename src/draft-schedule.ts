@@ -15,10 +15,6 @@ export function noteDraftChange(
   return { dueAt: now + DRAFT_SAVE_DELAY_MS };
 }
 
-export function isDraftDue(schedule: DraftSchedule, now: number): boolean {
-  return schedule.dueAt !== null && now >= schedule.dueAt;
-}
-
 export function clearDraftSchedule(): DraftSchedule {
   return { dueAt: null };
 }

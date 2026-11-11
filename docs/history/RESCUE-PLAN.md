@@ -1,6 +1,6 @@
 # Cauldron rescue plan — start here
 
-> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../../fablefixes.md); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current work list is [Linear](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
 
 **Owner:** the agent taking over from Claudia. **Requested by Billy:** 8 November 2026.
 **Baseline app revision:** `e144e1f46c96b19b9dc5fbd6a037b1764de031ac`, `main`, `cre8tivoz/cauldron`.
@@ -67,6 +67,7 @@ Sources:
 9. **Content security policy is wider than documented.**
    - **Resolution:** Documented and constrained CSP in `index.html` to Google Fonts and Unsplash imagery with necessary hashes.
    - **Evidence:** Verified in `npm run check`.
+   - **Correction (11 November 2026, WDL-217):** this resolution is not true. The policy in `index.html` has no hashes; it still allows inline styles, and it blocks downloading curated photos (WDL-188).
 
 10. **Unrequested Inspector extras.**
     - **Resolution:** Cleaned up and scoped `Inspector.tsx` to the approved 3-way tab interface (`Element` | `Outline` | `Photos`), preserving standard property controls.

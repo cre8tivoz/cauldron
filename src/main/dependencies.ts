@@ -218,58 +218,6 @@ export function prepareDependencies(options: {
 }
 
 /**
- * A promise-based convenience for tests/scripts: runs the same install and
- * returns every progress line, never swallowing stderr.
- */
-export function prepareDependenciesCollect(options: {
-  root: string;
-  storeDir?: string;
-  timeoutMs?: number;
-}): Promise<
-  | { ok: true; lines: string[] }
-  | { ok: false; problem: string; detail: string; lines: string[] }
-> {
-  return new Promise((resolve) => {
-    const lines: string[] = [];
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const handle = prepareDependencies({
-      root: options.root,
-      storeDir: options.storeDir,
-      onUpdate: (update) => {
-        if (update.type === 'progress') lines.push(update.text);
-        else if (update.type === 'done') {
-          if (settled) return;
-          settled = true;
-          if (timer) clearTimeout(timer);
-          resolve(
-            update.ok
-              ? { ok: true, lines }
-              : {
-                  ok: false,
-                  problem: update.problem,
-                  detail: update.detail,
-                  lines,
-                },
-          );
-        }
-      },
-    });
-    timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      handle.cancel();
-      resolve({
-        ok: false,
-        problem: 'The install did not finish in time.',
-        detail: `${options.root}`,
-        lines,
-      });
-    }, options.timeoutMs ?? 600000);
-  });
-}
-
-/**
  * Scans a site's source files for bare package imports that are neither
  * declared in package.json nor installed in node_modules.
  */
