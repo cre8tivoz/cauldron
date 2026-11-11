@@ -181,9 +181,17 @@ export function serveDist(
   dist: string,
 ): Promise<{ url: string; close: () => void }> {
   const server = http.createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    let file = path.join(dist, decodeURIComponent(url.pathname));
-    if (!file.startsWith(dist)) {
+    let file: string;
+    try {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      file = path.join(dist, decodeURIComponent(url.pathname));
+    } catch {
+      response
+        .writeHead(400, { 'content-type': 'text/plain' })
+        .end('Bad address');
+      return;
+    }
+    if (file !== dist && !file.startsWith(dist + path.sep)) {
       response.writeHead(403).end();
       return;
     }

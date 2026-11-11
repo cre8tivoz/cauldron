@@ -349,12 +349,39 @@ function resolvePageFile(root: string, page: string): string | null {
   );
 }
 
+/** Index just after the quote that closes the string opened at `start`, or -1. */
+function endOfString(text: string, start: number): number {
+  const quote = text[start];
+  for (let i = start + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') i++;
+    else if (ch === quote) return i + 1;
+    // Only a template literal may span lines. A lone ' or " on a line is
+    // text (an apostrophe), not the start of a string.
+    else if (ch === '\n' && quote !== '`') return -1;
+  }
+  return -1;
+}
+
+/** Returns the index just after the `}` that closes the `{` at `start`. */
+function skipBraces(text: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const end = endOfString(text, i);
+      if (end !== -1) i = end - 1;
+    } else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i + 1;
+  }
+  return text.length;
+}
+
 function findSectionBlocks(text: string): InternalSectionBlock[] {
   let searchStart = 0;
-  if (text.startsWith('---\n')) {
-    const endFm = text.indexOf('\n---\n', 4);
-    if (endFm !== -1) searchStart = endFm + 5;
-  }
+  // The front matter fence may use Windows line endings.
+  const frontMatter = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  if (frontMatter) searchStart = frontMatter[0].length;
 
   const blocks: InternalSectionBlock[] = [];
   let index = searchStart;
@@ -363,6 +390,14 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
   while (index < text.length) {
     const nextTagStart = text.indexOf('<', index);
     if (nextTagStart === -1) break;
+
+    // A `{ ... }` expression (a loop or condition) is code, not a section:
+    // skip it whole so components inside it are never listed.
+    const braceStart = text.indexOf('{', index);
+    if (braceStart !== -1 && braceStart < nextTagStart) {
+      index = skipBraces(text, braceStart);
+      continue;
+    }
 
     // Check if it's a closing tag or comment
     if (text[nextTagStart + 1] === '/') {
