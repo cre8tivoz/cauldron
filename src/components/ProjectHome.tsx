@@ -1,59 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const STARTER_FALLBACK: Array<{
-  id: string;
-  name: string;
-  category: string;
-  badge: string;
-  swatches: string[];
-  description: string;
-}> = [
-  {
-    id: 'sunday-table',
-    name: 'Sunday Table',
-    category: 'Café & Dining',
-    badge: 'Hospitality',
-    swatches: ['#f8f4e9', '#fffdf7', '#b84b30', '#d99a5b', '#2a1712'],
-    description:
-      'Warm Mediterranean hospitality: seasonal menus and dining hours.',
-  },
-  {
-    id: 'penta',
-    name: 'PeNtA Studio',
-    category: 'Architecture & Design',
-    badge: 'Portfolio',
-    swatches: ['#111111', '#1a1a1a', '#f5f5f5', '#888888', '#262626'],
-    description:
-      'High-contrast brutalist elegance and masonry project archive.',
-  },
-  {
-    id: 'good-trade',
-    name: 'Good Trade / Hard Hat',
-    category: 'Trades & Builders',
-    badge: 'Trades',
-    swatches: ['#f0ece3', '#ffffff', '#a9714b', '#23252a', '#8b8681'],
-    description:
-      'Sturdy job-sheet aesthetic, clear capabilities, and fast quote form.',
-  },
-  {
-    id: 'the-desk',
-    name: 'The Desk / Atelier',
-    category: 'Writers & Creators',
-    badge: 'Editorial',
-    swatches: ['#faf8f5', '#ffffff', '#211e1b', '#736e65', '#e5e0d8'],
-    description:
-      'Refined editorial publication with reading times and newsletter box.',
-  },
-  {
-    id: 'minimal',
-    name: 'Blank Canvas',
-    category: 'Clean Minimal',
-    badge: 'Blank',
-    swatches: ['#ffffff', '#f8fafc', '#0f172a', '#64748b', '#e2e8f0'],
-    description: 'Pure, unstyled Astro foundation, ready for bespoke design.',
-  },
-];
-
 type Props = {
   busy: boolean;
   /** Native folder picker for opening an existing project. */
@@ -109,6 +55,7 @@ export function ProjectHome({
   const [selectedTemplate, setSelectedTemplate] =
     useState<string>('sunday-table');
   const [templates, setTemplates] = useState<CauldronStarterTemplate[]>([]);
+  const [templatesProblem, setTemplatesProblem] = useState<string | null>(null);
   const nameInput = useRef<HTMLInputElement | null>(null);
   const alive = useRef(true);
   useEffect(() => {
@@ -142,17 +89,25 @@ export function ProjectHome({
   }, []);
   useEffect(refresh, [refresh]);
 
+  // The starter list comes only from the main process, so the cards always
+  // match what can really be created. If it cannot be read, say so.
   useEffect(() => {
-    if (window.cauldron.starterTemplates) {
-      window.cauldron
-        .starterTemplates()
-        .then((items) => {
-          if (alive.current && Array.isArray(items) && items.length > 0) {
-            setTemplates(items);
-          }
-        })
-        .catch(() => {});
-    }
+    const failed = (reason: string) => {
+      if (!alive.current) return;
+      const text = `The starter templates could not be loaded: ${reason}`;
+      console.error(`[projects] ${text}`);
+      setTemplatesProblem(text);
+    };
+    window.cauldron
+      .starterTemplates()
+      .then((items) => {
+        if (!alive.current) return;
+        if (Array.isArray(items) && items.length > 0) setTemplates(items);
+        else failed('the list came back empty.');
+      })
+      .catch((error: unknown) =>
+        failed(error instanceof Error ? error.message : String(error)),
+      );
   }, []);
 
   // Follow install progress. The event names the project it belongs to, so a
@@ -435,106 +390,109 @@ export function ProjectHome({
               gap: 8,
             }}
           >
-            {(templates.length > 0 ? templates : STARTER_FALLBACK).map(
-              (tpl) => {
-                const active = selectedTemplate === tpl.id;
-                return (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => setSelectedTemplate(tpl.id)}
-                    disabled={!canFormEdit}
+            {templatesProblem ? (
+              <div className="notice" role="alert">
+                {templatesProblem}
+              </div>
+            ) : null}
+            {templates.map((tpl) => {
+              const active = selectedTemplate === tpl.id;
+              return (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => setSelectedTemplate(tpl.id)}
+                  disabled={!canFormEdit}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: 4,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    border: active
+                      ? '1.5px solid var(--accent, #b84b30)'
+                      : '1px solid var(--hairline)',
+                    background: active
+                      ? 'rgba(184, 75, 48, 0.08)'
+                      : 'var(--panel)',
+                    cursor: canFormEdit ? 'pointer' : 'default',
+                    textAlign: 'left',
+                    color: 'inherit',
+                  }}
+                >
+                  <div
                     style={{
                       display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      gap: 4,
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: active
-                        ? '1.5px solid var(--accent, #b84b30)'
-                        : '1px solid var(--hairline)',
-                      background: active
-                        ? 'rgba(184, 75, 48, 0.08)'
-                        : 'var(--panel)',
-                      cursor: canFormEdit ? 'pointer' : 'default',
-                      textAlign: 'left',
-                      color: 'inherit',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      width: '100%',
                     }}
                   >
-                    <div
+                    <span
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        width: '100%',
+                        fontSize: 9,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        padding: '1px 5px',
+                        borderRadius: 3,
+                        background: active
+                          ? 'var(--accent)'
+                          : 'var(--panel-sunken)',
+                        color: active ? 'var(--accent-text)' : 'var(--muted)',
+                        fontWeight: 600,
                       }}
                     >
+                      {tpl.badge}
+                    </span>
+                    {active ? (
                       <span
                         style={{
-                          fontSize: 9,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.06em',
-                          padding: '1px 5px',
-                          borderRadius: 3,
-                          background: active
-                            ? 'var(--accent)'
-                            : 'var(--panel-sunken)',
-                          color: active ? 'var(--accent-text)' : 'var(--muted)',
-                          fontWeight: 600,
+                          fontSize: 10,
+                          color: 'var(--accent, #b84b30)',
+                          fontWeight: 700,
                         }}
                       >
-                        {tpl.badge}
+                        ✓
                       </span>
-                      {active ? (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: 'var(--accent, #b84b30)',
-                            fontWeight: 700,
-                          }}
-                        >
-                          ✓
-                        </span>
-                      ) : null}
-                    </div>
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 12,
-                        color: 'var(--text)',
-                      }}
-                    >
-                      {tpl.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: 'var(--muted)',
-                        lineHeight: 1.25,
-                      }}
-                    >
-                      {tpl.category}
-                    </div>
-                    <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
-                      {tpl.swatches.map((color, idx) => (
-                        <span
-                          key={idx}
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 2,
-                            background: color,
-                            border: '1px solid rgba(0,0,0,0.2)',
-                            display: 'inline-block',
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </button>
-                );
-              },
-            )}
+                    ) : null}
+                  </div>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 12,
+                      color: 'var(--text)',
+                    }}
+                  >
+                    {tpl.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      lineHeight: 1.25,
+                    }}
+                  >
+                    {tpl.category}
+                  </div>
+                  <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
+                    {tpl.swatches.map((color, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 2,
+                          background: color,
+                          border: '1px solid rgba(0,0,0,0.2)',
+                          display: 'inline-block',
+                        }}
+                      />
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
         <p className="hint" style={{ margin: 0 }}>

@@ -128,22 +128,6 @@ export function addRecent(
   });
 }
 
-/** Marks an entry as opened now and moves it to the top of the library. */
-export function touchRecent(
-  storePath: string,
-  projectPath: string,
-): RecentLibrary | { problem: string } {
-  const canonical = canonicalProjectPath(projectPath);
-  return writeRecents(storePath, (projects) => {
-    const existing = projects.find((entry) => entry.path === canonical);
-    if (!existing) return `The project ${canonical} is not in the library.`;
-    return [
-      { ...existing, lastOpenedAt: Date.now() },
-      ...projects.filter((entry) => entry.path !== canonical),
-    ];
-  });
-}
-
 /**
  * Removes only the library entry. The project folder on disk is never touched.
  * The entry survives if the folder has moved, so the person still sees and can
@@ -159,11 +143,6 @@ export function removeRecent(
       return `The project ${canonical} is not in the library.`;
     return projects.filter((entry) => entry.path !== canonical);
   });
-}
-
-/** Which library entries point at folders that no longer exist. */
-export function missingRecents(library: RecentProject[]): RecentProject[] {
-  return library.filter((entry) => !fs.existsSync(entry.path));
 }
 
 // --- New project creation -------------------------------------------------

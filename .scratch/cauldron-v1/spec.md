@@ -1,6 +1,6 @@
 # Cauldron v1 — source pointers and issue index
 
-> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is [`fablefixes.md`](../../fablefixes.md); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
+> **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current work list is the [Cauldron Linear project](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
 
 Status: rescue-complete (9 Nov 2026)
 Execution: tickets 11–32 and the P0–P3 rescue checklist in [RESCUE-PLAN.md](../../docs/history/RESCUE-PLAN.md) are complete under Billy's authorisation (9 Nov 2026, commit `11ace4db493727f3bc3cfbfbba2a6bc2a943d5ee`). His reviewed PeNtA design verdict is closed. Ticket 30 is complete using the GitHub Actions clean macOS runner (`separate-mac-launch`) for second-Mac validation per Billy's decision (no second physical Mac available). See [docs/cauldron-retro.md](../../docs/cauldron-retro.md) for all rescue surprises and lessons learned. Earlier execution notes below are historical.
