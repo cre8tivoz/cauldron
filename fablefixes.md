@@ -4,93 +4,93 @@
 
 ## Linear mapping
 
-| Item | Linear issue | Status in Linear (11 Nov 2026) |
-| ---- | ------------ | ------------------------------ |
-| 1 | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5) | Done |
-| 2 | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5) | Done |
-| 3 | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5) | Done |
-| 4 | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5) | Done |
-| 5 | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5) | Done |
-| 6 | [WDL-151](https://linear.app/witchdaddy/issue/WDL-151/cloudflare-deploy-never-show-a-guessed-web-address-and-say-the-real) | Todo |
-| 7 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 8 | [WDL-186](https://linear.app/witchdaddy/issue/WDL-186/fable-8-saving-one-content-field-throws-away-typing-in-the-others) | Todo |
-| 9 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 10 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 11 | [WDL-187](https://linear.app/witchdaddy/issue/WDL-187/fable-11-edit-css-rule-edits-the-wrong-rule-and-adds-duplicates) | Todo |
-| 12 | [WDL-188](https://linear.app/witchdaddy/issue/WDL-188/fable-12-curated-photos-cannot-be-saved-to-the-site) | Todo |
-| 13 | [WDL-189](https://linear.app/witchdaddy/issue/WDL-189/fable-13-photo-credits-look-invented) | Todo |
-| 14 | [WDL-190](https://linear.app/witchdaddy/issue/WDL-190/fable-14-starter-sites-fail-cauldrons-own-design-rules) | Todo |
-| 15 | [WDL-192](https://linear.app/witchdaddy/issue/WDL-192/fable-15-outline-changes-skip-the-safety-net) | Todo |
-| 16 | [WDL-191](https://linear.app/witchdaddy/issue/WDL-191/fable-16-add-section-here-inserts-unstyled-tailwind-markup) | Todo |
-| 17 | [WDL-193](https://linear.app/witchdaddy/issue/WDL-193/fable-17-the-agent-is-told-about-tools-it-does-not-have) | Todo |
-| 18 | [WDL-194](https://linear.app/witchdaddy/issue/WDL-194/fable-18-import-shortcuts-are-reported-as-missing-packages) | Todo |
-| 19 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 20 | [WDL-195](https://linear.app/witchdaddy/issue/WDL-195/fable-20-undo-and-redo-buttons-need-a-selected-element) | Todo |
-| 21 | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done |
-| 22 | [WDL-196](https://linear.app/witchdaddy/issue/WDL-196/fable-22-run-history-and-run-undo-vanish-on-restart) | Todo |
-| 23 | [WDL-150](https://linear.app/witchdaddy/issue/WDL-150/library-add-can-put-a-different-section-on-the-page-than-the-one-you) | Done; leftover preview tiles: WDL-197 |
-| 24 | [WDL-198](https://linear.app/witchdaddy/issue/WDL-198/fable-24-the-mac-download-bar-in-publishing-is-never-real) | Todo |
-| 25 | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done |
-| 26 | [WDL-199](https://linear.app/witchdaddy/issue/WDL-199/fable-26-codex-follow-up-messages-drop-safety-flags) | Todo |
-| 27 | [WDL-200](https://linear.app/witchdaddy/issue/WDL-200/fable-27-missing-package-install-uses-the-wrong-tool-as-a-fallback) | Todo |
-| 28 | [WDL-201](https://linear.app/witchdaddy/issue/WDL-201/fable-28-new-projects-need-pnpm-already-installed) | Todo |
-| 29 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 30 | [WDL-202](https://linear.app/witchdaddy/issue/WDL-202/fable-30-new-page-with-the-preview-stopped-waits-on-the-wrong-address) | Todo; undo half also WDL-160 |
-| 31 | [WDL-203](https://linear.app/witchdaddy/issue/WDL-203/fable-31-outline-misreads-pages-with-loops-or-windows-line-endings) | Todo |
-| 32 | [WDL-204](https://linear.app/witchdaddy/issue/WDL-204/fable-32-the-window-freezes-during-builds) | Todo |
-| 33 | [WDL-232](https://linear.app/witchdaddy/issue/WDL-232/fable-33-every-agent-job-reads-the-whole-site-into-memory-twice) | Backlog |
-| 34 | [WDL-205](https://linear.app/witchdaddy/issue/WDL-205/fable-34-test-evidence-recorder-never-empties) | Todo |
-| 35 | [WDL-233](https://linear.app/witchdaddy/issue/WDL-233/fable-35-quality-check-is-slow-by-design) | Backlog |
-| 36 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 37 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 38 | [WDL-206](https://linear.app/witchdaddy/issue/WDL-206/fable-38-google-fonts-are-loaded-at-every-app-start) | Todo |
-| 39 | [WDL-234](https://linear.app/witchdaddy/issue/WDL-234/fable-39-pre-commit-hook-packages-the-whole-app-on-every-commit) | Backlog |
-| 40 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Partly done; leftover WDL-207 |
-| 41 | [WDL-208](https://linear.app/witchdaddy/issue/WDL-208/fable-41-unexpected-errors-are-swallowed-and-the-app-keeps-running) | Todo |
-| 42 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 43 | [WDL-209](https://linear.app/witchdaddy/issue/WDL-209/fable-43-library-add-reuses-any-existing-file-of-the-same-name) | Todo |
-| 44 | [WDL-210](https://linear.app/witchdaddy/issue/WDL-210/fable-44-preview-window-has-no-pop-up-or-permission-rules) | Todo |
-| 45 | [WDL-211](https://linear.app/witchdaddy/issue/WDL-211/fable-45-agent-job-has-no-time-limit) | Todo |
-| 46 | [WDL-212](https://linear.app/witchdaddy/issue/WDL-212/fable-46-agent-sent-from-the-quality-screen-loses-its-live-log) | Todo |
-| 47 | [WDL-213](https://linear.app/witchdaddy/issue/WDL-213/fable-47-discard-them-deletes-recovery-drafts-with-no-confirmation) | Todo |
-| 48 | [WDL-214](https://linear.app/witchdaddy/issue/WDL-214/fable-48-servedist-crashes-on-a-malformed-address) | Todo |
-| 49 | [WDL-215](https://linear.app/witchdaddy/issue/WDL-215/fable-49-agent-connection-code-is-accepted-in-the-web-address) | Todo |
-| 50 | [WDL-216](https://linear.app/witchdaddy/issue/WDL-216/fable-50-build-check-assumes-dist-and-always-uses-npm-run-build) | Backlog |
-| 51 | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans) | Done |
-| 52 | [WDL-217](https://linear.app/witchdaddy/issue/WDL-217/fable-52-leftover-csp-is-not-constrained-with-hashes) | Todo |
-| 53 | [WDL-165](https://linear.app/witchdaddy/issue/WDL-165/have-a-real-person-open-the-download-on-another-mac) | Backlog |
-| 54 | [WDL-218](https://linear.app/witchdaddy/issue/WDL-218/fable-54-the-ten-v1screenshots-are-staged-not-real) | Backlog; inspector copy also WDL-169 |
-| 55 | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans) | Done |
-| 56 | [WDL-219](https://linear.app/witchdaddy/issue/WDL-219/fable-56-glossary-vs-product-wording-site-vs-project) | Todo |
-| 57 | [WDL-220](https://linear.app/witchdaddy/issue/WDL-220/fable-57-outside-agent-connection-is-shown-in-the-agent-panel) | Todo |
-| 58 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 59 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 60 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 61 | [WDL-235](https://linear.app/witchdaddy/issue/WDL-235/fable-61-three-copies-of-the-contrast-maths) | Backlog |
-| 62 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 63 | [WDL-236](https://linear.app/witchdaddy/issue/WDL-236/fable-63-most-recorded-proofs-are-not-re-run-by-ci) | Backlog |
-| 64 | [WDL-237](https://linear.app/witchdaddy/issue/WDL-237/fable-64-hand-written-type-file-duplicates-the-preload-api) | Backlog |
-| 65 | [WDL-238](https://linear.app/witchdaddy/issue/WDL-238/fable-65-test-harness-ships-inside-the-product) | Backlog |
-| 66 | [WDL-154](https://linear.app/witchdaddy/issue/WDL-154/decide-what-to-do-with-the-11-gb-research-folder-before-the-repo-goes) | Todo |
-| 67 | [WDL-154](https://linear.app/witchdaddy/issue/WDL-154/decide-what-to-do-with-the-11-gb-research-folder-before-the-repo-goes) | Todo (with #66) |
-| 68 | [WDL-221](https://linear.app/witchdaddy/issue/WDL-221/fable-68-remove-unused-icons-source-artwork) | Todo |
-| 69 | [WDL-222](https://linear.app/witchdaddy/issue/WDL-222/fable-69-remove-docscheckpointsdocumentation-auditzip-from-the-repo) | Todo |
-| 70 | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans) | Done |
-| 71 | [WDL-152](https://linear.app/witchdaddy/issue/WDL-152/bring-agentsmd-and-the-status-notes-up-to-date-so-agents-arent-misled) | Todo (partly done) |
-| 72 | [WDL-223](https://linear.app/witchdaddy/issue/WDL-223/fable-72-remove-unused-electron-forgeplugin-auto-unpack-natives) | Todo |
-| 73 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Partly done; leftover WDL-224 |
-| 74 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Partly done; leftover WDL-225 |
-| 75 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Done |
-| 76 | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up) | Partly done; leftover WDL-226 |
-| 77 | [WDL-227](https://linear.app/witchdaddy/issue/WDL-227/fable-77-github-issue-template-still-assumes-the-old-tracker) | Todo |
-| 78 | [WDL-239](https://linear.app/witchdaddy/issue/WDL-239/fable-78-review-reload-developer-tools-and-help-menu-items) | Backlog |
-| 79 | [WDL-240](https://linear.app/witchdaddy/issue/WDL-240/fable-79-hundreds-of-inline-styles-in-the-components) | Backlog |
-| 80 | [WDL-228](https://linear.app/witchdaddy/issue/WDL-228/fable-80-app-version-001-is-typed-in-twice) | Todo; version decision WDL-153 |
-| 81 | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done |
-| 82 | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done |
-| 83 | [WDL-229](https://linear.app/witchdaddy/issue/WDL-229/fable-83-pick-mode-can-be-refused-once-at-start-up) | Todo |
-| 84 | [WDL-231](https://linear.app/witchdaddy/issue/WDL-231/fable-84-the-selected-starter-card-title-is-nearly-invisible) | Todo |
-| 85 | [WDL-230](https://linear.app/witchdaddy/issue/WDL-230/fable-85-a-missing-folder-is-reported-as-no-packagejson) | Todo |
+| Item | Linear issue                                                                                                                  | Status in Linear (11 Nov 2026)        |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| 1    | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5)               | Done                                  |
+| 2    | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5)               | Done                                  |
+| 3    | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5)               | Done                                  |
+| 4    | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5)               | Done                                  |
+| 5    | [WDL-181](https://linear.app/witchdaddy/issue/WDL-181/remove-untrue-messages-from-the-interface-fablefixes-1-5)               | Done                                  |
+| 6    | [WDL-151](https://linear.app/witchdaddy/issue/WDL-151/cloudflare-deploy-never-show-a-guessed-web-address-and-say-the-real)    | Todo                                  |
+| 7    | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 8    | [WDL-186](https://linear.app/witchdaddy/issue/WDL-186/fable-8-saving-one-content-field-throws-away-typing-in-the-others)      | Todo                                  |
+| 9    | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 10   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 11   | [WDL-187](https://linear.app/witchdaddy/issue/WDL-187/fable-11-edit-css-rule-edits-the-wrong-rule-and-adds-duplicates)        | Todo                                  |
+| 12   | [WDL-188](https://linear.app/witchdaddy/issue/WDL-188/fable-12-curated-photos-cannot-be-saved-to-the-site)                    | Todo                                  |
+| 13   | [WDL-189](https://linear.app/witchdaddy/issue/WDL-189/fable-13-photo-credits-look-invented)                                   | Todo                                  |
+| 14   | [WDL-190](https://linear.app/witchdaddy/issue/WDL-190/fable-14-starter-sites-fail-cauldrons-own-design-rules)                 | Todo                                  |
+| 15   | [WDL-192](https://linear.app/witchdaddy/issue/WDL-192/fable-15-outline-changes-skip-the-safety-net)                           | Todo                                  |
+| 16   | [WDL-191](https://linear.app/witchdaddy/issue/WDL-191/fable-16-add-section-here-inserts-unstyled-tailwind-markup)             | Todo                                  |
+| 17   | [WDL-193](https://linear.app/witchdaddy/issue/WDL-193/fable-17-the-agent-is-told-about-tools-it-does-not-have)                | Todo                                  |
+| 18   | [WDL-194](https://linear.app/witchdaddy/issue/WDL-194/fable-18-import-shortcuts-are-reported-as-missing-packages)             | Todo                                  |
+| 19   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 20   | [WDL-195](https://linear.app/witchdaddy/issue/WDL-195/fable-20-undo-and-redo-buttons-need-a-selected-element)                 | Todo                                  |
+| 21   | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done                                  |
+| 22   | [WDL-196](https://linear.app/witchdaddy/issue/WDL-196/fable-22-run-history-and-run-undo-vanish-on-restart)                    | Todo                                  |
+| 23   | [WDL-150](https://linear.app/witchdaddy/issue/WDL-150/library-add-can-put-a-different-section-on-the-page-than-the-one-you)   | Done; leftover preview tiles: WDL-197 |
+| 24   | [WDL-198](https://linear.app/witchdaddy/issue/WDL-198/fable-24-the-mac-download-bar-in-publishing-is-never-real)              | Todo                                  |
+| 25   | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done                                  |
+| 26   | [WDL-199](https://linear.app/witchdaddy/issue/WDL-199/fable-26-codex-follow-up-messages-drop-safety-flags)                    | Todo                                  |
+| 27   | [WDL-200](https://linear.app/witchdaddy/issue/WDL-200/fable-27-missing-package-install-uses-the-wrong-tool-as-a-fallback)     | Todo                                  |
+| 28   | [WDL-201](https://linear.app/witchdaddy/issue/WDL-201/fable-28-new-projects-need-pnpm-already-installed)                      | Todo                                  |
+| 29   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 30   | [WDL-202](https://linear.app/witchdaddy/issue/WDL-202/fable-30-new-page-with-the-preview-stopped-waits-on-the-wrong-address)  | Todo; undo half also WDL-160          |
+| 31   | [WDL-203](https://linear.app/witchdaddy/issue/WDL-203/fable-31-outline-misreads-pages-with-loops-or-windows-line-endings)     | Todo                                  |
+| 32   | [WDL-204](https://linear.app/witchdaddy/issue/WDL-204/fable-32-the-window-freezes-during-builds)                              | Todo                                  |
+| 33   | [WDL-232](https://linear.app/witchdaddy/issue/WDL-232/fable-33-every-agent-job-reads-the-whole-site-into-memory-twice)        | Backlog                               |
+| 34   | [WDL-205](https://linear.app/witchdaddy/issue/WDL-205/fable-34-test-evidence-recorder-never-empties)                          | Todo                                  |
+| 35   | [WDL-233](https://linear.app/witchdaddy/issue/WDL-233/fable-35-quality-check-is-slow-by-design)                               | Backlog                               |
+| 36   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 37   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 38   | [WDL-206](https://linear.app/witchdaddy/issue/WDL-206/fable-38-google-fonts-are-loaded-at-every-app-start)                    | Todo                                  |
+| 39   | [WDL-234](https://linear.app/witchdaddy/issue/WDL-234/fable-39-pre-commit-hook-packages-the-whole-app-on-every-commit)        | Backlog                               |
+| 40   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-207         |
+| 41   | [WDL-208](https://linear.app/witchdaddy/issue/WDL-208/fable-41-unexpected-errors-are-swallowed-and-the-app-keeps-running)     | Todo                                  |
+| 42   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 43   | [WDL-209](https://linear.app/witchdaddy/issue/WDL-209/fable-43-library-add-reuses-any-existing-file-of-the-same-name)         | Todo                                  |
+| 44   | [WDL-210](https://linear.app/witchdaddy/issue/WDL-210/fable-44-preview-window-has-no-pop-up-or-permission-rules)              | Todo                                  |
+| 45   | [WDL-211](https://linear.app/witchdaddy/issue/WDL-211/fable-45-agent-job-has-no-time-limit)                                   | Todo                                  |
+| 46   | [WDL-212](https://linear.app/witchdaddy/issue/WDL-212/fable-46-agent-sent-from-the-quality-screen-loses-its-live-log)         | Todo                                  |
+| 47   | [WDL-213](https://linear.app/witchdaddy/issue/WDL-213/fable-47-discard-them-deletes-recovery-drafts-with-no-confirmation)     | Todo                                  |
+| 48   | [WDL-214](https://linear.app/witchdaddy/issue/WDL-214/fable-48-servedist-crashes-on-a-malformed-address)                      | Todo                                  |
+| 49   | [WDL-215](https://linear.app/witchdaddy/issue/WDL-215/fable-49-agent-connection-code-is-accepted-in-the-web-address)          | Todo                                  |
+| 50   | [WDL-216](https://linear.app/witchdaddy/issue/WDL-216/fable-50-build-check-assumes-dist-and-always-uses-npm-run-build)        | Backlog                               |
+| 51   | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans)             | Done                                  |
+| 52   | [WDL-217](https://linear.app/witchdaddy/issue/WDL-217/fable-52-leftover-csp-is-not-constrained-with-hashes)                   | Todo                                  |
+| 53   | [WDL-165](https://linear.app/witchdaddy/issue/WDL-165/have-a-real-person-open-the-download-on-another-mac)                    | Backlog                               |
+| 54   | [WDL-218](https://linear.app/witchdaddy/issue/WDL-218/fable-54-the-ten-v1screenshots-are-staged-not-real)                     | Backlog; inspector copy also WDL-169  |
+| 55   | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans)             | Done                                  |
+| 56   | [WDL-219](https://linear.app/witchdaddy/issue/WDL-219/fable-56-glossary-vs-product-wording-site-vs-project)                   | Todo                                  |
+| 57   | [WDL-220](https://linear.app/witchdaddy/issue/WDL-220/fable-57-outside-agent-connection-is-shown-in-the-agent-panel)          | Todo                                  |
+| 58   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 59   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 60   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 61   | [WDL-235](https://linear.app/witchdaddy/issue/WDL-235/fable-61-three-copies-of-the-contrast-maths)                            | Backlog                               |
+| 62   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 63   | [WDL-236](https://linear.app/witchdaddy/issue/WDL-236/fable-63-most-recorded-proofs-are-not-re-run-by-ci)                     | Backlog                               |
+| 64   | [WDL-237](https://linear.app/witchdaddy/issue/WDL-237/fable-64-hand-written-type-file-duplicates-the-preload-api)             | Backlog                               |
+| 65   | [WDL-238](https://linear.app/witchdaddy/issue/WDL-238/fable-65-test-harness-ships-inside-the-product)                         | Backlog                               |
+| 66   | [WDL-154](https://linear.app/witchdaddy/issue/WDL-154/decide-what-to-do-with-the-11-gb-research-folder-before-the-repo-goes)  | Todo                                  |
+| 67   | [WDL-154](https://linear.app/witchdaddy/issue/WDL-154/decide-what-to-do-with-the-11-gb-research-folder-before-the-repo-goes)  | Todo (with #66)                       |
+| 68   | [WDL-221](https://linear.app/witchdaddy/issue/WDL-221/fable-68-remove-unused-icons-source-artwork)                            | Todo                                  |
+| 69   | [WDL-222](https://linear.app/witchdaddy/issue/WDL-222/fable-69-remove-docscheckpointsdocumentation-auditzip-from-the-repo)    | Todo                                  |
+| 70   | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans)             | Done                                  |
+| 71   | [WDL-152](https://linear.app/witchdaddy/issue/WDL-152/bring-agentsmd-and-the-status-notes-up-to-date-so-agents-arent-misled)  | Todo (partly done)                    |
+| 72   | [WDL-223](https://linear.app/witchdaddy/issue/WDL-223/fable-72-remove-unused-electron-forgeplugin-auto-unpack-natives)        | Todo                                  |
+| 73   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-224         |
+| 74   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-225         |
+| 75   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
+| 76   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-226         |
+| 77   | [WDL-227](https://linear.app/witchdaddy/issue/WDL-227/fable-77-github-issue-template-still-assumes-the-old-tracker)           | Todo                                  |
+| 78   | [WDL-239](https://linear.app/witchdaddy/issue/WDL-239/fable-78-review-reload-developer-tools-and-help-menu-items)             | Backlog                               |
+| 79   | [WDL-240](https://linear.app/witchdaddy/issue/WDL-240/fable-79-hundreds-of-inline-styles-in-the-components)                   | Backlog                               |
+| 80   | [WDL-228](https://linear.app/witchdaddy/issue/WDL-228/fable-80-app-version-001-is-typed-in-twice)                             | Todo; version decision WDL-153        |
+| 81   | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done                                  |
+| 82   | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done                                  |
+| 83   | [WDL-229](https://linear.app/witchdaddy/issue/WDL-229/fable-83-pick-mode-can-be-refused-once-at-start-up)                     | Todo                                  |
+| 84   | [WDL-231](https://linear.app/witchdaddy/issue/WDL-231/fable-84-the-selected-starter-card-title-is-nearly-invisible)           | Todo                                  |
+| 85   | [WDL-230](https://linear.app/witchdaddy/issue/WDL-230/fable-85-a-missing-folder-is-reported-as-no-packagejson)                | Todo                                  |
 
 ---
 
