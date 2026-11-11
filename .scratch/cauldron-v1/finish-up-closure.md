@@ -2,7 +2,6 @@
 
 > **Historical record — not current.** Kept for provenance only. Status claims in this file ("done", "verified", "complete") were true at best when written and several have since been found wrong. The current state and work list is the [Cauldron Linear project](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b); the rules and scope are in [`AGENTS.md`](../../AGENTS.md).
 
-
 Billy explicitly accepted the reviewed PeNtA design and authorised the bounded technical finish-up. Ticket 29 is complete under that amended scope; ticket 30 remains pending actual download/unpack/launch on another Apple-silicon Mac. No public release was made.
 
 Claudia reviewed the implementation diff and the recorded behavioural negative/positive tests. Selected controls do not get a hover exemption; missing disabled styling still fails. Checker regressions: 29/29. Final whole-site measurement of the disposable PeNtA output with the small authorised CSS corrections: 249 pass, 4 design opinions, zero failures, across `/`, `/gallery`, `/contact` at 375/768/1280. This does not rerun or replace the historical agent-change measurement layer.

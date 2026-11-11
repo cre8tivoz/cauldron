@@ -6,11 +6,11 @@ A Mac desktop app for designing and building real Astro websites, with design ta
 
 ## The three live documents
 
-| Document                                                                                     | What it is for                                                     |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `AGENTS.md` (this file)                                                                      | What the product is, what is settled, the rules, how to work here. |
-| [Linear: Cauldron](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b)               | **The one work list.** Open, in-progress and done work lives there. |
-| [`README.md`](README.md)                                                                     | The short public description and how to run the app.               |
+| Document                                                                        | What it is for                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `AGENTS.md` (this file)                                                         | What the product is, what is settled, the rules, how to work here.  |
+| [Linear: Cauldron](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b) | **The one work list.** Open, in-progress and done work lives there. |
+| [`README.md`](README.md)                                                        | The short public description and how to run the app.                |
 
 Supporting reference, still current: [`GLOSSARY.md`](GLOSSARY.md), the decisions in [`docs/adr/`](docs/adr/), [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`REFERENCE-MATERIAL.md`](REFERENCE-MATERIAL.md).
 
