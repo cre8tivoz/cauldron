@@ -123,10 +123,13 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     keepDraft(change.field ?? 'text', null);
     // Other fields the person has typed in but not saved must survive the
     // reload that follows a save.
+    // Saving the whole entry as plain text reloads the real values instead.
     const carry: Record<string, string> = {};
-    for (const [name, value] of Object.entries(values)) {
-      if (name !== change.field && value !== (entry.values[name] ?? '')) {
-        carry[name] = value;
+    if (change.field !== undefined) {
+      for (const [name, value] of Object.entries(values)) {
+        if (name !== change.field && value !== (entry.values[name] ?? '')) {
+          carry[name] = value;
+        }
       }
     }
     // Reload first: opening an entry clears the last message, and the

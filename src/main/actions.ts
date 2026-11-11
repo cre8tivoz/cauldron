@@ -349,19 +349,29 @@ function resolvePageFile(root: string, page: string): string | null {
   );
 }
 
+/** Index just after the quote that closes the string opened at `start`, or -1. */
+function endOfString(text: string, start: number): number {
+  const quote = text[start];
+  for (let i = start + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') i++;
+    else if (ch === quote) return i + 1;
+    // Only a template literal may span lines. A lone ' or " on a line is
+    // text (an apostrophe), not the start of a string.
+    else if (ch === '\n' && quote !== '`') return -1;
+  }
+  return -1;
+}
+
 /** Returns the index just after the `}` that closes the `{` at `start`. */
 function skipBraces(text: string, start: number): number {
   let depth = 0;
-  let quote: string | null = null;
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
-    if (quote) {
-      if (ch === '\\') i++;
-      else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') quote = ch;
-    else if (ch === '{') depth++;
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const end = endOfString(text, i);
+      if (end !== -1) i = end - 1;
+    } else if (ch === '{') depth++;
     else if (ch === '}' && --depth === 0) return i + 1;
   }
   return text.length;

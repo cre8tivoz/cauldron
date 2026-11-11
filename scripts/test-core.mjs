@@ -2974,4 +2974,18 @@ test('WDL-214 the preview server answers a malformed address instead of crashing
   }
 });
 
+test('WDL-203 an apostrophe in text inside a loop does not hide later sections', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-outline-apos-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'src/pages/index.astro'),
+    `<main>\n  <section id="a">First</section>\n  {items.map(item => <Card>It's here</Card>)}\n  <section id="b">Second</section>\n</main>\n`,
+  );
+  const read = readPageSections(dir, '/');
+  assert.deepEqual(
+    read.sections.map((section) => section.anchorId),
+    ['a', 'b'],
+  );
+});
+
 process.exitCode = failures ? 1 : 0;
