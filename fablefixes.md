@@ -57,7 +57,7 @@
 | 49   | [WDL-215](https://linear.app/witchdaddy/issue/WDL-215/fable-49-agent-connection-code-is-accepted-in-the-web-address)          | Todo                                  |
 | 50   | [WDL-216](https://linear.app/witchdaddy/issue/WDL-216/fable-50-build-check-assumes-dist-and-always-uses-npm-run-build)        | Backlog                               |
 | 51   | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans)             | Done                                  |
-| 52   | [WDL-217](https://linear.app/witchdaddy/issue/WDL-217/fable-52-leftover-csp-is-not-constrained-with-hashes)                   | Todo                                  |
+| 52   | [WDL-217](https://linear.app/witchdaddy/issue/WDL-217/fable-52-leftover-csp-is-not-constrained-with-hashes)                   | Done (tidy-up PR, 11 Nov)             |
 | 53   | [WDL-165](https://linear.app/witchdaddy/issue/WDL-165/have-a-real-person-open-the-download-on-another-mac)                    | Backlog                               |
 | 54   | [WDL-218](https://linear.app/witchdaddy/issue/WDL-218/fable-54-the-ten-v1screenshots-are-staged-not-real)                     | Backlog; inspector copy also WDL-169  |
 | 55   | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans)             | Done                                  |
@@ -73,19 +73,19 @@
 | 65   | [WDL-238](https://linear.app/witchdaddy/issue/WDL-238/fable-65-test-harness-ships-inside-the-product)                         | Backlog                               |
 | 66   | [WDL-154](https://linear.app/witchdaddy/issue/WDL-154/decide-what-to-do-with-the-11-gb-research-folder-before-the-repo-goes)  | Todo                                  |
 | 67   | [WDL-154](https://linear.app/witchdaddy/issue/WDL-154/decide-what-to-do-with-the-11-gb-research-folder-before-the-repo-goes)  | Todo (with #66)                       |
-| 68   | [WDL-221](https://linear.app/witchdaddy/issue/WDL-221/fable-68-remove-unused-icons-source-artwork)                            | Todo                                  |
-| 69   | [WDL-222](https://linear.app/witchdaddy/issue/WDL-222/fable-69-remove-docscheckpointsdocumentation-auditzip-from-the-repo)    | Todo                                  |
+| 68   | [WDL-221](https://linear.app/witchdaddy/issue/WDL-221/fable-68-remove-unused-icons-source-artwork)                            | Canceled: icons are Billy's branding  |
+| 69   | [WDL-222](https://linear.app/witchdaddy/issue/WDL-222/fable-69-remove-docscheckpointsdocumentation-auditzip-from-the-repo)    | On hold: decide with WDL-153          |
 | 70   | [WDL-185](https://linear.app/witchdaddy/issue/WDL-185/fable-51-55-70-align-agentsmd-readme-and-archive-old-plans)             | Done                                  |
 | 71   | [WDL-152](https://linear.app/witchdaddy/issue/WDL-152/bring-agentsmd-and-the-status-notes-up-to-date-so-agents-arent-misled)  | Todo (partly done)                    |
-| 72   | [WDL-223](https://linear.app/witchdaddy/issue/WDL-223/fable-72-remove-unused-electron-forgeplugin-auto-unpack-natives)        | Todo                                  |
-| 73   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-224         |
-| 74   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-225         |
+| 72   | [WDL-223](https://linear.app/witchdaddy/issue/WDL-223/fable-72-remove-unused-electron-forgeplugin-auto-unpack-natives)        | Done (tidy-up PR, 11 Nov)             |
+| 73   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done (WDL-224, tidy-up PR, 11 Nov)    |
+| 74   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done (WDL-225, tidy-up PR, 11 Nov)    |
 | 75   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done                                  |
-| 76   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Partly done; leftover WDL-226         |
-| 77   | [WDL-227](https://linear.app/witchdaddy/issue/WDL-227/fable-77-github-issue-template-still-assumes-the-old-tracker)           | Todo                                  |
+| 76   | [WDL-182](https://linear.app/witchdaddy/issue/WDL-182/close-small-fablefixes-items-damage-guards-tidy-up)                     | Done (WDL-226, tidy-up PR, 11 Nov)    |
+| 77   | [WDL-227](https://linear.app/witchdaddy/issue/WDL-227/fable-77-github-issue-template-still-assumes-the-old-tracker)           | Done (tidy-up PR, 11 Nov)             |
 | 78   | [WDL-239](https://linear.app/witchdaddy/issue/WDL-239/fable-78-review-reload-developer-tools-and-help-menu-items)             | Backlog                               |
 | 79   | [WDL-240](https://linear.app/witchdaddy/issue/WDL-240/fable-79-hundreds-of-inline-styles-in-the-components)                   | Backlog                               |
-| 80   | [WDL-228](https://linear.app/witchdaddy/issue/WDL-228/fable-80-app-version-001-is-typed-in-twice)                             | Todo; version decision WDL-153        |
+| 80   | [WDL-228](https://linear.app/witchdaddy/issue/WDL-228/fable-80-app-version-001-is-typed-in-twice)                             | Done (tidy-up PR, 11 Nov)             |
 | 81   | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done                                  |
 | 82   | [WDL-184](https://linear.app/witchdaddy/issue/WDL-184/errors-in-every-view-honest-publishing-details-red-failures-fablefixes) | Done                                  |
 | 83   | [WDL-229](https://linear.app/witchdaddy/issue/WDL-229/fable-83-pick-mode-can-be-refused-once-at-start-up)                     | Todo                                  |
@@ -94,9 +94,9 @@
 
 ---
 
-# Fable fixes — the one work list
+# Fable fixes — the audit as written
 
-This is Cauldron's single list of what is broken, what has been fixed and what comes next. Rules and scope are in [`AGENTS.md`](AGENTS.md). Older plans are history (`docs/history/`).
+Until 11 November 2026 this was Cauldron's single list of what is broken, what has been fixed and what comes next. That list now lives in Linear (see the note at the top of this file). Rules and scope are in [`AGENTS.md`](AGENTS.md). Older plans are history (`docs/history/`).
 
 **Audited:** 9 November 2026, revision `fcd1cfe3`. Every file of the app was read (`src/`, `scripts/`, config, CI, docs). `originalresearch/` was checked for size, secrets and licence risk only.
 

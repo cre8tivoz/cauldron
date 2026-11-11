@@ -4,7 +4,7 @@ Cauldron is a free Mac app for building websites with [Astro](https://astro.buil
 
 It's open source and free, and it stays that way.
 
-**Status: in development, not yet released.** The foundations work, and a full audit on 9 November 2026 listed what still needs fixing. The honest, current state and the work list are in [fablefixes.md](fablefixes.md). Rules and scope for anyone working on the code are in [AGENTS.md](AGENTS.md).
+**Status: in development, not yet released.** The foundations work, and a full audit on 9 November 2026 listed what still needs fixing. Work is tracked in the [Cauldron Linear project](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b); the 9 November audit itself is in [fablefixes.md](fablefixes.md). Rules and scope for anyone working on the code are in [AGENTS.md](AGENTS.md).
 
 ## Try it
 

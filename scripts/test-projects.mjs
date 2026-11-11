@@ -31,21 +31,57 @@ const {
   canonicalProjectPath,
   loadRecents,
   addRecent,
-  touchRecent,
   removeRecent,
-  missingRecents,
   validateProjectName,
   packageSlug,
   validateAstroVersion,
   createProject,
 } = await import('../src/main/projects.ts');
-const {
-  detectDependencySetup,
-  prepareDependencies,
-  prepareDependenciesCollect,
-  findMissingPackages,
-} = await import('../src/main/dependencies.ts');
+const { detectDependencySetup, prepareDependencies, findMissingPackages } =
+  await import('../src/main/dependencies.ts');
 const { Runs } = await import('../src/main/runs.ts');
+
+// Runs the app's real install and collects every progress line, for these
+// tests only (WDL-224 moved it out of the app code).
+function prepareDependenciesCollect({ root, storeDir, timeoutMs = 600000 }) {
+  return new Promise((resolve) => {
+    const lines = [];
+    let settled = false;
+    let timer;
+    const handle = prepareDependencies({
+      root,
+      storeDir,
+      onUpdate: (update) => {
+        if (update.type === 'progress') lines.push(update.text);
+        else if (update.type === 'done' && !settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(
+            update.ok
+              ? { ok: true, lines }
+              : {
+                  ok: false,
+                  problem: update.problem,
+                  detail: update.detail,
+                  lines,
+                },
+          );
+        }
+      },
+    });
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      handle.cancel();
+      resolve({
+        ok: false,
+        problem: 'The install did not finish in time.',
+        detail: root,
+        lines,
+      });
+    }, timeoutMs);
+  });
+}
 const { buildSite } = await import('../src/main/quality.ts');
 const runtime = await import('../src/main/runtime.ts');
 const { detectSite, startDevServer } = await import('../src/main/site.ts');
@@ -85,30 +121,24 @@ check('add + dedupe by canonical path (symlink same folder)', () => {
   assert.equal(lib.projects[0].path, canonicalProjectPath(projA));
 });
 
-check('touchRecent moves the entry to the front and persists', () => {
+check('opening a project again moves it to the front and persists', () => {
   addRecent(store, projB);
   addRecent(store, projC);
   assert.equal(
     loadRecents(store).projects[2].path,
     canonicalProjectPath(projA),
   );
-  const after = touchRecent(store, projA);
-  assert.ok(!after.problem, 'touch should succeed');
+  const after = addRecent(store, projA);
+  assert.ok(!after.problem, 're-adding should succeed');
   const lib = loadRecents(store);
   assert.equal(lib.projects[0].path, canonicalProjectPath(projA));
   assert.equal(lib.projects.length, 3);
 });
 
-check('touchRecent on an unknown project reports, does not add', () => {
-  const result = touchRecent(store, path.join(proofRoot, 'not-there'));
-  assert.ok(result.problem);
-  assert.equal(loadRecents(store).projects.length, 3);
-});
-
-check('missing folder stays listed and is reported by missingRecents', () => {
+check('a missing folder stays listed', () => {
   fs.rmSync(projC, { recursive: true, force: true });
   const lib = loadRecents(store);
-  assert.equal(missingRecents(lib.projects).length, 1);
+  assert.equal(lib.projects.length, 3);
   assert.ok(lib.projects.some((p) => p.path === canonicalProjectPath(projC)));
 });
 

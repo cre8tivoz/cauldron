@@ -1,24 +1,27 @@
-name: Task or bug
-description: Something to build, fix, or decide.
-labels: [needs-triage]
+name: Bug report or idea
+description: Tell us about something broken in Cauldron, or something you'd like it to do.
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for writing in. Cauldron's work list lives in Linear, not in GitHub issues. A maintainer reads every report here and copies the ones we take on into Linear, then links the Linear ticket back on this issue.
   - type: textarea
     id: what
     attributes:
-      label: What
-      description: What should happen, in plain language.
+      label: What happened, or what you'd like
+      description: In plain language. For a bug, say what you did, what you expected and what you saw.
     validations:
       required: true
   - type: textarea
     id: why
     attributes:
-      label: Why
-      description: What problem this solves. Link the plan or decision record if there is one.
-  - type: textarea
-    id: done
+      label: Why it matters
+      description: What problem this causes or would solve for you.
+  - type: input
+    id: version
     attributes:
-      label: Done when
-      description: How we'll know it works. Real behaviour, not "code written".
+      label: Cauldron version and macOS version
+      description: For bugs. The Cauldron version is in the About window.
   - type: dropdown
     id: area
     attributes:
