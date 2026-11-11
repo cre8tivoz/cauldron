@@ -349,12 +349,29 @@ function resolvePageFile(root: string, page: string): string | null {
   );
 }
 
+/** Returns the index just after the `}` that closes the `{` at `start`. */
+function skipBraces(text: string, start: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i + 1;
+  }
+  return text.length;
+}
+
 function findSectionBlocks(text: string): InternalSectionBlock[] {
   let searchStart = 0;
-  if (text.startsWith('---\n')) {
-    const endFm = text.indexOf('\n---\n', 4);
-    if (endFm !== -1) searchStart = endFm + 5;
-  }
+  // The front matter fence may use Windows line endings.
+  const frontMatter = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  if (frontMatter) searchStart = frontMatter[0].length;
 
   const blocks: InternalSectionBlock[] = [];
   let index = searchStart;
@@ -363,6 +380,14 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
   while (index < text.length) {
     const nextTagStart = text.indexOf('<', index);
     if (nextTagStart === -1) break;
+
+    // A `{ ... }` expression (a loop or condition) is code, not a section:
+    // skip it whole so components inside it are never listed.
+    const braceStart = text.indexOf('{', index);
+    if (braceStart !== -1 && braceStart < nextTagStart) {
+      index = skipBraces(text, braceStart);
+      continue;
+    }
 
     // Check if it's a closing tag or comment
     if (text[nextTagStart + 1] === '/') {

@@ -2925,4 +2925,53 @@ test('fablefixes 25/81: the remote shown is the one a push would use, by name', 
   assert.equal(state.remote, null);
 });
 
+test('WDL-203 outline ignores code in front matter (CRLF) and components inside loops', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-outline-crlf-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const page = [
+    '---',
+    'const items: Array<Item> = [];',
+    '---',
+    '<main>',
+    '  <section id="a">First</section>',
+    '  {items.map((item) => <Card title={item.title} />)}',
+    '  <section id="b">Second</section>',
+    '</main>',
+    '',
+  ].join('\r\n');
+  fs.writeFileSync(path.join(dir, 'src/pages/index.astro'), page);
+  const read = readPageSections(dir, '/');
+  assert.equal(read.ok, true);
+  assert.deepEqual(
+    read.sections.map((section) => section.anchorId),
+    ['a', 'b'],
+  );
+});
+
+test('WDL-230 a missing folder is reported as missing, not as "no package.json"', async () => {
+  const { detectSite } = await import('../src/main/site.ts');
+  const gone = path.join(os.tmpdir(), `cauldron-gone-${Date.now()}`);
+  const result = detectSite(gone);
+  assert.match(result.problem, /does not exist/);
+  const file = path.join(os.tmpdir(), `cauldron-file-${Date.now()}.txt`);
+  fs.writeFileSync(file, 'x');
+  assert.match(detectSite(file).problem, /file, not a folder/);
+  fs.rmSync(file);
+});
+
+test('WDL-214 the preview server answers a malformed address instead of crashing', async () => {
+  if (!qualityRules) return;
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-dist-'));
+  fs.writeFileSync(path.join(dist, 'index.html'), '<p>ok</p>');
+  const served = await qualityRules.serveDist(dist);
+  try {
+    const bad = await fetch(`${served.url}%E0%A4%A`);
+    assert.equal(bad.status, 400);
+    const good = await fetch(served.url);
+    assert.equal(good.status, 200);
+  } finally {
+    served.close();
+  }
+});
+
 process.exitCode = failures ? 1 : 0;
