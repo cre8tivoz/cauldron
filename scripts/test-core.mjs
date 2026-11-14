@@ -100,6 +100,9 @@ const {
   formatUnexpectedError,
   registerUnexpectedErrorHandlers,
 } = await import('../src/main/index.ts');
+const { STARTER_TEMPLATES, getTemplateFiles } =
+  await import('../src/main/templates.ts');
+const { createProject } = await import('../src/main/projects.ts');
 
 const wdl188Root = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl188-'));
 const wdl188Results = await (async () => {
@@ -4311,6 +4314,144 @@ test('WDL-151: Cloudflare deploy never invents URLs, classifies auth vs non-auth
   );
   assert.equal(missingCli.isAuthError, false);
   assert.ok(missingCli.problem.includes('Wrangler CLI could not be found'));
+});
+
+test('WDL-190: starter templates use single cauldron/tokens.css, pass CSS token rules, and provide mobile menu', () => {
+  const starterParent = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-wdl190-'),
+  );
+  const dirs = directions.DIRECTIONS;
+  for (const tmpl of STARTER_TEMPLATES) {
+    const dir =
+      dirs.find((d) => d.id === tmpl.directionId) ??
+      dirs.find((d) => d.id === 'long-lunch');
+    assert.ok(dir, `direction exists for ${tmpl.id}`);
+    const created = createProject({
+      parent: starterParent,
+      name: `Test ${tmpl.id}`,
+      astroVersion: '5.0.0',
+      template: tmpl.id,
+    });
+    assert.equal(created.ok, true, `createProject succeeded for ${tmpl.id}`);
+    const siteDir = created.project.root;
+    assert.equal(
+      fs.existsSync(path.join(siteDir, 'cauldron/tokens.css')),
+      true,
+      `cauldron/tokens.css created for ${tmpl.id}`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(siteDir, 'src/styles/tokens.css')),
+      false,
+      `src/styles/tokens.css must not exist for ${tmpl.id}`,
+    );
+
+    const files = getTemplateFiles(tmpl.id, `Test ${tmpl.id}`);
+    const baseAstro = files['src/layouts/Base.astro'];
+    assert.ok(
+      baseAstro.includes("import '../../cauldron/tokens.css'"),
+      `${tmpl.id} Base.astro imports cauldron/tokens.css`,
+    );
+    assert.equal(
+      baseAstro.includes('fonts.googleapis.com'),
+      false,
+      `${tmpl.id} Base.astro does not hardcode Google Fonts link`,
+    );
+
+    if (tmpl.id !== 'minimal') {
+      assert.ok(
+        baseAstro.includes('details class="mobile-nav"'),
+        `${tmpl.id} Base.astro includes mobile disclosure menu`,
+      );
+      assert.ok(
+        baseAstro.includes('aria-label="Menu"'),
+        `${tmpl.id} Base.astro mobile toggle has accessible Menu label`,
+      );
+      assert.ok(
+        baseAstro.includes('min-height: 44px'),
+        `${tmpl.id} Base.astro mobile toggle meets 44px touch target`,
+      );
+      assert.ok(
+        baseAstro.includes('Escape'),
+        `${tmpl.id} Base.astro mobile menu closes on Escape`,
+      );
+      assert.ok(
+        baseAstro.includes(':focus-visible'),
+        `${tmpl.id} Base.astro includes visible focus ring`,
+      );
+      assert.ok(
+        baseAstro.includes(':disabled'),
+        `${tmpl.id} Base.astro includes disabled state styling`,
+      );
+    }
+
+    for (const [rel, body] of Object.entries(files)) {
+      assert.equal(
+        /\sstyle=["']/.test(body),
+        false,
+        `${tmpl.id}:${rel} must not contain inline style="..." attributes`,
+      );
+      for (const css of tasteChange.styleBlocks(body)) {
+        const findings = tasteChange.checkTasteOfCss(css, dir, '/');
+        const failuresForFile = findings.filter((f) => f.status === 'fail');
+        assert.equal(
+          failuresForFile.length,
+          0,
+          `${tmpl.id}:${rel} failed CSS taste check: ${failuresForFile.map((f) => `${f.label} (${f.detail})`).join(', ')}`,
+        );
+      }
+      // Every form control has an explicit <label for="..."> matching its id.
+      const inputIds = [
+        ...body.matchAll(/<(?:input|textarea)\b[^>]*\bid="([^"]+)"/g),
+      ].map((m) => m[1]);
+      for (const id of inputIds) {
+        assert.ok(
+          body.includes(`for="${id}"`),
+          `${tmpl.id}:${rel} input#${id} must have a matching <label for="${id}">`,
+        );
+      }
+    }
+  }
+});
+
+test('WDL-235 & WDL-233: canonical contrast module shared cleanly and checkSite eliminates double contrast & slow waits', () => {
+  assert.deepEqual(contrast.parseColour('hsl(0, 100%, 50%)'), {
+    r: 255,
+    g: 0,
+    b: 0,
+    a: 1,
+  });
+  assert.deepEqual(
+    tasteChange.parseColour('hsl(120, 100%, 50%)'),
+    contrast.parseColourTuple('hsl(120, 100%, 50%)'),
+  );
+  assert.equal(
+    tasteChange.contrastRatio([42, 23, 18, 1], [255, 253, 247, 1]),
+    contrast.contrastRatio('#2a1712', '#fffdf7'),
+  );
+
+  const tasteChangeSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/main/taste-change.ts'),
+    'utf8',
+  );
+  assert.equal(tasteChangeSrc.includes('NAMED_COLOURS'), false);
+  assert.equal(tasteChangeSrc.includes('function channel('), false);
+
+  const tasteCheckSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/main/taste-check.ts'),
+    'utf8',
+  );
+  assert.equal(tasteCheckSrc.includes('const lum ='), false);
+  assert.equal(tasteCheckSrc.includes('__cauldronFocusContrast'), false);
+  assert.equal(tasteCheckSrc.includes('setTimeout(resolve, 160)'), false);
+  assert.equal(tasteCheckSrc.includes('setTimeout(resolve, 120)'), false);
+  assert.ok(tasteCheckSrc.includes('requestAnimationFrame'));
+
+  const qualitySrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/main/quality.ts'),
+    'utf8',
+  );
+  assert.ok(qualitySrc.includes('includeContrast: false'));
+  assert.ok(qualitySrc.includes('includeInteraction: width === 1280'));
 });
 
 process.exitCode = failures ? 1 : 0;

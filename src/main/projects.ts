@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DIRECTIONS, tokensCss, writeDirection } from './directions';
+import { DIRECTIONS, writeDirection } from './directions';
 import { getTemplateFiles, STARTER_TEMPLATES } from './templates';
 
 /**
@@ -304,31 +304,58 @@ export function createProject(options: {
         const dir = DIRECTIONS.find((d) => d.id === match.directionId);
         if (dir) {
           writeDirection(root, dir);
-          const stylesDir = path.join(root, 'src/styles');
-          fs.mkdirSync(stylesDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(stylesDir, 'tokens.css'),
-            tokensCss(dir),
-            'utf8',
-          );
         }
       }
     } else {
-      if (options.template === 'minimal') {
-        const stylesDir = path.join(root, 'src/styles');
-        fs.mkdirSync(stylesDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(stylesDir, 'tokens.css'),
-          `:root {\n  --font-family: system-ui, -apple-system, sans-serif;\n}\n`,
-          'utf8',
-        );
-      }
+      const cauldronDir = path.join(root, 'cauldron');
+      fs.mkdirSync(cauldronDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(cauldronDir, 'tokens.css'),
+        `/* Minimal starter tokens. Cauldron updates this file when you pick a direction. */
+:root {
+  --cauldron-c-bg: #ffffff;
+  --cauldron-c-surface: #f8fafc;
+  --cauldron-c-ink: #0f172a;
+  --cauldron-c-muted: #475569;
+  --cauldron-c-primary: #0f172a;
+  --cauldron-c-line: #cbd5e1;
+  --cauldron-size-1: 0.8125rem;
+  --cauldron-size-2: 0.9375rem;
+  --cauldron-size-3: 1.0625rem;
+  --cauldron-size-4: 1.25rem;
+  --cauldron-size-5: 1.5625rem;
+  --cauldron-size-6: 1.9375rem;
+  --cauldron-size-7: 2.4375rem;
+  --cauldron-size-8: 3.0625rem;
+  --cauldron-space-0: 0rem;
+  --cauldron-space-1: 0.0625rem;
+  --cauldron-space-2: 0.25rem;
+  --cauldron-space-3: 0.5rem;
+  --cauldron-space-4: 0.75rem;
+  --cauldron-space-5: 1rem;
+  --cauldron-space-6: 1.5rem;
+  --cauldron-space-7: 2rem;
+  --cauldron-space-8: 3rem;
+  --cauldron-space-9: 4rem;
+  --cauldron-space-10: 6rem;
+  --cauldron-radius-0: 0px;
+  --cauldron-radius-1: 4px;
+  --cauldron-radius-2: 10px;
+  --cauldron-radius-3: 20px;
+  --cauldron-radius-4: 999px;
+  --cauldron-font-display: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --cauldron-font-body: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-family: var(--cauldron-font-body);
+}
+`,
+        'utf8',
+      );
       // The display name is arbitrary user text. It is carried into the page as
       // data (a string in the frontmatter), never interpolated into markup, so
       // characters like < and > render as text rather than becoming markup.
       fs.writeFileSync(
         path.join(root, 'src/layouts/Base.astro'),
-        `---\ninterface Props {\n  title: string;\n}\nconst { title } = Astro.props;\n---\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>{title}</title>\n  </head>\n  <body>\n    <slot />\n  </body>\n</html>\n`,
+        `---\nimport '../../cauldron/tokens.css';\n\ninterface Props {\n  title: string;\n}\nconst { title } = Astro.props;\n---\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>{title}</title>\n    <style is:global>\n      * { box-sizing: border-box; margin: 0; padding: 0; }\n      body {\n        background-color: var(--cauldron-c-bg);\n        color: var(--cauldron-c-ink);\n        font-family: var(--cauldron-font-body);\n        font-size: var(--cauldron-size-3);\n        line-height: 1.6;\n        padding: var(--cauldron-space-7);\n      }\n      h1 {\n        font-family: var(--cauldron-font-display);\n        font-size: var(--cauldron-size-7);\n        margin-bottom: var(--cauldron-space-4);\n      }\n    </style>\n  </head>\n  <body>\n    <slot />\n  </body>\n</html>\n`,
       );
       fs.writeFileSync(
         path.join(root, 'src/pages/index.astro'),

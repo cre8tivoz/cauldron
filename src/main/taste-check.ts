@@ -1,7 +1,13 @@
 import type { BrowserWindow } from 'electron';
 import type { DesignDirection } from './directions';
 import type { Finding } from './quality';
-import { judgeFocus, type FocusSample } from './contrast';
+import {
+  BUTTON_CONTRAST,
+  contrastRatio,
+  judgeFocus,
+  textContrastRequired,
+  type FocusSample,
+} from './contrast';
 
 /**
  * Ticket 29: a run's own findings (scope `change`) reused the whole-site
@@ -117,11 +123,17 @@ export async function measureTaste(
         width?: number;
         /** `change` judges only an agent run's output, and says so in each label. */
         kind?: 'site' | 'change';
+        /** Skip redundant text/button contrast pass when caller already checked it. */
+        includeContrast?: boolean;
+        /** Skip interactive Tab/hover/disabled/motion probing on secondary widths. */
+        includeInteraction?: boolean;
       } = {},
 ): Promise<Finding[]> {
   const opts = typeof options === 'string' ? { scope: options } : options;
   const scope = opts.scope ?? 'body';
   const judgeDeclarations = opts.declarations ?? true;
+  const includeContrast = opts.includeContrast ?? true;
+  const includeInteraction = opts.includeInteraction ?? true;
   const measured = (await window.webContents.executeJavaScript(`(() => {
     try {
     const direction = ${JSON.stringify(direction)};
@@ -139,7 +151,7 @@ export async function measureTaste(
     const key = value => rgba(value).join(',');
     const palette = new Set(Object.values(direction.colours).map(key));
     const allowedFonts = [direction.fonts.display.family,direction.fonts.body.family].map(f=>f.toLowerCase());
-    const counts = { black:0, cards:0, gradient:0, accents:0, fonts:0, defaultFonts:0, colours:0, spacing:0, type:0, radius:0, emoji:0, labels:0, declarations:0, hardcoded:0, textContrast:0, buttonContrast:0, lowest:99 };
+    const counts = { black:0, cards:0, gradient:0, accents:0, fonts:0, defaultFonts:0, colours:0, spacing:0, type:0, radius:0, emoji:0, labels:0, declarations:0, hardcoded:0 };
     const off = { spacing:[], type:[], radius:[] };
     const name = el => el.tagName.toLowerCase() + (typeof el.className==='string' && el.className ? '.'+el.className.split(' ')[0] : '');
     const near = (value, scale) => scale.some(token=>Math.abs(token-value)<0.6);
@@ -152,15 +164,11 @@ export async function measureTaste(
     const gradientNamed = Object.values(direction.colours).filter(bluePurple).length>=2;
     const panel = el => { const s=getComputedStyle(el); return parseFloat(s.borderTopLeftRadius)>0 && (parseFloat(s.borderTopWidth)>0 || s.boxShadow!=='none'); };
     const solid = value => { const parts=(value||'').match(/[\\d.]+/g)?.map(Number); if(!parts||parts.length<3)return null; if(parts.length>3&&parts[3]<0.9)return null; return parts.slice(0,3); };
-    const lum = c => { const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)}; return 0.2126*f(c[0])+0.7152*f(c[1])+0.0722*f(c[2]) };
-    const contrast = (a,b) => { const l1=lum(a),l2=lum(b); return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05) };
     const behind = el => { let node=el; while(node){ const s=getComputedStyle(node);
       if(!s.backgroundImage.includes('gradient')){ const c=solid(s.backgroundColor); if(c)return c; }
       node=node.parentElement; } return solid(getComputedStyle(document.body).backgroundColor)||[255,255,255]; };
-    const indicator = el => { const s=getComputedStyle(el);
-      if(s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>=1&&solid(s.outlineColor))return solid(s.outlineColor);
-      if(s.boxShadow&&s.boxShadow!=='none'){ const first=(s.boxShadow.match(/rgba?\\([^)]*\\)|#[0-9a-f]{3,8}/i)||[])[0]; if(first&&solid(first))return solid(first); }
-      return null; };
+    const contrastBuckets = new Map();
+    const collectContrast = ${includeContrast};
     const rules=[];
     const judgeRules = ${judgeDeclarations};
     const readRules = sheet => { try { for(const rule of sheet.cssRules||[]) { if(rule.selectorText && rule.style) rules.push(rule); else if(rule.cssRules)readRules(rule); } } catch {} };
@@ -197,14 +205,17 @@ export async function measureTaste(
         if(!allowedFonts.includes(family))counts.fonts++;
         if(['inter','roboto','arial','system-ui'].includes(family)&&!allowedFonts.includes(family))counts.defaultFonts++;
         if(visibleText(el)&&!near(parseFloat(s.fontSize),direction.typeScale)){counts.type++;if(off.type.length<4)off.type.push(s.fontSize+' on '+name(el));}
-        // Approved contrast thresholds (taste-tests.md 4.2 #6 and #7).
-        if(directText||el.matches('button')){
-          const size=parseFloat(s.fontSize), bold=parseInt(s.fontWeight)>=700;
-          const required=el.matches('button')?4.5:(size>=24||(bold&&size>=18.66)?3:4.5);
+        // Raw colour/size tuples are evaluated in Node via canonical contrast.ts.
+        if(collectContrast&&(directText||el.matches('button'))){
+          const size=parseFloat(s.fontSize), weight=parseInt(s.fontWeight)||400, isButton=el.matches('button');
           const ink=solid(s.color);
-          if(ink){ const measured=contrast(ink,behind(el));
-            if(measured<counts.lowest)counts.lowest=Math.round(measured*100)/100;
-            if(measured<required){ if(el.matches('button'))counts.buttonContrast++; else counts.textContrast++; } }
+          if(ink){
+            const bg=behind(el);
+            const bucketKey=ink.join(',')+'|'+bg.join(',')+'|'+size+'|'+weight+'|'+(isButton?1:0);
+            const existing=contrastBuckets.get(bucketKey);
+            if(existing)existing[5]++;
+            else contrastBuckets.set(bucketKey,[ink,bg,size,weight,isButton,1]);
+          }
         }
       }
       for(const property of ['marginTop','marginRight','marginBottom','marginLeft','paddingTop','paddingRight','paddingBottom','paddingLeft','rowGap','columnGap']){
@@ -221,13 +232,7 @@ export async function measureTaste(
     });
     [...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex],summary')].filter(el=>!el.disabled&&el.tabIndex>=0&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0).forEach((el,i)=>el.setAttribute('data-cauldron-focus-seq',String(i)));
     const totalControls=[...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')].filter(el=>!el.disabled&&el.tabIndex>=0&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0).length;
-    // The approved focus check measures the indicator's contrast (3:1), not just
-    // that one is present.
-    window.__cauldronFocusContrast = index => { const el=document.querySelector('[data-cauldron-audit-control="'+index+'"]'); if(!el)return null;
-      const s=getComputedStyle(el), colour=indicator(el);
-      return { outline:s.outlineStyle, width:parseFloat(s.outlineWidth), shadow:s.boxShadow,
-        ratio: colour ? Math.round(contrast(colour, behind(el.parentElement||el))*100)/100 : 0 }; };
-    return {counts, hardcodedExamples:hardcodedExamples.slice(0,8), off, controls:controls.length, totalControls, fonts:[...fontNames], blackNamed, gradientNamed};
+    return {counts, hardcodedExamples:hardcodedExamples.slice(0,8), off, controls:controls.length, totalControls, fonts:[...fontNames], blackNamed, gradientNamed, contrastSamples:[...contrastBuckets.values()]};
     } catch (error) { return { error: String((error && error.stack) || error) }; }
   })()`)) as {
     counts: Record<string, number>;
@@ -238,6 +243,16 @@ export async function measureTaste(
     fonts: string[];
     blackNamed: boolean;
     gradientNamed: boolean;
+    contrastSamples: Array<
+      [
+        [number, number, number],
+        [number, number, number],
+        number,
+        number,
+        boolean,
+        number,
+      ]
+    >;
     error?: string;
   };
   if (measured.error)
@@ -332,18 +347,46 @@ export async function measureTaste(
   );
   add('emoji', 'No emoji used as interface icons', c.emoji);
   add('labels', 'Labels are not truncated', c.labels);
-  add(
-    'text-contrast',
-    'Text contrast meets the approved threshold',
-    c.textContrast,
-    `${c.textContrast} piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured ${c.lowest === 99 ? 'none' : `${c.lowest}:1`}.`,
-  );
-  add(
-    'button-contrast',
-    'Button text contrast meets the approved threshold',
-    c.buttonContrast,
-    `${c.buttonContrast} button(s) under 4.5:1.`,
-  );
+  if (includeContrast) {
+    let textContrast = 0;
+    let buttonContrast = 0;
+    let lowest = 99;
+    for (const [
+      ink,
+      bg,
+      size,
+      weight,
+      isButton,
+      count,
+    ] of measured.contrastSamples) {
+      const ratio = contrastRatio(ink, bg);
+      if (ratio < lowest) lowest = Math.round(ratio * 100) / 100;
+      const required = isButton
+        ? BUTTON_CONTRAST
+        : textContrastRequired(size, weight);
+      if (ratio < required) {
+        if (isButton) buttonContrast += count;
+        else textContrast += count;
+      }
+    }
+    add(
+      'text-contrast',
+      'Text contrast meets the approved threshold',
+      textContrast,
+      `${textContrast} piece(s) of text under 4.5:1 (3:1 for large text). Lowest measured ${lowest === 99 ? 'none' : `${lowest}:1`}.`,
+    );
+    add(
+      'button-contrast',
+      'Button text contrast meets the approved threshold',
+      buttonContrast,
+      `${buttonContrast} button(s) under 4.5:1.`,
+    );
+  }
+  if (!includeInteraction) return findings;
+  const settleFrames = () =>
+    window.webContents.executeJavaScript(
+      `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
+    );
   // Keyboard modality is set by actual Tab key events, not element.focus().
   window.webContents.debugger.attach('1.3');
   await window.webContents.debugger.sendCommand('DOM.enable');
@@ -408,7 +451,7 @@ export async function measureTaste(
   await window.webContents.executeJavaScript(
     `document.body.tabIndex=-1;document.body.focus()`,
   );
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await settleFrames();
   const moves = measured.controls + measured.totalControls * 2 + 8;
   for (let step = 0; step < moves && reached.size < measured.controls; step++) {
     const index = await pressTab();
@@ -506,13 +549,11 @@ export async function measureTaste(
       `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`,
     );
     await force(index, []);
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await settleFrames();
     // Every sample (resting, hover, disabled) is read with the element's own
     // transitions suppressed and each touched element's inline transition
-    // value and priority restored exactly afterwards. Waiting a fixed time is
-    // not enough: a transition longer than the wait (or a sample taken
-    // mid-flight) misread both resting and hover signatures (ticket 29
-    // recheck: one gallery filter was flagged at 375px only, intermittently).
+    // value and priority restored afterwards. Settling two animation frames
+    // replaces slow fixed multi-hundred-ms waits across controls.
     const sample = (body: string) => `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         const settled = [el, ...[...el.querySelectorAll('*')].slice(0, 40)];
@@ -532,7 +573,7 @@ export async function measureTaste(
       ),
     )) as { signature: string; rect: { width: number; height: number } };
     await force(index, ['hover']);
-    await new Promise((resolve) => setTimeout(resolve, 160));
+    await settleFrames();
     const hover = (await window.webContents.executeJavaScript(
       sample(
         `return {signature:${signature},where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40)};`,
@@ -542,7 +583,7 @@ export async function measureTaste(
     // once, and the settled disabled style was compared against a hovered one
     // (ticket 29 recheck).
     await force(index, []);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settleFrames();
     const disabled = (await window.webContents.executeJavaScript(
       sample(`if (!('disabled' in el)) return null;
           const wasDisabled = el.disabled;

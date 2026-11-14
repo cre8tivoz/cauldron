@@ -929,6 +929,8 @@ export async function checkSite(options: {
                 scope: 'body',
                 width,
                 kind: 'site',
+                includeContrast: false,
+                includeInteraction: width === 1280,
               })),
             );
           } catch (error) {
