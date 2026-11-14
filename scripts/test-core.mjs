@@ -45,6 +45,7 @@ registerHooks({
 const {
   runAction,
   actionCatalogue,
+  isReadOnlyAction,
   createPageFile,
   readPageSections,
   reorderPageSections,
@@ -3419,6 +3420,25 @@ test('WDL-207: Runs.undo and persist leave no temporary files behind', () => {
     );
   } finally {
     globalThis.__cauldronUserData = previousUserData;
+  }
+});
+
+test('Codex review P1: read-only actions never claim run ownership', () => {
+  for (const action of [
+    'listPages',
+    'readPageOutline',
+    'readPageSections',
+    'readSource',
+  ]) {
+    assert.equal(isReadOnlyAction(action), true, action);
+  }
+  for (const action of [
+    'editElementText',
+    'reorderPageSections',
+    'createPage',
+    'writeSource',
+  ]) {
+    assert.equal(isReadOnlyAction(action), false, action);
   }
 });
 

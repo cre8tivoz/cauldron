@@ -1107,6 +1107,18 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
   }
 }
 
+const READ_ONLY_ACTIONS = new Set<ActionRequest['action']>([
+  'listPages',
+  'readPageOutline',
+  'readPageSections',
+  'readSource',
+]);
+
+/** Read-only actions never mutate files and must not claim ownership on an active agent run. */
+export function isReadOnlyAction(action: ActionRequest['action']): boolean {
+  return READ_ONLY_ACTIONS.has(action);
+}
+
 /** The catalogue the agent is given, so it uses the same actions as the interface. */
 export function actionCatalogue(): Array<{ name: string; what: string }> {
   return [

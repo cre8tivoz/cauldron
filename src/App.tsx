@@ -45,6 +45,7 @@ const INSPECTOR_MIN = 260;
 const INSPECTOR_MAX = 460;
 
 function isTextInputFocused(): boolean {
+  if (!document.hasFocus()) return false;
   const el = document.activeElement;
   if (!(el instanceof HTMLElement)) return false;
   if (el.isContentEditable) return true;
@@ -338,6 +339,7 @@ export function App() {
           | 'project-home'
           | 'undo'
           | 'redo';
+        editorFocused?: boolean;
       };
       if (action.action === 'project-home') setView('projects');
       if (action.action === 'new-project') {
@@ -346,12 +348,18 @@ export function App() {
       }
       if (action.action === 'open-project') openSiteRef.current();
       if (action.action === 'undo') {
-        if (isTextInputFocused()) void window.cauldron.textUndo();
-        else void undoRef.current();
+        if (action.editorFocused !== false && isTextInputFocused()) {
+          void window.cauldron.textUndo();
+        } else {
+          void undoRef.current();
+        }
       }
       if (action.action === 'redo') {
-        if (isTextInputFocused()) void window.cauldron.textRedo();
-        else void redoRef.current();
+        if (action.editorFocused !== false && isTextInputFocused()) {
+          void window.cauldron.textRedo();
+        } else {
+          void redoRef.current();
+        }
       }
     });
 

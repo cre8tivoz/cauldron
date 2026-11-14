@@ -1,4 +1,13 @@
-import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron';
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  dialog,
+  ipcMain,
+  shell,
+  webContents,
+  type WebContents,
+} from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { buildMenu } from '../app-menu';
@@ -17,6 +26,7 @@ import {
   runAction,
   listPages,
   actionCatalogue,
+  isReadOnlyAction,
   readPageSections,
   resolveNewPageTarget,
   resolvePageFile,
@@ -786,7 +796,7 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
       ? readFile(full)
       : null;
   const result = runAction(site.root, request);
-  if (result.ok && fromAgent && full && request.action !== 'readSource')
+  if (result.ok && fromAgent && full && !isReadOnlyAction(request.action))
     claimForRun(state.agentRunId, full);
   if (result.ok && full) {
     const exists = fs.existsSync(full);
@@ -2825,6 +2835,53 @@ function harnessApi() {
   };
 }
 
+async function isTextInputActiveIn(target: WebContents): Promise<boolean> {
+  if (target.isDestroyed()) return false;
+  try {
+    return Boolean(
+      await target.executeJavaScript(
+        `(() => {
+          const el = document.activeElement;
+          if (!el || !(el instanceof HTMLElement)) return false;
+          if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+          if (el.tagName === 'INPUT') {
+            const type = (el.type || 'text').toLowerCase();
+            return !['button','submit','reset','checkbox','radio','file','image','range','color'].includes(type);
+          }
+          return false;
+        })()`,
+      ),
+    );
+  } catch (error) {
+    console.warn(
+      'Could not inspect preview activeElement for undo routing:',
+      error,
+    );
+    return false;
+  }
+}
+
+async function routeEditShortcut(kind: 'undo' | 'redo'): Promise<void> {
+  const focused = webContents.getFocusedWebContents();
+  const editor = state.window?.webContents;
+  if (focused && (!editor || focused.id !== editor.id)) {
+    const preview = state.preview.webContents;
+    if (preview && focused.id === preview.id) {
+      if (await isTextInputActiveIn(focused)) {
+        if (kind === 'undo') focused.undo();
+        else focused.redo();
+        return;
+      }
+      send('cauldron:menu', { action: kind, editorFocused: false });
+      return;
+    }
+    if (kind === 'undo') focused.undo();
+    else focused.redo();
+    return;
+  }
+  send('cauldron:menu', { action: kind, editorFocused: true });
+}
+
 export function start(): void {
   process.on('exit', () => {
     state.server?.stop();
@@ -2874,8 +2931,12 @@ export function start(): void {
         onNewProject: () => send('cauldron:menu', { action: 'new-project' }),
         onOpenProject: () => send('cauldron:menu', { action: 'open-project' }),
         onProjectHome: () => send('cauldron:menu', { action: 'project-home' }),
-        onUndo: () => send('cauldron:menu', { action: 'undo' }),
-        onRedo: () => send('cauldron:menu', { action: 'redo' }),
+        onUndo: () => {
+          void routeEditShortcut('undo');
+        },
+        onRedo: () => {
+          void routeEditShortcut('redo');
+        },
       }),
     );
     registerIpc();
