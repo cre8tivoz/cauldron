@@ -338,8 +338,10 @@ export function App() {
   }, [refreshAgentRuns]);
 
   useEffect(() => {
-    void refreshAgentRuns();
-  }, [refreshAgentRuns, site?.root]);
+    if (view === 'build' || view === 'quality' || !site?.root) {
+      void refreshAgentRuns();
+    }
+  }, [refreshAgentRuns, site?.root, view]);
 
   // The preview is a separate view laid over the middle column, so it needs the exact rectangle.
   useEffect(() => {
