@@ -771,6 +771,7 @@ export async function checkSite(options: {
       // The desktop pass fills this in; page-wide checks that cannot change with
       // the viewport (structure, links) use it after the widths are done.
       let desktop: Record<string, unknown> | null = null;
+      const verifiedInteractionKeys = new Set<string>();
 
       for (const width of WIDTHS) {
         options.onProgress?.(`Checking ${page} at ${width}px…`);
@@ -929,6 +930,8 @@ export async function checkSite(options: {
                 scope: 'body',
                 width,
                 kind: 'site',
+                includeContrast: false,
+                verifiedInteractionKeys,
               })),
             );
           } catch (error) {

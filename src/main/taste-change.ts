@@ -1,5 +1,10 @@
 import type { DesignDirection } from './directions';
 import type { Finding } from './quality';
+import {
+  contrastRatio as canonicalContrastRatio,
+  luminance as canonicalLuminance,
+  parseColourTuple,
+} from './contrast';
 
 /**
  * The approved taste and direction checks judge only what the agent added or
@@ -114,85 +119,11 @@ export function declarations(css: string): Declaration[] {
   return result;
 }
 
-const NAMED_COLOURS: Record<string, string> = {
-  black: '#000000',
-  white: '#ffffff',
-  red: '#ff0000',
-  blue: '#0000ff',
-  green: '#008000',
-  grey: '#808080',
-  gray: '#808080',
-};
-
 /** A colour value as red, green, blue (0–255) and alpha, or null if not a colour. */
 export function parseColour(
   input: string,
 ): [number, number, number, number] | null {
-  const value = input.trim().toLowerCase();
-  if (NAMED_COLOURS[value]) return parseColour(NAMED_COLOURS[value]);
-  const hex = value.match(/^#([0-9a-f]{3,8})$/);
-  if (hex) {
-    const digits = hex[1];
-    const full =
-      digits.length === 3 || digits.length === 4
-        ? digits
-            .split('')
-            .map((digit) => digit + digit)
-            .join('')
-        : digits;
-    if (full.length !== 6 && full.length !== 8) return null;
-    const part = (index: number) => parseInt(full.slice(index, index + 2), 16);
-    return [part(0), part(2), part(4), full.length === 8 ? part(6) / 255 : 1];
-  }
-  const rgb = value.match(/^rgba?\(([^)]*)\)$/);
-  if (rgb) {
-    const parts = rgb[1]
-      .split(/[\s,/]+/)
-      .filter(Boolean)
-      .map(Number);
-    if (parts.length < 3 || parts.slice(0, 3).some((n) => !Number.isFinite(n)))
-      return null;
-    return [
-      parts[0],
-      parts[1],
-      parts[2],
-      parts[3] === undefined ? 1 : parts[3] <= 1 ? parts[3] : parts[3] / 255,
-    ];
-  }
-  const hsl = value.match(/^hsla?\(([^)]*)\)$/);
-  if (hsl) {
-    const parts = hsl[1].split(/[\s,/]+/).filter(Boolean);
-    const hue = parseFloat(parts[0]);
-    const saturation = parseFloat(parts[1]) / 100;
-    const lightness = parseFloat(parts[2]) / 100;
-    if (![hue, saturation, lightness].every(Number.isFinite)) return null;
-    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
-    const sector = (((hue % 360) + 360) % 360) / 60;
-    const second = chroma * (1 - Math.abs((sector % 2) - 1));
-    const [r, g, b] =
-      sector < 1
-        ? [chroma, second, 0]
-        : sector < 2
-          ? [second, chroma, 0]
-          : sector < 3
-            ? [0, chroma, second]
-            : sector < 4
-              ? [0, second, chroma]
-              : sector < 5
-                ? [second, 0, chroma]
-                : [chroma, 0, second];
-    const light = lightness - chroma / 2;
-    const channel = (value: number) => Math.round((value + light) * 255);
-    const alpha = parts[3] === undefined ? 1 : parseFloat(parts[3]);
-    return [
-      channel(r),
-      channel(g),
-      channel(b),
-      Number.isFinite(alpha) ? alpha : 1,
-    ];
-  }
-  if (value === 'transparent') return [0, 0, 0, 0];
-  return null;
+  return parseColourTuple(input);
 }
 
 const COLOUR_TOKEN = /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/gi;
@@ -226,26 +157,13 @@ export function hue([r, g, b]: number[]): number {
   return (sector * 60 + 360) % 360;
 }
 
-function channel(value: number): number {
-  const unit = value / 255;
-  return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
-}
-
 export function luminance(colour: number[]): number {
-  return (
-    0.2126 * channel(colour[0]) +
-    0.7152 * channel(colour[1]) +
-    0.0722 * channel(colour[2])
-  );
+  return canonicalLuminance(colour);
 }
 
-/** WCAG contrast ratio, 1–21. Alpha under 1 is not resolved; callers avoid it. */
+/** WCAG contrast ratio, 1–21. Delegates to canonical `contrast.ts`. */
 export function contrastRatio(first: number[], second: number[]): number {
-  const a = luminance(first);
-  const b = luminance(second);
-  const lighter = Math.max(a, b);
-  const darker = Math.min(a, b);
-  return (lighter + 0.05) / (darker + 0.05);
+  return canonicalContrastRatio(first, second);
 }
 
 const key = (colour: number[]): string => colour.slice(0, 3).join(',');

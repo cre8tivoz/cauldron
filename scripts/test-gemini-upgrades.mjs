@@ -158,24 +158,36 @@ test('Phase 1: getTemplateFiles and createProject scaffold each template with to
       'Base.astro exists',
     );
 
-    // Direction tokens file (in src/styles/tokens.css and cauldron/tokens.css for directed starters)
-    const tokensPath = [
-      path.join(root, 'src/styles/tokens.css'),
-      path.join(root, 'cauldron/tokens.css'),
-    ].find((f) => fs.existsSync(f));
-
-    assert.ok(tokensPath, `tokens.css exists for ${tmplId}`);
+    // One single tokens file lives in cauldron/tokens.css; src/styles/tokens.css must not be duplicated.
+    const tokensPath = path.join(root, 'cauldron/tokens.css');
+    assert.ok(
+      fs.existsSync(tokensPath),
+      `cauldron/tokens.css exists for ${tmplId}`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(root, 'src/styles/tokens.css')),
+      false,
+      `src/styles/tokens.css must not be duplicated for ${tmplId}`,
+    );
     const tokenContent = fs.readFileSync(tokensPath, 'utf8');
 
     if (tmplId !== 'minimal') {
       assert.ok(
-        tokenContent.includes('--cauldron-c-') ||
+        tokenContent.includes('--cauldron-c-') &&
           tokenContent.includes('--cauldron-font-'),
-        `expected direction tokens in tokens.css for ${tmplId}`,
+        `expected direction tokens in cauldron/tokens.css for ${tmplId}`,
+      );
+      const baseContent = fs.readFileSync(
+        path.join(root, 'src/layouts/Base.astro'),
+        'utf8',
+      );
+      assert.ok(
+        baseContent.includes("import '../../cauldron/tokens.css'"),
+        `expected Base.astro to load cauldron/tokens.css for ${tmplId}`,
       );
     } else {
       assert.ok(
-        tokenContent.includes('--font-family') ||
+        tokenContent.includes('--cauldron-font-') ||
           tokenContent.includes('system-ui'),
         `expected minimal tokens for ${tmplId}`,
       );
