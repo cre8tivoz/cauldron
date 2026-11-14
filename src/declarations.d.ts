@@ -457,6 +457,12 @@ type CauldronApi = {
   restoreDraft: (
     draft: CauldronDraft,
   ) => Promise<{ ok: boolean; problem?: string }>;
+  restoreAllDrafts: () => Promise<{
+    ok: boolean;
+    restored: number;
+    failed: number;
+    problem?: string;
+  }>;
   newPage: (page: {
     path: string;
     title: string;

@@ -2994,4 +2994,82 @@ test('WDL-203 an apostrophe in text inside a loop does not hide later sections',
   );
 });
 
+test('WDL-251 reverting content or element fields clears drafts', async () => {
+  const { contentDraftValue, selectionDraftValue } =
+    await import('../src/draft-restore.ts');
+
+  const savedEntry = {
+    text: '---\ntitle: Hello\n---\nBody\n',
+    values: { title: 'Hello', summary: '' },
+  };
+  assert.equal(
+    contentDraftValue(savedEntry, 'title', 'Hello world'),
+    'Hello world',
+  );
+  assert.equal(contentDraftValue(savedEntry, 'title', 'Hello'), null);
+  assert.equal(contentDraftValue(savedEntry, 'summary', ''), null);
+  assert.equal(contentDraftValue(savedEntry, 'text', savedEntry.text), null);
+  assert.equal(contentDraftValue(savedEntry, 'text', 'Changed'), 'Changed');
+
+  const selection = {
+    text: 'Original',
+    style: { color: '#111111' },
+    attributes: [{ name: 'href', value: '/about' }],
+  };
+  assert.equal(selectionDraftValue(selection, 'text', 'Edited'), 'Edited');
+  assert.equal(selectionDraftValue(selection, 'text', 'Original'), null);
+  assert.equal(selectionDraftValue(selection, 'style:color', '#111111'), null);
+  assert.equal(selectionDraftValue(selection, 'style:margin', ''), null);
+  assert.equal(
+    selectionDraftValue(selection, 'attribute:href', '/about'),
+    null,
+  );
+  assert.equal(
+    selectionDraftValue(selection, 'attribute:href', '/contact'),
+    '/contact',
+  );
+});
+
+test('WDL-251 & WDL-213 draft banner copy distinguishes startup recovery from live session edits with proper grammar', async () => {
+  const { describeDraftBanner } = await import('../src/draft-restore.ts');
+
+  const oneLive = describeDraftBanner([{ key: 'k1' }], new Set());
+  assert.equal(oneLive.heading, 'Unsaved edits.');
+  assert.equal(oneLive.detail, '1 change has not been saved to the site yet.');
+  assert.equal(oneLive.hasRecovery, false);
+
+  const twoLive = describeDraftBanner(
+    [{ key: 'k1' }, { key: 'k2' }],
+    new Set(),
+  );
+  assert.equal(
+    twoLive.detail,
+    '2 changes have not been saved to the site yet.',
+  );
+
+  const oneRecovered = describeDraftBanner([{ key: 'k1' }], new Set(['k1']));
+  assert.equal(oneRecovered.heading, 'Unsaved edits from last time.');
+  assert.equal(
+    oneRecovered.detail,
+    '1 change was being typed when Cauldron last stopped.',
+  );
+  assert.equal(oneRecovered.hasRecovery, true);
+
+  const twoRecovered = describeDraftBanner(
+    [{ key: 'k1' }, { key: 'k2' }],
+    new Set(['k1', 'k2']),
+  );
+  assert.equal(
+    twoRecovered.detail,
+    '2 changes were being typed when Cauldron last stopped.',
+  );
+
+  const mixed = describeDraftBanner(
+    [{ key: 'k1' }, { key: 'k2' }],
+    new Set(['k1']),
+  );
+  assert.equal(mixed.heading, 'Unsaved edits.');
+  assert.match(mixed.detail, /2 changes.*1 from last time/);
+});
+
 process.exitCode = failures ? 1 : 0;

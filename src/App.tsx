@@ -26,6 +26,7 @@ import {
   noteDraftChange,
   type DraftSchedule,
 } from './draft-schedule';
+import { describeDraftBanner, selectionDraftValue } from './draft-restore';
 
 type PreviewState = { running: boolean; url: string | null };
 
@@ -33,6 +34,65 @@ const AGENT_MIN = 320;
 const AGENT_MAX = 620;
 const INSPECTOR_MIN = 260;
 const INSPECTOR_MAX = 460;
+
+function ConfirmDialog({
+  ariaLabel,
+  title,
+  body,
+  cancelLabel,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  ariaLabel: string;
+  title: string;
+  body: string;
+  cancelLabel: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={ariaLabel}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 40,
+      }}
+    >
+      <div
+        style={{
+          background: 'var(--panel, #121316)',
+          border: '1px solid var(--hairline)',
+          borderRadius: 8,
+          padding: 18,
+          maxWidth: 460,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+        }}
+      >
+        <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>{title}</h2>
+        <p className="hint" style={{ marginTop: 0 }}>
+          {body}
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button className="button primary" type="button" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+          <button className="button" type="button" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   const [site, setSite] = useState<CauldronSite | null>(null);
@@ -79,10 +139,13 @@ export function App() {
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftSchedule = useRef<DraftSchedule>(clearDraftSchedule());
   const draftValues = useRef<Map<string, CauldronDraft>>(new Map());
+  const recoveryDraftKeys = useRef<Set<string>>(new Set());
   // Edits typed in the window that have not reached recovery storage yet, so
   // publishing can refuse them (plan 5.1).
   const [unsavedEdits, setUnsavedEdits] = useState(0);
   const [contentUnsaved, setContentUnsaved] = useState(false);
+  const [confirmDiscardDrafts, setConfirmDiscardDrafts] = useState(false);
+  const [draftResetVersion, setDraftResetVersion] = useState(0);
 
   // Load whatever the app already knows, then follow it.
   useEffect(() => {
@@ -95,6 +158,9 @@ export function App() {
       }
       setPreview({ running: state.running, url: state.url });
       setSelection(state.selection);
+      recoveryDraftKeys.current = new Set(
+        state.drafts.map((draft) => draft.key),
+      );
       setDrafts(state.drafts);
       if (state.status.length > 0)
         setStatus(state.status[state.status.length - 1]);
@@ -104,16 +170,29 @@ export function App() {
       const next = payload as {
         site: CauldronSite | null;
         drafts: CauldronDraft[];
+        recovered?: boolean;
       };
       const isNewSite =
         Boolean(next.site) && next.site?.root !== currentSiteRootRef.current;
       currentSiteRootRef.current = next.site?.root ?? null;
-      if (draftTimer.current) clearTimeout(draftTimer.current);
-      draftValues.current.clear();
-      setUnsavedEdits(0);
-      setContentUnsaved(false);
+      const incoming = next.drafts ?? [];
+      if (next.recovered || isNewSite || !next.site) {
+        recoveryDraftKeys.current = new Set(incoming.map((draft) => draft.key));
+        if (draftTimer.current) clearTimeout(draftTimer.current);
+        draftTimer.current = null;
+        draftSchedule.current = clearDraftSchedule();
+        draftValues.current.clear();
+        setUnsavedEdits(0);
+        setContentUnsaved(false);
+        setConfirmDiscardDrafts(false);
+      } else {
+        const present = new Set(incoming.map((draft) => draft.key));
+        recoveryDraftKeys.current = new Set(
+          [...recoveryDraftKeys.current].filter((key) => present.has(key)),
+        );
+      }
       setSite(next.site);
-      setDrafts(next.drafts ?? []);
+      setDrafts(incoming);
       void window.cauldron.direction().then(setDirection);
       setSelection(null);
       setProblem(null);
@@ -149,7 +228,13 @@ export function App() {
       'cauldron:drafts',
       (payload: never) => {
         const next = payload as { drafts: CauldronDraft[] };
-        setDrafts(next.drafts ?? []);
+        const incoming = next.drafts ?? [];
+        const present = new Set(incoming.map((draft) => draft.key));
+        recoveryDraftKeys.current = new Set(
+          [...recoveryDraftKeys.current].filter((key) => present.has(key)),
+        );
+        if (incoming.length === 0) setConfirmDiscardDrafts(false);
+        setDrafts(incoming);
       },
     );
 
@@ -218,6 +303,18 @@ export function App() {
     (field: string, value: string) => {
       if (!selection) return;
       const key = `${selection.file}:${selection.line}:${selection.column}:${field}`;
+      const nextValue = selectionDraftValue(selection, field, value);
+      if (nextValue === null) {
+        draftValues.current.delete(key);
+        setUnsavedEdits(draftValues.current.size);
+        if (draftValues.current.size === 0) {
+          if (draftTimer.current) clearTimeout(draftTimer.current);
+          draftTimer.current = null;
+          draftSchedule.current = clearDraftSchedule();
+          void window.cauldron.saveDrafts([]);
+        }
+        return;
+      }
       draftValues.current.set(key, {
         key,
         file: selection.file,
@@ -225,7 +322,7 @@ export function App() {
         column: selection.column,
         name: selection.name,
         field,
-        value,
+        value: nextValue,
         baseHash: selection.baseHash,
         savedAt: Date.now(),
       });
@@ -439,6 +536,24 @@ export function App() {
   const canUndo = selection?.history.canUndo ?? false;
   const canRedo = selection?.history.canRedo ?? false;
 
+  const discardConfirmedDrafts = useCallback(async () => {
+    setConfirmDiscardDrafts(false);
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = null;
+    draftSchedule.current = clearDraftSchedule();
+    draftValues.current.clear();
+    recoveryDraftKeys.current.clear();
+    setUnsavedEdits(0);
+    setContentUnsaved(false);
+    await window.cauldron.discardDrafts();
+    setDrafts([]);
+    setDraftResetVersion((version) => version + 1);
+    const next = await window.cauldron.refreshSelection();
+    setSelection(next);
+  }, []);
+
+  const draftBanner = describeDraftBanner(drafts, recoveryDraftKeys.current);
+
   // Only what the app actually reported; never placeholder wording.
   const contextualStatus =
     drafts.length > 0
@@ -639,13 +754,31 @@ export function App() {
             role="status"
             style={{ margin: '8px 12px 0' }}
           >
-            <strong>Unsaved edits from last time.</strong> {drafts.length}{' '}
-            change
-            {drafts.length === 1 ? '' : 's'} were being typed when Cauldron last
-            stopped.
+            <strong>{draftBanner.heading}</strong> {draftBanner.detail}
             <div className="notice-actions">
+              {drafts.length > 1 ? (
+                <button
+                  className="button primary"
+                  type="button"
+                  onClick={async () => {
+                    const result = await window.cauldron.restoreAllDrafts();
+                    if (!result.ok) {
+                      setProblem(
+                        result.problem ?? 'Some drafts could not be restored.',
+                      );
+                    }
+                    if (result.restored > 0) {
+                      setDraftResetVersion((version) => version + 1);
+                    }
+                    const next = await window.cauldron.refreshSelection();
+                    setSelection(next);
+                  }}
+                >
+                  Restore all
+                </button>
+              ) : null}
               <button
-                className="button primary"
+                className={drafts.length === 1 ? 'button primary' : 'button'}
                 type="button"
                 onClick={async () => {
                   const [first] = drafts;
@@ -654,21 +787,19 @@ export function App() {
                     setProblem(
                       result.problem ?? 'That draft could not be restored.',
                     );
+                  else setDraftResetVersion((version) => version + 1);
                   const next = await window.cauldron.refreshSelection();
                   setSelection(next);
                 }}
               >
-                Restore the first one
+                {drafts.length === 1 ? 'Restore' : 'Restore the first one'}
               </button>
               <button
                 className="button"
                 type="button"
-                onClick={() => {
-                  void window.cauldron.discardDrafts();
-                  setDrafts([]);
-                }}
+                onClick={() => setConfirmDiscardDrafts(true)}
               >
-                Discard them
+                {drafts.length === 1 ? 'Discard' : 'Discard all'}
               </button>
             </div>
           </div>
@@ -712,6 +843,7 @@ export function App() {
               site={site}
               onUnsavedChange={setContentUnsaved}
               onBack={() => setView('build')}
+              draftResetVersion={draftResetVersion}
             />
           </div>
         ) : view === 'design' ? (
@@ -780,6 +912,7 @@ export function App() {
                   }}
                 >
                   <Inspector
+                    key={draftResetVersion}
                     site={site}
                     direction={direction}
                     selection={selection}
@@ -824,56 +957,27 @@ export function App() {
         </div>
 
         {confirmOpen ? (
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Unsaved edits"
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0,0,0,0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 40,
-            }}
-          >
-            <div
-              style={{
-                background: 'var(--panel, #121316)',
-                border: '1px solid var(--hairline)',
-                borderRadius: 8,
-                padding: 18,
-                maxWidth: 460,
-                boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
-              }}
-            >
-              <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>
-                Unsaved edits in this project
-              </h2>
-              <p className="hint" style={{ marginTop: 0 }}>
-                Opening another project now would replace what is on screen.
-                Keep editing to stay here, or discard the unsaved changes and
-                open the other project. Nothing is discarded automatically.
-              </p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button
-                  className="button primary"
-                  type="button"
-                  onClick={() => setConfirmOpen(null)}
-                >
-                  Keep editing
-                </button>
-                <button
-                  className="button"
-                  type="button"
-                  onClick={() => void discardAndOpen()}
-                >
-                  Discard changes and open
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmDialog
+            ariaLabel="Unsaved edits"
+            title="Unsaved edits in this project"
+            body="Opening another project now would replace what is on screen. Keep editing to stay here, or discard the unsaved changes and open the other project. Nothing is discarded automatically."
+            cancelLabel="Keep editing"
+            confirmLabel="Discard changes and open"
+            onCancel={() => setConfirmOpen(null)}
+            onConfirm={() => void discardAndOpen()}
+          />
+        ) : null}
+
+        {confirmDiscardDrafts ? (
+          <ConfirmDialog
+            ariaLabel="Discard unsaved edits"
+            title="Discard unsaved edits?"
+            body={`This will permanently remove ${drafts.length} unsaved ${drafts.length === 1 ? 'draft' : 'drafts'}. Files already saved on disk are not changed.`}
+            cancelLabel="Keep drafts"
+            confirmLabel="Discard"
+            onCancel={() => setConfirmDiscardDrafts(false)}
+            onConfirm={() => void discardConfirmedDrafts()}
+          />
         ) : null}
 
         <StatusBar

@@ -577,6 +577,7 @@ async function openSiteAt(root: string) {
   send('cauldron:site', {
     site: detected,
     drafts: recovery.drafts,
+    recovered: true,
   });
   status(
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
@@ -1417,7 +1418,9 @@ function registerIpc(): void {
     const content = storedDrafts(state.site.root).filter(
       (draft) => draft.name === 'content',
     );
-    saveDrafts(state.site.root, [...content, ...drafts]);
+    const next = [...content, ...drafts];
+    saveDrafts(state.site.root, next);
+    send('cauldron:drafts', { drafts: next });
     return true;
   });
 
@@ -1474,6 +1477,13 @@ function registerIpc(): void {
     // selection, a collapsed inspector or another tool view.
     if (result.ok) status('Draft restored.');
     else fail(result.problem ?? 'That draft could not be restored.');
+    return result;
+  });
+
+  handle('cauldron:restore-all-drafts', () => {
+    const result = restoreAllDrafts();
+    if (result.ok) status('All drafts restored.');
+    else fail(result.problem ?? 'Some drafts could not be restored.');
     return result;
   });
 
@@ -2069,6 +2079,50 @@ function restoreDraft(draft: Draft): { ok: boolean; problem?: string } {
   saveDrafts(site.root, remaining);
   send('cauldron:drafts', { drafts: remaining });
   return { ok: true };
+}
+
+function restoreAllDrafts(): {
+  ok: boolean;
+  restored: number;
+  failed: number;
+  problem?: string;
+} {
+  const site = requireSite();
+  if ('problem' in site)
+    return { ok: false, restored: 0, failed: 0, problem: site.problem };
+  const queued = storedDrafts(site.root);
+  if (queued.length === 0) return { ok: true, restored: 0, failed: 0 };
+
+  // When multiple drafts were typed against the same file snapshot, restoring the
+  // first changes the file's hash on disk. Carry forward the verified post-write
+  // hash only for drafts in this batch that started from that same snapshot.
+  const rebasedHashes = new Map<string, string>();
+  let restored = 0;
+  let failed = 0;
+  let firstProblem: string | undefined;
+
+  for (const draft of queued) {
+    const batchKey = `${draft.file}:${draft.baseHash}`;
+    const currentBase = rebasedHashes.get(batchKey) ?? draft.baseHash;
+    const outcome = restoreDraft({ ...draft, baseHash: currentBase });
+    if (outcome.ok) {
+      restored += 1;
+      const full = path.join(site.root, draft.file);
+      if (isInside(site.root, full) && fs.existsSync(full)) {
+        rebasedHashes.set(batchKey, readFile(full).hash);
+      }
+    } else {
+      failed += 1;
+      if (!firstProblem) firstProblem = outcome.problem;
+    }
+  }
+
+  return {
+    ok: failed === 0,
+    restored,
+    failed,
+    ...(firstProblem ? { problem: firstProblem } : {}),
+  };
 }
 
 function registerPreviewIpc(): void {

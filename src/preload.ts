@@ -140,6 +140,7 @@ const api = {
   discardDrafts: () => ipcRenderer.invoke('cauldron:discard-drafts'),
   restoreDraft: (draft: unknown) =>
     ipcRenderer.invoke('cauldron:restore-draft', draft),
+  restoreAllDrafts: () => ipcRenderer.invoke('cauldron:restore-all-drafts'),
   newPage: (page: { path: string; title: string }) =>
     ipcRenderer.invoke('cauldron:new-page', page),
 
