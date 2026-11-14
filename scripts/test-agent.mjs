@@ -42,6 +42,7 @@ async function test(name, tool, script, verify, sessionId, options = {}) {
         prompt: 'protocol fixture',
         sessionId,
         mcp,
+        timeoutMs: options.timeoutMs,
         onEvent(event) {
           events.push(event);
           if (event.type === 'done' || event.type === 'error') {
@@ -206,6 +207,16 @@ try {
       ]);
       assert.ok(
         args.includes('mcp_servers.cauldron.url="http://127.0.0.1:5555/mcp"'),
+        args.join(' '),
+      );
+      assert.ok(
+        args.includes('sandbox_mode="workspace-write"'),
+        args.join(' '),
+      );
+      assert.ok(
+        args.includes(
+          `sandbox_workspace_write.writable_roots=${JSON.stringify([dir])}`,
+        ),
         args.join(' '),
       );
     },
@@ -532,6 +543,17 @@ try {
       `FAIL 3.2 Hermes gets the connection in its profile file, other settings kept: ${error.message}`,
     );
   }
+  await test(
+    'WDL-211: runAgent stops a hung agent process after timeoutMs',
+    'claude',
+    `process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);`,
+    (events) => {
+      assert.equal(events.at(-1).type, 'error');
+      assert.match(events.at(-1).text, /timed out/i);
+    },
+    undefined,
+    { timeoutMs: 120 },
+  );
 } finally {
   process.env.PATH = oldPath;
   fs.rmSync(dir, { recursive: true, force: true });

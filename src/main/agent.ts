@@ -395,15 +395,20 @@ function normaliseJsonLines(line: string): AgentEvent[] {
   return events;
 }
 
+/** Maximum runtime for a single spawned agent process before Cauldron stops it. */
+export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function runAgent(options: {
   tool: AgentTool;
   root: string;
   prompt: string;
   sessionId?: string;
   mcp?: { url: string; code: string };
+  timeoutMs?: number;
   onEvent: (event: AgentEvent) => void;
 }): AgentHandle {
   const { tool, root, prompt, sessionId, onEvent } = options;
+  const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
 
   let command: string;
   let args: string[];
@@ -476,6 +481,12 @@ export function runAgent(options: {
         prompt,
         '--json',
         ...connection,
+        // `codex exec resume` has no `--sandbox` or `-C` CLI flag, so keep
+        // the workspace-write safety boundary via `-c` overrides + `cwd: root`.
+        '-c',
+        'sandbox_mode="workspace-write"',
+        '-c',
+        `sandbox_workspace_write.writable_roots=${JSON.stringify([root])}`,
         '--skip-git-repo-check',
       ];
   } else {
@@ -539,6 +550,22 @@ export function runAgent(options: {
   let saidSomething = '';
   let buffer = '';
   let cancelled = false;
+  let timedOut = false;
+  const killChild = () => {
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (child.exitCode === null) child.kill('SIGKILL');
+    }, 2000).unref();
+  };
+  const timeoutTimer =
+    effectiveTimeoutMs > 0 && Number.isFinite(effectiveTimeoutMs)
+      ? setTimeout(() => {
+          if (cancelled || child.exitCode !== null) return;
+          timedOut = true;
+          killChild();
+        }, effectiveTimeoutMs)
+      : null;
+  timeoutTimer?.unref();
   const consume = (line: string) => {
     if (!line.trim()) return;
     const events = parse(line);
@@ -573,9 +600,15 @@ export function runAgent(options: {
   });
   // close follows stdout/stderr draining; a result event is not proof the process exited.
   child.on('close', (code) => {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
     consume(buffer);
     if (cancelled) onEvent({ type: 'error', text: 'Cancelled.' });
-    else if (terminal?.type === 'error') onEvent(terminal);
+    else if (timedOut) {
+      onEvent({
+        type: 'error',
+        text: `${command} timed out after ${Math.ceil(effectiveTimeoutMs / 1000)} s and was stopped.`,
+      });
+    } else if (terminal?.type === 'error') onEvent(terminal);
     else if (code !== 0)
       onEvent({
         type: 'error',
@@ -593,10 +626,8 @@ export function runAgent(options: {
   return {
     cancel: () => {
       cancelled = true;
-      child.kill('SIGTERM');
-      setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL');
-      }, 2000).unref();
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      killChild();
     },
   };
 }

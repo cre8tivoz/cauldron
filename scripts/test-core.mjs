@@ -56,6 +56,7 @@ const {
 } = await import('../src/main/actions.ts');
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
+const { findMissingPackages } = await import('../src/main/dependencies.ts');
 // Ticket 27/28: the outside-agent connection must offer the same source actions.
 const mcpModule = await import('../src/main/mcp.ts').catch((error) => ({
   error,
@@ -2262,18 +2263,27 @@ fs.mkdirSync(path.join(sourceRoot, 'src/layouts'), { recursive: true });
 fs.mkdirSync(path.join(sourceRoot, 'src/styles'), { recursive: true });
 const sourceFile = path.join(pagesDir, 'index.astro');
 
-test('27/28 catalogue offers bounded source actions with the version contract', () => {
-  const catalogue = actionCatalogue();
+test('27/28 & WDL-193: catalogue matches served MCP tools and includes bounded source actions', () => {
+  const catalogue = actionCatalogue('Catalogue Site');
   const names = catalogue.map((entry) => entry.name);
-  assert.ok(names.includes('readSource'), 'readSource is not in the catalogue');
   assert.ok(
-    names.includes('writeSource'),
-    'writeSource is not in the catalogue',
+    names.includes('read_source'),
+    'read_source is not in the catalogue',
+  );
+  assert.ok(
+    names.includes('write_source'),
+    'write_source is not in the catalogue',
   );
   assert.match(
-    catalogue.find((entry) => entry.name === 'writeSource').what,
+    catalogue.find((entry) => entry.name === 'write_source').what,
     /baseHash/i,
   );
+  if (!mcpModule.error) {
+    assert.deepEqual(
+      names,
+      mcpModule.toolsFor('Catalogue Site').map((tool) => tool.name),
+    );
+  }
 });
 
 test('27/28 readSource returns the exact bytes and hash of a page', () => {
@@ -3441,5 +3451,127 @@ test('Codex review P1: read-only actions never claim run ownership', () => {
     assert.equal(isReadOnlyAction(action), false, action);
   }
 });
+
+test('WDL-194: findMissingPackages ignores tsconfig path aliases and baseUrl targets', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl-194-'));
+  fs.mkdirSync(path.join(dir, 'src/lib'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/components'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'package.json'),
+    JSON.stringify({ name: 'alias-site', dependencies: { astro: '7.4.7' } }),
+  );
+  fs.writeFileSync(
+    path.join(dir, 'tsconfig.json'),
+    `{
+      // JSONC comments and trailing commas are standard in Astro tsconfigs
+      "extends": "astro/tsconfigs/strict",
+      "compilerOptions": {
+        "baseUrl": "src",
+        "paths": {
+          "@lib/*": ["lib/*"],
+          "@components/*": ["components/*"],
+        },
+      },
+    }`,
+  );
+  fs.writeFileSync(
+    path.join(dir, 'src/lib/utils.ts'),
+    'export const ok = true;\n',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'src/components/card.astro'),
+    '<div>Card</div>\n',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'src/pages/index.astro'),
+    `---
+import { ok } from '@lib/utils';
+import Card from '@components/card.astro';
+import { helper } from 'lib/utils';
+import { realMissing } from 'actually-missing-pkg';
+---
+<Card />
+`,
+  );
+  assert.deepEqual(findMissingPackages(dir), ['actually-missing-pkg']);
+});
+
+await (async () => {
+  const name =
+    'WDL-215 & WDL-205: MCP rejects query code, rotates per session without disk file, and caps call log';
+  const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-mcp-sec-'));
+  const prevUd = globalThis.__cauldronUserData;
+  globalThis.__cauldronUserData = ud;
+  try {
+    if (mcpModule.error) throw mcpModule.error;
+    // Plant a legacy mcp-codes.json and ensure startMcpServer removes it and never persists a new one
+    const legacyFile = path.join(ud, 'mcp-codes.json');
+    fs.writeFileSync(
+      legacyFile,
+      JSON.stringify({ [sourceRoot]: 'stale-code' }),
+    );
+
+    const s1 = await mcpModule.startMcpServer({
+      root: sourceRoot,
+      siteName: 'Security Test',
+      run: () => ({ ok: true }),
+      readSelection: () => ({}),
+      readDesign: () => ({}),
+    });
+    const code1 = s1.code;
+    assert.equal(fs.existsSync(legacyFile), false);
+
+    // Reject ?code= in query string
+    const queryAttempt = await fetch(
+      `${s1.url}?code=${encodeURIComponent(code1)}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      },
+    );
+    assert.equal(queryAttempt.status, 401);
+
+    // Cap recorded calls at 200
+    for (let i = 0; i < 210; i += 1) {
+      const res = await fetch(s1.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-cauldron-code': code1,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: i + 10,
+          method: 'tools/call',
+          params: { name: 'list_pages', arguments: {} },
+        }),
+      });
+      assert.equal(res.status, 200);
+    }
+    assert.equal(mcpModule.mcpCalls().length, 200);
+    s1.close();
+
+    // New server start rotates access code and clears prior calls
+    const s2 = await mcpModule.startMcpServer({
+      root: sourceRoot,
+      siteName: 'Security Test',
+      run: () => ({ ok: true }),
+      readSelection: () => ({}),
+      readDesign: () => ({}),
+    });
+    assert.notEqual(s2.code, code1);
+    assert.equal(mcpModule.mcpCalls().length, 0);
+    assert.equal(fs.existsSync(legacyFile), false);
+    s2.close();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    failures++;
+    console.error(`FAIL ${name}: ${error.message}`);
+  } finally {
+    globalThis.__cauldronUserData = prevUd;
+  }
+})();
 
 process.exitCode = failures ? 1 : 0;

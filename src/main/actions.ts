@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import { toolsFor } from './mcp';
 import {
   applyEdit,
   findTag,
@@ -1119,50 +1120,15 @@ export function isReadOnlyAction(action: ActionRequest['action']): boolean {
   return READ_ONLY_ACTIONS.has(action);
 }
 
-/** The catalogue the agent is given, so it uses the same actions as the interface. */
-export function actionCatalogue(): Array<{ name: string; what: string }> {
-  return [
-    { name: 'listPages', what: "List the site's pages and their files." },
-    { name: 'readPageOutline', what: 'Read the headings of one page.' },
-    {
-      name: 'readPageSections',
-      what: 'Read the top-level sections and components of one page.',
-    },
-    {
-      name: 'reorderPageSections',
-      what: 'Reorder sections on a page by swapping positions.',
-    },
-    {
-      name: 'deletePageSection',
-      what: 'Delete a section from a page by index.',
-    },
-    {
-      name: 'setPageSectionAnchor',
-      what: 'Set or update an anchor ID on a page section.',
-    },
-    {
-      name: 'duplicatePageSection',
-      what: 'Duplicate an existing section on a page by index.',
-    },
-    {
-      name: 'insertPageSection',
-      what: 'Insert markup for a new section on a page after a given section index (-1 for start of page).',
-    },
-    {
-      name: 'editElementText',
-      what: 'Change the text of one element, given its file and position.',
-    },
-    { name: 'editElementAttribute', what: 'Change one setting on an element.' },
-    { name: 'editElementStyle', what: 'Change inline styles on one element.' },
-    { name: 'editCssRule', what: 'Set one declaration inside a CSS rule.' },
-    { name: 'createPage', what: 'Create a new page in the site.' },
-    {
-      name: 'readSource',
-      what: 'Read the exact text and hash of one .astro page, layout or component, or one .css file under src/styles. A file that does not exist returns a null hash, ready for creation.',
-    },
-    {
-      name: 'writeSource',
-      what: 'Replace a whole allowed source file. baseHash must be the exact hash readSource returned; pass null only to create a file that does not exist. A stale hash is refused and no file is overwritten.',
-    },
-  ];
+/**
+ * The catalogue the agent is given, generated from the exact MCP tool
+ * definitions served by the local connection.
+ */
+export function actionCatalogue(
+  siteName = 'this site',
+): Array<{ name: string; what: string }> {
+  return toolsFor(siteName).map((tool) => ({
+    name: tool.name,
+    what: tool.description,
+  }));
 }
