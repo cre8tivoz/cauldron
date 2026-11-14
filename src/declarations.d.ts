@@ -158,13 +158,25 @@ type CauldronRun = {
   startedAt: number;
   finishedAt: number | null;
   files: string[];
+  deletedFiles?: string[];
   problems?: string[];
+  undoAvailable?: boolean;
   highlighted: Array<{
     file: string;
     loc: string;
     text: string;
     label: string;
     removed?: boolean;
+  }>;
+  cssChanges?: Array<{
+    file: string;
+    selector: string;
+    status: 'added' | 'changed' | 'removed';
+    label: string;
+  }>;
+  otherPages?: Array<{
+    file: string;
+    page: string;
   }>;
 };
 
@@ -282,6 +294,9 @@ type CauldronApi = {
   ) => Promise<{ ok: boolean; problem?: string; clashes?: string[] }>;
   runs: () => Promise<CauldronRun[]>;
   highlight: (id: string, on: boolean) => Promise<boolean>;
+  openPreviewPage: (
+    page: string,
+  ) => Promise<{ ok: boolean; url?: string; problem?: string }>;
   runAction: (
     request: unknown,
   ) => Promise<{ ok: boolean; [key: string]: unknown }>;
