@@ -217,6 +217,198 @@ export function prepareDependencies(options: {
   };
 }
 
+const SOURCE_RESOLVE_EXTS = [
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.astro',
+  '.css',
+  '.json',
+];
+
+/** Strip JSONC comments (`//`, `/* ... * /`) and trailing commas while leaving string literals intact. */
+function stripJsonc(raw: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    const next = raw[i + 1];
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      while (i + 1 < raw.length && raw[i + 1] !== '\n') i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < raw.length && !(raw[i] === '*' && raw[i + 1] === '/')) {
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
+    out += ch;
+  }
+  return out.replace(/,\s*([}\]])/g, '$1');
+}
+
+type TsPathMapping = {
+  pattern: string;
+  targets: string[];
+  baseDir: string;
+};
+
+type TsAliasConfig = {
+  baseUrlDir?: string;
+  mappings: TsPathMapping[];
+};
+
+function readTsConfigAliases(
+  file: string,
+  visited = new Set<string>(),
+): TsAliasConfig {
+  const abs = path.resolve(file);
+  if (visited.has(abs) || !fs.existsSync(abs)) return { mappings: [] };
+  visited.add(abs);
+  let parsed: {
+    extends?: unknown;
+    compilerOptions?: {
+      baseUrl?: unknown;
+      paths?: Record<string, unknown>;
+    };
+  };
+  try {
+    parsed = JSON.parse(stripJsonc(fs.readFileSync(abs, 'utf8')));
+  } catch (err) {
+    console.warn(`[dependencies] Could not parse config at ${abs}:`, err);
+    return { mappings: [] };
+  }
+
+  let baseUrlDir: string | undefined;
+  const mappingByPattern = new Map<string, TsPathMapping>();
+  if (typeof parsed.extends === 'string' && parsed.extends.startsWith('.')) {
+    const candidate = path.resolve(path.dirname(abs), parsed.extends);
+    const parentFile = fs.existsSync(candidate)
+      ? candidate
+      : `${candidate}.json`;
+    const parent = readTsConfigAliases(parentFile, visited);
+    baseUrlDir = parent.baseUrlDir;
+    for (const entry of parent.mappings) {
+      mappingByPattern.set(entry.pattern, entry);
+    }
+  }
+  const opts = parsed.compilerOptions;
+  if (opts && typeof opts === 'object') {
+    if (typeof opts.baseUrl === 'string' && opts.baseUrl.trim()) {
+      baseUrlDir = path.resolve(path.dirname(abs), opts.baseUrl);
+    }
+    const pathsBaseDir = baseUrlDir ?? path.dirname(abs);
+    if (opts.paths && typeof opts.paths === 'object') {
+      for (const [pattern, rawTargets] of Object.entries(opts.paths)) {
+        if (!Array.isArray(rawTargets)) continue;
+        const targets = rawTargets.filter(
+          (t): t is string => typeof t === 'string' && t.trim().length > 0,
+        );
+        mappingByPattern.set(pattern, {
+          pattern,
+          targets,
+          baseDir: pathsBaseDir,
+        });
+      }
+    }
+  }
+  return { baseUrlDir, mappings: [...mappingByPattern.values()] };
+}
+
+function loadSiteAliases(root: string): TsAliasConfig {
+  const tsconfig = path.join(root, 'tsconfig.json');
+  if (fs.existsSync(tsconfig)) return readTsConfigAliases(tsconfig);
+  const jsconfig = path.join(root, 'jsconfig.json');
+  if (fs.existsSync(jsconfig)) return readTsConfigAliases(jsconfig);
+  return { mappings: [] };
+}
+
+function resolvesLocalCandidate(candidate: string): boolean {
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return true;
+  for (const ext of SOURCE_RESOLVE_EXTS) {
+    if (
+      fs.existsSync(`${candidate}${ext}`) ||
+      fs.existsSync(path.join(candidate, `index${ext}`))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolvesViaTsPathAlias(
+  spec: string,
+  mappings: TsPathMapping[],
+): boolean {
+  const matched: Array<{
+    prefixLen: number;
+    mapping: TsPathMapping;
+    star: string;
+  }> = [];
+  for (const mapping of mappings) {
+    const { pattern } = mapping;
+    const starIdx = pattern.indexOf('*');
+    if (starIdx < 0) {
+      if (spec === pattern) {
+        matched.push({ prefixLen: pattern.length, mapping, star: '' });
+      }
+      continue;
+    }
+    const prefix = pattern.slice(0, starIdx);
+    const suffix = pattern.slice(starIdx + 1);
+    if (
+      spec.length >= prefix.length + suffix.length &&
+      spec.startsWith(prefix) &&
+      spec.endsWith(suffix)
+    ) {
+      matched.push({
+        prefixLen: prefix.length,
+        mapping,
+        star: spec.slice(prefix.length, spec.length - suffix.length),
+      });
+    }
+  }
+  matched.sort((a, b) => b.prefixLen - a.prefixLen);
+  for (const { mapping, star } of matched) {
+    for (const target of mapping.targets) {
+      const substituted = target.includes('*')
+        ? target.replace('*', star)
+        : target;
+      const candidate = path.resolve(mapping.baseDir, substituted);
+      if (resolvesLocalCandidate(candidate)) return true;
+    }
+  }
+  return false;
+}
+
+function resolvesUnderBaseUrl(
+  baseUrlDir: string | undefined,
+  spec: string,
+): boolean {
+  if (!baseUrlDir) return false;
+  return resolvesLocalCandidate(path.resolve(baseUrlDir, spec));
+}
+
 /**
  * Scans a site's source files for bare package imports that are neither
  * declared in package.json nor installed in node_modules.
@@ -321,6 +513,7 @@ export function findMissingPackages(root: string): string[] {
     }
   }
 
+  const aliases = loadSiteAliases(root);
   const missing = new Set<string>();
   for (const spec of specifiers) {
     if (!spec || /^[./]/.test(spec)) continue;
@@ -328,6 +521,8 @@ export function findMissingPackages(root: string): string[] {
     if (/^[~@#]\//.test(spec) || spec === '~' || spec === '@') continue;
     if (/^(astro:|virtual:)/.test(spec)) continue;
     if (spec.startsWith('node:') || nodeBuiltins.has(spec)) continue;
+    if (resolvesViaTsPathAlias(spec, aliases.mappings)) continue;
+    if (resolvesUnderBaseUrl(aliases.baseUrlDir, spec)) continue;
 
     let pkgName = '';
     if (spec.startsWith('@')) {

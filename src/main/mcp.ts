@@ -4,7 +4,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { app } from 'electron';
 import type { ActionRequest, ActionResult } from './actions';
-import { writeFileAtomic } from './files';
 
 /**
  * The local connection for outside agents (plan 3.3). It speaks MCP over HTTP on
@@ -33,6 +32,7 @@ export type McpHandle = {
 
 /** What outside agents asked the Cauldron connection for (plan 3.3). */
 export type McpCall = { tool: string; ok: boolean; at: number };
+const MAX_MCP_CALLS = 200;
 const calls: McpCall[] = [];
 
 /**
@@ -58,7 +58,14 @@ export function mcpCalls(): McpCall[] {
   return [...calls];
 }
 
+export function clearMcpCallsLog(): void {
+  calls.length = 0;
+}
+
 function recordCall(tool: string, ok: boolean): void {
+  if (calls.length >= MAX_MCP_CALLS) {
+    calls.splice(0, calls.length - MAX_MCP_CALLS + 1);
+  }
   calls.push({ tool, ok, at: Date.now() });
 }
 
@@ -68,24 +75,29 @@ type ToolDefinition = {
   inputSchema: Record<string, unknown>;
 };
 
-function codeStore(): Record<string, string> {
-  const file = path.join(app.getPath('userData'), 'mcp-codes.json');
+/**
+ * Removes any legacy world-readable `mcp-codes.json` file left behind by
+ * earlier versions so old static codes are never kept on disk.
+ */
+function removeLegacyCodeStore(): void {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, string>;
+    const file = path.join(app.getPath('userData'), 'mcp-codes.json');
+    fs.rmSync(file, { force: true });
   } catch {
-    return {};
+    // Best effort; failing to delete a legacy file does not block starting MCP.
   }
 }
 
-export function accessCodeFor(root: string): string {
-  const store = codeStore();
-  if (store[root]) return store[root];
-  const code = crypto.randomBytes(12).toString('base64url');
-  store[root] = code;
-  const file = path.join(app.getPath('userData'), 'mcp-codes.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeFileAtomic(file, JSON.stringify(store, null, 2));
-  return code;
+/** Generate a fresh per-session secret code kept in memory only. */
+export function generateAccessCode(): string {
+  return crypto.randomBytes(24).toString('base64url');
+}
+
+function codesMatch(given: unknown, expected: string): boolean {
+  if (typeof given !== 'string') return false;
+  const a = Buffer.from(given, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 const target = {
@@ -309,7 +321,9 @@ function toRequest(
 }
 
 export function startMcpServer(options: McpOptions): Promise<McpHandle> {
-  const code = accessCodeFor(options.root);
+  removeLegacyCodeStore();
+  clearMcpCallsLog();
+  const code = generateAccessCode();
   const tools = toolsFor(options.siteName);
   let clientConnected = false;
   const connectedListeners = new Set<() => void>();
@@ -335,13 +349,13 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
     };
 
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    const given =
-      request.headers['x-cauldron-code'] ?? url.searchParams.get('code');
+    const given = request.headers['x-cauldron-code'];
+    const authorised = codesMatch(given, code);
     note({
       event: 'request',
       method: request.method,
       path: url.pathname,
-      authorised: given === code,
+      authorised,
       agent: String(request.headers['user-agent'] ?? ''),
     });
 
@@ -349,7 +363,7 @@ export function startMcpServer(options: McpOptions): Promise<McpHandle> {
       send(404, { error: 'Use POST /mcp' });
       return;
     }
-    if (given !== code) {
+    if (!authorised) {
       send(401, { error: 'Missing or wrong access code for this site.' });
       return;
     }
