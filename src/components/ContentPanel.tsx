@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDownIcon } from './Icons';
+import { contentDraftValue } from '../draft-restore';
 
 type Props = {
   site: CauldronSite | null;
   /** Reports whether the open entry has typed changes that are not saved yet. */
   onUnsavedChange: (dirty: boolean) => void;
   onBack: () => void;
+  /** Incremented when drafts are restored or discarded externally so the form reloads from disk. */
+  draftResetVersion?: number;
 };
 
 /**
@@ -13,7 +16,12 @@ type Props = {
  * Left COLLECTIONS pill sidebar, large entry title, and 3-column horizontal
  * `Label | Input | Save` field rows.
  */
-export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
+export function ContentPanel({
+  site,
+  onUnsavedChange,
+  onBack,
+  draftResetVersion = 0,
+}: Props) {
   const [collections, setCollections] = useState<CauldronCollection[]>([]);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [entry, setEntry] = useState<CauldronEntry | null>(null);
@@ -80,13 +88,23 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
     return () => onUnsavedChange(dirty);
   }, [dirty, onUnsavedChange]);
 
+  const openFileRef = useRef<string | null>(null);
+  openFileRef.current = openFile;
+
+  useEffect(() => {
+    if (draftResetVersion > 0 && openFileRef.current) {
+      void open(openFileRef.current);
+    }
+  }, [draftResetVersion]);
+
   const keepDraft = (field: string, value: string | null) => {
-    if (entry && openFile)
+    if (entry && openFile) {
+      const nextValue = contentDraftValue(entry, field, value);
       void window.cauldron
         .contentDraft({
           file: openFile,
           field,
-          value,
+          value: nextValue,
           baseHash: entry.hash,
           schemaHash: entry.schemaHash,
         })
@@ -97,6 +115,7 @@ export function ContentPanel({ site, onUnsavedChange, onBack }: Props) {
           console.error(message);
           setProblem(message);
         });
+    }
   };
 
   const save = async (change: Record<string, string>, keepMine = false) => {

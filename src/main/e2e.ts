@@ -4759,7 +4759,7 @@ export async function runCrashTest(
     check('1.6 the visible interface offers the recovered edits', offered);
 
     const clicked = await window.webContents.executeJavaScript(
-      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Restore the first one'); if (!b) return null; b.click(); return b.textContent.trim(); })()`,
+      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Restore' || el.textContent.trim() === 'Restore the first one'); if (!b) return null; b.click(); return b.textContent.trim(); })()`,
     );
     console.log(`RESTORE CONTROL ${JSON.stringify(clicked)}`);
     check(
@@ -4996,7 +4996,7 @@ export async function runFailureTest(
     )) as { view: string | null; selection: unknown };
     console.log(`CASE 4 VIEW ${JSON.stringify(view)}`);
     const restored = (await js(
-      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Restore the first one'); if (!b) return 'no restore control'; b.click(); return 'clicked'; })()`,
+      `(() => { const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Restore' || el.textContent.trim() === 'Restore the first one'); if (!b) return 'no restore control'; b.click(); return 'clicked'; })()`,
     )) as string;
     const four = await waitText('.statusbar', 'no longer matches');
     console.log(`CASE 4 CONTROL ${restored} DOM ${JSON.stringify(four.text)}`);

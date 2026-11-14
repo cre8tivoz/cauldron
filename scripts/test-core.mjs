@@ -2994,4 +2994,159 @@ test('WDL-203 an apostrophe in text inside a loop does not hide later sections',
   );
 });
 
+test('WDL-251 reverting content or element fields clears drafts', async () => {
+  const { contentDraftValue, selectionDraftValue } =
+    await import('../src/draft-restore.ts');
+
+  const savedEntry = {
+    text: '---\ntitle: Hello\n---\nBody\n',
+    values: { title: 'Hello', summary: '' },
+  };
+  assert.equal(
+    contentDraftValue(savedEntry, 'title', 'Hello world'),
+    'Hello world',
+  );
+  assert.equal(contentDraftValue(savedEntry, 'title', 'Hello'), null);
+  assert.equal(contentDraftValue(savedEntry, 'summary', ''), null);
+  assert.equal(contentDraftValue(savedEntry, 'text', savedEntry.text), null);
+  assert.equal(contentDraftValue(savedEntry, 'text', 'Changed'), 'Changed');
+
+  const selection = {
+    text: 'Original',
+    style: { color: '#111111' },
+    attributes: [{ name: 'href', value: '/about' }],
+  };
+  assert.equal(selectionDraftValue(selection, 'text', 'Edited'), 'Edited');
+  assert.equal(selectionDraftValue(selection, 'text', 'Original'), null);
+  assert.equal(selectionDraftValue(selection, 'style:color', '#111111'), null);
+  assert.equal(selectionDraftValue(selection, 'style:margin', ''), null);
+  assert.equal(
+    selectionDraftValue(selection, 'attribute:href', '/about'),
+    null,
+  );
+  assert.equal(
+    selectionDraftValue(selection, 'attribute:href', '/contact'),
+    '/contact',
+  );
+});
+
+test('WDL-251 & WDL-213 draft banner copy distinguishes startup recovery from live session edits with proper grammar', async () => {
+  const { describeDraftBanner } = await import('../src/draft-restore.ts');
+
+  const oneLive = describeDraftBanner([{ key: 'k1' }], new Set());
+  assert.equal(oneLive.heading, 'Unsaved edits.');
+  assert.equal(oneLive.detail, '1 change has not been saved to the site yet.');
+  assert.equal(oneLive.hasRecovery, false);
+
+  const twoLive = describeDraftBanner(
+    [{ key: 'k1' }, { key: 'k2' }],
+    new Set(),
+  );
+  assert.equal(
+    twoLive.detail,
+    '2 changes have not been saved to the site yet.',
+  );
+
+  const oneRecovered = describeDraftBanner([{ key: 'k1' }], new Set(['k1']));
+  assert.equal(oneRecovered.heading, 'Unsaved edits from last time.');
+  assert.equal(
+    oneRecovered.detail,
+    '1 change was being typed when Cauldron last stopped.',
+  );
+  assert.equal(oneRecovered.hasRecovery, true);
+
+  const twoRecovered = describeDraftBanner(
+    [{ key: 'k1' }, { key: 'k2' }],
+    new Set(['k1', 'k2']),
+  );
+  assert.equal(
+    twoRecovered.detail,
+    '2 changes were being typed when Cauldron last stopped.',
+  );
+
+  const mixed = describeDraftBanner(
+    [{ key: 'k1' }, { key: 'k2' }],
+    new Set(['k1']),
+  );
+  assert.equal(mixed.heading, 'Unsaved edits.');
+  assert.match(mixed.detail, /2 changes.*1 from last time/);
+});
+
+test('WDL-213 & WDL-251 mergeDraftsList, removeDraftKeys, and planBatchDraftRestores handle multi-element batches safely', async () => {
+  const {
+    draftEditOperation,
+    mergeDraftsList,
+    planBatchDraftRestores,
+    removeDraftKeys,
+  } = await import('../src/draft-restore.ts');
+  const { applyEdit, snapshotElement } = await import('../src/main/edit.ts');
+  const { hashOf } = await import('../src/main/files.ts');
+
+  const recovered = { key: 'recovered-1', value: 'keep me' };
+  const liveA = { key: 'live-a', value: 'a' };
+  const liveB = { key: 'live-b', value: 'b' };
+  const merged = mergeDraftsList([recovered, liveA], [liveB]);
+  assert.deepEqual(
+    merged.map((d) => d.key),
+    ['recovered-1', 'live-a', 'live-b'],
+  );
+  const afterRemove = removeDraftKeys(merged, ['live-a']);
+  assert.deepEqual(
+    afterRemove.map((d) => d.key),
+    ['recovered-1', 'live-b'],
+  );
+
+  // Two consecutive <p> elements where the first gets multiline text:
+  // bottom-to-top planning ensures the second <p> is restored at its true tag
+  // before the first <p> shifts lines below it.
+  let source = '<main>\n  <p>First</p>\n  <p>Second</p>\n</main>\n';
+  const originalHash = hashOf(source);
+  const planned = planBatchDraftRestores(
+    [
+      {
+        key: 'p1',
+        file: 'src/pages/index.astro',
+        line: 2,
+        column: 6,
+        name: 'p',
+        field: 'text',
+        value: 'Line 1\nLine 2\nLine 3',
+        baseHash: originalHash,
+      },
+      {
+        key: 'p2',
+        file: 'src/pages/index.astro',
+        line: 3,
+        column: 6,
+        name: 'p',
+        field: 'text',
+        value: 'Updated second',
+        baseHash: originalHash,
+      },
+    ],
+    () => ({ text: source, hash: originalHash }),
+  );
+  assert.deepEqual(
+    planned.map((d) => d.key),
+    ['p2', 'p1'],
+  );
+  for (const draft of planned) {
+    const location = {
+      file: draft.file,
+      line: draft.line,
+      column: draft.column,
+      name: draft.name,
+    };
+    const snapshot = snapshotElement(source, location);
+    assert.ok(snapshot);
+    const op = draftEditOperation(draft.field, draft.value);
+    assert.ok(op);
+    const edited = applyEdit(source, location, op, snapshot);
+    assert.equal(edited.ok, true);
+    source = edited.text;
+  }
+  assert.ok(source.includes('Line 1\nLine 2\nLine 3'));
+  assert.ok(source.includes('<p>Updated second</p>'));
+});
+
 process.exitCode = failures ? 1 : 0;
