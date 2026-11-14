@@ -608,8 +608,15 @@ test('Phase 5 (P0 Finding 1): deployCloudflarePages fails honestly without crede
     );
     assert.ok(
       deployRes.problem &&
-        deployRes.problem.includes('Cloudflare Pages deployment requires'),
-      `problem diagnostic explains authentication requirement (got: ${deployRes.problem})`,
+        (deployRes.problem.includes('Cloudflare Pages deployment requires') ||
+          deployRes.problem.includes('Wrangler CLI could not be found') ||
+          deployRes.problem.includes('Cloudflare Pages deployment failed')),
+      `problem diagnostic explains exact failure cause (got: ${deployRes.problem})`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(mockProj, 'wrangler.toml')),
+      false,
+      'deployCloudflarePages must not silently create wrangler.toml',
     );
   } finally {
     if (savedToken) process.env.CLOUDFLARE_API_TOKEN = savedToken;

@@ -18,6 +18,8 @@ const ElectronBrowserWindow =
     }
   ).default?.BrowserWindow;
 import { childEnvForTools, resolveToolPath } from './runtime';
+import { detectDependencySetup } from './dependencies';
+import { isInside } from './files';
 // The accessibility engine is bundled at build time: the packaged app has no
 // node_modules on disk, so reading it from there never worked outside development.
 import axeScript from 'axe-core/axe.min.js?raw';
@@ -146,20 +148,84 @@ function typeFor(file: string): string {
   );
 }
 
-function prepareSiteBuild(root: string): {
+/**
+ * Resolve Astro's configured output directory from `astro.config.*`, defaulting
+ * to `dist/` and refusing paths outside the site root.
+ */
+export function resolveAstroOutDir(root: string): string {
+  const defaultDist = path.join(root, 'dist');
+  for (const ext of ['mjs', 'ts', 'js', 'cjs', 'mts']) {
+    const configPath = path.join(root, `astro.config.${ext}`);
+    if (!fs.existsSync(configPath)) continue;
+    try {
+      const raw = fs
+        .readFileSync(configPath, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(?<!:)\/\/.*$/gm, '');
+      const match = raw.match(/\boutDir\s*:\s*(['"`])([^'"`]+)\1/);
+      if (match?.[2]) {
+        const candidate = path.resolve(root, match[2].trim());
+        if (isInside(root, candidate) && candidate !== path.resolve(root)) {
+          return candidate;
+        }
+      }
+    } catch {
+      // Ignore unreadable config and fall back to default dist/.
+    }
+  }
+  return defaultDist;
+}
+
+export function resolveSiteBuildConfig(
+  root: string,
+  resolveToolOverride?: (tool: string) => string | null,
+): {
   dist: string;
-  npm: string;
+  manager: 'npm' | 'pnpm' | 'yarn';
+  cmd: string;
+  args: string[];
   env: NodeJS.ProcessEnv;
 } {
-  const dist = path.join(root, 'dist');
-  try {
-    if (fs.existsSync(dist)) fs.rmSync(dist, { recursive: true, force: true });
-  } catch {
-    // Stale dist removal best effort
-  }
+  const dist = resolveAstroOutDir(root);
+  const setup = detectDependencySetup(root);
+  const resolveTool = resolveToolOverride ?? resolveToolPath;
+  const preferred = resolveTool(setup.manager);
+  const fallbackNpm = setup.manager === 'pnpm' ? resolveTool('npm') : null;
+  const manager: 'npm' | 'pnpm' | 'yarn' = preferred
+    ? setup.manager
+    : fallbackNpm
+      ? 'npm'
+      : setup.manager;
+  const cmd = preferred ?? fallbackNpm ?? manager;
   const env = childEnvForTools({ ...process.env, CI: '1' });
-  const npm = resolveToolPath('npm') ?? 'npm';
-  return { dist, npm, env };
+  return {
+    dist,
+    manager,
+    cmd,
+    args: ['run', 'build'],
+    env,
+  };
+}
+
+function prepareSiteBuild(root: string): {
+  dist: string;
+  cmd: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+} {
+  const config = resolveSiteBuildConfig(root);
+  try {
+    if (
+      config.dist !== path.resolve(root) &&
+      isInside(root, config.dist) &&
+      fs.existsSync(config.dist)
+    ) {
+      fs.rmSync(config.dist, { recursive: true, force: true });
+    }
+  } catch {
+    // Stale output removal best effort
+  }
+  return config;
 }
 
 function formatBuildResult(
@@ -183,8 +249,8 @@ export function buildSite(root: string): {
   log: string;
   dist: string;
 } {
-  const { dist, npm, env } = prepareSiteBuild(root);
-  const result = spawnSync(npm, ['run', 'build'], {
+  const { dist, cmd, args, env } = prepareSiteBuild(root);
+  const result = spawnSync(cmd, args, {
     cwd: root,
     encoding: 'utf8',
     timeout: 300000,
@@ -200,17 +266,17 @@ export function buildSite(root: string): {
 }
 
 /**
- * Runs `npm run build` asynchronously so background health verification never
- * blocks the Electron main process or local MCP server.
+ * Runs the site's package-manager build script asynchronously so background
+ * health verification and quality checks never freeze the Electron main process.
  */
 export function buildSiteAsync(root: string): Promise<{
   ok: boolean;
   log: string;
   dist: string;
 }> {
-  const { dist, npm, env } = prepareSiteBuild(root);
+  const { dist, cmd, args, env } = prepareSiteBuild(root);
   return new Promise((resolve) => {
-    const child = spawn(npm, ['run', 'build'], {
+    const child = spawn(cmd, args, {
       cwd: root,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -580,7 +646,7 @@ export async function checkSite(options: {
     findings.push({ kind: 'measured', ...finding });
 
   options.onProgress?.('Building the site…');
-  const built = buildSite(options.root);
+  const built = await buildSiteAsync(options.root);
   if (!built.ok) {
     return {
       built: false,

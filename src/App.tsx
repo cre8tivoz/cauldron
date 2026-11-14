@@ -961,6 +961,15 @@ export function App() {
                     : 'Install missing packages'}
                 </button>
               ) : null}
+              {installingPackages ? (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => void window.cauldron.cancelInstallPackages()}
+                >
+                  Cancel install
+                </button>
+              ) : null}
               <button
                 className="button"
                 type="button"
@@ -999,6 +1008,15 @@ export function App() {
                   }}
                 >
                   Restore all
+                </button>
+              ) : null}
+              {installingPackages ? (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => void window.cauldron.cancelInstallPackages()}
+                >
+                  Cancel install
                 </button>
               ) : null}
               <button

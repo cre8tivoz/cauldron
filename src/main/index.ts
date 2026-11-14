@@ -62,10 +62,10 @@ import { checkSite, buildSiteAsync } from './quality';
 import { directionFromUrl } from './reference';
 import {
   macBuildInfo,
-  publish,
-  repoState,
-  exportStaticSite,
-  deployCloudflarePages,
+  publishAsync,
+  repoStateAsync,
+  exportStaticSiteAsync,
+  deployCloudflarePagesAsync,
 } from './publishing';
 import {
   downloadAndSaveStockPhoto,
@@ -85,7 +85,7 @@ import {
   detectDependencySetup,
   prepareDependencies,
   findMissingPackages,
-  installMissingPackages,
+  startInstallMissingPackages,
   type PrepareHandle,
   type PrepareUpdate,
 } from './dependencies';
@@ -151,6 +151,7 @@ type Controller = {
   /** A running dependency install, one at a time across the app. */
   prepare: PrepareHandle | null;
   prepareRoot: string | null;
+  installPackages: PrepareHandle | null;
   buildError: string | null;
   missingPackages: string[];
 };
@@ -171,6 +172,7 @@ const state: Controller = {
   status: [],
   prepare: null,
   prepareRoot: null,
+  installPackages: null,
   buildError: null,
   missingPackages: [],
 };
@@ -1760,25 +1762,26 @@ function registerIpc(): void {
     },
   );
 
-  handle('cauldron:repo-state', () => {
+  handle('cauldron:repo-state', async () => {
     const site = requireSite();
     if ('problem' in site) return { isRepo: false, changes: [] };
-    return repoState(site.root);
+    return repoStateAsync(site.root);
   });
 
   handle(
     'cauldron:publish',
-    (
+    async (
       _event,
       payload: { message: string; push: boolean; unsavedBuffers?: number },
     ) => {
       const site = requireSite();
       if ('problem' in site) return site;
-      const result = publish(site.root, payload);
+      status('Publishing changes…');
+      const result = await publishAsync(site.root, payload);
       if (result.ok) {
         status(result.message);
       } else {
-        status(result.problem);
+        fail(result.problem);
       }
       return result;
     },
@@ -1793,29 +1796,40 @@ function registerIpc(): void {
   handle('cauldron:export-static', async () => {
     const site = requireSite();
     if ('problem' in site) return site;
-    const result = exportStaticSite(site.root);
+    status('Building static site…');
+    const result = await exportStaticSiteAsync(site.root);
     if (result.ok && result.distPath) {
       status(`Built static site to ${result.distPath}`);
       shell.openPath(result.distPath);
     } else {
-      status(result.problem || 'Static export failed.');
+      fail(result.problem || 'Static export failed.');
     }
     return result;
   });
 
   handle(
     'cauldron:deploy-cloudflare',
-    async (_event, payload?: { projectName?: string }) => {
+    async (
+      _event,
+      payload?: { projectName?: string; writeWranglerConfig?: boolean },
+    ) => {
       const site = requireSite();
       if ('problem' in site) return site;
-      const result = deployCloudflarePages(
+      status('Deploying to Cloudflare Pages…');
+      const result = await deployCloudflarePagesAsync(
         site.root,
         payload?.projectName || site.name,
+        { writeWranglerConfig: payload?.writeWranglerConfig },
       );
       if (result.ok) {
-        status(`Cloudflare Pages ready: ${result.url}`);
+        status(
+          result.url
+            ? `Cloudflare Pages ready: ${result.url}`
+            : result.note ||
+                "Deployed, but Cloudflare didn't report the address — check your Cloudflare dashboard.",
+        );
       } else {
-        status(result.problem || 'Cloudflare deployment preparation failed.');
+        fail(result.problem || 'Cloudflare Pages deployment failed.');
       }
       return result;
     },
@@ -2339,12 +2353,14 @@ function registerPreviewIpc(): void {
           site: summaryOf(state.site),
         };
       }
+      state.installPackages?.cancel();
       status(`Installing missing packages: ${toInstall.join(', ')}…`);
-      const result = await installMissingPackages(
-        state.site.root,
-        toInstall,
-        pnpmStoreDir(),
-      );
+      const job = startInstallMissingPackages(state.site.root, toInstall, {
+        storeDirOrUserData: pnpmStoreDir(),
+      });
+      state.installPackages = job;
+      const result = await job.promise;
+      if (state.installPackages === job) state.installPackages = null;
       if (result.ok) {
         state.buildError = null;
         status(`Installed ${toInstall.join(', ')}.`);
@@ -2360,6 +2376,11 @@ function registerPreviewIpc(): void {
       return { ...result, site: summaryOf(state.site) };
     },
   );
+
+  handle('cauldron:install-packages-cancel', () => {
+    state.installPackages?.cancel();
+    return true;
+  });
 
   handle('cauldron:pick-mode', (_event, on: boolean) => {
     state.preview.webContents?.send('preview:mode', on);
@@ -2791,6 +2812,8 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
 
   window.on('closed', () => {
     state.agent?.cancel();
+    state.prepare?.cancel();
+    state.installPackages?.cancel();
     state.window = null;
     // The view goes with the window; tear it down once, safely.
     state.preview.destroy();
@@ -2837,10 +2860,12 @@ function harnessApi() {
     collections: () => (state.site ? readCollections(state.site.root) : []),
     runs: () => state.runs.list(),
     repoState: () =>
-      state.site ? repoState(state.site.root) : { isRepo: false, changes: [] },
+      state.site
+        ? repoStateAsync(state.site.root)
+        : { isRepo: false, changes: [] },
     publish: (payload: { message: string; push: boolean }) =>
       state.site
-        ? publish(state.site.root, payload)
+        ? publishAsync(state.site.root, payload)
         : { ok: false, problem: 'No site.' },
     qualityRun: async (payload: { pages?: string[] }) => {
       if (!state.site)

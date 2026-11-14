@@ -551,82 +551,169 @@ export type InstallMissingPackagesResult = {
   storeDir?: string;
   log: string;
   problem?: string;
+  cancelled?: boolean;
+  timedOut?: boolean;
 };
 
-/**
- * Installs specified missing packages using the project's own package manager.
- * For pnpm projects, uses the supplied shared store directory.
- */
-export function installMissingPackages(
-  root: string,
-  packages: string[],
+export type InstallPlan =
+  | {
+      ok: true;
+      manager: 'npm' | 'pnpm' | 'yarn';
+      fallbackFrom?: 'pnpm';
+      cmd: string;
+      args: string[];
+      storeDir?: string;
+    }
+  | {
+      ok: false;
+      manager: string;
+      storeDir?: string;
+      problem: string;
+    };
+
+export function resolveEffectiveStoreDir(
   storeDirOrUserData?: string,
-): Promise<InstallMissingPackagesResult> {
-  const pkgNameRe = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
-  const valid = [...new Set(packages.filter((p) => pkgNameRe.test(p)))];
-  if (valid.length === 0) {
-    return Promise.resolve({
-      ok: true,
-      manager: 'none',
-      log: 'No valid packages to install.',
-    });
-  }
-
-  const setup = detectDependencySetup(root);
-  const manager = setup.manager;
-  const resolved =
-    resolveToolPath(manager) ??
-    (manager === 'pnpm' ? resolveToolPath('npm') : null);
-  if (!resolved) {
-    return Promise.resolve({
-      ok: false,
-      manager,
-      storeDir: storeDirOrUserData,
-      log: '',
-      problem: `No ${manager} executable was found in PATH or standard locations.`,
-    });
-  }
-
-  let effectiveStoreDir: string | undefined = undefined;
+): string | undefined {
   if (storeDirOrUserData) {
-    effectiveStoreDir = storeDirOrUserData.endsWith('pnpm-store')
+    return storeDirOrUserData.endsWith('pnpm-store')
       ? storeDirOrUserData
       : path.join(storeDirOrUserData, 'pnpm-store');
-  } else if (process.env.CAULDRON_PNPM_STORE) {
-    effectiveStoreDir = process.env.CAULDRON_PNPM_STORE;
-  } else if (process.env.HOME) {
-    effectiveStoreDir = path.join(
+  }
+  if (process.env.CAULDRON_PNPM_STORE) return process.env.CAULDRON_PNPM_STORE;
+  if (process.env.HOME) {
+    return path.join(
       process.env.HOME,
       'Library/Application Support/Cauldron/pnpm-store',
     );
   }
+  return undefined;
+}
 
-  let cmd = resolved;
-  let args: string[] = [];
+export function planMissingPackageInstall(options: {
+  setupManager: 'npm' | 'pnpm' | 'yarn';
+  packages: string[];
+  storeDirOrUserData?: string;
+  resolveToolOverride?: (tool: string) => string | null;
+}): InstallPlan {
+  const { setupManager, packages, storeDirOrUserData, resolveToolOverride } =
+    options;
+  const resolveTool = resolveToolOverride ?? resolveToolPath;
+  const primaryTool = resolveTool(setupManager);
 
-  if (manager === 'pnpm') {
-    if (effectiveStoreDir) {
-      try {
-        fs.mkdirSync(effectiveStoreDir, { recursive: true });
-      } catch (err) {
-        console.warn(
-          `[dependencies] Could not create pnpm store at ${effectiveStoreDir}:`,
-          err,
-        );
-      }
+  let effectiveManager: 'npm' | 'pnpm' | 'yarn' = setupManager;
+  let fallbackFrom: 'pnpm' | undefined;
+  let resolved = primaryTool;
+
+  if (!resolved && setupManager === 'pnpm') {
+    const npmFallback = resolveTool('npm');
+    if (npmFallback) {
+      effectiveManager = 'npm';
+      fallbackFrom = 'pnpm';
+      resolved = npmFallback;
     }
-    args = [
-      'add',
-      ...valid,
-      ...(effectiveStoreDir ? ['--store-dir', effectiveStoreDir] : []),
-      '--reporter=append-only',
-    ];
-  } else if (manager === 'yarn') {
-    args = ['add', ...valid];
-  } else {
-    const npmPath = resolveToolPath('npm') ?? 'npm';
-    cmd = npmPath;
-    args = ['install', '--save', '--no-audit', '--no-fund', ...valid];
+  }
+
+  if (!resolved) {
+    return {
+      ok: false,
+      manager: setupManager,
+      storeDir: storeDirOrUserData,
+      problem:
+        setupManager === 'pnpm'
+          ? 'Neither pnpm nor npm executable was found in PATH or standard locations.'
+          : `No ${setupManager} executable was found in PATH or standard locations.`,
+    };
+  }
+
+  if (effectiveManager === 'pnpm') {
+    const effectiveStoreDir = resolveEffectiveStoreDir(storeDirOrUserData);
+    return {
+      ok: true,
+      manager: 'pnpm',
+      cmd: resolved,
+      storeDir: effectiveStoreDir,
+      args: [
+        'add',
+        ...packages,
+        ...(effectiveStoreDir ? ['--store-dir', effectiveStoreDir] : []),
+        '--reporter=append-only',
+      ],
+    };
+  }
+
+  if (effectiveManager === 'yarn') {
+    return {
+      ok: true,
+      manager: 'yarn',
+      cmd: resolved,
+      args: ['add', ...packages],
+    };
+  }
+
+  return {
+    ok: true,
+    manager: 'npm',
+    fallbackFrom,
+    cmd: resolved,
+    args: ['install', '--save', '--no-audit', '--no-fund', ...packages],
+  };
+}
+
+export function startInstallMissingPackages(
+  root: string,
+  packages: string[],
+  options: {
+    storeDirOrUserData?: string;
+    timeoutMs?: number;
+    resolveToolOverride?: (tool: string) => string | null;
+  } = {},
+): {
+  cancel: () => void;
+  promise: Promise<InstallMissingPackagesResult>;
+} {
+  const pkgNameRe = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+  const valid = [...new Set(packages.filter((p) => pkgNameRe.test(p)))];
+  if (valid.length === 0) {
+    return {
+      cancel: () => {},
+      promise: Promise.resolve({
+        ok: true,
+        manager: 'none',
+        log: 'No valid packages to install.',
+      }),
+    };
+  }
+
+  const setup = detectDependencySetup(root);
+  const plan = planMissingPackageInstall({
+    setupManager: setup.manager,
+    packages: valid,
+    storeDirOrUserData: options.storeDirOrUserData,
+    resolveToolOverride: options.resolveToolOverride,
+  });
+
+  if (!plan.ok) {
+    return {
+      cancel: () => {},
+      promise: Promise.resolve({
+        ok: false,
+        manager: plan.manager,
+        storeDir: plan.storeDir,
+        log: '',
+        problem: plan.problem,
+      }),
+    };
+  }
+
+  if (plan.manager === 'pnpm' && plan.storeDir) {
+    try {
+      fs.mkdirSync(plan.storeDir, { recursive: true });
+    } catch (err) {
+      console.warn(
+        `[dependencies] Could not create pnpm store at ${plan.storeDir}:`,
+        err,
+      );
+    }
   }
 
   const env = childEnvForTools({
@@ -634,43 +721,136 @@ export function installMissingPackages(
     FORCE_COLOR: '0',
     NO_COLOR: '1',
   });
+  const timeoutMs = options.timeoutMs ?? 120_000;
 
-  return new Promise((resolve) => {
-    const child = spawn(cmd, args, {
+  let cancelFn = () => {};
+  const promise = new Promise<InstallMissingPackagesResult>((resolve) => {
+    const child = spawn(plan.cmd, plan.args, {
       cwd: root,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     });
 
-    let output = '';
-    child.stdout.on('data', (d: Buffer) => {
+    let output = plan.fallbackFrom
+      ? `Note: ${plan.fallbackFrom} was not found; installing via npm.\n`
+      : '';
+    let settled = false;
+    let cancelled = false;
+    let timedOut = false;
+
+    const killTree = () => {
+      try {
+        if (process.platform !== 'win32' && child.pid) {
+          process.kill(-child.pid, 'SIGTERM');
+        } else {
+          child.kill('SIGTERM');
+        }
+      } catch {
+        child.kill('SIGTERM');
+      }
+      setTimeout(() => {
+        try {
+          if (process.platform !== 'win32' && child.pid) {
+            process.kill(-child.pid, 'SIGKILL');
+          } else if (child.exitCode === null) {
+            child.kill('SIGKILL');
+          }
+        } catch {
+          // Process already exited.
+        }
+      }, 2000).unref();
+    };
+
+    const finish = (res: InstallMissingPackagesResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve(res);
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      killTree();
+      finish({
+        ok: false,
+        timedOut: true,
+        manager: plan.manager,
+        storeDir: plan.storeDir,
+        log: output,
+        problem: `Package install timed out after ${Math.round(timeoutMs / 1000)} s.`,
+      });
+    }, timeoutMs);
+
+    cancelFn = () => {
+      if (settled) return;
+      cancelled = true;
+      killTree();
+      finish({
+        ok: false,
+        cancelled: true,
+        manager: plan.manager,
+        storeDir: plan.storeDir,
+        log: output,
+        problem: 'Package install was cancelled.',
+      });
+    };
+
+    child.stdout?.on('data', (d: Buffer) => {
       output += d.toString('utf8');
     });
-    child.stderr.on('data', (d: Buffer) => {
+    child.stderr?.on('data', (d: Buffer) => {
       output += d.toString('utf8');
     });
 
     child.on('error', (err) => {
-      resolve({
+      finish({
         ok: false,
-        manager,
-        storeDir: effectiveStoreDir,
+        manager: plan.manager,
+        storeDir: plan.storeDir,
         log: output,
         problem: err.message,
       });
     });
 
     child.on('close', (code) => {
-      resolve({
+      if (cancelled || timedOut) return;
+      finish({
         ok: code === 0,
-        manager,
-        storeDir: effectiveStoreDir,
+        manager: plan.manager,
+        storeDir: plan.storeDir,
         log: output,
         problem:
           code === 0
             ? undefined
-            : `${manager} add failed with exit code ${code ?? 'unknown'}.`,
+            : `${plan.manager} install failed with exit code ${code ?? 'unknown'}.`,
       });
     });
   });
+
+  return { cancel: () => cancelFn(), promise };
+}
+
+/**
+ * Installs specified missing packages using the project's own package manager.
+ * For pnpm projects, uses the supplied shared store directory, falling back to
+ * clean `npm install` flags when pnpm is unavailable.
+ */
+export function installMissingPackages(
+  root: string,
+  packages: string[],
+  storeDirOrUserData?: string,
+  options: {
+    timeoutMs?: number;
+    resolveToolOverride?: (tool: string) => string | null;
+  } = {},
+): Promise<InstallMissingPackagesResult> {
+  return startInstallMissingPackages(root, packages, {
+    storeDirOrUserData,
+    timeoutMs: options.timeoutMs,
+    resolveToolOverride: options.resolveToolOverride,
+  }).promise;
 }
