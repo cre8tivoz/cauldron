@@ -15,14 +15,33 @@ const electronStub = path.join(
 );
 fs.writeFileSync(
   electronStub,
-  `export const app = { getAppPath: () => process.cwd(), getVersion: () => ${JSON.stringify(
-    JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
-  )}, getPath: () => globalThis.__cauldronUserData ?? ${JSON.stringify(
-    path.join(
-      fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-electron-home-')),
-      'userData',
-    ),
-  )} };\nexport class BrowserWindow {}\nexport default { app };\n`,
+  `export const app = {
+    isPackaged: false,
+    getAppPath: () => process.cwd(),
+    getVersion: () => ${JSON.stringify(
+      JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
+    )},
+    getPath: () => globalThis.__cauldronUserData ?? ${JSON.stringify(
+      path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-electron-home-')),
+        'userData',
+      ),
+    )},
+    on: () => {},
+    once: () => {},
+    whenReady: async () => {},
+    requestSingleInstanceLock: () => true,
+    quit: () => {},
+    exit: () => {},
+  };
+  export class BrowserWindow { static getAllWindows() { return []; } }
+  export class WebContentsView {}
+  export const Menu = { buildFromTemplate: () => ({}), setApplicationMenu: () => {} };
+  export const dialog = { showErrorBox: () => {} };
+  export const ipcMain = { handle: () => {}, on: () => {} };
+  export const shell = { openExternal: async () => {} };
+  export const webContents = {};
+  export default { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, webContents };\n`,
 );
 
 registerHooks({
@@ -58,6 +77,75 @@ const {
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
 const { findMissingPackages } = await import('../src/main/dependencies.ts');
+const { downloadAndSaveStockPhoto, extensionForImageMime } =
+  await import('../src/main/assets.ts');
+const { configurePreviewSecurity } = await import('../src/main/preview.ts');
+const {
+  isAuthorizedEditorIpc,
+  formatUnexpectedError,
+  registerUnexpectedErrorHandlers,
+} = await import('../src/main/index.ts');
+
+const wdl188Root = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl188-'));
+const wdl188Results = await (async () => {
+  const pngRes = await downloadAndSaveStockPhoto(wdl188Root, {
+    photoId: 'hero-shot',
+    url: 'https://images.unsplash.com/photo-1',
+    fetchImpl: async () =>
+      new Response(Uint8Array.from([137, 80, 78, 71]), {
+        status: 200,
+        headers: { 'content-type': 'image/png; charset=utf-8' },
+      }),
+  });
+  const secondPngRes = await downloadAndSaveStockPhoto(wdl188Root, {
+    photoId: 'hero-shot',
+    url: 'https://images.unsplash.com/photo-1',
+    fetchImpl: async () =>
+      new Response(Uint8Array.from([137, 80, 78, 72]), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+  });
+  const webpRes = await downloadAndSaveStockPhoto(wdl188Root, {
+    photoId: 'hero-webp',
+    url: 'https://images.unsplash.com/photo-2',
+    fetchImpl: async () =>
+      new Response(Uint8Array.from([82, 73, 70, 70]), {
+        status: 200,
+        headers: { 'content-type': 'image/webp' },
+      }),
+  });
+  const badStatusRes = await downloadAndSaveStockPhoto(wdl188Root, {
+    photoId: 'missing',
+    url: 'https://images.unsplash.com/missing',
+    fetchImpl: async () =>
+      new Response('Not Found', { status: 404, statusText: 'Not Found' }),
+  });
+  const htmlRes = await downloadAndSaveStockPhoto(wdl188Root, {
+    photoId: 'spoof',
+    url: 'https://images.unsplash.com/html',
+    fetchImpl: async () =>
+      new Response('<html>oops</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+  });
+  const httpSchemeRes = await downloadAndSaveStockPhoto(wdl188Root, {
+    photoId: 'insecure',
+    url: 'http://images.unsplash.com/photo-1',
+    fetchImpl: async () => {
+      throw new Error('should not fetch non-https');
+    },
+  });
+  return {
+    pngRes,
+    secondPngRes,
+    webpRes,
+    badStatusRes,
+    htmlRes,
+    httpSchemeRes,
+  };
+})();
 // Ticket 27/28: the outside-agent connection must offer the same source actions.
 const mcpModule = await import('../src/main/mcp.ts').catch((error) => ({
   error,
@@ -3734,6 +3822,153 @@ test('WDL-191 & WDL-197: PageOutline inserts token-based library pieces and Libr
   );
   assert.ok(librarySrc.includes('piece.previewHtml'));
   assert.equal(librarySrc.includes('renderStageVisual'), false);
+});
+
+test('WDL-188: curated stock photos download in main with MIME extensions and safe collision handling', () => {
+  assert.equal(extensionForImageMime('image/jpeg; charset=utf-8'), '.jpg');
+  assert.equal(extensionForImageMime('image/png'), '.png');
+  assert.equal(extensionForImageMime('image/webp'), '.webp');
+  assert.equal(extensionForImageMime('text/html'), null);
+  assert.equal(wdl188Results.pngRes.ok, true);
+  assert.equal(wdl188Results.pngRes.relativePath, '/images/hero-shot.png');
+  assert.equal(wdl188Results.secondPngRes.ok, true);
+  assert.equal(
+    wdl188Results.secondPngRes.relativePath,
+    '/images/hero-shot-2.png',
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(wdl188Root, 'public/images/hero-shot.png')),
+    Buffer.from([137, 80, 78, 71]),
+  );
+  assert.equal(wdl188Results.webpRes.ok, true);
+  assert.equal(wdl188Results.webpRes.relativePath, '/images/hero-webp.webp');
+  assert.equal(wdl188Results.badStatusRes.ok, false);
+  assert.match(wdl188Results.badStatusRes.problem, /HTTP 404/);
+  assert.equal(wdl188Results.htmlRes.ok, false);
+  assert.match(wdl188Results.htmlRes.problem, /Expected an image response/);
+  assert.equal(wdl188Results.httpSchemeRes.ok, false);
+  const traySrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/components/AssetTray.tsx'),
+    'utf8',
+  );
+  assert.ok(traySrc.includes('window.cauldron.saveStockPhoto'));
+  assert.equal(traySrc.includes('fetch(photo.fullUrl)'), false);
+});
+
+test('WDL-206: index.html does not load Google Fonts stylesheets on startup', () => {
+  const indexHtml = fs.readFileSync(
+    path.join(process.cwd(), 'index.html'),
+    'utf8',
+  );
+  assert.equal(/<link[^>]*fonts\.googleapis\.com/i.test(indexHtml), false);
+  assert.equal(/<link[^>]*fonts\.gstatic\.com/i.test(indexHtml), false);
+  const designSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/components/DesignPanel.tsx'),
+    'utf8',
+  );
+  assert.ok(designSrc.includes('cauldron-specimen-fonts'));
+  assert.ok(designSrc.includes('SPECIMEN_GOOGLE_FONTS_URL'));
+});
+
+test('WDL-210: preview view denies pop-up child windows and permission requests', () => {
+  let windowOpenHandler = null;
+  let permissionCheckHandler = null;
+  let permissionRequestHandler = null;
+  configurePreviewSecurity({
+    setWindowOpenHandler(fn) {
+      windowOpenHandler = fn;
+    },
+    session: {
+      setPermissionCheckHandler(fn) {
+        permissionCheckHandler = fn;
+      },
+      setPermissionRequestHandler(fn) {
+        permissionRequestHandler = fn;
+      },
+    },
+  });
+  assert.deepEqual(windowOpenHandler({ url: 'https://example.com' }), {
+    action: 'deny',
+  });
+  assert.equal(
+    permissionCheckHandler({}, 'media', 'http://localhost:4321'),
+    false,
+  );
+  let granted = true;
+  permissionRequestHandler({}, 'geolocation', (allow) => {
+    granted = allow;
+  });
+  assert.equal(granted, false);
+});
+
+test('WDL-208: main and renderer wire unhandledRejection and error surfacing visibly', () => {
+  assert.equal(formatUnexpectedError(new Error('boom')), 'boom');
+  assert.equal(formatUnexpectedError('plain failure'), 'plain failure');
+  const handlers = new Map();
+  const recorded = [];
+  registerUnexpectedErrorHandlers(
+    {
+      on(event, fn) {
+        handlers.set(event, fn);
+      },
+    },
+    (kind, err) => recorded.push([kind, formatUnexpectedError(err)]),
+  );
+  assert.ok(handlers.has('uncaughtException'));
+  assert.ok(handlers.has('unhandledRejection'));
+  handlers.get('uncaughtException')(new Error('sync fail'));
+  handlers.get('unhandledRejection')('async fail');
+  assert.deepEqual(recorded, [
+    ['error', 'sync fail'],
+    ['unhandled rejection', 'async fail'],
+  ]);
+  const appSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/App.tsx'),
+    'utf8',
+  );
+  assert.ok(appSrc.includes("'cauldron:problem'"));
+  assert.ok(appSrc.includes("window.addEventListener('unhandledrejection'"));
+});
+
+test('WDL-229: startup editor IPC check allows top-level editor frame and gates pickMode until preview runs', () => {
+  const mainFrame = { parent: null, frameTreeNodeId: 1 };
+  const editor = { isDestroyed: () => false, mainFrame };
+  assert.equal(isAuthorizedEditorIpc(editor, editor, mainFrame), true);
+  // Frame wrapper re-creation sharing the top-level frameTreeNodeId still passes.
+  assert.equal(
+    isAuthorizedEditorIpc(editor, editor, { parent: null, frameTreeNodeId: 1 }),
+    true,
+  );
+  // Child frames and preview webContents are always refused.
+  assert.equal(
+    isAuthorizedEditorIpc(editor, editor, {
+      parent: mainFrame,
+      frameTreeNodeId: 2,
+    }),
+    false,
+  );
+  assert.equal(isAuthorizedEditorIpc(editor, {}, mainFrame), false);
+  assert.equal(
+    isAuthorizedEditorIpc(
+      { isDestroyed: () => true, mainFrame },
+      editor,
+      mainFrame,
+    ),
+    false,
+  );
+  const indexSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.ok(
+    indexSrc.indexOf('state.window = window;') <
+      indexSrc.indexOf('void window.loadURL(rendererUrl)'),
+  );
+  const appSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/App.tsx'),
+    'utf8',
+  );
+  assert.ok(appSrc.includes('if (!site || !preview.running) return;'));
 });
 
 process.exitCode = failures ? 1 : 0;
