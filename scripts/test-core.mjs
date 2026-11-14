@@ -82,6 +82,7 @@ const { downloadAndSaveStockPhoto, extensionForImageMime } =
 const { configurePreviewSecurity } = await import('../src/main/preview.ts');
 const {
   isAuthorizedEditorIpc,
+  isEditorUiAvailable,
   formatUnexpectedError,
   registerUnexpectedErrorHandlers,
 } = await import('../src/main/index.ts');
@@ -3928,6 +3929,27 @@ test('WDL-208: main and renderer wire unhandledRejection and error surfacing vis
   );
   assert.ok(appSrc.includes("'cauldron:problem'"));
   assert.ok(appSrc.includes("window.addEventListener('unhandledrejection'"));
+  assert.equal(
+    isEditorUiAvailable(
+      { isDestroyed: () => false, webContents: { isCrashed: () => false } },
+      false,
+    ),
+    true,
+  );
+  assert.equal(
+    isEditorUiAvailable(
+      { isDestroyed: () => false, webContents: { isCrashed: () => false } },
+      true,
+    ),
+    false,
+  );
+  assert.equal(
+    isEditorUiAvailable(
+      { isDestroyed: () => false, webContents: { isCrashed: () => true } },
+      false,
+    ),
+    false,
+  );
 });
 
 test('WDL-229: startup editor IPC check allows top-level editor frame and gates pickMode until preview runs', () => {

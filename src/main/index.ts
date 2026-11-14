@@ -111,6 +111,7 @@ const SMOKE = process.env.CAULDRON_SMOKE === '1';
 const BACKGROUND_TEST = process.env.CAULDRON_BACKGROUND_TEST === '1';
 let sawUnexpectedError = '';
 let pendingProblem: string | null = null;
+let editorRendererGone = false;
 const E2E_SITE = process.env.CAULDRON_E2E_SITE ?? '';
 /**
  * The Astro version verified for this workflow in the project-backend proof
@@ -231,12 +232,29 @@ export function formatUnexpectedError(error: unknown): string {
   }
 }
 
+/** True only while the editor window and its renderer process can display UI. */
+export function isEditorUiAvailable(
+  window:
+    | {
+        isDestroyed?: () => boolean;
+        webContents?: { isCrashed?: () => boolean } | null;
+      }
+    | null
+    | undefined,
+  rendererGone: boolean,
+): boolean {
+  if (!window || window.isDestroyed?.()) return false;
+  if (rendererGone) return false;
+  if (window.webContents?.isCrashed?.()) return false;
+  return true;
+}
+
 /** Deliver an error banner to the editor window, or buffer until startup finishes. */
 function notifyProblem(message: string): void {
   const window = state.window;
   if (
+    isEditorUiAvailable(window, editorRendererGone) &&
     window &&
-    !window.isDestroyed() &&
     !window.webContents.isLoadingMainFrame()
   ) {
     send('cauldron:problem', message);
@@ -258,7 +276,7 @@ function reportUnexpectedError(
   status(message);
   notifyProblem(message);
   if (
-    (!state.window || state.window.isDestroyed()) &&
+    !isEditorUiAvailable(state.window, editorRendererGone) &&
     app.isPackaged &&
     !SMOKE &&
     !BACKGROUND_TEST &&
@@ -2745,11 +2763,17 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
 
   // Assign state.window before starting the renderer load so initial startup IPC
   // calls from the editor window are never rejected during page boot.
+  editorRendererGone = false;
   state.window = window;
   state.preview.attach(window, path.join(__dirname, 'preview-preload.js'));
 
+  window.webContents.on('did-start-loading', () => {
+    editorRendererGone = false;
+  });
+
   window.webContents.on('render-process-gone', (_event, details) => {
     if (details.reason === 'clean-exit') return;
+    editorRendererGone = true;
     reportUnexpectedError(
       'error',
       new Error(
