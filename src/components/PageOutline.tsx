@@ -50,7 +50,12 @@ export function PageOutline({
         );
         if (filtered.length > 0) setQuickPieces(filtered);
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error('Could not load library pieces for outline:', error);
+        setMessage(
+          `Could not load library pieces: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
   }, []);
 
   const loadSections = useCallback(async (targetPage: string) => {
@@ -82,7 +87,12 @@ export function PageOutline({
           setPages(listed.pages);
         }
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error('Could not list pages for outline:', error);
+        setMessage(
+          `Could not list pages: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
   }, [site?.root]);
 
   useEffect(() => {

@@ -3667,6 +3667,35 @@ test('WDL-187: editCssRule matches whole selectors, replaces without duplicates,
     updatedAstro.indexOf('h1 {\n  color: #2a1712;\n}') <
       updatedAstro.indexOf('</style>'),
   );
+
+  // Quoted value without trailing semicolon + case-sensitive custom properties
+  const edgeCss = path.join(dir, 'src/styles/edge.css');
+  fs.writeFileSync(
+    edgeCss,
+    'h1 { font-family: "Arial" }\n:root { --Accent: red; --accent: blue; }\n',
+  );
+  const r3 = editCssRule(
+    dir,
+    'src/styles/edge.css',
+    'h1',
+    'color',
+    'red',
+    hashOf(fs.readFileSync(edgeCss, 'utf8')),
+  );
+  assert.equal(r3.ok, true);
+  assert.ok(fs.readFileSync(edgeCss, 'utf8').includes('font-family: "Arial";'));
+  const r4 = editCssRule(
+    dir,
+    'src/styles/edge.css',
+    ':root',
+    '--accent',
+    'green',
+    hashOf(fs.readFileSync(edgeCss, 'utf8')),
+  );
+  assert.equal(r4.ok, true);
+  const finalEdge = fs.readFileSync(edgeCss, 'utf8');
+  assert.ok(finalEdge.includes('--Accent: red;'));
+  assert.ok(finalEdge.includes('--accent: green;'));
 });
 
 test('WDL-191 & WDL-197: PageOutline inserts token-based library pieces and LibraryPanel uses previewHtml', () => {

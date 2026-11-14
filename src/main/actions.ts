@@ -1059,7 +1059,8 @@ function updateRuleBodyDeclaration(
   value: string,
 ): string {
   const declaration = `${property}: ${value};`;
-  const targetProp = property.toLowerCase();
+  const isCustomProp = property.startsWith('--');
+  const targetPropLower = property.toLowerCase();
 
   type MatchSpan = {
     propStart: number;
@@ -1111,7 +1112,10 @@ function updateRuleBodyDeclaration(
     }
     if (colonRel === -1) return;
     const propName = stripCssComments(raw.slice(propRelStart, colonRel)).trim();
-    if (propName.toLowerCase() !== targetProp) return;
+    const matchesProperty = isCustomProp
+      ? propName === property
+      : propName.toLowerCase() === targetPropLower;
+    if (!matchesProperty) return;
     const stmtEnd = hasSemicolon
       ? end + 1
       : start + raw.replace(/\s+$/, '').length;
@@ -1125,6 +1129,9 @@ function updateRuleBodyDeclaration(
   for (let i = 0; i < body.length;) {
     const skipped = skipCssStringOrComment(body, i);
     if (skipped !== -1) {
+      if (braceDepth === 0 && (body[i] === '"' || body[i] === "'")) {
+        lastNonWsOutsideNest = skipped - 1;
+      }
       i = skipped;
       continue;
     }
