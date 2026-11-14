@@ -93,6 +93,13 @@ export function AgentPanel({
     );
   };
 
+  const openChangedPage = async (pageRoute: string) => {
+    const result = await window.cauldron.openPreviewPage(pageRoute);
+    if (!result.ok) {
+      onMessage(result.problem ?? `Could not open ${pageRoute}.`);
+    }
+  };
+
   return (
     <div className="agent-column-container">
       {/* 1. Header & Active Direction Subheader */}
@@ -232,7 +239,8 @@ export function AgentPanel({
               <h4>Ask Cauldron’s Agent</h4>
               <p>
                 Describe what to refine, adjust typography or add new sections.
-                Every run is verified and can be undone cleanly.
+                Changes are checked after each run. You can undo a run unless
+                its files were later changed outside the run.
               </p>
             </div>
           ) : null}
@@ -240,6 +248,18 @@ export function AgentPanel({
           {runs.map((run) => {
             const hasClashes = run.problems && run.problems.length > 0;
             const isFailed = run.status === 'failed' || hasClashes;
+            const deletedFiles = new Set(run.deletedFiles ?? []);
+            const cssChanges = run.cssChanges ?? [];
+            const otherPages = run.otherPages ?? [];
+            const backupMissing =
+              run.files.length > 0 &&
+              !run.note.includes('Undone.') &&
+              run.undoAvailable === false;
+            const undoDisabled =
+              (run.status !== 'finished' && run.status !== 'failed') ||
+              run.files.length === 0 ||
+              run.note.includes('Undone.') ||
+              backupMissing;
 
             return (
               <div
@@ -278,12 +298,16 @@ export function AgentPanel({
                   </div>
                 ) : null}
 
-                {/* Changed file pills */}
+                {/* Changed file pills (including deleted whole files) */}
                 {run.files.length > 0 ? (
                   <div className="run-file-pills">
                     {run.files.map((file) => (
-                      <span key={file} className="file-pill">
+                      <span
+                        key={file}
+                        className={`file-pill${deletedFiles.has(file) ? ' file-pill-removed' : ''}`}
+                      >
                         <FileIcon size={13} />
+                        {deletedFiles.has(file) ? <span>Deleted:</span> : null}
                         <span className="mono">{file}</span>
                       </span>
                     ))}
@@ -301,6 +325,36 @@ export function AgentPanel({
                         </li>
                       ))}
                   </ul>
+                ) : null}
+
+                {/* Stylesheet and Astro CSS rule changes */}
+                {cssChanges.length > 0 ? (
+                  <ul className="hint run-css-changes-list">
+                    {cssChanges.map((change, index) => (
+                      <li key={`${change.file}:${change.selector}:${index}`}>
+                        <span className="mono">{change.file}</span> ·{' '}
+                        <code className="mono">{change.selector}</code> (
+                        {change.status})
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                {/* Other changed pages with quick open buttons */}
+                {otherPages.length > 0 ? (
+                  <div className="run-other-pages">
+                    <span className="run-meta-text">Other pages changed:</span>
+                    {otherPages.map((entry) => (
+                      <button
+                        key={entry.page}
+                        type="button"
+                        className="button quiet-pill-btn"
+                        onClick={() => void openChangedPage(entry.page)}
+                      >
+                        Open {entry.page}
+                      </button>
+                    ))}
+                  </div>
                 ) : null}
 
                 {/* Missing packages action */}
@@ -343,10 +397,11 @@ export function AgentPanel({
                     className="button quiet-pill-btn"
                     type="button"
                     onClick={() => void undoRun(run)}
-                    disabled={
-                      (run.status !== 'finished' && run.status !== 'failed') ||
-                      run.files.length === 0 ||
-                      run.note.includes('Undone.')
+                    disabled={undoDisabled}
+                    title={
+                      backupMissing
+                        ? 'Pre-run backup is not available for this run.'
+                        : undefined
                     }
                   >
                     Undo this run

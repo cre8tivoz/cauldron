@@ -16,8 +16,10 @@ import { Preview } from './preview';
 import { History } from './history';
 import { Runs, type Run } from './runs';
 import {
+  collectCssRuleChanges,
   compareSnapshots,
   highlightsFor,
+  otherChangedPages,
   type HighlightedPart,
   type PageElement,
 } from './compare';
@@ -356,6 +358,7 @@ function lastRunChanges(): Array<{
   before: string | null;
   after: string | null;
 }> {
+  const root = state.site?.root ?? '';
   const run: Run | undefined = state.runs
     .list()
     .find(
@@ -363,9 +366,7 @@ function lastRunChanges(): Array<{
         item.status === 'finished' &&
         item.files.some((file) => file.ownership === 'run'),
     );
-  if (!run) return [];
-  const text = (value: Buffer | null) =>
-    value ? value.toString('utf8') : null;
+  if (!run || !root) return [];
   return run.files
     .filter(
       (file) =>
@@ -376,8 +377,7 @@ function lastRunChanges(): Array<{
     )
     .map((file) => ({
       file: file.file,
-      before: text(file.before),
-      after: text(file.after),
+      ...state.runs.readChangeText(root, run.id, file),
     }));
 }
 
@@ -699,6 +699,7 @@ async function openSiteAt(root: string) {
   state.history = new History();
   pushHistory();
   state.runs = new Runs();
+  state.runs.load(detected.root);
   // Read the saved edits once, and keep the failure for last: the status bar
   // shows one message, so a later "site opened" line must not bury it (plan 1.6).
   const recovery = loadDrafts(detected.root);
@@ -795,6 +796,35 @@ function comparisonFor(run: Run, after: PageElement[]): HighlightedPart[] {
   return highlightsFor(comparison);
 }
 
+/** Records DOM highlights, CSS rule diffs, and changed sibling pages for a finished run. */
+function recordRunComparison(
+  root: string,
+  run: Run,
+  after: { elements: PageElement[]; problem: string | null },
+): void {
+  const highlighted = after.problem ? [] : comparisonFor(run, after.elements);
+  const cssInputs = run.files
+    .filter(
+      (file) =>
+        file.ownership !== 'outside' &&
+        /\.(css|pcss|scss|astro)$/i.test(file.file),
+    )
+    .map((file) => ({
+      file: file.file,
+      ...state.runs.readChangeText(root, run.id, file),
+    }));
+  const cssChanges = collectCssRuleChanges(cssInputs);
+  const otherPages = otherChangedPages(
+    run.files,
+    state.preview.webContents?.getURL() ?? null,
+  );
+  state.runs.setComparison(run.id, {
+    highlighted,
+    cssChanges,
+    otherPages,
+  });
+}
+
 /** The Before/After toggle: outlines the parts of the page the run changed. */
 function highlightLocs(
   parts: Array<{ file: string; loc: string }>,
@@ -866,8 +896,16 @@ function runSummary(run: Run) {
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     files: run.files.map((file) => file.file),
+    deletedFiles: run.files
+      .filter((file) => file.status === 'removed')
+      .map((file) => file.file),
     problems: run.problems,
     highlighted: run.highlighted,
+    cssChanges: run.cssChanges ?? [],
+    otherPages: run.otherPages ?? [],
+    undoAvailable: state.site
+      ? state.runs.canUndo(state.site.root, run.id)
+      : false,
   };
 }
 
@@ -1698,10 +1736,7 @@ function registerIpc(): void {
       outside: outsideWrites(runStartedAt(id)),
     });
     if (!run) return { ok: false, problem: 'That run is not known.' };
-    state.runs.setHighlighted(
-      id,
-      after.problem ? [] : comparisonFor(run, after.elements),
-    );
+    recordRunComparison(site.root, run, after);
     status(run.note);
     if (!comparable)
       fail(
@@ -2337,6 +2372,34 @@ function registerPreviewIpc(): void {
     return true;
   });
 
+  handle('cauldron:preview-open-page', async (_event, pageRoute: string) => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    const baseUrl = state.server?.url;
+    if (!baseUrl) {
+      const problem = 'Start the preview to open that page.';
+      status(problem);
+      return { ok: false, problem };
+    }
+    const cleanRoute = `/${String(pageRoute ?? '').replace(/^\/+/, '')}`;
+    const target = new URL(cleanRoute, baseUrl);
+    if (target.origin !== new URL(baseUrl).origin) {
+      return { ok: false, problem: 'Refusing to leave the local preview.' };
+    }
+    try {
+      await state.preview.load(target.href);
+      state.selection = null;
+      send('cauldron:selection', null);
+      await refreshSiteHealth();
+      status(`Opened ${cleanRoute}`);
+      return { ok: true, url: target.href };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      fail(`The preview could not open ${cleanRoute}: ${detail}`);
+      return { ok: false, problem: `Could not open ${cleanRoute}: ${detail}` };
+    }
+  });
+
   handle(
     'cauldron:install-missing-packages',
     async (_event, packages?: string[]) => {
@@ -2537,10 +2600,7 @@ async function finishAgentRun(note: string): Promise<void> {
   });
   runClaims.delete(id);
   if (!run) return;
-  state.runs.setHighlighted(
-    id,
-    after.problem ? [] : comparisonFor(run, after.elements),
-  );
+  recordRunComparison(site.root, run, after);
   if (note) state.runs.fail(id, note);
 
   if (run.files.length > 0) {
@@ -2958,16 +3018,18 @@ function harnessApi() {
         outside: outsideWrites(runStartedAt(id)),
       });
       if (!run) return { ok: false };
-      state.runs.setHighlighted(
-        id,
-        after.problem ? [] : comparisonFor(run, after.elements),
-      );
+      recordRunComparison(state.site.root, run, after);
       return {
         ok: true,
         compared: after.problem === null,
         run: {
           files: run.files.map((file) => file.file),
+          deletedFiles: run.files
+            .filter((file) => file.status === 'removed')
+            .map((file) => file.file),
           highlighted: run.highlighted,
+          cssChanges: run.cssChanges ?? [],
+          otherPages: run.otherPages ?? [],
         },
       };
     },

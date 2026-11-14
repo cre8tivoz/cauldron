@@ -4454,4 +4454,268 @@ test('WDL-235 & WDL-233: canonical contrast module shared cleanly and checkSite 
   assert.ok(qualitySrc.includes('verifiedInteractionKeys'));
 });
 
+test('WDL-232: snapshot hashes files without holding site Buffers, skips build folders, and prunes unused blobs', () => {
+  const { Runs, snapshot } = runsApi();
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-w232-ud-'));
+  const previousUserData = globalThis.__cauldronUserData;
+  globalThis.__cauldronUserData = userData;
+  try {
+    const site = runSite('w232');
+    fs.writeFileSync(
+      path.join(site, 'src/pages/index.astro'),
+      '<h1>Hello</h1>\n',
+    );
+    fs.writeFileSync(
+      path.join(site, 'public/unchanged.png'),
+      Buffer.from([1, 2, 3, 4]),
+    );
+    fs.writeFileSync(path.join(site, 'public/changed.png'), png);
+    for (const dir of [
+      'node_modules',
+      'dist',
+      '.git',
+      '.astro',
+      '.vercel',
+      '.netlify',
+      '.output',
+      '.nuxt',
+      '.next',
+      '.svelte-kit',
+      '.cache',
+      'build',
+      'out',
+      '.turbo',
+      'coverage',
+      '.pnpm-store',
+      '.tmp',
+    ]) {
+      fs.mkdirSync(path.join(site, dir), { recursive: true });
+      fs.writeFileSync(path.join(site, dir, 'artifact.js'), 'ignored\n');
+    }
+
+    const snap = snapshot(site);
+    assert.equal(typeof snap.files.get('src/pages/index.astro'), 'string');
+    assert.equal(snap.files.get('src/pages/index.astro').length, 64);
+    for (const key of snap.files.keys()) {
+      assert.equal(
+        key.includes('artifact.js'),
+        false,
+        `should skip build folder file: ${key}`,
+      );
+    }
+
+    const runs = new Runs();
+    const run = runs.start(site, 'claude', 'update changed.png only');
+    const changedAfter = Buffer.concat([png, Buffer.from([9, 8])]);
+    fs.writeFileSync(path.join(site, 'public/changed.png'), changedAfter);
+    const finished = runs.finish(site, run.id);
+
+    assert.equal('before' in finished.files[0], false);
+    assert.equal('after' in finished.files[0], false);
+
+    const siteHash = crypto
+      .createHash('sha256')
+      .update(Buffer.from(site))
+      .digest('hex')
+      .slice(0, 12);
+    const blobsDir = path.join(userData, 'runs', siteHash, 'blobs');
+    const keptBlobs = fs.readdirSync(blobsDir);
+    assert.deepEqual(keptBlobs, [finished.files[0].beforeHash]);
+
+    assert.deepEqual(runs.undo(site, run.id), { ok: true });
+    assert.deepEqual(
+      fs.readFileSync(path.join(site, 'public/changed.png')),
+      png,
+    );
+    assert.deepEqual(fs.readdirSync(blobsDir), []);
+  } finally {
+    globalThis.__cauldronUserData = previousUserData;
+  }
+});
+
+test('WDL-196: persisted runs and undo backups survive restart and UI copy is honest', () => {
+  const { Runs } = runsApi();
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-w196-ud-'));
+  const previousUserData = globalThis.__cauldronUserData;
+  globalThis.__cauldronUserData = userData;
+  try {
+    const site = runSite('w196');
+    fs.writeFileSync(
+      path.join(site, 'src/pages/index.astro'),
+      '<h1>Start</h1>\n',
+    );
+    fs.writeFileSync(
+      path.join(site, 'src/pages/gone.astro'),
+      '<h1>Delete me</h1>\n',
+    );
+
+    const runs1 = new Runs();
+    const run = runs1.start(site, 'codex', 'persist across quit');
+    fs.writeFileSync(
+      path.join(site, 'src/pages/index.astro'),
+      '<h1>Edited</h1>\n',
+    );
+    fs.rmSync(path.join(site, 'src/pages/gone.astro'));
+    fs.writeFileSync(
+      path.join(site, 'src/pages/created.astro'),
+      '<h1>Added</h1>\n',
+    );
+    runs1.finish(site, run.id);
+    runs1.setComparison(run.id, {
+      highlighted: [],
+      cssChanges: [
+        {
+          file: 'src/styles/site.css',
+          selector: '.hero',
+          status: 'changed',
+          label: 'Changed rule: .hero in src/styles/site.css',
+        },
+      ],
+      otherPages: [{ file: 'src/pages/created.astro', page: '/created' }],
+    });
+
+    // Simulate app restart with a fresh Runs instance
+    const runs2 = new Runs();
+    const reloaded = runs2.load(site);
+    assert.equal(reloaded.length, 1);
+    assert.equal(reloaded[0].id, run.id);
+    assert.equal(reloaded[0].cssChanges.length, 1);
+    assert.equal(reloaded[0].otherPages[0].page, '/created');
+    assert.equal(runs2.canUndo(site, run.id), true);
+
+    assert.deepEqual(runs2.undo(site, run.id), { ok: true });
+    assert.equal(
+      fs.readFileSync(path.join(site, 'src/pages/index.astro'), 'utf8'),
+      '<h1>Start</h1>\n',
+    );
+    assert.equal(
+      fs.readFileSync(path.join(site, 'src/pages/gone.astro'), 'utf8'),
+      '<h1>Delete me</h1>\n',
+    );
+    assert.equal(
+      fs.existsSync(path.join(site, 'src/pages/created.astro')),
+      false,
+    );
+    assert.equal(runs2.canUndo(site, run.id), false);
+
+    // Crashed running record loads back cleanly as failed and non-undoable
+    const crashRuns = new Runs();
+    const crashed = crashRuns.start(site, 'claude', 'interrupted job');
+    crashRuns['persist'](site, crashed);
+    const afterCrash = new Runs();
+    const loadedCrash = afterCrash
+      .load(site)
+      .find((item) => item.id === crashed.id);
+    assert.equal(loadedCrash.status, 'failed');
+    assert.match(loadedCrash.note, /Interrupted/);
+    assert.equal(afterCrash.canUndo(site, crashed.id), false);
+
+    const agentPanelSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/components/AgentPanel.tsx'),
+      'utf8',
+    );
+    assert.equal(
+      agentPanelSrc.includes('Every run is verified and can be undone cleanly'),
+      false,
+    );
+  } finally {
+    globalThis.__cauldronUserData = previousUserData;
+  }
+});
+
+await (async () => {
+  const compareMod = await import('../src/main/compare.ts');
+  test('WDL-161: CSS rule diffs, deleted files, and other changed pages work cleanly', () => {
+    const cssChanges = compareMod.collectCssRuleChanges([
+      {
+        file: '/tmp/site/src/styles/main.css',
+        before:
+          '.hero { color: red; }\n.old { opacity: 0.5; }\n@media (min-width: 768px) { .grid { gap: 12px; } }',
+        after:
+          '.hero { color: blue; }\n.added { padding: 8px; }\n@media (min-width: 768px) { .grid { gap: 24px; } }',
+      },
+      {
+        file: '/tmp/site/src/pages/about.astro',
+        before:
+          '---\nconst msg = "<style>.fake { color: red; }</style>";\n---\n<style>.card { border: 1px solid #ccc; }</style>',
+        after:
+          '---\nconst msg = "<style>.fake { color: blue; }</style>";\n---\n<style>.card { border: 2px solid #000; }</style>',
+      },
+    ]);
+
+    assert.ok(
+      cssChanges.some(
+        (c) =>
+          c.file === 'src/styles/main.css' &&
+          c.selector === '.hero' &&
+          c.status === 'changed',
+      ),
+    );
+    assert.ok(
+      cssChanges.some(
+        (c) =>
+          c.file === 'src/styles/main.css' &&
+          c.selector === '.added' &&
+          c.status === 'added',
+      ),
+    );
+    assert.ok(
+      cssChanges.some(
+        (c) =>
+          c.file === 'src/styles/main.css' &&
+          c.selector === '.old' &&
+          c.status === 'removed',
+      ),
+    );
+    assert.ok(
+      cssChanges.some(
+        (c) =>
+          c.file === 'src/styles/main.css' &&
+          c.selector.includes('@media (min-width: 768px)') &&
+          c.selector.includes('.grid') &&
+          c.status === 'changed',
+      ),
+    );
+    assert.ok(
+      cssChanges.some(
+        (c) =>
+          c.file === 'src/pages/about.astro' &&
+          c.selector === '.card' &&
+          c.status === 'changed',
+      ),
+    );
+    assert.equal(
+      cssChanges.some((c) => c.selector === '.fake'),
+      false,
+      'must ignore style strings inside Astro frontmatter',
+    );
+
+    const othersFromHome = compareMod.otherChangedPages(
+      [
+        { file: 'src/pages/index.astro', status: 'changed' },
+        { file: 'src/pages/about.astro', status: 'changed' },
+        { file: 'src/pages/blog/post.astro', status: 'added' },
+        { file: 'src/pages/removed.astro', status: 'removed' },
+        { file: 'src/pages/[slug].astro', status: 'changed' },
+      ],
+      'http://127.0.0.1:4321/',
+    );
+    assert.deepEqual(othersFromHome, [
+      { file: 'src/pages/about.astro', page: '/about' },
+      { file: 'src/pages/blog/post.astro', page: '/blog/post' },
+    ]);
+
+    const othersFromAbout = compareMod.otherChangedPages(
+      [
+        { file: 'src/pages/index.astro', status: 'changed' },
+        { file: 'src/pages/about.astro', status: 'changed' },
+      ],
+      'http://127.0.0.1:4321/about/',
+    );
+    assert.deepEqual(othersFromAbout, [
+      { file: 'src/pages/index.astro', page: '/' },
+    ]);
+  });
+})();
+
 process.exitCode = failures ? 1 : 0;
