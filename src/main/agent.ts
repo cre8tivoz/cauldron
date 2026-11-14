@@ -543,6 +543,7 @@ export function runAgent(options: {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   });
 
   const parse = tool === 'codex' ? normaliseJsonLines : normaliseClaude;
@@ -551,57 +552,34 @@ export function runAgent(options: {
   let buffer = '';
   let cancelled = false;
   let timedOut = false;
-  const killChild = () => {
-    child.kill('SIGTERM');
-    setTimeout(() => {
-      if (child.exitCode === null) child.kill('SIGKILL');
-    }, 2000).unref();
-  };
-  const timeoutTimer =
-    effectiveTimeoutMs > 0 && Number.isFinite(effectiveTimeoutMs)
-      ? setTimeout(() => {
-          if (cancelled || child.exitCode !== null) return;
-          timedOut = true;
-          killChild();
-        }, effectiveTimeoutMs)
-      : null;
-  timeoutTimer?.unref();
-  const consume = (line: string) => {
-    if (!line.trim()) return;
-    const events = parse(line);
-    for (const event of events) {
-      if (event.type === 'done' || event.type === 'error') {
-        if (terminal?.type !== 'error') terminal = event;
-      } else {
-        if (event.type === 'text')
-          saidSomething = event.delta ? saidSomething + event.text : event.text;
-        onEvent(event);
+  let finished = false;
+  let killTimer: ReturnType<typeof setTimeout> | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const signalTree = (signal: NodeJS.Signals) => {
+    try {
+      if (process.platform !== 'win32' && child.pid) {
+        process.kill(-child.pid, signal);
+        return;
       }
+    } catch {
+      // Fall through to direct child kill if process group already exited.
+    }
+    try {
+      child.kill(signal);
+    } catch {
+      // Child already exited.
     }
   };
-  child.stdout?.setEncoding('utf8');
-  child.stdout?.on('data', (chunk: string) => {
-    buffer += chunk;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) consume(line);
-  });
-  child.stderr?.setEncoding('utf8');
-  let stderr = '';
-  child.stderr?.on('data', (chunk: string) => {
-    stderr = (stderr + chunk).slice(-2000);
-    if (chunk.trim()) onEvent({ type: 'status', text: chunk.trim() });
-  });
-  child.on('error', (error) => {
-    terminal = {
-      type: 'error',
-      text: `${command} could not start: ${error.message}`,
-    };
-  });
-  // close follows stdout/stderr draining; a result event is not proof the process exited.
-  child.on('close', (code) => {
-    if (timeoutTimer) clearTimeout(timeoutTimer);
+
+  const finish = (code: number | null) => {
+    if (finished) return;
     consume(buffer);
+    buffer = '';
+    finished = true;
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    if (killTimer) clearTimeout(killTimer);
+    if (settleTimer) clearTimeout(settleTimer);
     if (cancelled) onEvent({ type: 'error', text: 'Cancelled.' });
     else if (timedOut) {
       onEvent({
@@ -621,10 +599,85 @@ export function runAgent(options: {
           text: saidSomething || `${command} finished.`,
         },
       );
+  };
+
+  const killChild = () => {
+    signalTree('SIGTERM');
+    if (killTimer) clearTimeout(killTimer);
+    if (settleTimer) clearTimeout(settleTimer);
+    killTimer = setTimeout(() => {
+      signalTree('SIGKILL');
+      // A descendant that inherited stdout/stderr may keep pipes open briefly
+      // or outlive the main PID; close pipes and settle so the job cannot hang.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish(child.exitCode);
+    }, 2000);
+    killTimer.unref();
+  };
+
+  const timeoutTimer =
+    effectiveTimeoutMs > 0 && Number.isFinite(effectiveTimeoutMs)
+      ? setTimeout(() => {
+          if (cancelled || finished || child.exitCode !== null) return;
+          timedOut = true;
+          killChild();
+        }, effectiveTimeoutMs)
+      : null;
+  timeoutTimer?.unref();
+  const consume = (line: string) => {
+    if (finished || !line.trim()) return;
+    const events = parse(line);
+    for (const event of events) {
+      if (event.type === 'done' || event.type === 'error') {
+        if (terminal?.type !== 'error') terminal = event;
+      } else {
+        if (event.type === 'text')
+          saidSomething = event.delta ? saidSomething + event.text : event.text;
+        onEvent(event);
+      }
+    }
+  };
+  child.stdout?.setEncoding('utf8');
+  child.stdout?.on('data', (chunk: string) => {
+    if (finished) return;
+    buffer += chunk;
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) consume(line);
+  });
+  child.stderr?.setEncoding('utf8');
+  let stderr = '';
+  child.stderr?.on('data', (chunk: string) => {
+    if (finished) return;
+    stderr = (stderr + chunk).slice(-2000);
+    if (chunk.trim()) onEvent({ type: 'status', text: chunk.trim() });
+  });
+  child.on('error', (error) => {
+    terminal = {
+      type: 'error',
+      text: `${command} could not start: ${error.message}`,
+    };
+  });
+  child.on('exit', (code) => {
+    if (finished) return;
+    if ((timedOut || cancelled) && !settleTimer) {
+      settleTimer = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(code);
+      }, 250);
+      settleTimer.unref();
+    }
+  });
+  // close follows stdout/stderr draining; a result event is not proof the process exited.
+  child.on('close', (code) => {
+    finish(code);
   });
 
   return {
     cancel: () => {
+      if (cancelled || finished) return;
       cancelled = true;
       if (timeoutTimer) clearTimeout(timeoutTimer);
       killChild();

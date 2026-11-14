@@ -3495,6 +3495,42 @@ import { realMissing } from 'actually-missing-pkg';
 `,
   );
   assert.deepEqual(findMissingPackages(dir), ['actually-missing-pkg']);
+
+  // Catch-all alias "*" must still flag missing packages when no local file resolves.
+  const catchallDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-wdl-194-catchall-'),
+  );
+  fs.mkdirSync(path.join(catchallDir, 'src/lib'), { recursive: true });
+  fs.mkdirSync(path.join(catchallDir, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(catchallDir, 'package.json'),
+    JSON.stringify({ name: 'catchall-site', dependencies: { astro: '7.4.7' } }),
+  );
+  fs.writeFileSync(
+    path.join(catchallDir, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        baseUrl: '.',
+        paths: {
+          '*': ['src/*'],
+        },
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(catchallDir, 'src/lib/utils.ts'),
+    'export const ok = true;\n',
+  );
+  fs.writeFileSync(
+    path.join(catchallDir, 'src/pages/index.astro'),
+    `---
+import { ok } from 'lib/utils';
+import nope from 'missing-package';
+---
+<p>{String(ok)}</p>
+`,
+  );
+  assert.deepEqual(findMissingPackages(catchallDir), ['missing-package']);
 });
 
 await (async () => {

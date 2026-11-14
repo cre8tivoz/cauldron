@@ -267,14 +267,23 @@ function stripJsonc(raw: string): string {
   return out.replace(/,\s*([}\]])/g, '$1');
 }
 
-type TsAliasConfig = { baseUrlDir?: string; patterns: string[] };
+type TsPathMapping = {
+  pattern: string;
+  targets: string[];
+  baseDir: string;
+};
+
+type TsAliasConfig = {
+  baseUrlDir?: string;
+  mappings: TsPathMapping[];
+};
 
 function readTsConfigAliases(
   file: string,
   visited = new Set<string>(),
 ): TsAliasConfig {
   const abs = path.resolve(file);
-  if (visited.has(abs) || !fs.existsSync(abs)) return { patterns: [] };
+  if (visited.has(abs) || !fs.existsSync(abs)) return { mappings: [] };
   visited.add(abs);
   let parsed: {
     extends?: unknown;
@@ -287,11 +296,11 @@ function readTsConfigAliases(
     parsed = JSON.parse(stripJsonc(fs.readFileSync(abs, 'utf8')));
   } catch (err) {
     console.warn(`[dependencies] Could not parse config at ${abs}:`, err);
-    return { patterns: [] };
+    return { mappings: [] };
   }
 
   let baseUrlDir: string | undefined;
-  const patterns: string[] = [];
+  const mappingByPattern = new Map<string, TsPathMapping>();
   if (typeof parsed.extends === 'string' && parsed.extends.startsWith('.')) {
     const candidate = path.resolve(path.dirname(abs), parsed.extends);
     const parentFile = fs.existsSync(candidate)
@@ -299,18 +308,31 @@ function readTsConfigAliases(
       : `${candidate}.json`;
     const parent = readTsConfigAliases(parentFile, visited);
     baseUrlDir = parent.baseUrlDir;
-    patterns.push(...parent.patterns);
+    for (const entry of parent.mappings) {
+      mappingByPattern.set(entry.pattern, entry);
+    }
   }
   const opts = parsed.compilerOptions;
   if (opts && typeof opts === 'object') {
     if (typeof opts.baseUrl === 'string' && opts.baseUrl.trim()) {
       baseUrlDir = path.resolve(path.dirname(abs), opts.baseUrl);
     }
+    const pathsBaseDir = baseUrlDir ?? path.dirname(abs);
     if (opts.paths && typeof opts.paths === 'object') {
-      patterns.push(...Object.keys(opts.paths));
+      for (const [pattern, rawTargets] of Object.entries(opts.paths)) {
+        if (!Array.isArray(rawTargets)) continue;
+        const targets = rawTargets.filter(
+          (t): t is string => typeof t === 'string' && t.trim().length > 0,
+        );
+        mappingByPattern.set(pattern, {
+          pattern,
+          targets,
+          baseDir: pathsBaseDir,
+        });
+      }
     }
   }
-  return { baseUrlDir, patterns: [...new Set(patterns)] };
+  return { baseUrlDir, mappings: [...mappingByPattern.values()] };
 }
 
 function loadSiteAliases(root: string): TsAliasConfig {
@@ -318,24 +340,62 @@ function loadSiteAliases(root: string): TsAliasConfig {
   if (fs.existsSync(tsconfig)) return readTsConfigAliases(tsconfig);
   const jsconfig = path.join(root, 'jsconfig.json');
   if (fs.existsSync(jsconfig)) return readTsConfigAliases(jsconfig);
-  return { patterns: [] };
+  return { mappings: [] };
 }
 
-function matchesTsPathAlias(spec: string, patterns: string[]): boolean {
-  for (const pattern of patterns) {
-    const star = pattern.indexOf('*');
-    if (star < 0) {
-      if (spec === pattern) return true;
+function resolvesLocalCandidate(candidate: string): boolean {
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return true;
+  for (const ext of SOURCE_RESOLVE_EXTS) {
+    if (
+      fs.existsSync(`${candidate}${ext}`) ||
+      fs.existsSync(path.join(candidate, `index${ext}`))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolvesViaTsPathAlias(
+  spec: string,
+  mappings: TsPathMapping[],
+): boolean {
+  const matched: Array<{
+    prefixLen: number;
+    mapping: TsPathMapping;
+    star: string;
+  }> = [];
+  for (const mapping of mappings) {
+    const { pattern } = mapping;
+    const starIdx = pattern.indexOf('*');
+    if (starIdx < 0) {
+      if (spec === pattern) {
+        matched.push({ prefixLen: pattern.length, mapping, star: '' });
+      }
       continue;
     }
-    const prefix = pattern.slice(0, star);
-    const suffix = pattern.slice(star + 1);
+    const prefix = pattern.slice(0, starIdx);
+    const suffix = pattern.slice(starIdx + 1);
     if (
       spec.length >= prefix.length + suffix.length &&
       spec.startsWith(prefix) &&
       spec.endsWith(suffix)
     ) {
-      return true;
+      matched.push({
+        prefixLen: prefix.length,
+        mapping,
+        star: spec.slice(prefix.length, spec.length - suffix.length),
+      });
+    }
+  }
+  matched.sort((a, b) => b.prefixLen - a.prefixLen);
+  for (const { mapping, star } of matched) {
+    for (const target of mapping.targets) {
+      const substituted = target.includes('*')
+        ? target.replace('*', star)
+        : target;
+      const candidate = path.resolve(mapping.baseDir, substituted);
+      if (resolvesLocalCandidate(candidate)) return true;
     }
   }
   return false;
@@ -346,17 +406,7 @@ function resolvesUnderBaseUrl(
   spec: string,
 ): boolean {
   if (!baseUrlDir) return false;
-  const base = path.resolve(baseUrlDir, spec);
-  if (fs.existsSync(base) && fs.statSync(base).isFile()) return true;
-  for (const ext of SOURCE_RESOLVE_EXTS) {
-    if (
-      fs.existsSync(`${base}${ext}`) ||
-      fs.existsSync(path.join(base, `index${ext}`))
-    ) {
-      return true;
-    }
-  }
-  return false;
+  return resolvesLocalCandidate(path.resolve(baseUrlDir, spec));
 }
 
 /**
@@ -471,7 +521,7 @@ export function findMissingPackages(root: string): string[] {
     if (/^[~@#]\//.test(spec) || spec === '~' || spec === '@') continue;
     if (/^(astro:|virtual:)/.test(spec)) continue;
     if (spec.startsWith('node:') || nodeBuiltins.has(spec)) continue;
-    if (matchesTsPathAlias(spec, aliases.patterns)) continue;
+    if (resolvesViaTsPathAlias(spec, aliases.mappings)) continue;
     if (resolvesUnderBaseUrl(aliases.baseUrlDir, spec)) continue;
 
     let pkgName = '';

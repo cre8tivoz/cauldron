@@ -554,6 +554,19 @@ try {
     undefined,
     { timeoutMs: 120 },
   );
+  await test(
+    'WDL-211: runAgent stops hung descendants holding stdio open when timeoutMs expires',
+    'claude',
+    `const { spawn } = require('node:child_process');
+     spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: ['ignore', 1, 2] });
+     setInterval(() => {}, 1000);`,
+    (events) => {
+      assert.equal(events.at(-1).type, 'error');
+      assert.match(events.at(-1).text, /timed out/i);
+    },
+    undefined,
+    { timeoutMs: 120 },
+  );
 } finally {
   process.env.PATH = oldPath;
   fs.rmSync(dir, { recursive: true, force: true });

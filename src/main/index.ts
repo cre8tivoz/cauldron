@@ -58,7 +58,7 @@ import {
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
 import { EXTENDED_LIBRARY } from './library-pieces';
-import { checkSite, buildSite } from './quality';
+import { checkSite, buildSiteAsync } from './quality';
 import { directionFromUrl } from './reference';
 import {
   macBuildInfo,
@@ -515,19 +515,24 @@ async function refreshSiteHealth(options?: {
     state.buildError = null;
     return { missingPackages: [], buildError: null };
   }
+  const siteRoot = state.site.root;
   const previewError = await inspectPreviewError();
-  let missing = options?.buildVerifiedOk
-    ? []
-    : findMissingPackages(state.site.root);
+  let missing = options?.buildVerifiedOk ? [] : findMissingPackages(siteRoot);
 
   // Trust a real build over the static import scan when Astro is available.
   if (
     missing.length > 0 &&
     !previewError &&
     options?.buildVerifiedOk === undefined &&
-    detectDependencySetup(state.site.root).hasAstroBin
+    detectDependencySetup(siteRoot).hasAstroBin
   ) {
-    const verification = buildSite(state.site.root);
+    const verification = await buildSiteAsync(siteRoot);
+    if (state.site?.root !== siteRoot) {
+      return {
+        missingPackages: state.missingPackages,
+        buildError: state.buildError,
+      };
+    }
     if (verification.ok) missing = [];
   }
 
@@ -2379,7 +2384,7 @@ async function finishAgentRun(note: string): Promise<void> {
   if (note) state.runs.fail(id, note);
 
   if (run.files.length > 0) {
-    const build = buildSite(site.root);
+    const build = await buildSiteAsync(site.root);
     await refreshSiteHealth({ buildVerifiedOk: build.ok });
     let buildLogLine: string | null = null;
     if (!build.ok) {

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import type { BrowserWindow } from 'electron';
 import electron from 'electron';
 
@@ -146,10 +146,10 @@ function typeFor(file: string): string {
   );
 }
 
-export function buildSite(root: string): {
-  ok: boolean;
-  log: string;
+function prepareSiteBuild(root: string): {
   dist: string;
+  npm: string;
+  env: NodeJS.ProcessEnv;
 } {
   const dist = path.join(root, 'dist');
   try {
@@ -159,21 +159,118 @@ export function buildSite(root: string): {
   }
   const env = childEnvForTools({ ...process.env, CI: '1' });
   const npm = resolveToolPath('npm') ?? 'npm';
+  return { dist, npm, env };
+}
+
+function formatBuildResult(
+  dist: string,
+  status: number | null,
+  stdout: string,
+  stderr: string,
+  error?: Error | null,
+): { ok: boolean; log: string; dist: string } {
+  const errorMsg = error ? `${error.message}\n` : '';
+  const log = `${errorMsg}${stdout}\n${stderr}`.trim().slice(-2000);
+  return {
+    ok: status === 0 && !error && fs.existsSync(dist),
+    log,
+    dist,
+  };
+}
+
+export function buildSite(root: string): {
+  ok: boolean;
+  log: string;
+  dist: string;
+} {
+  const { dist, npm, env } = prepareSiteBuild(root);
   const result = spawnSync(npm, ['run', 'build'], {
     cwd: root,
     encoding: 'utf8',
     timeout: 300000,
     env,
   });
-  const errorMsg = result.error ? `${result.error.message}\n` : '';
-  const log = `${errorMsg}${result.stdout ?? ''}\n${result.stderr ?? ''}`
-    .trim()
-    .slice(-2000);
-  return {
-    ok: result.status === 0 && !result.error && fs.existsSync(dist),
-    log,
+  return formatBuildResult(
     dist,
-  };
+    result.status,
+    result.stdout ?? '',
+    result.stderr ?? '',
+    result.error,
+  );
+}
+
+/**
+ * Runs `npm run build` asynchronously so background health verification never
+ * blocks the Electron main process or local MCP server.
+ */
+export function buildSiteAsync(root: string): Promise<{
+  ok: boolean;
+  log: string;
+  dist: string;
+}> {
+  const { dist, npm, env } = prepareSiteBuild(root);
+  return new Promise((resolve) => {
+    const child = spawn(npm, ['run', 'build'], {
+      cwd: root,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    let stdout = '';
+    let stderr = '';
+    let spawnError: Error | null = null;
+    let settled = false;
+
+    const finish = (status: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(formatBuildResult(dist, status, stdout, stderr, spawnError));
+    };
+
+    const timer = setTimeout(() => {
+      spawnError = new Error('Site build timed out after 300 s.');
+      try {
+        if (process.platform !== 'win32' && child.pid) {
+          process.kill(-child.pid, 'SIGTERM');
+        } else {
+          child.kill('SIGTERM');
+        }
+      } catch {
+        child.kill('SIGTERM');
+      }
+      setTimeout(() => {
+        try {
+          if (process.platform !== 'win32' && child.pid) {
+            process.kill(-child.pid, 'SIGKILL');
+          } else if (child.exitCode === null) {
+            child.kill('SIGKILL');
+          }
+        } catch {
+          // Process already exited.
+        }
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(child.exitCode);
+      }, 2000).unref();
+    }, 300000);
+    timer.unref();
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout = (stdout + chunk).slice(-8000);
+    });
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-8000);
+    });
+    child.on('error', (error) => {
+      spawnError = error;
+    });
+    child.on('close', (code) => {
+      finish(code);
+    });
+  });
 }
 
 /** Serves the built output, so checks run against what actually ships. */
