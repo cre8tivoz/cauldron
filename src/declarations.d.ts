@@ -435,7 +435,8 @@ type CauldronApi = {
   insertPageSection: (payload: {
     page: string;
     afterIndex: number;
-    sectionCode: string;
+    sectionCode?: string;
+    pieceId?: string;
     baseHash: string;
   }) => Promise<{
     ok: boolean;

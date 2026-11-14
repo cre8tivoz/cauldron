@@ -1449,130 +1449,22 @@ textarea:focus-visible {
 
 .component-preview-stage {
   height: 190px;
-  background: #f8f1df;
+  background: #fffdf7;
   color: #32231b;
   position: relative;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  padding: 0;
 }
 
-.comp-stage-inner {
-  width: 100%;
-  text-align: center;
-}
-
-.comp-stage-kicker {
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: #783b29;
-  display: block;
-  margin-bottom: 6px;
-}
-
-.comp-stage-display-heading {
-  margin: 4px 0 8px;
-  font-family: 'Fraunces', Georgia, serif;
-  font-size: 22px;
-  line-height: 1.15;
-  color: #32231b;
-}
-
-.comp-stage-body {
-  font-size: 12px;
-  color: #59473b;
-  margin: 0 0 10px;
-}
-
-.comp-stage-link {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #783b29;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.comp-stage-form-row {
-  display: flex;
-  gap: 6px;
-  max-width: 240px;
-  margin: 10px auto 0;
-}
-
-.comp-stage-input {
-  flex: 1;
-  height: 28px;
-  border: 1px solid #b9a68f;
-  border-radius: 6px;
-  padding: 0 8px;
-  background: #fff8ee;
-  font-size: 11.5px;
-}
-
-.comp-stage-btn {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 6px;
+.component-preview-frame {
+  width: 250%;
+  height: 475px;
   border: 0;
-  background: #783b29;
-  color: #fff8ee;
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.comp-stage-glow {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
-.comp-glow-radial {
-  position: absolute;
-  width: 140px;
-  height: 80px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(217, 83, 56, 0.45) 0%,
-    transparent 70%
-  );
+  transform: scale(0.4);
+  transform-origin: top left;
   pointer-events: none;
-}
-
-.comp-glow-pill-btn {
-  position: relative;
-  z-index: 2;
-  background: #783b29;
-  color: #fff;
-  border: 0;
-  border-radius: 20px;
-  padding: 10px 24px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.comp-stage-reveal {
-  position: relative;
-}
-
-.comp-play-badge {
-  position: absolute;
-  top: -12px;
-  right: 0;
-  font-size: 10px;
-  color: #783b29;
-}
-
-.comp-stage-woven {
-  background: repeating-linear-gradient(45deg, #f4ecd8 0 2px, #fbf7ec 2px 6px);
-  padding: 30px 14px;
-  border-radius: 8px;
+  display: block;
+  background: #fff;
 }
 
 .component-card-footer {
