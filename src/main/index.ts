@@ -73,7 +73,12 @@ import {
   type PrepareHandle,
   type PrepareUpdate,
 } from './dependencies';
-import { draftEditOperation } from '../draft-restore';
+import {
+  draftEditOperation,
+  mergeDraftsList,
+  planBatchDraftRestores,
+  removeDraftKeys,
+} from '../draft-restore';
 import { resolveToolPath } from './runtime';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
@@ -1424,6 +1429,25 @@ function registerIpc(): void {
     return true;
   });
 
+  handle('cauldron:merge-drafts', (_event, drafts: Draft[]) => {
+    if (!state.site) return false;
+    const next = mergeDraftsList(storedDrafts(state.site.root), drafts);
+    saveDrafts(state.site.root, next);
+    send('cauldron:drafts', { drafts: next });
+    return true;
+  });
+
+  handle('cauldron:remove-drafts', (_event, keys: string[]) => {
+    if (!state.site) return false;
+    const existing = storedDrafts(state.site.root);
+    const next = removeDraftKeys(existing, keys);
+    if (next.length !== existing.length) {
+      saveDrafts(state.site.root, next);
+      send('cauldron:drafts', { drafts: next });
+    }
+    return true;
+  });
+
   handle(
     'cauldron:content-draft',
     (
@@ -2093,6 +2117,16 @@ function restoreAllDrafts(): {
   const queued = storedDrafts(site.root);
   if (queued.length === 0) return { ok: true, restored: 0, failed: 0 };
 
+  const planned = planBatchDraftRestores(queued, (draftFile) => {
+    const full = path.join(site.root, draftFile);
+    if (!isInside(site.root, full) || !fs.existsSync(full)) return null;
+    try {
+      return readFile(full);
+    } catch {
+      return null;
+    }
+  });
+
   // When multiple drafts were typed against the same file snapshot, restoring the
   // first changes the file's hash on disk. Carry forward the verified post-write
   // hash only for drafts in this batch that started from that same snapshot.
@@ -2101,7 +2135,7 @@ function restoreAllDrafts(): {
   let failed = 0;
   let firstProblem: string | undefined;
 
-  for (const draft of queued) {
+  for (const draft of planned) {
     const batchKey = `${draft.file}:${draft.baseHash}`;
     const currentBase = rebasedHashes.get(batchKey) ?? draft.baseHash;
     const outcome = restoreDraft({ ...draft, baseHash: currentBase });

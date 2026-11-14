@@ -3072,4 +3072,81 @@ test('WDL-251 & WDL-213 draft banner copy distinguishes startup recovery from li
   assert.match(mixed.detail, /2 changes.*1 from last time/);
 });
 
+test('WDL-213 & WDL-251 mergeDraftsList, removeDraftKeys, and planBatchDraftRestores handle multi-element batches safely', async () => {
+  const {
+    draftEditOperation,
+    mergeDraftsList,
+    planBatchDraftRestores,
+    removeDraftKeys,
+  } = await import('../src/draft-restore.ts');
+  const { applyEdit, snapshotElement } = await import('../src/main/edit.ts');
+  const { hashOf } = await import('../src/main/files.ts');
+
+  const recovered = { key: 'recovered-1', value: 'keep me' };
+  const liveA = { key: 'live-a', value: 'a' };
+  const liveB = { key: 'live-b', value: 'b' };
+  const merged = mergeDraftsList([recovered, liveA], [liveB]);
+  assert.deepEqual(
+    merged.map((d) => d.key),
+    ['recovered-1', 'live-a', 'live-b'],
+  );
+  const afterRemove = removeDraftKeys(merged, ['live-a']);
+  assert.deepEqual(
+    afterRemove.map((d) => d.key),
+    ['recovered-1', 'live-b'],
+  );
+
+  // Two consecutive <p> elements where the first gets multiline text:
+  // bottom-to-top planning ensures the second <p> is restored at its true tag
+  // before the first <p> shifts lines below it.
+  let source = '<main>\n  <p>First</p>\n  <p>Second</p>\n</main>\n';
+  const originalHash = hashOf(source);
+  const planned = planBatchDraftRestores(
+    [
+      {
+        key: 'p1',
+        file: 'src/pages/index.astro',
+        line: 2,
+        column: 6,
+        name: 'p',
+        field: 'text',
+        value: 'Line 1\nLine 2\nLine 3',
+        baseHash: originalHash,
+      },
+      {
+        key: 'p2',
+        file: 'src/pages/index.astro',
+        line: 3,
+        column: 6,
+        name: 'p',
+        field: 'text',
+        value: 'Updated second',
+        baseHash: originalHash,
+      },
+    ],
+    () => ({ text: source, hash: originalHash }),
+  );
+  assert.deepEqual(
+    planned.map((d) => d.key),
+    ['p2', 'p1'],
+  );
+  for (const draft of planned) {
+    const location = {
+      file: draft.file,
+      line: draft.line,
+      column: draft.column,
+      name: draft.name,
+    };
+    const snapshot = snapshotElement(source, location);
+    assert.ok(snapshot);
+    const op = draftEditOperation(draft.field, draft.value);
+    assert.ok(op);
+    const edited = applyEdit(source, location, op, snapshot);
+    assert.equal(edited.ok, true);
+    source = edited.text;
+  }
+  assert.ok(source.includes('Line 1\nLine 2\nLine 3'));
+  assert.ok(source.includes('<p>Updated second</p>'));
+});
+
 process.exitCode = failures ? 1 : 0;

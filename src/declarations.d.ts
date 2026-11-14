@@ -453,6 +453,8 @@ type CauldronApi = {
     schemaHash: string;
   }) => Promise<boolean>;
   saveDrafts: (drafts: CauldronDraft[]) => Promise<boolean>;
+  mergeDrafts: (drafts: CauldronDraft[]) => Promise<boolean>;
+  removeDrafts: (keys: string[]) => Promise<boolean>;
   discardDrafts: () => Promise<boolean>;
   restoreDraft: (
     draft: CauldronDraft,

@@ -311,8 +311,9 @@ export function App() {
           if (draftTimer.current) clearTimeout(draftTimer.current);
           draftTimer.current = null;
           draftSchedule.current = clearDraftSchedule();
-          void window.cauldron.saveDrafts([]);
         }
+        // Remove only this reverted key so other live or recovered drafts stay intact.
+        void window.cauldron.removeDrafts([key]);
         return;
       }
       draftValues.current.set(key, {
@@ -333,7 +334,7 @@ export function App() {
       draftTimer.current = setTimeout(() => {
         draftTimer.current = null;
         draftSchedule.current = clearDraftSchedule();
-        void window.cauldron.saveDrafts([...draftValues.current.values()]);
+        void window.cauldron.mergeDrafts([...draftValues.current.values()]);
       }, DRAFT_SAVE_DELAY_MS);
     },
     [selection],
@@ -459,12 +460,15 @@ export function App() {
       if (result.ok) {
         setConflict(null);
         if (result.selection) setSelection(result.selection);
+        const clearedKeys = [...draftValues.current.keys()];
         draftValues.current.clear();
         setUnsavedEdits(0);
         if (draftTimer.current) clearTimeout(draftTimer.current);
         draftTimer.current = null;
         draftSchedule.current = clearDraftSchedule();
-        await window.cauldron.saveDrafts([]);
+        if (clearedKeys.length > 0) {
+          await window.cauldron.removeDrafts(clearedKeys);
+        }
         return;
       }
       if (result.conflict) {
