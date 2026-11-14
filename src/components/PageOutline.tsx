@@ -1,17 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type Props = {
   site: CauldronSite | null;
   currentPage?: string;
   onNavigateToLibrary?: (targetPage: string) => void;
 };
-
-interface OutlineSnapshot {
-  file: string;
-  content: string;
-  hash: string;
-  sections: CauldronPageSection[];
-}
 
 export function PageOutline({
   site,
@@ -27,53 +20,21 @@ export function PageOutline({
   );
   const [anchorValue, setAnchorValue] = useState('');
   const [message, setMessage] = useState<string | null>(null);
-
-  // In-memory history stack for Page Outline Undo (Finding 4)
-  const [history, setHistory] = useState<OutlineSnapshot[]>([]);
-  const [currentFile, setCurrentFile] = useState<string | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
   const [currentHash, setCurrentHash] = useState<string | null>(null);
-  const [currentContent, setCurrentContent] = useState<string | null>(null);
   const [insertingAtIndex, setInsertingAtIndex] = useState<number | null>(null);
 
-  const historyRef = useRef<OutlineSnapshot[]>([]);
-  historyRef.current = history;
-  const currentFileRef = useRef<string | null>(null);
-  currentFileRef.current = currentFile;
-  const currentHashRef = useRef<string | null>(null);
-  currentHashRef.current = currentHash;
-  const currentContentRef = useRef<string | null>(null);
-  currentContentRef.current = currentContent;
-  const sectionsRef = useRef<CauldronPageSection[]>([]);
-  sectionsRef.current = sections;
   const pageRef = useRef<string>(page);
   pageRef.current = page;
-  const loadingRef = useRef<boolean>(loading);
-  loadingRef.current = loading;
 
-  const loadSections = async (targetPage: string, clearHistory = false) => {
+  const loadSections = useCallback(async (targetPage: string) => {
     setLoading(true);
     setMessage(null);
     try {
       const res = await window.cauldron.pageSections(targetPage);
       if (res.ok && res.sections) {
         setSections(res.sections);
-        const file = res.file ?? null;
-        const hash = res.hash ?? null;
-        setCurrentFile(file);
-        setCurrentHash(hash);
-        if (file) {
-          const srcRes = (await window.cauldron.runAction({
-            action: 'readSource',
-            file,
-          })) as { ok: boolean; content?: string | null; hash?: string | null };
-          if (srcRes.ok && typeof srcRes.content === 'string') {
-            setCurrentContent(srcRes.content);
-            if (srcRes.hash) setCurrentHash(srcRes.hash);
-          }
-        }
-        if (clearHistory) {
-          setHistory([]);
-        }
+        setCurrentHash(res.hash ?? null);
       } else {
         setMessage(res.problem ?? 'Could not read page sections.');
       }
@@ -82,7 +43,7 @@ export function PageOutline({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     window.cauldron
@@ -99,28 +60,25 @@ export function PageOutline({
   }, [site?.root]);
 
   useEffect(() => {
-    if (page) {
-      void loadSections(page, true);
-    }
-  }, [page, site?.root]);
+    void window.cauldron
+      .state()
+      .then((s) => setCanUndo(s.history?.canUndo ?? false));
+    const offHistory = window.cauldron.on(
+      'cauldron:history',
+      (payload: never) => {
+        const next = payload as { canUndo: boolean; canRedo: boolean };
+        setCanUndo(next.canUndo);
+        if (pageRef.current) void loadSections(pageRef.current);
+      },
+    );
+    return () => offHistory();
+  }, [loadSections]);
 
-  const recordCurrentState = () => {
-    if (
-      currentFileRef.current &&
-      currentContentRef.current !== null &&
-      currentHashRef.current
-    ) {
-      setHistory((prev) => [
-        ...prev,
-        {
-          file: currentFileRef.current!,
-          content: currentContentRef.current!,
-          hash: currentHashRef.current!,
-          sections: sectionsRef.current,
-        },
-      ]);
+  useEffect(() => {
+    if (page) {
+      void loadSections(page);
     }
-  };
+  }, [loadSections, page, site?.root]);
 
   const updateAfterMutation = async (res: {
     ok: boolean;
@@ -131,42 +89,46 @@ export function PageOutline({
   }) => {
     if (res.ok && res.sections) {
       setSections(res.sections);
-      if (res.file) setCurrentFile(res.file);
       if (res.hash) setCurrentHash(res.hash);
-      if (res.file) {
-        const srcRes = (await window.cauldron.runAction({
-          action: 'readSource',
-          file: res.file,
-        })) as { ok: boolean; content?: string | null; hash?: string | null };
-        if (srcRes.ok && typeof srcRes.content === 'string') {
-          setCurrentContent(srcRes.content);
-          if (srcRes.hash) setCurrentHash(srcRes.hash);
-        }
-      }
     } else {
       setMessage(res.problem ?? 'Action failed.');
     }
   };
 
-  const undo = async () => {
-    if (historyRef.current.length === 0 || loadingRef.current) return;
-    const previous = historyRef.current[historyRef.current.length - 1];
+  const runOutlineEdit = async (
+    action: (baseHash: string) => Promise<{
+      ok: boolean;
+      file?: string;
+      hash?: string;
+      sections?: CauldronPageSection[];
+      problem?: string;
+    }>,
+  ): Promise<boolean> => {
+    if (!currentHash) {
+      setMessage('Read the page before editing.');
+      return false;
+    }
     setLoading(true);
     setMessage(null);
     try {
-      const res = (await window.cauldron.runAction({
-        action: 'writeSource',
-        file: previous.file,
-        content: previous.content,
-        baseHash: currentHashRef.current ?? null,
-      })) as { ok: boolean; problem?: string; hash?: string };
+      const res = await action(currentHash);
+      await updateAfterMutation(res);
+      return res.ok;
+    } catch (e) {
+      setMessage(String(e));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      if (res.ok) {
-        setHistory((prev) => prev.slice(0, -1));
-        await loadSections(pageRef.current, false);
-      } else {
-        setMessage(res.problem ?? 'Undo failed.');
-      }
+  const undo = async () => {
+    if (!canUndo || loading) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const res = await window.cauldron.undo();
+      if (!res.ok) setMessage(res.problem ?? 'Nothing could be undone.');
     } catch (e) {
       setMessage(String(e));
     } finally {
@@ -174,47 +136,16 @@ export function PageOutline({
     }
   };
 
-  // Keyboard shortcut: Cmd+Z or Ctrl+Z to undo when on Outline
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        const target = e.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.isContentEditable)
-        ) {
-          return;
-        }
-        if (historyRef.current.length > 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          void undo();
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const move = async (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= sections.length) return;
-    recordCurrentState();
-    setLoading(true);
-    try {
-      const res = await window.cauldron.reorderPageSections({
+    await runOutlineEdit((baseHash) =>
+      window.cauldron.reorderPageSections({
         page,
         fromIndex,
         toIndex,
-        baseHash: currentHash ?? undefined,
-      });
-      await updateAfterMutation(res);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      setLoading(false);
-    }
+        baseHash,
+      }),
+    );
   };
 
   const remove = async (sectionIndex: number) => {
@@ -224,37 +155,23 @@ export function PageOutline({
       )
     )
       return;
-    recordCurrentState();
-    setLoading(true);
-    try {
-      const res = await window.cauldron.deletePageSection({
+    await runOutlineEdit((baseHash) =>
+      window.cauldron.deletePageSection({
         page,
         sectionIndex,
-        baseHash: currentHash ?? undefined,
-      });
-      await updateAfterMutation(res);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      setLoading(false);
-    }
+        baseHash,
+      }),
+    );
   };
 
   const duplicate = async (sectionIndex: number) => {
-    recordCurrentState();
-    setLoading(true);
-    try {
-      const res = await window.cauldron.duplicatePageSection({
+    await runOutlineEdit((baseHash) =>
+      window.cauldron.duplicatePageSection({
         page,
         sectionIndex,
-        baseHash: currentHash ?? undefined,
-      });
-      await updateAfterMutation(res);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      setLoading(false);
-    }
+        baseHash,
+      }),
+    );
   };
 
   const insert = async (
@@ -270,43 +187,27 @@ export function PageOutline({
       code = `<section class="features py-16 px-6">\n  <div class="max-w-5xl mx-auto">\n    <h2 class="text-3xl font-bold text-center mb-10">Features</h2>\n    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">\n      <div class="p-6 border rounded-lg"><h3>First Feature</h3><p class="mt-2 text-sm text-gray-600">Detail what makes this aspect great.</p></div>\n      <div class="p-6 border rounded-lg"><h3>Second Feature</h3><p class="mt-2 text-sm text-gray-600">Detail what makes this aspect great.</p></div>\n      <div class="p-6 border rounded-lg"><h3>Third Feature</h3><p class="mt-2 text-sm text-gray-600">Detail what makes this aspect great.</p></div>\n    </div>\n  </div>\n</section>`;
     }
 
-    recordCurrentState();
-    setLoading(true);
     setInsertingAtIndex(null);
-    try {
-      const res = await window.cauldron.insertPageSection({
+    await runOutlineEdit((baseHash) =>
+      window.cauldron.insertPageSection({
         page,
         afterIndex,
         sectionCode: code,
-        baseHash: currentHash ?? undefined,
-      });
-      await updateAfterMutation(res);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      setLoading(false);
-    }
+        baseHash,
+      }),
+    );
   };
 
   const saveAnchor = async (sectionIndex: number) => {
-    recordCurrentState();
-    setLoading(true);
-    try {
-      const res = await window.cauldron.setPageSectionAnchor({
+    const ok = await runOutlineEdit((baseHash) =>
+      window.cauldron.setPageSectionAnchor({
         page,
         sectionIndex,
         anchorId: anchorValue.trim(),
-        baseHash: currentHash ?? undefined,
-      });
-      if (res.ok) {
-        setEditingAnchorIndex(null);
-      }
-      await updateAfterMutation(res);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      setLoading(false);
-    }
+        baseHash,
+      }),
+    );
+    if (ok) setEditingAnchorIndex(null);
   };
 
   const renderInsertDivider = (slotIndex: number) => {
@@ -469,21 +370,21 @@ export function PageOutline({
           </span>
           <button
             type="button"
-            title="Undo last outline change (⌘Z)"
-            disabled={history.length === 0 || loading}
+            title="Undo last change (⌘Z)"
+            disabled={!canUndo || loading}
             onClick={() => void undo()}
             style={{
               background: 'transparent',
               border: '1px solid var(--hairline)',
               borderRadius: 4,
-              color: history.length === 0 ? 'var(--muted)' : 'inherit',
-              cursor: history.length === 0 ? 'default' : 'pointer',
+              color: !canUndo ? 'var(--muted)' : 'inherit',
+              cursor: !canUndo ? 'default' : 'pointer',
               padding: '2px 6px',
               fontSize: 11,
               display: 'flex',
               alignItems: 'center',
               gap: 4,
-              opacity: history.length === 0 ? 0.4 : 1,
+              opacity: !canUndo ? 0.4 : 1,
               marginLeft: 4,
             }}
           >
@@ -496,7 +397,6 @@ export function PageOutline({
             value={page}
             onChange={(e) => {
               setPage(e.target.value);
-              setHistory([]);
             }}
             style={{
               fontSize: 11,

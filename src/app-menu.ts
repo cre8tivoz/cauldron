@@ -13,6 +13,8 @@ export function buildMenu(
     onNewProject?: () => void;
     onOpenProject?: () => void;
     onProjectHome?: () => void;
+    onUndo?: () => void;
+    onRedo?: () => void;
   } = {},
 ): Menu {
   const appMenu: MenuItemConstructorOptions[] = isMac
@@ -75,8 +77,24 @@ export function buildMenu(
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        ...(options.onUndo
+          ? [
+              {
+                label: 'Undo',
+                accelerator: 'CmdOrCtrl+Z',
+                click: options.onUndo,
+              } as MenuItemConstructorOptions,
+            ]
+          : [{ role: 'undo' } as MenuItemConstructorOptions]),
+        ...(options.onRedo
+          ? [
+              {
+                label: 'Redo',
+                accelerator: 'CmdOrCtrl+Shift+Z',
+                click: options.onRedo,
+              } as MenuItemConstructorOptions,
+            ]
+          : [{ role: 'redo' } as MenuItemConstructorOptions]),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },

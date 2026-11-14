@@ -79,33 +79,33 @@ export type ActionRequest =
       page: string;
       fromIndex: number;
       toIndex: number;
-      baseHash?: string;
+      baseHash: string;
     }
   | {
       action: 'deletePageSection';
       page: string;
       sectionIndex: number;
-      baseHash?: string;
+      baseHash: string;
     }
   | {
       action: 'setPageSectionAnchor';
       page: string;
       sectionIndex: number;
       anchorId: string;
-      baseHash?: string;
+      baseHash: string;
     }
   | {
       action: 'duplicatePageSection';
       page: string;
       sectionIndex: number;
-      baseHash?: string;
+      baseHash: string;
     }
   | {
       action: 'insertPageSection';
       page: string;
       afterIndex: number;
       sectionCode: string;
-      baseHash?: string;
+      baseHash: string;
     };
 
 export type ActionOk = { ok: true; [key: string]: unknown };
@@ -335,7 +335,7 @@ const CONTAINER_TAGS = new Set([
   'head',
 ]);
 
-function resolvePageFile(root: string, page: string): string | null {
+export function resolvePageFile(root: string, page: string): string | null {
   const relative = page.replace(/^\/+/, '');
   const candidates = [
     path.join(root, 'src/pages', `${relative}.astro`),
@@ -347,6 +347,91 @@ function resolvePageFile(root: string, page: string): string | null {
       (candidate) => isInside(root, candidate) && fs.existsSync(candidate),
     ) ?? null
   );
+}
+
+/** Validates and resolves the target path for a newly created page. */
+export function resolveNewPageTarget(
+  root: string,
+  page: string,
+): { ok: true; clean: string; file: string } | { ok: false; problem: string } {
+  const clean = page
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.astro$/, '');
+  const segments = clean.split('/');
+  if (
+    !clean ||
+    !segments.every((segment) => /^[a-z0-9][a-z0-9-]*$/.test(segment))
+  ) {
+    return {
+      ok: false,
+      problem: 'Page addresses use lowercase letters, numbers and dashes.',
+    };
+  }
+  const file = path.join(root, 'src/pages', `${clean}.astro`);
+  if (!isInside(root, file)) {
+    return { ok: false, problem: 'That page would sit outside the site.' };
+  }
+  return { ok: true, clean, file };
+}
+
+/** Creates a new Astro page atomically without ever overwriting an existing file. */
+export function createPageFile(
+  root: string,
+  page: string,
+  rawTitle: string,
+): ActionResult & { clean?: string } {
+  const target = resolveNewPageTarget(root, page);
+  if (!target.ok) return target;
+  if (fs.existsSync(target.file)) {
+    return { ok: false, problem: 'A page already exists at that address.' };
+  }
+  fs.mkdirSync(path.dirname(target.file), { recursive: true });
+  if (!isInside(root, target.file)) {
+    return { ok: false, problem: 'That page would sit outside the site.' };
+  }
+  const title = escapeText(rawTitle.trim() || target.clean);
+  const body = `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`;
+  try {
+    createFileAtomic(target.file, body);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      return { ok: false, problem: 'A page already exists at that address.' };
+    }
+    throw error;
+  }
+  return {
+    ok: true,
+    file: path.relative(root, target.file),
+    clean: target.clean,
+  };
+}
+
+function requirePageForEdit(
+  root: string,
+  page: string,
+  baseHash: string | undefined,
+):
+  | { ok: true; file: string; disk: { text: string; hash: string } }
+  | { ok: false; problem: string } {
+  const file = resolvePageFile(root, page);
+  if (!file) return { ok: false, problem: `No page file for ${page}.` };
+  if (!baseHash) {
+    return {
+      ok: false,
+      problem:
+        'A baseHash is required before editing this page. Read the page first.',
+    };
+  }
+  const disk = readFile(file);
+  if (disk.hash !== baseHash) {
+    return {
+      ok: false,
+      problem:
+        'That file changed since this action was prepared. Read it again before editing.',
+    };
+  }
+  return { ok: true, file, disk };
 }
 
 /** Index just after the quote that closes the string opened at `start`, or -1. */
@@ -523,19 +608,11 @@ export function reorderPageSections(
   page: string,
   fromIndex: number,
   toIndex: number,
-  baseHash?: string,
+  baseHash: string,
 ): ActionResult & { sections?: PageSection[]; hash?: string } {
-  const file = resolvePageFile(root, page);
-  if (!file) return { ok: false, problem: `No page file for ${page}.` };
-
-  const disk = readFile(file);
-  if (baseHash && disk.hash !== baseHash) {
-    return {
-      ok: false,
-      problem:
-        'That file changed since this action was prepared. Read it again before editing.',
-    };
-  }
+  const checked = requirePageForEdit(root, page, baseHash);
+  if (!checked.ok) return checked;
+  const { file, disk } = checked;
 
   const text = disk.text;
   const blocks = findSectionBlocks(text);
@@ -578,19 +655,11 @@ export function deletePageSection(
   root: string,
   page: string,
   sectionIndex: number,
-  baseHash?: string,
+  baseHash: string,
 ): ActionResult & { sections?: PageSection[]; hash?: string } {
-  const file = resolvePageFile(root, page);
-  if (!file) return { ok: false, problem: `No page file for ${page}.` };
-
-  const disk = readFile(file);
-  if (baseHash && disk.hash !== baseHash) {
-    return {
-      ok: false,
-      problem:
-        'That file changed since this action was prepared. Read it again before editing.',
-    };
-  }
+  const checked = requirePageForEdit(root, page, baseHash);
+  if (!checked.ok) return checked;
+  const { file, disk } = checked;
 
   const text = disk.text;
   const blocks = findSectionBlocks(text);
@@ -622,19 +691,11 @@ export function setPageSectionAnchor(
   page: string,
   sectionIndex: number,
   anchorId: string,
-  baseHash?: string,
+  baseHash: string,
 ): ActionResult & { sections?: PageSection[]; hash?: string } {
-  const file = resolvePageFile(root, page);
-  if (!file) return { ok: false, problem: `No page file for ${page}.` };
-
-  const disk = readFile(file);
-  if (baseHash && disk.hash !== baseHash) {
-    return {
-      ok: false,
-      problem:
-        'That file changed since this action was prepared. Read it again before editing.',
-    };
-  }
+  const checked = requirePageForEdit(root, page, baseHash);
+  if (!checked.ok) return checked;
+  const { file, disk } = checked;
 
   const text = disk.text;
   const blocks = findSectionBlocks(text);
@@ -694,19 +755,11 @@ export function duplicatePageSection(
   root: string,
   page: string,
   sectionIndex: number,
-  baseHash?: string,
+  baseHash: string,
 ): ActionResult & { sections?: PageSection[]; hash?: string } {
-  const file = resolvePageFile(root, page);
-  if (!file) return { ok: false, problem: `No page file for ${page}.` };
-
-  const disk = readFile(file);
-  if (baseHash && disk.hash !== baseHash) {
-    return {
-      ok: false,
-      problem:
-        'That file changed since this action was prepared. Read it again before editing.',
-    };
-  }
+  const checked = requirePageForEdit(root, page, baseHash);
+  if (!checked.ok) return checked;
+  const { file, disk } = checked;
 
   const text = disk.text;
   const blocks = findSectionBlocks(text);
@@ -737,19 +790,11 @@ export function insertPageSection(
   page: string,
   afterIndex: number,
   sectionCode: string,
-  baseHash?: string,
+  baseHash: string,
 ): ActionResult & { sections?: PageSection[]; hash?: string } {
-  const file = resolvePageFile(root, page);
-  if (!file) return { ok: false, problem: `No page file for ${page}.` };
-
-  const disk = readFile(file);
-  if (baseHash && disk.hash !== baseHash) {
-    return {
-      ok: false,
-      problem:
-        'That file changed since this action was prepared. Read it again before editing.',
-    };
-  }
+  const checked = requirePageForEdit(root, page, baseHash);
+  if (!checked.ok) return checked;
+  const { file, disk } = checked;
 
   const text = disk.text;
   const blocks = findSectionBlocks(text);
@@ -1002,25 +1047,8 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         request.baseHash,
       );
 
-    case 'createPage': {
-      const clean = request.page.replace(/^\/+/, '').replace(/\.astro$/, '');
-      if (!/^[a-z0-9][a-z0-9\-/]*$/.test(clean)) {
-        return {
-          ok: false,
-          problem: 'Page addresses use lowercase letters, numbers and dashes.',
-        };
-      }
-      const file = path.join(root, 'src/pages', `${clean}.astro`);
-      if (!isInside(root, file))
-        return { ok: false, problem: 'That page would sit outside the site.' };
-      if (fs.existsSync(file))
-        return { ok: false, problem: 'A page already exists there.' };
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const title = escapeText(request.title.trim() || clean);
-      const body = `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`;
-      fs.writeFileSync(file, body, 'utf8');
-      return { ok: true, file: path.relative(root, file) };
-    }
+    case 'createPage':
+      return createPageFile(root, request.page, request.title);
 
     case 'readSource':
       return readSource(root, request.file);
@@ -1077,6 +1105,18 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
     default:
       return { ok: false, problem: 'Unknown action.' };
   }
+}
+
+const READ_ONLY_ACTIONS = new Set<ActionRequest['action']>([
+  'listPages',
+  'readPageOutline',
+  'readPageSections',
+  'readSource',
+]);
+
+/** Read-only actions never mutate files and must not claim ownership on an active agent run. */
+export function isReadOnlyAction(action: ActionRequest['action']): boolean {
+  return READ_ONLY_ACTIONS.has(action);
 }
 
 /** The catalogue the agent is given, so it uses the same actions as the interface. */

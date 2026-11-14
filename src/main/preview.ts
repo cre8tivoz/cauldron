@@ -2,6 +2,16 @@ import { WebContentsView, type BrowserWindow, type Rectangle } from 'electron';
 
 export type Report = { kind: 'height' | 'pick'; payload: unknown };
 
+function isNavigationAborted(error: unknown): boolean {
+  const err = error as { code?: string; errno?: number; message?: string };
+  return (
+    err?.errno === -3 ||
+    err?.code === 'ERR_ABORTED' ||
+    Boolean(err?.message?.includes('(-3)')) ||
+    Boolean(err?.message?.includes('ERR_ABORTED'))
+  );
+}
+
 /**
  * The site preview. It runs in its own session, with no bridge to the app:
  * a page (or a script an agent added to one) can only send back its height
@@ -66,10 +76,24 @@ export class Preview {
     return this.bounds;
   }
 
-  load(url: string): Promise<void> {
+  async load(url: string): Promise<void> {
     const contents = this.webContents;
-    if (!contents) return Promise.resolve();
-    return contents.loadURL(url);
+    if (!contents) return;
+    try {
+      await contents.loadURL(url);
+    } catch (error) {
+      // Chromium fires ERR_ABORTED (-3) if Astro's route watcher reloads while
+      // loadURL is in flight; retry once rather than surfacing a false error.
+      if (!isNavigationAborted(error)) throw error;
+      const current = this.webContents;
+      if (!current) return;
+      try {
+        await current.loadURL(url);
+      } catch (retryError) {
+        if (!isNavigationAborted(retryError)) throw retryError;
+        current.reload();
+      }
+    }
   }
 
   reload(): void {

@@ -12,14 +12,22 @@ export function readFile(file: string): { text: string; hash: string } {
 }
 
 /** Writes through a temporary file in the same folder, so a half-written file is never left behind. */
-export function writeFileAtomic(file: string, text: string): string {
+export function writeFileAtomic(
+  file: string,
+  content: string | Uint8Array,
+): string {
   const temp = path.join(
     path.dirname(file),
     `.${path.basename(file)}.cauldron-${process.pid}`,
   );
-  fs.writeFileSync(temp, text, 'utf8');
+  if (typeof content === 'string') {
+    fs.writeFileSync(temp, content, 'utf8');
+    fs.renameSync(temp, file);
+    return hashOf(content);
+  }
+  fs.writeFileSync(temp, content);
   fs.renameSync(temp, file);
-  return hashOf(text);
+  return crypto.createHash('sha256').update(content).digest('hex');
 }
 
 /**

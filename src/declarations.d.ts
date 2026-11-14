@@ -251,6 +251,7 @@ type CauldronApi = {
     status: string[];
     selection: CauldronSelection | null;
     drafts: CauldronDraft[];
+    history?: { canUndo: boolean; canRedo: boolean };
   }>;
   startPreview: () => Promise<
     { url: string } | { problem: string; detail: string }
@@ -389,7 +390,7 @@ type CauldronApi = {
     page: string;
     fromIndex: number;
     toIndex: number;
-    baseHash?: string;
+    baseHash: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
@@ -400,7 +401,7 @@ type CauldronApi = {
   deletePageSection: (payload: {
     page: string;
     sectionIndex: number;
-    baseHash?: string;
+    baseHash: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
@@ -412,7 +413,7 @@ type CauldronApi = {
     page: string;
     sectionIndex: number;
     anchorId: string;
-    baseHash?: string;
+    baseHash: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
@@ -423,7 +424,7 @@ type CauldronApi = {
   duplicatePageSection: (payload: {
     page: string;
     sectionIndex: number;
-    baseHash?: string;
+    baseHash: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
@@ -435,7 +436,7 @@ type CauldronApi = {
     page: string;
     afterIndex: number;
     sectionCode: string;
-    baseHash?: string;
+    baseHash: string;
   }) => Promise<{
     ok: boolean;
     sections?: CauldronPageSection[];
@@ -447,6 +448,8 @@ type CauldronApi = {
   refreshSelection: () => Promise<CauldronSelection | null>;
   undo: () => Promise<{ ok: boolean; problem?: string }>;
   redo: () => Promise<{ ok: boolean; problem?: string }>;
+  textUndo: () => Promise<boolean>;
+  textRedo: () => Promise<boolean>;
   clearSelection: () => Promise<boolean>;
   contentDraft: (payload: {
     file: string;
@@ -471,7 +474,10 @@ type CauldronApi = {
   newPage: (page: {
     path: string;
     title: string;
-  }) => Promise<{ ok: true; file: string; url: string } | { problem: string }>;
+  }) => Promise<
+    | { ok: true; file: string; url: string | null }
+    | { ok?: false; file?: string; problem: string }
+  >;
 
   projectsHome: () => Promise<{
     problem: string | null;

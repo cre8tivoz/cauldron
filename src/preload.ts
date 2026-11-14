@@ -5,6 +5,7 @@ const EVENTS = [
   'cauldron:preview',
   'cauldron:status',
   'cauldron:selection',
+  'cauldron:history',
   'cauldron:preview-height',
   'cauldron:drafts',
   'cauldron:agent-event',
@@ -98,34 +99,36 @@ const api = {
     page: string;
     fromIndex: number;
     toIndex: number;
-    baseHash?: string;
+    baseHash: string;
   }) => ipcRenderer.invoke('cauldron:reorder-page-sections', payload),
   deletePageSection: (payload: {
     page: string;
     sectionIndex: number;
-    baseHash?: string;
+    baseHash: string;
   }) => ipcRenderer.invoke('cauldron:delete-page-section', payload),
   setPageSectionAnchor: (payload: {
     page: string;
     sectionIndex: number;
     anchorId: string;
-    baseHash?: string;
+    baseHash: string;
   }) => ipcRenderer.invoke('cauldron:set-page-section-anchor', payload),
   duplicatePageSection: (payload: {
     page: string;
     sectionIndex: number;
-    baseHash?: string;
+    baseHash: string;
   }) => ipcRenderer.invoke('cauldron:duplicate-page-section', payload),
   insertPageSection: (payload: {
     page: string;
     afterIndex: number;
     sectionCode: string;
-    baseHash?: string;
+    baseHash: string;
   }) => ipcRenderer.invoke('cauldron:insert-page-section', payload),
 
   refreshSelection: () => ipcRenderer.invoke('cauldron:refresh-selection'),
   undo: () => ipcRenderer.invoke('cauldron:undo'),
   redo: () => ipcRenderer.invoke('cauldron:redo'),
+  textUndo: () => ipcRenderer.invoke('cauldron:text-undo'),
+  textRedo: () => ipcRenderer.invoke('cauldron:text-redo'),
   clearSelection: () => ipcRenderer.invoke('cauldron:selection-clear'),
 
   contentDraft: (payload: {
