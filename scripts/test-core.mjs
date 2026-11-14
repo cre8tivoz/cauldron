@@ -64,6 +64,7 @@ const draftSchedule = await import('../src/draft-schedule.ts').catch(
   () => null,
 );
 const draftRestore = await import('../src/draft-restore.ts').catch(() => null);
+const agentStream = await import('../src/agent-stream.ts').catch(() => null);
 // Ticket 14 modules: imported leniently so a missing implementation fails a test.
 const recovery = await import('../src/main/recovery.ts').catch(() => null);
 const directions = await import('../src/main/directions.ts').catch(() => null);
@@ -328,7 +329,9 @@ try {
       page: '/nested/',
       mode: 'add',
     };
-    assert.equal(addPiece(root, options).ok, true);
+    const first = addPiece(root, options);
+    assert.equal(first.ok, true);
+    assert.equal(first.reusedExisting, false);
     assert.ok(
       fs
         .readFileSync(nested, 'utf8')
@@ -337,8 +340,105 @@ try {
     const component = path.join(root, 'src/components/Editorialintro.astro');
     fs.appendFileSync(component, '\n<!-- owner edit -->');
     const edited = fs.readFileSync(component, 'utf8');
-    assert.equal(addPiece(root, options).ok, true);
+    const second = addPiece(root, options);
+    assert.equal(second.ok, true);
+    assert.equal(second.reusedExisting, true);
     assert.equal(fs.readFileSync(component, 'utf8'), edited);
+  });
+  test('WDL-209 unrelated existing component keeps custom file untouched and disambiguates', () => {
+    const collisionRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cauldron-library-collision-'),
+    );
+    try {
+      const customComponentDir = path.join(collisionRoot, 'src/components');
+      const pagesDir = path.join(collisionRoot, 'src/pages');
+      fs.mkdirSync(customComponentDir, { recursive: true });
+      fs.mkdirSync(pagesDir, { recursive: true });
+      const customFooter = path.join(
+        customComponentDir,
+        'Newsletterfooter.astro',
+      );
+      const customContent = '<footer>Custom hand-crafted footer</footer>\n';
+      fs.writeFileSync(customFooter, customContent);
+      const page = path.join(pagesDir, 'index.astro');
+      fs.writeFileSync(page, '<main>Home</main>\n');
+
+      const first = addPiece(collisionRoot, {
+        pieceId: 'newsletter-footer',
+        page: '/index/',
+        mode: 'add',
+      });
+      assert.equal(first.ok, true);
+      assert.equal(first.reusedExisting, false);
+      assert.equal(
+        first.componentFile,
+        'src/components/Newsletterfooter2.astro',
+      );
+      // Pre-existing custom component is completely untouched.
+      assert.equal(fs.readFileSync(customFooter, 'utf8'), customContent);
+      const suffixed = path.join(customComponentDir, 'Newsletterfooter2.astro');
+      assert.ok(fs.existsSync(suffixed));
+      const pageText = fs.readFileSync(page, 'utf8');
+      assert.ok(
+        pageText.includes(
+          "import Newsletterfooter2 from '../components/Newsletterfooter2.astro';",
+        ),
+      );
+      assert.ok(pageText.includes('<Newsletterfooter2 />'));
+
+      // Re-adding the same library piece reuses the suffixed Cauldron file rather than creating #3.
+      fs.appendFileSync(suffixed, '\n<!-- owner tweak -->');
+      const editedSuffixed = fs.readFileSync(suffixed, 'utf8');
+      const about = path.join(pagesDir, 'about.astro');
+      fs.writeFileSync(about, '<main>About</main>\n');
+      const second = addPiece(collisionRoot, {
+        pieceId: 'newsletter-footer',
+        page: '/about/',
+        mode: 'add',
+      });
+      assert.equal(second.ok, true);
+      assert.equal(second.reusedExisting, true);
+      assert.equal(
+        second.componentFile,
+        'src/components/Newsletterfooter2.astro',
+      );
+      assert.equal(fs.readFileSync(suffixed, 'utf8'), editedSuffixed);
+      assert.equal(
+        fs.existsSync(path.join(customComponentDir, 'Newsletterfooter3.astro')),
+        false,
+      );
+    } finally {
+      fs.rmSync(collisionRoot, { recursive: true, force: true });
+    }
+  });
+  test('WDL-207 library add cleans up new component file if page write fails', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+    const rollbackRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cauldron-library-rollback-'),
+    );
+    const pagesDir = path.join(rollbackRoot, 'src/pages/locked');
+    try {
+      fs.mkdirSync(pagesDir, { recursive: true });
+      const lockedPage = path.join(pagesDir, 'index.astro');
+      fs.writeFileSync(lockedPage, '<main>Locked</main>\n');
+      fs.chmodSync(pagesDir, 0o555);
+      const failed = addPiece(rollbackRoot, {
+        pieceId: 'editorial-intro',
+        page: '/locked/',
+        mode: 'add',
+      });
+      assert.equal(failed.ok, false);
+      assert.ok(failed.problem?.includes('Could not write component files'));
+      assert.equal(
+        fs.existsSync(
+          path.join(rollbackRoot, 'src/components/Editorialintro.astro'),
+        ),
+        false,
+      );
+    } finally {
+      fs.chmodSync(pagesDir, 0o755);
+      fs.rmSync(rollbackRoot, { recursive: true, force: true });
+    }
   });
   test('4.3 a piece is placed inside the page, never after its layout', () => {
     const page = path.join(root, 'src/pages/layout-page.astro');
@@ -3147,6 +3247,66 @@ test('WDL-213 & WDL-251 mergeDraftsList, removeDraftKeys, and planBatchDraftRest
   }
   assert.ok(source.includes('Line 1\nLine 2\nLine 3'));
   assert.ok(source.includes('<p>Updated second</p>'));
+});
+
+test('WDL-212 agent stream reducer preserves progress across events', () => {
+  assert.ok(agentStream);
+  let state = agentStream.beginAgentStream('Fix button contrast');
+  assert.equal(state.running, true);
+  assert.equal(state.activePrompt, 'Fix button contrast');
+  assert.deepEqual(state.lines, []);
+
+  state = agentStream.applyAgentStreamEvent(state, {
+    type: 'session',
+    id: 'sess-1',
+  });
+  state = agentStream.applyAgentStreamEvent(state, {
+    type: 'status',
+    text: 'Starting Codex…',
+  });
+  state = agentStream.applyAgentStreamEvent(state, {
+    type: 'tool',
+    name: 'apply_style',
+  });
+  state = agentStream.applyAgentStreamEvent(state, {
+    type: 'text',
+    text: 'Updating ',
+    delta: true,
+  });
+  state = agentStream.applyAgentStreamEvent(state, {
+    type: 'text',
+    text: 'contrast token.',
+    delta: true,
+  });
+  state = agentStream.applyAgentStreamEvent(state, {
+    type: 'text',
+    text: 'Check finished.',
+    delta: false,
+  });
+  assert.deepEqual(state.lines, [
+    { kind: 'status', text: 'Starting Codex…' },
+    { kind: 'tool', text: 'Using apply_style' },
+    { kind: 'agent', text: 'Updating contrast token.' },
+    { kind: 'agent', text: 'Check finished.' },
+  ]);
+
+  const finished = agentStream.finishAgentStream(state, 'Updated 1 file.');
+  assert.equal(finished.running, false);
+  assert.equal(finished.message, 'Updated 1 file.');
+
+  const errored = agentStream.applyAgentStreamEvent(
+    agentStream.beginAgentStream('Retry'),
+    { type: 'error', text: 'Process exited' },
+  );
+  assert.equal(errored.running, false);
+  assert.deepEqual(errored.lines, [{ kind: 'error', text: 'Process exited' }]);
+
+  const failedStart = agentStream.failAgentStream(
+    agentStream.beginAgentStream('Bad'),
+    'No tool found.',
+  );
+  assert.equal(failedStart.running, false);
+  assert.equal(failedStart.message, 'No tool found.');
 });
 
 process.exitCode = failures ? 1 : 0;

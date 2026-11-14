@@ -1766,7 +1766,11 @@ function registerIpc(): void {
         return result;
       }
       state.preview.reload();
-      status(`Added ${payload.pieceId} to ${result.page}`);
+      status(
+        result.reusedExisting
+          ? `Placed existing ${result.componentFile} on ${result.page}`
+          : `Added ${result.componentFile} to ${result.page}`,
+      );
       return { ...result, runId: run.id };
     },
   );

@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  AGENT_TOOL_LABELS,
+  type AgentStreamState,
+  type AgentTool,
+} from '../agent-stream';
 import {
   CheckCircleIcon,
   ChevronDownIcon,
@@ -12,9 +17,17 @@ type Props = {
   direction: CauldronDirectionSummary | null;
   onOpenDesign: () => void;
   selection?: CauldronSelection | null;
+  tool: AgentTool;
+  onToolChange: (tool: AgentTool) => void;
+  runs: CauldronRun[];
+  stream: AgentStreamState;
+  onMessage: (message: string | null) => void;
+  onRefreshRuns: () => Promise<void>;
+  onSend: (
+    tool: AgentTool,
+    request: string,
+  ) => Promise<{ ok: boolean; problem?: string }>;
 };
-
-type Line = { kind: 'agent' | 'tool' | 'status' | 'error'; text: string };
 
 /**
  * The conversational agent column: run Claude Code, Codex, or Hermes with the
@@ -26,15 +39,16 @@ export function AgentPanel({
   direction,
   onOpenDesign,
   selection,
+  tool,
+  onToolChange,
+  runs,
+  stream,
+  onMessage,
+  onRefreshRuns,
+  onSend,
 }: Props) {
-  const [runs, setRuns] = useState<CauldronRun[]>([]);
-  const [lines, setLines] = useState<Line[]>([]);
   const [request, setRequest] = useState('');
-  const [tool, setTool] = useState<'claude' | 'codex' | 'hermes'>('claude');
-  const [running, setRunning] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [showing, setShowing] = useState<string | null>(null);
-  const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement | null>(null);
   const [connection, setConnection] = useState<{
     url: string;
@@ -42,106 +56,21 @@ export function AgentPanel({
   } | null>(null);
   const [installingMissing, setInstallingMissing] = useState(false);
 
+  const { lines, running, activePrompt, message } = stream;
+
   useEffect(() => {
     void window.cauldron.mcpInfo().then(setConnection);
   }, [site?.root, site]);
-
-  const refresh = useCallback(async () => {
-    const fetchedRuns = await window.cauldron.runs();
-    setRuns(fetchedRuns);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh, site?.root]);
-
-  useEffect(() => {
-    const offEvent = window.cauldron.on(
-      'cauldron:agent-event',
-      (payload: never) => {
-        const event = payload as CauldronAgentEvent;
-        if (event.type === 'session') return;
-        if (event.type === 'error') {
-          setLines((current) => [
-            ...current,
-            { kind: 'error', text: event.text },
-          ]);
-          setRunning(false);
-          return;
-        }
-        if (event.type === 'tool') {
-          setLines((current) => [
-            ...current,
-            { kind: 'tool', text: `Using ${event.name}` },
-          ]);
-          return;
-        }
-        if (event.type === 'status') {
-          setLines((current) => [
-            ...current,
-            { kind: 'status', text: event.text },
-          ]);
-          return;
-        }
-        if (event.type === 'done') return;
-        setLines((current) => {
-          const last = current.at(-1);
-          if (event.delta && last?.kind === 'agent')
-            return [
-              ...current.slice(0, -1),
-              { kind: 'agent', text: last.text + event.text },
-            ];
-          return [...current, { kind: 'agent', text: event.text }];
-        });
-      },
-    );
-
-    const offDone = window.cauldron.on(
-      'cauldron:agent-done',
-      (payload: never) => {
-        const result = payload as { note: string };
-        setRunning(false);
-        setMessage(result.note);
-        void refresh();
-      },
-    );
-
-    return () => {
-      offEvent();
-      offDone();
-    };
-  }, [refresh]);
 
   useEffect(() => {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
   }, [lines, running]);
 
   const send = async () => {
-    if (!site || request.trim() === '') return;
+    if (!site || request.trim() === '' || running) return;
     const promptText = request.trim();
-    setActivePrompt(promptText);
-    setMessage(null);
-    setLines([]);
-    setRunning(true);
     setRequest('');
-
-    try {
-      const result = await window.cauldron.agentSend({
-        tool,
-        request: promptText,
-      });
-      if (!result.ok) {
-        setRunning(false);
-        setMessage(result.problem ?? 'The agent could not start.');
-      }
-    } catch (error) {
-      setRunning(false);
-      setMessage(
-        `The agent could not start: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    await onSend(tool, promptText);
   };
 
   const toggle = async (run: CauldronRun) => {
@@ -153,21 +82,15 @@ export function AgentPanel({
   const undoRun = async (run: CauldronRun) => {
     const result = await window.cauldron.undoRun(run.id);
     if (result.ok) {
-      setMessage('Run undone.');
-      await refresh();
+      onMessage('Run undone.');
+      await onRefreshRuns();
       return;
     }
-    setMessage(
+    onMessage(
       result.clashes && result.clashes.length > 0
         ? `${result.problem} ${result.clashes.join(', ')}`
         : (result.problem ?? 'That run could not be undone.'),
     );
-  };
-
-  const toolLabels: Record<string, string> = {
-    claude: 'Claude Code',
-    codex: 'Codex',
-    hermes: 'Hermes',
   };
 
   return (
@@ -180,7 +103,9 @@ export function AgentPanel({
             <select
               aria-label="Agent tool"
               value={tool}
-              onChange={(event) => setTool(event.target.value as typeof tool)}
+              onChange={(event) =>
+                onToolChange(event.target.value as AgentTool)
+              }
               className="agent-tool-select"
               disabled={running}
             >
@@ -279,7 +204,7 @@ export function AgentPanel({
               <span className="agent-avatar" aria-hidden="true">
                 <SparkleIcon size={14} />
               </span>
-              <strong>{toolLabels[tool] || 'Agent'}</strong>
+              <strong>{AGENT_TOOL_LABELS[tool] || 'Agent'}</strong>
               <span className="agent-state-pill">
                 {running ? 'Thinking…' : 'Finished'}
               </span>
@@ -332,7 +257,8 @@ export function AgentPanel({
                   </span>
                   <div className="run-title-group">
                     <strong>
-                      {run.note || `${toolLabels[run.tool] || run.tool} run`}
+                      {run.note ||
+                        `${AGENT_TOOL_LABELS[run.tool as AgentTool] || run.tool} run`}
                     </strong>
                     <span className="run-meta-text">
                       {run.status} · {run.files.length} file

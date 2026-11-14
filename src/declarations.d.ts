@@ -372,7 +372,10 @@ type CauldronApi = {
   }) => Promise<{
     ok: boolean;
     problem?: string;
+    componentFile?: string;
     page?: string;
+    replaced?: string;
+    reusedExisting?: boolean;
     runId?: string;
   }>;
   pageSections: (page: string) => Promise<{

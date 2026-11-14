@@ -27,6 +27,15 @@ import {
   type DraftSchedule,
 } from './draft-schedule';
 import { describeDraftBanner, selectionDraftValue } from './draft-restore';
+import {
+  INITIAL_AGENT_STREAM,
+  applyAgentStreamEvent,
+  beginAgentStream,
+  failAgentStream,
+  finishAgentStream,
+  type AgentStreamState,
+  type AgentTool,
+} from './agent-stream';
 
 type PreviewState = { running: boolean; url: string | null };
 
@@ -134,6 +143,52 @@ export function App() {
   const [inspectorWidth, setInspectorWidth] = useState(310);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [agentTool, setAgentTool] = useState<AgentTool>('claude');
+  const [agentRuns, setAgentRuns] = useState<CauldronRun[]>([]);
+  const [agentStream, setAgentStream] =
+    useState<AgentStreamState>(INITIAL_AGENT_STREAM);
+
+  const refreshAgentRuns = useCallback(async () => {
+    const fetchedRuns = await window.cauldron.runs();
+    setAgentRuns(fetchedRuns);
+  }, []);
+
+  const setAgentMessage = useCallback((message: string | null) => {
+    setAgentStream((current) => ({ ...current, message }));
+  }, []);
+
+  const sendAgentRequest = useCallback(
+    async (
+      selectedTool: AgentTool,
+      rawPrompt: string,
+    ): Promise<{ ok: boolean; problem?: string }> => {
+      const promptText = rawPrompt.trim();
+      if (!site) return { ok: false, problem: 'Open a site first.' };
+      if (!promptText) return { ok: false, problem: 'Enter a request first.' };
+      setAgentTool(selectedTool);
+      setAgentCollapsed(false);
+      setAgentStream(beginAgentStream(promptText));
+      try {
+        const result = await window.cauldron.agentSend({
+          tool: selectedTool,
+          request: promptText,
+        });
+        if (!result.ok) {
+          const problemText = result.problem ?? 'The agent could not start.';
+          setAgentStream((current) => failAgentStream(current, problemText));
+          return { ok: false, problem: problemText };
+        }
+        return { ok: true };
+      } catch (error) {
+        const problemText = `The agent could not start: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+        setAgentStream((current) => failAgentStream(current, problemText));
+        return { ok: false, problem: problemText };
+      }
+    },
+    [site],
+  );
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -197,6 +252,9 @@ export function App() {
       setSelection(null);
       setProblem(null);
       setConflict(null);
+      if (isNewSite || !next.site) {
+        setAgentStream(INITIAL_AGENT_STREAM);
+      }
       if (isNewSite) {
         setView('build');
       }
@@ -250,6 +308,23 @@ export function App() {
       if (action.action === 'open-project') openSiteRef.current();
     });
 
+    const offAgentEvent = window.cauldron.on(
+      'cauldron:agent-event',
+      (payload: never) => {
+        const event = payload as CauldronAgentEvent;
+        setAgentStream((current) => applyAgentStreamEvent(current, event));
+      },
+    );
+
+    const offAgentDone = window.cauldron.on(
+      'cauldron:agent-done',
+      (payload: never) => {
+        const result = payload as { note: string };
+        setAgentStream((current) => finishAgentStream(current, result.note));
+        void refreshAgentRuns();
+      },
+    );
+
     return () => {
       offSite();
       offPreview();
@@ -257,8 +332,16 @@ export function App() {
       offSelection();
       offDrafts();
       offMenu();
+      offAgentEvent();
+      offAgentDone();
     };
-  }, []);
+  }, [refreshAgentRuns]);
+
+  useEffect(() => {
+    if (view === 'build' || view === 'quality' || !site?.root) {
+      void refreshAgentRuns();
+    }
+  }, [refreshAgentRuns, site?.root, view]);
 
   // The preview is a separate view laid over the middle column, so it needs the exact rectangle.
   useEffect(() => {
@@ -828,14 +911,98 @@ export function App() {
               onBack={() => setView('build')}
             />
           </div>
-        ) : view === 'quality' ? (
+        ) : view === 'quality' || view === 'build' ? (
           <div className="panes">
-            <QualityPanel
-              site={site}
-              direction={direction}
-              onBack={() => setView('build')}
-              onOpenDesign={() => setView('design')}
-            />
+            {agentCollapsed ? null : (
+              <>
+                <div
+                  className="agent-pane"
+                  style={{ width: agentWidth, flex: `0 0 ${agentWidth}px` }}
+                >
+                  <AgentPanel
+                    site={site}
+                    direction={direction}
+                    onOpenDesign={() => setView('design')}
+                    selection={selection}
+                    tool={agentTool}
+                    onToolChange={setAgentTool}
+                    runs={agentRuns}
+                    stream={agentStream}
+                    onMessage={setAgentMessage}
+                    onRefreshRuns={refreshAgentRuns}
+                    onSend={sendAgentRequest}
+                  />
+                </div>
+                <Splitter
+                  label="Resize agent column"
+                  onResize={(delta) =>
+                    setAgentWidth((width) =>
+                      Math.min(AGENT_MAX, Math.max(AGENT_MIN, width + delta)),
+                    )
+                  }
+                />
+              </>
+            )}
+
+            {view === 'quality' ? (
+              <QualityPanel
+                site={site}
+                direction={direction}
+                onBack={() => setView('build')}
+                onOpenDesign={() => setView('design')}
+                tool={agentTool}
+                onToolChange={setAgentTool}
+                agentRunning={agentStream.running}
+                onSendToAgent={sendAgentRequest}
+              />
+            ) : (
+              <>
+                <PreviewStage
+                  stageRef={stageRef}
+                  site={site}
+                  running={preview.running}
+                  onOpen={openSite}
+                />
+
+                {inspectorCollapsed ? null : (
+                  <>
+                    <Splitter
+                      label="Resize element panel"
+                      onResize={(delta) =>
+                        setInspectorWidth((width) =>
+                          Math.min(
+                            INSPECTOR_MAX,
+                            Math.max(INSPECTOR_MIN, width - delta),
+                          ),
+                        )
+                      }
+                    />
+                    <div
+                      className="inspector-pane"
+                      style={{
+                        width: inspectorWidth,
+                        flex: `0 0 ${inspectorWidth}px`,
+                      }}
+                    >
+                      <Inspector
+                        key={draftResetVersion}
+                        site={site}
+                        direction={direction}
+                        selection={selection}
+                        conflict={conflict}
+                        onApplyText={applyText}
+                        onApplyAttribute={applyAttribute}
+                        onApplyStyle={applyStyle}
+                        onKeepMine={keepMine}
+                        onUseDisk={useDisk}
+                        onDraft={queueDraft}
+                        onNavigateToLibrary={() => setView('library')}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         ) : view === 'library' ? (
           <div className="panes">
@@ -850,7 +1017,7 @@ export function App() {
               draftResetVersion={draftResetVersion}
             />
           </div>
-        ) : view === 'design' ? (
+        ) : (
           <div className="panes">
             <DesignPanel
               site={site}
@@ -861,77 +1028,6 @@ export function App() {
               }}
               onBack={() => setView('build')}
             />
-          </div>
-        ) : (
-          <div className="panes">
-            {agentCollapsed ? null : (
-              <>
-                <div
-                  className="agent-pane"
-                  style={{ width: agentWidth, flex: `0 0 ${agentWidth}px` }}
-                >
-                  <AgentPanel
-                    site={site}
-                    direction={direction}
-                    onOpenDesign={() => setView('design')}
-                    selection={selection}
-                  />
-                </div>
-                <Splitter
-                  label="Resize agent column"
-                  onResize={(delta) =>
-                    setAgentWidth((width) =>
-                      Math.min(AGENT_MAX, Math.max(AGENT_MIN, width + delta)),
-                    )
-                  }
-                />
-              </>
-            )}
-
-            <PreviewStage
-              stageRef={stageRef}
-              site={site}
-              running={preview.running}
-              onOpen={openSite}
-            />
-
-            {inspectorCollapsed ? null : (
-              <>
-                <Splitter
-                  label="Resize element panel"
-                  onResize={(delta) =>
-                    setInspectorWidth((width) =>
-                      Math.min(
-                        INSPECTOR_MAX,
-                        Math.max(INSPECTOR_MIN, width - delta),
-                      ),
-                    )
-                  }
-                />
-                <div
-                  className="inspector-pane"
-                  style={{
-                    width: inspectorWidth,
-                    flex: `0 0 ${inspectorWidth}px`,
-                  }}
-                >
-                  <Inspector
-                    key={draftResetVersion}
-                    site={site}
-                    direction={direction}
-                    selection={selection}
-                    conflict={conflict}
-                    onApplyText={applyText}
-                    onApplyAttribute={applyAttribute}
-                    onApplyStyle={applyStyle}
-                    onKeepMine={keepMine}
-                    onUseDisk={useDisk}
-                    onDraft={queueDraft}
-                    onNavigateToLibrary={() => setView('library')}
-                  />
-                </div>
-              </>
-            )}
           </div>
         )}
 
