@@ -101,8 +101,11 @@ export function LibraryPanel({ site, onBack }: Props) {
       return;
     }
     setLastRun(result.runId ?? null);
+    const fileNote = result.componentFile ? ` (${result.componentFile})` : '';
     setMessage(
-      `${pieceName} was copied into the site and placed on ${result.page}.`,
+      result.reusedExisting
+        ? `${pieceName} already existed in the site${fileNote}, so the existing file was kept and placed on ${result.page}.`
+        : `${pieceName} was copied into the site${fileNote} and placed on ${result.page}.`,
       true,
     );
   };
