@@ -1,4 +1,13 @@
-import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron';
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  dialog,
+  ipcMain,
+  shell,
+  webContents,
+  type WebContents,
+} from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { buildMenu } from '../app-menu';
@@ -17,12 +26,10 @@ import {
   runAction,
   listPages,
   actionCatalogue,
+  isReadOnlyAction,
   readPageSections,
-  reorderPageSections,
-  deletePageSection,
-  setPageSectionAnchor,
-  duplicatePageSection,
-  insertPageSection,
+  resolveNewPageTarget,
+  resolvePageFile,
   type ActionRequest,
 } from './actions';
 import {
@@ -83,7 +90,6 @@ import { resolveToolPath } from './runtime';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
   applyEdit,
-  escapeText,
   snapshotElement,
   type EditOperation,
   type ElementSnapshot,
@@ -307,6 +313,10 @@ function selectionView() {
 
 function pushSelection(): void {
   send('cauldron:selection', selectionView());
+}
+
+function pushHistory(): void {
+  send('cauldron:history', state.history.state());
 }
 
 async function stopPreview(): Promise<void> {
@@ -575,6 +585,7 @@ async function openSiteAt(root: string) {
   state.site = detected;
   state.selection = null;
   state.history = new History();
+  pushHistory();
   state.runs = new Runs();
   // Read the saved edits once, and keep the failure for last: the status bar
   // shows one message, so a later "site opened" line must not bury it (plan 1.6).
@@ -583,6 +594,7 @@ async function openSiteAt(root: string) {
     site: detected,
     drafts: recovery.drafts,
     recovered: true,
+    history: state.history.state(),
   });
   status(
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
@@ -757,6 +769,20 @@ function claimForRun(id: string | null, file: string): void {
   runClaims.set(id, claims);
 }
 
+function resolveActionFile(
+  root: string,
+  request: ActionRequest,
+): string | null {
+  if ('target' in request) return path.resolve(root, request.target.file);
+  if ('file' in request) return path.resolve(root, request.file);
+  if (request.action === 'createPage') {
+    const resolved = resolveNewPageTarget(root, request.page);
+    return resolved.ok ? resolved.file : null;
+  }
+  if ('page' in request) return resolvePageFile(root, request.page);
+  return null;
+}
+
 /**
  * One path for every edit. `fromAgent` marks writes that arrive through the
  * agent connection, so a run never mistakes the person's own edits for its own.
@@ -764,19 +790,13 @@ function claimForRun(id: string | null, file: string): void {
 function sharedAction(request: ActionRequest, fromAgent = false) {
   const site = state.site;
   if (!site) return { ok: false as const, problem: 'No site is open.' };
-  const relative =
-    'target' in request
-      ? request.target.file
-      : 'file' in request
-        ? request.file
-        : null;
-  const full = relative ? path.resolve(site.root, relative) : null;
+  const full = resolveActionFile(site.root, request);
   const before =
     full && isInside(site.root, full) && fs.existsSync(full)
       ? readFile(full)
       : null;
   const result = runAction(site.root, request);
-  if (result.ok && fromAgent && full && request.action !== 'readSource')
+  if (result.ok && fromAgent && full && !isReadOnlyAction(request.action))
     claimForRun(state.agentRunId, full);
   if (result.ok && full) {
     const exists = fs.existsSync(full);
@@ -802,7 +822,7 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
             : undefined,
         });
     } else if (!before && exists) {
-      // A newly created source file: undo must remove it, not write it empty.
+      // A newly created file (new page or source): undo removes it cleanly.
       const after = readFile(full);
       state.history.record({
         file: full,
@@ -818,6 +838,7 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
         runId: fromAgent ? (state.agentRunId ?? 'agent-connection') : undefined,
       });
     }
+    pushHistory();
     if (before || exists) refreshSelectionFromDisk();
   }
   return result;
@@ -965,6 +986,7 @@ function writeSelection(
         label: 'Edit',
       });
       selection.snapshot = forced.snapshot;
+      pushHistory();
       pushSelection();
       return { ok: true, selection: selectionView() };
     }
@@ -997,6 +1019,7 @@ function writeSelection(
     label: operation.kind === 'text' ? 'Text edit' : 'Style edit',
   });
   selection.snapshot = result.snapshot;
+  pushHistory();
   pushSelection();
   status(`Saved ${relativeFile(selection.location.file)}`);
   return { ok: true, selection: selectionView() };
@@ -1378,6 +1401,7 @@ function registerIpc(): void {
     status: state.status,
     selection: selectionView(),
     drafts: state.site ? storedDrafts(state.site.root) : [],
+    history: state.history.state(),
   }));
 
   handle('cauldron:start-preview', () => startPreview());
@@ -1417,6 +1441,14 @@ function registerIpc(): void {
 
   handle('cauldron:undo', () => undoLast());
   handle('cauldron:redo', () => redoLast());
+  handle('cauldron:text-undo', () => {
+    state.window?.webContents.undo();
+    return true;
+  });
+  handle('cauldron:text-redo', () => {
+    state.window?.webContents.redo();
+    return true;
+  });
 
   handle('cauldron:save-drafts', (_event, drafts: Draft[]) => {
     if (!state.site) return false;
@@ -1789,18 +1821,10 @@ function registerIpc(): void {
         page: string;
         fromIndex: number;
         toIndex: number;
-        baseHash?: string;
+        baseHash: string;
       },
     ) => {
-      const site = requireSite();
-      if ('problem' in site) return site;
-      const res = reorderPageSections(
-        site.root,
-        payload.page,
-        payload.fromIndex,
-        payload.toIndex,
-        payload.baseHash,
-      );
+      const res = sharedAction({ action: 'reorderPageSections', ...payload });
       if (res.ok) state.preview.reload();
       return res;
     },
@@ -1810,16 +1834,9 @@ function registerIpc(): void {
     'cauldron:delete-page-section',
     (
       _event,
-      payload: { page: string; sectionIndex: number; baseHash?: string },
+      payload: { page: string; sectionIndex: number; baseHash: string },
     ) => {
-      const site = requireSite();
-      if ('problem' in site) return site;
-      const res = deletePageSection(
-        site.root,
-        payload.page,
-        payload.sectionIndex,
-        payload.baseHash,
-      );
+      const res = sharedAction({ action: 'deletePageSection', ...payload });
       if (res.ok) state.preview.reload();
       return res;
     },
@@ -1833,18 +1850,10 @@ function registerIpc(): void {
         page: string;
         sectionIndex: number;
         anchorId: string;
-        baseHash?: string;
+        baseHash: string;
       },
     ) => {
-      const site = requireSite();
-      if ('problem' in site) return site;
-      const res = setPageSectionAnchor(
-        site.root,
-        payload.page,
-        payload.sectionIndex,
-        payload.anchorId,
-        payload.baseHash,
-      );
+      const res = sharedAction({ action: 'setPageSectionAnchor', ...payload });
       if (res.ok) state.preview.reload();
       return res;
     },
@@ -1857,17 +1866,10 @@ function registerIpc(): void {
       payload: {
         page: string;
         sectionIndex: number;
-        baseHash?: string;
+        baseHash: string;
       },
     ) => {
-      const site = requireSite();
-      if ('problem' in site) return site;
-      const res = duplicatePageSection(
-        site.root,
-        payload.page,
-        payload.sectionIndex,
-        payload.baseHash,
-      );
+      const res = sharedAction({ action: 'duplicatePageSection', ...payload });
       if (res.ok) state.preview.reload();
       return res;
     },
@@ -1881,18 +1883,10 @@ function registerIpc(): void {
         page: string;
         afterIndex: number;
         sectionCode: string;
-        baseHash?: string;
+        baseHash: string;
       },
     ) => {
-      const site = requireSite();
-      if ('problem' in site) return site;
-      const res = insertPageSection(
-        site.root,
-        payload.page,
-        payload.afterIndex,
-        payload.sectionCode,
-        payload.baseHash,
-      );
+      const res = sharedAction({ action: 'insertPageSection', ...payload });
       if (res.ok) state.preview.reload();
       return res;
     },
@@ -1971,33 +1965,30 @@ function registerIpc(): void {
 }
 
 async function createPage(page: { path: string; title: string }) {
-  const site = requireSite();
-  if ('problem' in site) return site;
-  const clean = page.path.replace(/^\/+/, '').replace(/\.astro$/, '');
-  if (!/^[a-z0-9][a-z0-9\-/]*$/.test(clean)) {
-    return {
-      problem:
-        'Page addresses can only use lowercase letters, numbers and dashes.',
-    };
-  }
-  const file = path.join(site.root, 'src/pages', `${clean}.astro`);
-  if (!isInside(site.root, file))
-    return { problem: 'That page would sit outside the site.' };
-  if (fs.existsSync(file))
-    return { problem: 'A page already exists at that address.' };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const title = escapeText(page.title.trim() || clean);
-  fs.writeFileSync(
-    file,
-    `---\n---\n<!doctype html>\n<html lang="en-AU">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${title}</title>\n  </head>\n  <body>\n    <h1>${title}</h1>\n  </body>\n</html>\n`,
-    'utf8',
+  const created = sharedAction({
+    action: 'createPage',
+    page: page.path,
+    title: page.title,
+  });
+  if (!created.ok) return created;
+
+  const file = String(created.file);
+  const clean = String(
+    created.clean ??
+      page.path
+        .trim()
+        .replace(/^\/+|\/+$/g, '')
+        .replace(/\.astro$/, ''),
   );
-  const previewUrl = state.preview.webContents?.getURL();
-  const baseOrigin =
-    previewUrl && previewUrl.startsWith('http')
-      ? `${new URL(previewUrl).origin}/`
-      : 'http://127.0.0.1:4321/';
-  const baseUrl = state.server?.url ?? baseOrigin;
+
+  // Only poll/navigate when Cauldron's own preview dev server is running;
+  // never fall back to an unowned port like 127.0.0.1:4321.
+  const baseUrl = state.server?.url;
+  if (!baseUrl) {
+    status(`Created ${file}`);
+    return { ok: true, file, url: null };
+  }
+
   const url = new URL(`/${clean}/`, baseUrl).href;
   // Astro's route watcher is asynchronous. Wait for the new route, then
   // navigate once; loading its temporary 404 does not subscribe to HMR.
@@ -2027,13 +2018,24 @@ async function createPage(page: { path: string; title: string }) {
     }
     return {
       ok: false,
-      problem:
-        'The page was created, but Astro has not made its preview ready yet.',
+      file,
+      problem: `Created ${file}, but Astro has not made its preview ready yet.`,
     };
   }
-  await state.preview.load(url);
-  status(`Created ${path.relative(site.root, file)}`);
-  return { ok: true, file: path.relative(site.root, file), url };
+  try {
+    await state.preview.load(url);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`createPage preview load failed for ${url}:`, error);
+    fail(`Created ${file}, but the preview could not open it: ${detail}`);
+    return {
+      ok: false,
+      file,
+      problem: `Created ${file}, but the preview could not open it: ${detail}`,
+    };
+  }
+  status(`Created ${file}`);
+  return { ok: true, file, url };
 }
 
 /** Brings back text typed before a crash, using the same checked write path as any other edit. */
@@ -2414,6 +2416,7 @@ function undoLast(): { ok: boolean; problem?: string } {
     status(result.problem);
     return { ok: false, problem: result.problem };
   }
+  pushHistory();
   refreshSelectionFromDisk();
   status('Undone');
   return { ok: true };
@@ -2425,6 +2428,7 @@ function redoLast(): { ok: boolean; problem?: string } {
     status(result.problem);
     return { ok: false, problem: result.problem };
   }
+  pushHistory();
   refreshSelectionFromDisk();
   status('Redone');
   return { ok: true };
@@ -2831,6 +2835,53 @@ function harnessApi() {
   };
 }
 
+async function isTextInputActiveIn(target: WebContents): Promise<boolean> {
+  if (target.isDestroyed()) return false;
+  try {
+    return Boolean(
+      await target.executeJavaScript(
+        `(() => {
+          const el = document.activeElement;
+          if (!el || !(el instanceof HTMLElement)) return false;
+          if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+          if (el.tagName === 'INPUT') {
+            const type = (el.type || 'text').toLowerCase();
+            return !['button','submit','reset','checkbox','radio','file','image','range','color'].includes(type);
+          }
+          return false;
+        })()`,
+      ),
+    );
+  } catch (error) {
+    console.warn(
+      'Could not inspect preview activeElement for undo routing:',
+      error,
+    );
+    return false;
+  }
+}
+
+async function routeEditShortcut(kind: 'undo' | 'redo'): Promise<void> {
+  const focused = webContents.getFocusedWebContents();
+  const editor = state.window?.webContents;
+  if (focused && (!editor || focused.id !== editor.id)) {
+    const preview = state.preview.webContents;
+    if (preview && focused.id === preview.id) {
+      if (await isTextInputActiveIn(focused)) {
+        if (kind === 'undo') focused.undo();
+        else focused.redo();
+        return;
+      }
+      send('cauldron:menu', { action: kind, editorFocused: false });
+      return;
+    }
+    if (kind === 'undo') focused.undo();
+    else focused.redo();
+    return;
+  }
+  send('cauldron:menu', { action: kind, editorFocused: true });
+}
+
 export function start(): void {
   process.on('exit', () => {
     state.server?.stop();
@@ -2880,6 +2931,12 @@ export function start(): void {
         onNewProject: () => send('cauldron:menu', { action: 'new-project' }),
         onOpenProject: () => send('cauldron:menu', { action: 'open-project' }),
         onProjectHome: () => send('cauldron:menu', { action: 'project-home' }),
+        onUndo: () => {
+          void routeEditShortcut('undo');
+        },
+        onRedo: () => {
+          void routeEditShortcut('redo');
+        },
       }),
     );
     registerIpc();

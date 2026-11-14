@@ -45,6 +45,8 @@ registerHooks({
 const {
   runAction,
   actionCatalogue,
+  isReadOnlyAction,
+  createPageFile,
   readPageSections,
   reorderPageSections,
   deletePageSection,
@@ -2879,7 +2881,9 @@ test('fablefixes 9: an anchor lands on the section itself and refuses unsafe tex
   const content = `<main>\n  <section class="hero">\n    <div data-id="keep" id="child">Hi</div>\n  </section>\n  <section id='two'>Two</section>\n</main>\n`;
   fs.writeFileSync(file, content, 'utf8');
 
-  const added = setPageSectionAnchor(dir, '/', 0, '#intro');
+  const initial = readPageSections(dir, '/');
+  assert.equal(initial.ok, true);
+  const added = setPageSectionAnchor(dir, '/', 0, '#intro', initial.hash);
   assert.equal(added.ok, true);
   assert.equal(
     fs.readFileSync(file, 'utf8'),
@@ -2889,7 +2893,7 @@ test('fablefixes 9: an anchor lands on the section itself and refuses unsafe tex
     ),
   );
 
-  const replaced = setPageSectionAnchor(dir, '/', 1, 'second');
+  const replaced = setPageSectionAnchor(dir, '/', 1, 'second', added.hash);
   assert.equal(replaced.ok, true);
   assert.ok(fs.readFileSync(file, 'utf8').includes("<section id='second'>Two"));
   assert.ok(
@@ -2898,7 +2902,7 @@ test('fablefixes 9: an anchor lands on the section itself and refuses unsafe tex
 
   const before = fs.readFileSync(file, 'utf8');
   for (const unsafe of ['a" onclick="x', 'two words', '', '9lives', 'a<b']) {
-    const refused = setPageSectionAnchor(dir, '/', 0, unsafe);
+    const refused = setPageSectionAnchor(dir, '/', 0, unsafe, replaced.hash);
     assert.equal(refused.ok, false, unsafe);
   }
   assert.equal(fs.readFileSync(file, 'utf8'), before);
@@ -3307,6 +3311,135 @@ test('WDL-212 agent stream reducer preserves progress across events', () => {
   );
   assert.equal(failedStart.running, false);
   assert.equal(failedStart.message, 'No tool found.');
+});
+
+test('WDL-192: outline edits require baseHash and leave the file untouched when missing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl-192-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const file = path.join(dir, 'src/pages/index.astro');
+  const content = `<main>\n  <section>One</section>\n  <section>Two</section>\n</main>\n`;
+  fs.writeFileSync(file, content, 'utf8');
+
+  for (const baseHash of [undefined, '']) {
+    assert.equal(reorderPageSections(dir, '/', 0, 1, baseHash).ok, false);
+    assert.equal(deletePageSection(dir, '/', 0, baseHash).ok, false);
+    assert.equal(setPageSectionAnchor(dir, '/', 0, 'one', baseHash).ok, false);
+    assert.equal(duplicatePageSection(dir, '/', 0, baseHash).ok, false);
+    assert.equal(
+      insertPageSection(dir, '/', -1, { kind: 'Hero' }, baseHash).ok,
+      false,
+    );
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), content);
+});
+
+test('WDL-160 / WDL-202 / WDL-207: createPageFile writes atomically and History undoes and redoes created pages', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl-160-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src/pages/index.astro'), '<h1>Home</h1>\n');
+
+  const created = createPageFile(dir, '/about/', 'About Us');
+  assert.equal(created.ok, true);
+  assert.equal(created.clean, 'about');
+  assert.equal(created.file, 'src/pages/about.astro');
+  const full = path.join(dir, created.file);
+  assert.ok(fs.existsSync(full));
+  const initialBody = fs.readFileSync(full, 'utf8');
+  assert.ok(initialBody.includes('<title>About Us</title>'));
+  assert.equal(
+    fs
+      .readdirSync(path.join(dir, 'src/pages'))
+      .filter((name) => name.includes('.cauldron-')).length,
+    0,
+  );
+
+  // Refuses existing page without overwriting
+  const duplicate = createPageFile(dir, '/about', 'Other');
+  assert.equal(duplicate.ok, false);
+  assert.equal(fs.readFileSync(full, 'utf8'), initialBody);
+
+  // History undo removes unedited created page, redo recreates it, undo refuses if edited
+  const history = new History();
+  history.record({
+    file: full,
+    location: { file: full },
+    operation: 'create',
+    before: '',
+    after: initialBody,
+    beforeHash: hashOf(''),
+    afterHash: hashOf(initialBody),
+    label: 'Create page /about',
+    created: true,
+    root: dir,
+  });
+  const undone = history.undo();
+  assert.equal('problem' in undone, false);
+  assert.equal(fs.existsSync(full), false);
+
+  const redone = history.redo();
+  assert.equal('problem' in redone, false);
+  assert.equal(fs.readFileSync(full, 'utf8'), initialBody);
+
+  fs.writeFileSync(full, `${initialBody}<!-- edited -->\n`, 'utf8');
+  const blockedUndo = history.undo();
+  assert.equal('problem' in blockedUndo, true);
+  assert.match(blockedUndo.problem, /changed since/i);
+});
+
+test('WDL-207: Runs.undo and persist leave no temporary files behind', () => {
+  const { Runs } = runsApi();
+  const site = runSite('atomic');
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-runs-ud-'));
+  const previousUserData = globalThis.__cauldronUserData;
+  globalThis.__cauldronUserData = userData;
+  try {
+    fs.writeFileSync(path.join(site, 'public/logo.png'), png);
+    const runs = new Runs();
+    const run = runs.start(site, 'claude', 'replace logo');
+    fs.writeFileSync(
+      path.join(site, 'public/logo.png'),
+      Buffer.concat([png, Buffer.from([1, 2, 3])]),
+    );
+    runs.finish(site, run.id);
+    assert.deepEqual(runs.undo(site, run.id), { ok: true });
+    assert.deepEqual(fs.readFileSync(path.join(site, 'public/logo.png')), png);
+    assert.equal(
+      fs
+        .readdirSync(path.join(site, 'public'))
+        .filter((name) => name.includes('.cauldron-')).length,
+      0,
+    );
+    const runsFolder = path.join(userData, 'runs');
+    const siteRunFolders = fs.readdirSync(runsFolder);
+    assert.equal(siteRunFolders.length, 1);
+    const runEntries = fs.readdirSync(path.join(runsFolder, siteRunFolders[0]));
+    assert.ok(runEntries.some((name) => name.endsWith('.json')));
+    assert.equal(
+      runEntries.filter((name) => name.includes('.cauldron-')).length,
+      0,
+    );
+  } finally {
+    globalThis.__cauldronUserData = previousUserData;
+  }
+});
+
+test('Codex review P1: read-only actions never claim run ownership', () => {
+  for (const action of [
+    'listPages',
+    'readPageOutline',
+    'readPageSections',
+    'readSource',
+  ]) {
+    assert.equal(isReadOnlyAction(action), true, action);
+  }
+  for (const action of [
+    'editElementText',
+    'reorderPageSections',
+    'createPage',
+    'writeSource',
+  ]) {
+    assert.equal(isReadOnlyAction(action), false, action);
+  }
 });
 
 process.exitCode = failures ? 1 : 0;

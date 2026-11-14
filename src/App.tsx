@@ -44,6 +44,29 @@ const AGENT_MAX = 620;
 const INSPECTOR_MIN = 260;
 const INSPECTOR_MAX = 460;
 
+function isTextInputFocused(): boolean {
+  if (!document.hasFocus()) return false;
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  if (el.tagName === 'TEXTAREA') return true;
+  if (el.tagName === 'INPUT') {
+    const type = (el as HTMLInputElement).type.toLowerCase();
+    return ![
+      'button',
+      'submit',
+      'reset',
+      'checkbox',
+      'radio',
+      'file',
+      'image',
+      'range',
+      'color',
+    ].includes(type);
+  }
+  return false;
+}
+
 function ConfirmDialog({
   ariaLabel,
   title,
@@ -201,6 +224,12 @@ export function App() {
   const [contentUnsaved, setContentUnsaved] = useState(false);
   const [confirmDiscardDrafts, setConfirmDiscardDrafts] = useState(false);
   const [draftResetVersion, setDraftResetVersion] = useState(0);
+  const [historyState, setHistoryState] = useState<{
+    canUndo: boolean;
+    canRedo: boolean;
+  }>({ canUndo: false, canRedo: false });
+  const undoRef = useRef<() => Promise<void>>(async () => {});
+  const redoRef = useRef<() => Promise<void>>(async () => {});
 
   // Load whatever the app already knows, then follow it.
   useEffect(() => {
@@ -213,6 +242,8 @@ export function App() {
       }
       setPreview({ running: state.running, url: state.url });
       setSelection(state.selection);
+      if (state.history) setHistoryState(state.history);
+      else if (state.selection) setHistoryState(state.selection.history);
       recoveryDraftKeys.current = new Set(
         state.drafts.map((draft) => draft.key),
       );
@@ -226,6 +257,7 @@ export function App() {
         site: CauldronSite | null;
         drafts: CauldronDraft[];
         recovered?: boolean;
+        history?: { canUndo: boolean; canRedo: boolean };
       };
       const isNewSite =
         Boolean(next.site) && next.site?.root !== currentSiteRootRef.current;
@@ -254,6 +286,9 @@ export function App() {
       setConflict(null);
       if (isNewSite || !next.site) {
         setAgentStream(INITIAL_AGENT_STREAM);
+        setHistoryState(next.history ?? { canUndo: false, canRedo: false });
+      } else if (next.history) {
+        setHistoryState(next.history);
       }
       if (isNewSite) {
         setView('build');
@@ -298,7 +333,13 @@ export function App() {
 
     const offMenu = window.cauldron.on('cauldron:menu', (payload: never) => {
       const action = payload as unknown as {
-        action: 'new-project' | 'open-project' | 'project-home';
+        action:
+          | 'new-project'
+          | 'open-project'
+          | 'project-home'
+          | 'undo'
+          | 'redo';
+        editorFocused?: boolean;
       };
       if (action.action === 'project-home') setView('projects');
       if (action.action === 'new-project') {
@@ -306,7 +347,30 @@ export function App() {
         setNewFormSignal((signal) => signal + 1);
       }
       if (action.action === 'open-project') openSiteRef.current();
+      if (action.action === 'undo') {
+        if (action.editorFocused !== false && isTextInputFocused()) {
+          void window.cauldron.textUndo();
+        } else {
+          void undoRef.current();
+        }
+      }
+      if (action.action === 'redo') {
+        if (action.editorFocused !== false && isTextInputFocused()) {
+          void window.cauldron.textRedo();
+        } else {
+          void redoRef.current();
+        }
+      }
     });
+
+    const offHistory = window.cauldron.on(
+      'cauldron:history',
+      (payload: never) => {
+        setHistoryState(
+          payload as unknown as { canUndo: boolean; canRedo: boolean },
+        );
+      },
+    );
 
     const offAgentEvent = window.cauldron.on(
       'cauldron:agent-event',
@@ -332,10 +396,30 @@ export function App() {
       offSelection();
       offDrafts();
       offMenu();
+      offHistory();
       offAgentEvent();
       offAgentDone();
     };
   }, [refreshAgentRuns]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        (!event.metaKey && !event.ctrlKey) ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'z' ||
+        isTextInputFocused()
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (event.shiftKey) void redoRef.current();
+      else void undoRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (view === 'build' || view === 'quality' || !site?.root) {
@@ -608,20 +692,28 @@ export function App() {
     if (!result.ok) setProblem(result.problem ?? 'Nothing could be undone.');
     setConflict(null);
   }, []);
+  undoRef.current = undo;
 
   const redo = useCallback(async () => {
     const result = await window.cauldron.redo();
     if (!result.ok) setProblem(result.problem ?? 'Nothing could be redone.');
     setConflict(null);
   }, []);
+  redoRef.current = redo;
 
   const newPage = useCallback(async (page: { path: string; title: string }) => {
-    const result = await window.cauldron.newPage(page);
-    if ('problem' in result) setProblem(result.problem);
+    try {
+      const result = await window.cauldron.newPage(page);
+      if ('problem' in result && result.problem) setProblem(result.problem);
+    } catch (error) {
+      setProblem(
+        error instanceof Error ? error.message : 'Could not create the page.',
+      );
+    }
   }, []);
 
-  const canUndo = selection?.history.canUndo ?? false;
-  const canRedo = selection?.history.canRedo ?? false;
+  const canUndo = historyState.canUndo;
+  const canRedo = historyState.canRedo;
 
   const discardConfirmedDrafts = useCallback(async () => {
     setConfirmDiscardDrafts(false);
