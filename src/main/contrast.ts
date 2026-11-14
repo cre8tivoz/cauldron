@@ -16,6 +16,11 @@ const NAMED: Record<string, Rgba> = {
   transparent: { r: 0, g: 0, b: 0, a: 0 },
   black: { r: 0, g: 0, b: 0, a: 1 },
   white: { r: 255, g: 255, b: 255, a: 1 },
+  red: { r: 255, g: 0, b: 0, a: 1 },
+  blue: { r: 0, g: 0, b: 255, a: 1 },
+  green: { r: 0, g: 128, b: 0, a: 1 },
+  grey: { r: 128, g: 128, b: 128, a: 1 },
+  gray: { r: 128, g: 128, b: 128, a: 1 },
 };
 
 export function parseColour(value: string | null | undefined): Rgba | null {
@@ -50,11 +55,66 @@ export function parseColour(value: string | null | undefined): Rgba | null {
         r: parts[0],
         g: parts[1],
         b: parts[2],
-        a: parts.length > 3 ? parts[3] : 1,
+        a:
+          parts[3] === undefined
+            ? 1
+            : parts[3] <= 1
+              ? parts[3]
+              : parts[3] / 255,
       };
     }
   }
+  const hsl = /^hsla?\(([^)]*)\)$/.exec(text);
+  if (hsl) {
+    const parts = hsl[1].split(/[\s,/]+/).filter(Boolean);
+    const hue = Number.parseFloat(parts[0]);
+    const saturation = Number.parseFloat(parts[1]) / 100;
+    const lightness = Number.parseFloat(parts[2]) / 100;
+    if (![hue, saturation, lightness].every(Number.isFinite)) return null;
+    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const sector = (((hue % 360) + 360) % 360) / 60;
+    const second = chroma * (1 - Math.abs((sector % 2) - 1));
+    const [r, g, b] =
+      sector < 1
+        ? [chroma, second, 0]
+        : sector < 2
+          ? [second, chroma, 0]
+          : sector < 3
+            ? [0, chroma, second]
+            : sector < 4
+              ? [0, second, chroma]
+              : sector < 5
+                ? [second, 0, chroma]
+                : [chroma, 0, second];
+    const light = lightness - chroma / 2;
+    const toByte = (v: number) => Math.round((v + light) * 255);
+    const alpha = parts[3] === undefined ? 1 : Number.parseFloat(parts[3]);
+    return {
+      r: toByte(r),
+      g: toByte(g),
+      b: toByte(b),
+      a: Number.isFinite(alpha) ? alpha : 1,
+    };
+  }
   return null;
+}
+
+export function parseColourTuple(
+  value: string | null | undefined,
+): [number, number, number, number] | null {
+  const parsed = parseColour(value);
+  return parsed ? [parsed.r, parsed.g, parsed.b, parsed.a] : null;
+}
+
+function asRgba(value: Rgba | number[]): Rgba {
+  return Array.isArray(value)
+    ? {
+        r: value[0] ?? 0,
+        g: value[1] ?? 0,
+        b: value[2] ?? 0,
+        a: value[3] ?? 1,
+      }
+    : value;
 }
 
 /** Paints a translucent colour over what is behind it, as the screen does. */
@@ -69,26 +129,31 @@ export function over(front: Rgba, behind: Rgba): Rgba {
   };
 }
 
-export function luminance(colour: Rgba): number {
+export function luminance(colour: Rgba | number[]): number {
+  const c = asRgba(colour);
   const channel = (value: number) => {
     const s = value / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
-  return (
-    0.2126 * channel(colour.r) +
-    0.7152 * channel(colour.g) +
-    0.0722 * channel(colour.b)
-  );
+  return 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
 }
 
 export function contrastRatio(
-  foreground: string | Rgba | null,
-  background: string | Rgba | null,
+  foreground: string | Rgba | number[] | null,
+  background: string | Rgba | number[] | null,
 ): number {
   const front =
-    typeof foreground === 'string' ? parseColour(foreground) : foreground;
+    typeof foreground === 'string'
+      ? parseColour(foreground)
+      : foreground
+        ? asRgba(foreground)
+        : null;
   const back =
-    typeof background === 'string' ? parseColour(background) : background;
+    typeof background === 'string'
+      ? parseColour(background)
+      : background
+        ? asRgba(background)
+        : null;
   if (!front || !back) return 0;
   const painted = over(front, back);
   const light = Math.max(luminance(painted), luminance(back));
