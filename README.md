@@ -40,7 +40,7 @@ Both run automatically on pushes to `main` and on pull requests.
 
 ## How it's made
 
-Electron, React and TypeScript, packaged with Electron Forge. The interface uses Source Sans 3, which is free to bundle.
+Electron, React and TypeScript, packaged with Electron Forge. The interface uses Source Sans 3, which is free to bundle; specimen display fonts load from Google Fonts only when the Design directions screen is opened.
 
 The thinking behind how it works — why it's built this way rather than another — is written down in [`docs/adr`](docs/adr).
 

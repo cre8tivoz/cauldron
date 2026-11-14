@@ -1,6 +1,20 @@
-import { WebContentsView, type BrowserWindow, type Rectangle } from 'electron';
+import {
+  WebContentsView,
+  type BrowserWindow,
+  type Rectangle,
+  type WebContents,
+} from 'electron';
 
 export type Report = { kind: 'height' | 'pick'; payload: unknown };
+
+/** Lock down pop-ups and device permissions on the isolated preview view. */
+export function configurePreviewSecurity(contents: WebContents): void {
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  contents.session.setPermissionCheckHandler(() => false);
+  contents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
+    callback(false);
+  });
+}
 
 function isNavigationAborted(error: unknown): boolean {
   const err = error as { code?: string; errno?: number; message?: string };
@@ -36,6 +50,7 @@ export class Preview {
         webSecurity: true,
       },
     });
+    configurePreviewSecurity(this.view.webContents);
     window.contentView.addChildView(this.view);
   }
 

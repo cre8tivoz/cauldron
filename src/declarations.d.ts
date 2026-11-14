@@ -249,6 +249,7 @@ type CauldronApi = {
     running: boolean;
     url: string | null;
     status: string[];
+    problem?: string | null;
     selection: CauldronSelection | null;
     drafts: CauldronDraft[];
     history?: { canUndo: boolean; canRedo: boolean };
@@ -357,6 +358,12 @@ type CauldronApi = {
   saveAssetImage: (payload: {
     fileName: string;
     base64: string;
+  }) => Promise<
+    { ok: true; relativePath: string } | { ok: false; problem: string }
+  >;
+  saveStockPhoto: (payload: {
+    photoId: string;
+    url: string;
   }) => Promise<
     { ok: true; relativePath: string } | { ok: false; problem: string }
   >;

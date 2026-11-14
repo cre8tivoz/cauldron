@@ -77,30 +77,24 @@ export function AssetTray({
   const handleSavePhotoToSite = async (photo: CauldronStockPhoto) => {
     setStatusMessage(`Importing ${photo.title}…`);
     try {
-      const response = await fetch(photo.fullUrl);
-      const blob = await response.blob();
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = (reader.result as string).split(',')[1];
-        const fileName = `${photo.id}.jpg`;
-        const res = await window.cauldron.saveAssetImage({
-          fileName,
-          base64,
-        });
-        if (res.ok) {
-          setStatusMessage(`Saved to ${res.relativePath}`);
-          if (selection && onApplyAttribute && selection.name === 'img') {
-            onApplyAttribute('src', res.relativePath);
-          }
-        } else {
-          setStatusMessage(res.problem ?? 'Import failed.');
+      const res = await window.cauldron.saveStockPhoto({
+        photoId: photo.id,
+        url: photo.fullUrl,
+      });
+      if (res.ok) {
+        setStatusMessage(`Saved to ${res.relativePath}`);
+        if (selection && onApplyAttribute && selection.name === 'img') {
+          onApplyAttribute('src', res.relativePath);
         }
-      };
-      reader.readAsDataURL(blob);
+      } else {
+        const problem = res.problem ?? 'Import failed.';
+        console.error(problem);
+        setStatusMessage(problem);
+      }
     } catch (e) {
-      setStatusMessage(
-        `Download failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      const problem = `Download failed: ${e instanceof Error ? e.message : String(e)}`;
+      console.error(problem);
+      setStatusMessage(problem);
     }
   };
 

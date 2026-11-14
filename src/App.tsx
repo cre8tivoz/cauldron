@@ -250,6 +250,7 @@ export function App() {
       setDrafts(state.drafts);
       if (state.status.length > 0)
         setStatus(state.status[state.status.length - 1]);
+      if (state.problem) setProblem(state.problem);
     });
 
     const offSite = window.cauldron.on('cauldron:site', (payload: never) => {
@@ -307,6 +308,13 @@ export function App() {
       'cauldron:status',
       (payload: never) => {
         setStatus(payload as unknown as string);
+      },
+    );
+
+    const offProblem = window.cauldron.on(
+      'cauldron:problem',
+      (payload: never) => {
+        setProblem(payload as unknown as string);
       },
     );
 
@@ -389,16 +397,46 @@ export function App() {
       },
     );
 
+    const onWindowError = (event: ErrorEvent) => {
+      const msg = event.error
+        ? event.error instanceof Error
+          ? event.error.message
+          : String(event.error)
+        : event.message;
+      if (
+        !event.error &&
+        (msg === 'ResizeObserver loop limit exceeded' ||
+          msg ===
+            'ResizeObserver loop completed with undelivered notifications')
+      ) {
+        return;
+      }
+      setProblem(`Unexpected error: ${msg || 'Unknown renderer error'}`);
+    };
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const msg =
+        reason instanceof Error
+          ? reason.message
+          : String(reason ?? 'Unknown error');
+      setProblem(`Unexpected error: ${msg}`);
+    };
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
     return () => {
       offSite();
       offPreview();
       offStatus();
+      offProblem();
       offSelection();
       offDrafts();
       offMenu();
       offHistory();
       offAgentEvent();
       offAgentDone();
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
   }, [refreshAgentRuns]);
 
@@ -463,8 +501,15 @@ export function App() {
   }, [view]);
 
   useEffect(() => {
-    void window.cauldron.pickMode(picking);
-  }, [picking]);
+    if (!site || !preview.running) return;
+    void window.cauldron.pickMode(picking).catch((err) => {
+      setProblem(
+        `Could not update click-to-select mode: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    });
+  }, [picking, site, preview.running]);
 
   const queueDraft = useCallback(
     (field: string, value: string) => {

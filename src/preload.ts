@@ -4,6 +4,7 @@ const EVENTS = [
   'cauldron:site',
   'cauldron:preview',
   'cauldron:status',
+  'cauldron:problem',
   'cauldron:selection',
   'cauldron:history',
   'cauldron:preview-height',
@@ -85,6 +86,8 @@ const api = {
     ipcRenderer.invoke('cauldron:stock-photos', { query, directionId }),
   saveAssetImage: (payload: { fileName: string; base64: string }) =>
     ipcRenderer.invoke('cauldron:save-asset-image', payload),
+  saveStockPhoto: (payload: { photoId: string; url: string }) =>
+    ipcRenderer.invoke('cauldron:save-stock-photo', payload),
   qualityRun: (payload: { pages?: string[] }) =>
     ipcRenderer.invoke('cauldron:quality-run', payload),
   addPiece: (payload: {

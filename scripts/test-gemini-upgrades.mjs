@@ -515,6 +515,26 @@ test('Phase 4: Curated photography list is populated and asset saving validates 
     false,
     'absolute path traversal must be rejected',
   );
+
+  // WDL-188: colliding names rename cleanly instead of overwriting, or refuse when asked
+  const secondBuffer = Buffer.from('second-jpeg-binary-data');
+  const collideRename = saveAssetFile(root, 'test.jpg', secondBuffer);
+  assert.equal(collideRename.ok, true);
+  assert.equal(collideRename.relativePath, '/images/test-2.jpg');
+  assert.deepEqual(
+    fs.readFileSync(expectedFile),
+    testBuffer,
+    'original file must not be overwritten',
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(root, 'public/images/test-2.jpg')),
+    secondBuffer,
+  );
+
+  const collideRefuse = saveAssetFile(root, 'test.jpg', secondBuffer, {
+    onCollision: 'refuse',
+  });
+  assert.equal(collideRefuse.ok, false);
 });
 
 // -----------------------------------------------------------------------------

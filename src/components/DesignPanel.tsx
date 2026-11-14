@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 
+export const SPECIMEN_GOOGLE_FONTS_URL =
+  'https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Bitter:wght@400;600&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Cormorant+Garamond:wght@400;600;700&family=EB+Garamond:wght@400;600;700&family=Figtree:wght@400;600&family=Fraunces:opsz,wght@9..144,400..700&family=Geist:wght@400;600;700&family=Instrument+Serif:ital@0;1&family=Jost:wght@400;500;600&family=Karla:wght@400;500;600&family=Libre+Franklin:wght@400;600&family=Lora:ital,wght@0,400..700;1,400..700&family=Manrope:wght@400;600;700&family=Newsreader:opsz,wght@6..72,400..700&family=Nunito:wght@400;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Public+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;600;700&family=Syne:wght@400;700;800&family=Work+Sans:wght@400;500;600&family=Young+Serif&display=swap';
+
 type Props = {
   site: CauldronSite | null;
   current: CauldronDirectionSummary | null;
@@ -159,6 +162,20 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
 
   useEffect(() => {
     void window.cauldron.directions().then(setDirections);
+  }, []);
+
+  useEffect(() => {
+    if (document.getElementById('cauldron-specimen-fonts')) return;
+    const link = document.createElement('link');
+    link.id = 'cauldron-specimen-fonts';
+    link.rel = 'stylesheet';
+    link.href = SPECIMEN_GOOGLE_FONTS_URL;
+    link.onerror = () => {
+      console.warn(
+        'Specimen preview fonts could not be loaded; falling back to system fonts.',
+      );
+    };
+    document.head.appendChild(link);
   }, []);
 
   const choose = async (direction: CauldronDirectionSummary) => {
