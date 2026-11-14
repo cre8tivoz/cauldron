@@ -348,6 +348,9 @@ type CauldronApi = {
   deployCloudflare: (projectName?: string) => Promise<{
     ok: boolean;
     url?: string;
+    note?: string;
+    isAuthError?: boolean;
+    createdFiles?: string[];
     problem?: string;
     log?: string;
   }>;
@@ -516,12 +519,15 @@ type CauldronApi = {
   cancelPrepare: () => Promise<boolean>;
   installMissingPackages: (packages?: string[]) => Promise<{
     ok: boolean;
+    cancelled?: boolean;
+    timedOut?: boolean;
     manager?: string;
     storeDir?: string;
     log?: string;
     problem?: string;
     site?: CauldronSite;
   }>;
+  cancelInstallPackages: () => Promise<boolean>;
   removeRecent: (
     projectPath: string,
   ) => Promise<{ ok: boolean; problem?: string }>;

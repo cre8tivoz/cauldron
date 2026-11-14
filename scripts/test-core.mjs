@@ -76,7 +76,21 @@ const {
 } = await import('../src/main/actions.ts');
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
-const { findMissingPackages } = await import('../src/main/dependencies.ts');
+const {
+  findMissingPackages,
+  planMissingPackageInstall,
+  startInstallMissingPackages,
+} = await import('../src/main/dependencies.ts');
+const { resolveAstroOutDir, resolveSiteBuildConfig, buildSiteAsync } =
+  await import('../src/main/quality.ts');
+const {
+  repoStateAsync,
+  publishAsync,
+  exportStaticSiteAsync,
+  deployCloudflarePagesAsync,
+  parseCloudflarePagesUrl,
+  classifyWranglerFailure,
+} = await import('../src/main/publishing.ts');
 const { downloadAndSaveStockPhoto, extensionForImageMime } =
   await import('../src/main/assets.ts');
 const { configurePreviewSecurity } = await import('../src/main/preview.ts');
@@ -196,6 +210,159 @@ const axeOutcome = await (async () => {
   } finally {
     console.error = original;
   }
+})();
+const batchEResults = await (async () => {
+  // WDL-216 + WDL-204: custom outDir build + async export & deploy + async Git
+  const siteRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-batche-'));
+  fs.mkdirSync(path.join(siteRoot, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(siteRoot, 'astro.config.mjs'),
+    "// outDir: 'commented-out'\nexport default {\n  outDir: './custom-out',\n};\n",
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(siteRoot, 'package.json'),
+    JSON.stringify({
+      name: 'batch-e-site',
+      scripts: {
+        build:
+          "node -e \"const fs=require('node:fs'); fs.mkdirSync('custom-out',{recursive:true}); fs.writeFileSync('custom-out/index.html','<!doctype html><h1>Custom Out</h1>');\"",
+      },
+    }),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(siteRoot, 'src/pages/index.astro'),
+    '<h1>Hello</h1>\n',
+    'utf8',
+  );
+
+  const customOutDir = resolveAstroOutDir(siteRoot);
+  const buildAsyncRes = await buildSiteAsync(siteRoot);
+  const exportAsyncRes = await exportStaticSiteAsync(siteRoot);
+
+  // Codex P1 regression: conditional/ternary outDir must not match inactive branch or delete public/
+  const condRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-cond-out-'));
+  fs.mkdirSync(path.join(condRoot, 'public'), { recursive: true });
+  fs.writeFileSync(
+    path.join(condRoot, 'public/favicon.svg'),
+    '<svg></svg>\n',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(condRoot, 'astro.config.mjs'),
+    "import { defineConfig } from 'astro/config';\nexport default defineConfig(false ? { outDir: './public' } : {});\n",
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(condRoot, 'package.json'),
+    JSON.stringify({
+      name: 'cond-site',
+      scripts: { build: 'node -e "process.exit(0)"' },
+    }),
+    'utf8',
+  );
+  const condResolvedDist = resolveAstroOutDir(condRoot);
+  await buildSiteAsync(condRoot);
+  const publicStillExists = fs.existsSync(
+    path.join(condRoot, 'public/favicon.svg'),
+  );
+
+  // deployCloudflarePagesAsync with injected runner (WDL-151 + WDL-204)
+  const deployNoUrl = await deployCloudflarePagesAsync(
+    siteRoot,
+    'batch-e-site',
+    {
+      runner: async () => ({
+        status: 0,
+        stdout: 'Uploading files...\nDeployment complete!\n',
+        stderr: '',
+      }),
+    },
+  );
+  const wranglerAfterNoOpt = fs.existsSync(
+    path.join(siteRoot, 'wrangler.toml'),
+  );
+  const deployWithUrl = await deployCloudflarePagesAsync(
+    siteRoot,
+    'batch-e-site',
+    {
+      runner: async () => ({
+        status: 0,
+        stdout:
+          'Deployment complete! Take a peek over at https://batch-e-site.pages.dev\n',
+        stderr: '',
+      }),
+    },
+  );
+  const deployProjectError = await deployCloudflarePagesAsync(
+    siteRoot,
+    'batch-e-site',
+    {
+      runner: async () => ({
+        status: 1,
+        stdout: '',
+        stderr: '✘ [ERROR] Project not found. Please verify your project name.',
+      }),
+    },
+  );
+
+  // WDL-204: repoStateAsync & publishAsync against an initialized temp Git repo
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('git', ['init'], { cwd: siteRoot });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: siteRoot });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], {
+    cwd: siteRoot,
+  });
+  const repoBefore = await repoStateAsync(siteRoot);
+  const pubRes = await publishAsync(siteRoot, {
+    message: 'Initial Batch E commit',
+    push: false,
+  });
+  const repoAfter = await repoStateAsync(siteRoot);
+
+  // WDL-200: timeout + cancel on a hung installer subprocess
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-stub-bin-'));
+  const sleeperPath = path.join(stubDir, 'fake-pkg-mgr');
+  fs.writeFileSync(
+    sleeperPath,
+    '#!/usr/bin/env node\nsetTimeout(() => {}, 10000);\n',
+    { mode: 0o755 },
+  );
+  const timeoutRes = await startInstallMissingPackages(
+    siteRoot,
+    ['lucide-react'],
+    {
+      timeoutMs: 120,
+      resolveToolOverride: (tool) => (tool === 'npm' ? sleeperPath : null),
+    },
+  ).promise;
+
+  const cancelHandle = startInstallMissingPackages(siteRoot, ['lucide-react'], {
+    timeoutMs: 10000,
+    resolveToolOverride: (tool) => (tool === 'npm' ? sleeperPath : null),
+  });
+  setTimeout(() => cancelHandle.cancel(), 80);
+  const cancelRes = await cancelHandle.promise;
+
+  return {
+    siteRoot,
+    customOutDir,
+    condRoot,
+    condResolvedDist,
+    publicStillExists,
+    buildAsyncRes,
+    exportAsyncRes,
+    deployNoUrl,
+    wranglerAfterNoOpt,
+    deployWithUrl,
+    deployProjectError,
+    repoBefore,
+    pubRes,
+    repoAfter,
+    timeoutRes,
+    cancelRes,
+  };
 })();
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-safety-'));
 let failures = 0;
@@ -3991,6 +4158,159 @@ test('WDL-229: startup editor IPC check allows top-level editor frame and gates 
     'utf8',
   );
   assert.ok(appSrc.includes('if (!site || !preview.running) return;'));
+});
+
+test('WDL-216: astro outDir detection and site package-manager build config', () => {
+  assert.equal(
+    batchEResults.customOutDir,
+    path.join(batchEResults.siteRoot, 'custom-out'),
+  );
+  const traversalDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-wdl216-traversal-'),
+  );
+  fs.writeFileSync(
+    path.join(traversalDir, 'astro.config.mjs'),
+    "export default { outDir: '../../escape' };\n",
+    'utf8',
+  );
+  assert.equal(
+    resolveAstroOutDir(traversalDir),
+    path.join(traversalDir, 'dist'),
+  );
+
+  const pnpmDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-wdl216-pnpm-'),
+  );
+  fs.writeFileSync(path.join(pnpmDir, 'pnpm-lock.yaml'), '', 'utf8');
+  const pnpmCfg = resolveSiteBuildConfig(pnpmDir, (t) =>
+    t === 'pnpm' ? '/usr/local/bin/pnpm' : '/usr/bin/npm',
+  );
+  assert.equal(pnpmCfg.manager, 'pnpm');
+  assert.deepEqual(pnpmCfg.args, ['run', 'build']);
+  const pnpmFallbackCfg = resolveSiteBuildConfig(pnpmDir, (t) =>
+    t === 'pnpm' ? null : '/usr/bin/npm',
+  );
+  assert.equal(pnpmFallbackCfg.manager, 'npm');
+  assert.deepEqual(pnpmFallbackCfg.args, ['run', 'build']);
+
+  assert.equal(batchEResults.buildAsyncRes.ok, true);
+  assert.equal(
+    batchEResults.buildAsyncRes.dist,
+    path.join(batchEResults.siteRoot, 'custom-out'),
+  );
+  assert.equal(
+    batchEResults.condResolvedDist,
+    path.join(batchEResults.condRoot, 'dist'),
+  );
+  assert.equal(batchEResults.publicStillExists, true);
+
+  const defineCfgDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-definecfg-'),
+  );
+  fs.writeFileSync(
+    path.join(defineCfgDir, 'astro.config.mjs'),
+    "export default defineConfig({ outDir: './out-dir', nested: { outDir: './ignored' } });\n",
+    'utf8',
+  );
+  assert.equal(
+    resolveAstroOutDir(defineCfgDir),
+    path.join(defineCfgDir, 'out-dir'),
+  );
+});
+
+test('WDL-204: async build, static export, and async git publish stay non-blocking', () => {
+  assert.equal(batchEResults.exportAsyncRes.ok, true);
+  assert.equal(
+    batchEResults.exportAsyncRes.distPath,
+    path.join(batchEResults.siteRoot, 'custom-out'),
+  );
+  assert.equal(batchEResults.repoBefore.isRepo, true);
+  assert.ok(batchEResults.repoBefore.changes.length > 0);
+  assert.equal(batchEResults.pubRes.ok, true);
+  assert.equal(batchEResults.repoAfter.changes.length, 0);
+});
+
+test('WDL-200: npm fallback drops pnpm flags and package installer supports timeout and cancel', () => {
+  const npmFallbackPlan = planMissingPackageInstall({
+    setupManager: 'pnpm',
+    packages: ['lucide-react'],
+    storeDirOrUserData: '/tmp/user-data',
+    resolveToolOverride: (t) => (t === 'pnpm' ? null : '/usr/bin/npm'),
+  });
+  assert.equal(npmFallbackPlan.ok, true);
+  assert.equal(npmFallbackPlan.manager, 'npm');
+  assert.equal(npmFallbackPlan.fallbackFrom, 'pnpm');
+  assert.deepEqual(npmFallbackPlan.args, [
+    'install',
+    '--save',
+    '--no-audit',
+    '--no-fund',
+    'lucide-react',
+  ]);
+  assert.ok(!npmFallbackPlan.args.includes('--store-dir'));
+  assert.ok(!npmFallbackPlan.args.includes('--reporter=append-only'));
+  assert.ok(!npmFallbackPlan.args.includes('add'));
+
+  const pnpmPlan = planMissingPackageInstall({
+    setupManager: 'pnpm',
+    packages: ['lucide-react'],
+    storeDirOrUserData: '/tmp/user-data',
+    resolveToolOverride: () => '/usr/local/bin/pnpm',
+  });
+  assert.equal(pnpmPlan.ok, true);
+  assert.equal(pnpmPlan.manager, 'pnpm');
+  assert.ok(pnpmPlan.args.includes('add'));
+  assert.ok(pnpmPlan.args.includes('--store-dir'));
+  assert.ok(pnpmPlan.args.includes('--reporter=append-only'));
+
+  assert.equal(batchEResults.timeoutRes.ok, false);
+  assert.equal(batchEResults.timeoutRes.timedOut, true);
+  assert.ok(batchEResults.timeoutRes.problem?.includes('timed out'));
+
+  assert.equal(batchEResults.cancelRes.ok, false);
+  assert.equal(batchEResults.cancelRes.cancelled, true);
+  assert.ok(batchEResults.cancelRes.problem?.includes('cancelled'));
+});
+
+test('WDL-151: Cloudflare deploy never invents URLs, classifies auth vs non-auth errors, and avoids unasked wrangler.toml', () => {
+  assert.equal(
+    parseCloudflarePagesUrl('Visit https://demo-123.pages.dev/preview now'),
+    'https://demo-123.pages.dev/preview',
+  );
+  assert.equal(parseCloudflarePagesUrl('Deployed without URL'), undefined);
+
+  assert.equal(batchEResults.deployNoUrl.ok, true);
+  assert.equal(batchEResults.deployNoUrl.url, undefined);
+  assert.ok(
+    batchEResults.deployNoUrl.note?.includes('check your Cloudflare dashboard'),
+  );
+  assert.equal(batchEResults.wranglerAfterNoOpt, false);
+
+  assert.equal(batchEResults.deployWithUrl.ok, true);
+  assert.equal(
+    batchEResults.deployWithUrl.url,
+    'https://batch-e-site.pages.dev',
+  );
+
+  assert.equal(batchEResults.deployProjectError.ok, false);
+  assert.equal(batchEResults.deployProjectError.isAuthError, false);
+  assert.ok(
+    batchEResults.deployProjectError.problem?.includes('Project not found'),
+  );
+
+  const authFailure = classifyWranglerFailure(
+    'Not logged in. Run wrangler login or set CLOUDFLARE_API_TOKEN',
+    1,
+  );
+  assert.equal(authFailure.isAuthError, true);
+  assert.ok(authFailure.problem.includes('Wrangler login'));
+
+  const missingCli = classifyWranglerFailure(
+    'npm error could not determine executable to run',
+    1,
+  );
+  assert.equal(missingCli.isAuthError, false);
+  assert.ok(missingCli.problem.includes('Wrangler CLI could not be found'));
 });
 
 process.exitCode = failures ? 1 : 0;
