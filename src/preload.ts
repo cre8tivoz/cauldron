@@ -25,6 +25,8 @@ const api = {
   startPreview: () => ipcRenderer.invoke('cauldron:start-preview'),
   stopPreview: () => ipcRenderer.invoke('cauldron:stop-preview'),
   reloadPreview: () => ipcRenderer.invoke('cauldron:preview-reload'),
+  openPreviewPage: (page: string) =>
+    ipcRenderer.invoke('cauldron:preview-open-page', page),
   setPreviewBounds: (bounds: {
     x: number;
     y: number;
