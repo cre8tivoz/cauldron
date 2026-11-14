@@ -395,15 +395,20 @@ function normaliseJsonLines(line: string): AgentEvent[] {
   return events;
 }
 
+/** Maximum runtime for a single spawned agent process before Cauldron stops it. */
+export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function runAgent(options: {
   tool: AgentTool;
   root: string;
   prompt: string;
   sessionId?: string;
   mcp?: { url: string; code: string };
+  timeoutMs?: number;
   onEvent: (event: AgentEvent) => void;
 }): AgentHandle {
   const { tool, root, prompt, sessionId, onEvent } = options;
+  const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
 
   let command: string;
   let args: string[];
@@ -476,6 +481,12 @@ export function runAgent(options: {
         prompt,
         '--json',
         ...connection,
+        // `codex exec resume` has no `--sandbox` or `-C` CLI flag, so keep
+        // the workspace-write safety boundary via `-c` overrides + `cwd: root`.
+        '-c',
+        'sandbox_mode="workspace-write"',
+        '-c',
+        `sandbox_workspace_write.writable_roots=${JSON.stringify([root])}`,
         '--skip-git-repo-check',
       ];
   } else {
@@ -532,6 +543,7 @@ export function runAgent(options: {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   });
 
   const parse = tool === 'codex' ? normaliseJsonLines : normaliseClaude;
@@ -539,8 +551,82 @@ export function runAgent(options: {
   let saidSomething = '';
   let buffer = '';
   let cancelled = false;
+  let timedOut = false;
+  let finished = false;
+  let killTimer: ReturnType<typeof setTimeout> | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const signalTree = (signal: NodeJS.Signals) => {
+    try {
+      if (process.platform !== 'win32' && child.pid) {
+        process.kill(-child.pid, signal);
+        return;
+      }
+    } catch {
+      // Fall through to direct child kill if process group already exited.
+    }
+    try {
+      child.kill(signal);
+    } catch {
+      // Child already exited.
+    }
+  };
+
+  const finish = (code: number | null) => {
+    if (finished) return;
+    consume(buffer);
+    buffer = '';
+    finished = true;
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    if (killTimer) clearTimeout(killTimer);
+    if (settleTimer) clearTimeout(settleTimer);
+    if (cancelled) onEvent({ type: 'error', text: 'Cancelled.' });
+    else if (timedOut) {
+      onEvent({
+        type: 'error',
+        text: `${command} timed out after ${Math.ceil(effectiveTimeoutMs / 1000)} s and was stopped.`,
+      });
+    } else if (terminal?.type === 'error') onEvent(terminal);
+    else if (code !== 0)
+      onEvent({
+        type: 'error',
+        text: `${command} stopped with code ${code ?? 'unknown'}. ${stderr.trim()}`,
+      });
+    else
+      onEvent(
+        terminal ?? {
+          type: 'done',
+          text: saidSomething || `${command} finished.`,
+        },
+      );
+  };
+
+  const killChild = () => {
+    signalTree('SIGTERM');
+    if (killTimer) clearTimeout(killTimer);
+    if (settleTimer) clearTimeout(settleTimer);
+    killTimer = setTimeout(() => {
+      signalTree('SIGKILL');
+      // A descendant that inherited stdout/stderr may keep pipes open briefly
+      // or outlive the main PID; close pipes and settle so the job cannot hang.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish(child.exitCode);
+    }, 2000);
+    killTimer.unref();
+  };
+
+  const timeoutTimer =
+    effectiveTimeoutMs > 0 && Number.isFinite(effectiveTimeoutMs)
+      ? setTimeout(() => {
+          if (cancelled || finished || child.exitCode !== null) return;
+          timedOut = true;
+          killChild();
+        }, effectiveTimeoutMs)
+      : null;
+  timeoutTimer?.unref();
   const consume = (line: string) => {
-    if (!line.trim()) return;
+    if (finished || !line.trim()) return;
     const events = parse(line);
     for (const event of events) {
       if (event.type === 'done' || event.type === 'error') {
@@ -554,6 +640,7 @@ export function runAgent(options: {
   };
   child.stdout?.setEncoding('utf8');
   child.stdout?.on('data', (chunk: string) => {
+    if (finished) return;
     buffer += chunk;
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
@@ -562,6 +649,7 @@ export function runAgent(options: {
   child.stderr?.setEncoding('utf8');
   let stderr = '';
   child.stderr?.on('data', (chunk: string) => {
+    if (finished) return;
     stderr = (stderr + chunk).slice(-2000);
     if (chunk.trim()) onEvent({ type: 'status', text: chunk.trim() });
   });
@@ -571,32 +659,28 @@ export function runAgent(options: {
       text: `${command} could not start: ${error.message}`,
     };
   });
+  child.on('exit', (code) => {
+    if (finished) return;
+    if ((timedOut || cancelled) && !settleTimer) {
+      settleTimer = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(code);
+      }, 250);
+      settleTimer.unref();
+    }
+  });
   // close follows stdout/stderr draining; a result event is not proof the process exited.
   child.on('close', (code) => {
-    consume(buffer);
-    if (cancelled) onEvent({ type: 'error', text: 'Cancelled.' });
-    else if (terminal?.type === 'error') onEvent(terminal);
-    else if (code !== 0)
-      onEvent({
-        type: 'error',
-        text: `${command} stopped with code ${code ?? 'unknown'}. ${stderr.trim()}`,
-      });
-    else
-      onEvent(
-        terminal ?? {
-          type: 'done',
-          text: saidSomething || `${command} finished.`,
-        },
-      );
+    finish(code);
   });
 
   return {
     cancel: () => {
+      if (cancelled || finished) return;
       cancelled = true;
-      child.kill('SIGTERM');
-      setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL');
-      }, 2000).unref();
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      killChild();
     },
   };
 }

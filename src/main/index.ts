@@ -49,11 +49,16 @@ import {
   designDocument,
   type DesignDirection,
 } from './directions';
-import { startMcpServer, mcpCalls, type McpHandle } from './mcp';
+import {
+  clearMcpCallsLog,
+  mcpCalls,
+  startMcpServer,
+  type McpHandle,
+} from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
 import { EXTENDED_LIBRARY } from './library-pieces';
-import { checkSite, buildSite } from './quality';
+import { checkSite, buildSiteAsync } from './quality';
 import { directionFromUrl } from './reference';
 import {
   macBuildInfo,
@@ -86,7 +91,6 @@ import {
   planBatchDraftRestores,
   removeDraftKeys,
 } from '../draft-restore';
-import { resolveToolPath } from './runtime';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
 import {
   applyEdit,
@@ -398,6 +402,7 @@ async function startPreview(): Promise<
 async function startMcp(site: Site): Promise<void> {
   state.mcp?.close();
   state.mcp = null;
+  mcpToolCalls.length = 0;
   try {
     state.mcp = await startMcpServer({
       root: site.root,
@@ -415,7 +420,7 @@ async function startMcp(site: Site): Promise<void> {
             : null,
         };
       },
-      record: (call) => mcpToolCalls.push(call),
+      record: (call) => recordMcpToolCall(call),
     });
     status(`Outside agents can connect on ${state.mcp.url}`);
     // Ticket 20: give Hermes this site's connection now, so its gateway has
@@ -499,7 +504,9 @@ async function inspectPreviewError(): Promise<string | null> {
  * Rechecks missing package imports and preview overlay errors, updating
  * state.missingPackages and state.buildError, and sends an updated site summary.
  */
-async function refreshSiteHealth(): Promise<{
+async function refreshSiteHealth(options?: {
+  buildVerifiedOk?: boolean;
+}): Promise<{
   missingPackages: string[];
   buildError: string | null;
 }> {
@@ -508,8 +515,27 @@ async function refreshSiteHealth(): Promise<{
     state.buildError = null;
     return { missingPackages: [], buildError: null };
   }
-  const missing = findMissingPackages(state.site.root);
+  const siteRoot = state.site.root;
   const previewError = await inspectPreviewError();
+  let missing = options?.buildVerifiedOk ? [] : findMissingPackages(siteRoot);
+
+  // Trust a real build over the static import scan when Astro is available.
+  if (
+    missing.length > 0 &&
+    !previewError &&
+    options?.buildVerifiedOk === undefined &&
+    detectDependencySetup(siteRoot).hasAstroBin
+  ) {
+    const verification = await buildSiteAsync(siteRoot);
+    if (state.site?.root !== siteRoot) {
+      return {
+        missingPackages: state.missingPackages,
+        buildError: state.buildError,
+      };
+    }
+    if (verification.ok) missing = [];
+  }
+
   state.missingPackages = missing;
   state.buildError =
     previewError ??
@@ -1064,7 +1090,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
     siteName: site.name,
     direction,
     selection,
-    catalogue: actionCatalogue(),
+    catalogue: actionCatalogue(site.name),
   });
 
   state.beforeLocs = [];
@@ -1150,25 +1176,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
       if (settleTimer) clearTimeout(settleTimer);
       settleTimer = setTimeout(launch, 1500);
     });
-    timer = setTimeout(() => {
-      const usesRealHermesGateway =
-        !process.env.CAULDRON_HERMES_ENV_FILE &&
-        Boolean(resolveToolPath('hermes')?.includes('.hermes'));
-      if (
-        !launched &&
-        state.mcp &&
-        !state.mcp.hasClientConnected() &&
-        usesRealHermesGateway
-      ) {
-        onEvent({
-          type: 'status',
-          text: 'Still waiting for the parked Hermes gateway to probe this site (up to 220 s)…',
-        });
-        timer = setTimeout(launch, 220_000);
-        return;
-      }
-      launch();
-    }, wait);
+    timer = setTimeout(launch, wait);
     state.agent = {
       cancel: () => {
         launched = true;
@@ -1603,7 +1611,7 @@ function registerIpc(): void {
 
   handle('cauldron:runs', () => state.runs.list().map(runSummary));
 
-  handle('cauldron:action-catalogue', () => actionCatalogue());
+  handle('cauldron:action-catalogue', () => actionCatalogue(state.site?.name));
 
   handle('cauldron:collections', () => {
     const site = requireSite();
@@ -2292,8 +2300,38 @@ let lastAgentEvents: Array<{
   name?: string;
   paths?: string[];
 }> = [];
-/** Every tool call an outside agent made, in order (ticket 18 evidence). */
+const MAX_MCP_CALLS = 200;
+const MAX_MCP_ARG_CHARS = 512;
+
+/** Every tool call an outside agent made, bounded and without large file bodies (ticket 18 evidence). */
 const mcpToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+function summarizeMcpArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (key === 'content' && typeof value === 'string') {
+      summary[key] = `[${value.length} chars]`;
+    } else if (typeof value === 'string' && value.length > MAX_MCP_ARG_CHARS) {
+      summary[key] =
+        `${value.slice(0, MAX_MCP_ARG_CHARS)}… [${value.length} chars]`;
+    } else {
+      summary[key] = value;
+    }
+  }
+  return summary;
+}
+
+function recordMcpToolCall(call: {
+  name: string;
+  args: Record<string, unknown>;
+}): void {
+  if (mcpToolCalls.length >= MAX_MCP_CALLS) {
+    mcpToolCalls.splice(0, mcpToolCalls.length - MAX_MCP_CALLS + 1);
+  }
+  mcpToolCalls.push({ name: call.name, args: summarizeMcpArgs(call.args) });
+}
 let lastAgentPrompt = '';
 let agentDoneWaiter:
   | ((result: { ok: boolean; runId?: string; note?: string }) => void)
@@ -2345,38 +2383,39 @@ async function finishAgentRun(note: string): Promise<void> {
   );
   if (note) state.runs.fail(id, note);
 
-  await refreshSiteHealth();
-
   if (run.files.length > 0) {
+    const build = await buildSiteAsync(site.root);
+    await refreshSiteHealth({ buildVerifiedOk: build.ok });
     let buildLogLine: string | null = null;
-    if (!state.buildError && state.missingPackages.length === 0) {
-      const build = buildSite(site.root);
-      if (!build.ok) {
-        const lines = build.log
-          .split('\n')
-          .map((l) => l.trim())
-          .filter(Boolean);
-        buildLogLine =
-          lines.find(
-            (l) =>
-              l.includes('Failed to resolve import') ||
-              l.includes('Rolldown failed') ||
-              l.includes('Cannot find module') ||
-              l.toLowerCase().includes('error'),
-          ) ??
-          lines.at(-1) ??
-          'astro build failed';
-        state.buildError = buildLogLine;
-        send('cauldron:site', {
-          site: summaryOf(state.site),
-          drafts: storedDrafts(site.root),
-        });
-      }
+    if (!build.ok) {
+      const lines = build.log
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      buildLogLine =
+        lines.find(
+          (l) =>
+            l.includes('Failed to resolve import') ||
+            l.includes('Rolldown failed') ||
+            l.includes('Cannot find module') ||
+            l.toLowerCase().includes('error'),
+        ) ??
+        lines.at(-1) ??
+        'astro build failed';
+      state.buildError = buildLogLine;
+      send('cauldron:site', {
+        site: summaryOf(state.site),
+        drafts: storedDrafts(site.root),
+      });
     }
 
-    if (state.missingPackages.length > 0 || state.buildError || buildLogLine) {
+    if (
+      (!build.ok && state.missingPackages.length > 0) ||
+      state.buildError ||
+      buildLogLine
+    ) {
       const problems: string[] = [];
-      if (state.missingPackages.length > 0) {
+      if (!build.ok && state.missingPackages.length > 0) {
         problems.push(
           `Missing package imports: ${state.missingPackages.join(', ')}`,
         );
@@ -2394,6 +2433,8 @@ async function finishAgentRun(note: string): Promise<void> {
         `${run.files.length} file${run.files.length === 1 ? '' : 's'} changed · Build failed: ${primary}`,
       );
     }
+  } else {
+    await refreshSiteHealth();
   }
 
   status(run.note);
@@ -2810,6 +2851,7 @@ function harnessApi() {
     mcpCalls: () => mcpToolCalls.slice(),
     clearMcpCalls: () => {
       mcpToolCalls.length = 0;
+      clearMcpCallsLog();
     },
     buildPromptText: (request: string) => {
       const site = state.site;
@@ -2819,7 +2861,7 @@ function harnessApi() {
         siteName: site?.name ?? '',
         direction,
         selection: promptSelection(),
-        catalogue: actionCatalogue(),
+        catalogue: actionCatalogue(site?.name),
       });
     },
     undoRun: (id: string) =>
@@ -3142,8 +3184,11 @@ export function start(): void {
   });
 
   app.on('before-quit', () => {
+    state.agent?.cancel();
     state.prepare?.cancel();
     state.server?.stop();
     state.mcp?.close();
+    mcpToolCalls.length = 0;
+    clearMcpCallsLog();
   });
 }
