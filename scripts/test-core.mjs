@@ -241,6 +241,33 @@ const batchEResults = await (async () => {
   const buildAsyncRes = await buildSiteAsync(siteRoot);
   const exportAsyncRes = await exportStaticSiteAsync(siteRoot);
 
+  // Codex P1 regression: conditional/ternary outDir must not match inactive branch or delete public/
+  const condRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-cond-out-'));
+  fs.mkdirSync(path.join(condRoot, 'public'), { recursive: true });
+  fs.writeFileSync(
+    path.join(condRoot, 'public/favicon.svg'),
+    '<svg></svg>\n',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(condRoot, 'astro.config.mjs'),
+    "import { defineConfig } from 'astro/config';\nexport default defineConfig(false ? { outDir: './public' } : {});\n",
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(condRoot, 'package.json'),
+    JSON.stringify({
+      name: 'cond-site',
+      scripts: { build: 'node -e "process.exit(0)"' },
+    }),
+    'utf8',
+  );
+  const condResolvedDist = resolveAstroOutDir(condRoot);
+  await buildSiteAsync(condRoot);
+  const publicStillExists = fs.existsSync(
+    path.join(condRoot, 'public/favicon.svg'),
+  );
+
   // deployCloudflarePagesAsync with injected runner (WDL-151 + WDL-204)
   const deployNoUrl = await deployCloudflarePagesAsync(
     siteRoot,
@@ -321,6 +348,9 @@ const batchEResults = await (async () => {
   return {
     siteRoot,
     customOutDir,
+    condRoot,
+    condResolvedDist,
+    publicStillExists,
     buildAsyncRes,
     exportAsyncRes,
     deployNoUrl,
@@ -4167,6 +4197,24 @@ test('WDL-216: astro outDir detection and site package-manager build config', ()
   assert.equal(
     batchEResults.buildAsyncRes.dist,
     path.join(batchEResults.siteRoot, 'custom-out'),
+  );
+  assert.equal(
+    batchEResults.condResolvedDist,
+    path.join(batchEResults.condRoot, 'dist'),
+  );
+  assert.equal(batchEResults.publicStillExists, true);
+
+  const defineCfgDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-definecfg-'),
+  );
+  fs.writeFileSync(
+    path.join(defineCfgDir, 'astro.config.mjs'),
+    "export default defineConfig({ outDir: './out-dir', nested: { outDir: './ignored' } });\n",
+    'utf8',
+  );
+  assert.equal(
+    resolveAstroOutDir(defineCfgDir),
+    path.join(defineCfgDir, 'out-dir'),
   );
 });
 

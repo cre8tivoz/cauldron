@@ -148,11 +148,76 @@ function typeFor(file: string): string {
   );
 }
 
+const PROTECTED_OUT_DIRS = new Set([
+  'src',
+  'public',
+  '.git',
+  'node_modules',
+  '.astro',
+  '.cauldron',
+]);
+
+function isProtectedOutDir(root: string, candidate: string): boolean {
+  const rel = path.relative(root, candidate);
+  if (!rel || rel === '.' || rel.startsWith('..')) return true;
+  const topSegment = rel.split(path.sep)[0];
+  return PROTECTED_OUT_DIRS.has(topSegment);
+}
+
 /**
- * Resolve Astro's configured output directory from `astro.config.*`, defaulting
- * to `dist/` and refusing paths outside the site root.
+ * Extract the top-level object body from `export default { ... }`,
+ * `export default defineConfig({ ... })`, or `module.exports = ...` without
+ * matching branches inside conditional expressions like `cond ? { outDir: ... } : {}`.
  */
-export function resolveAstroOutDir(root: string): string {
+function extractTopLevelConfigLiteral(raw: string): string | null {
+  const exportMatch = raw.match(
+    /(?:export\s+default|module\.exports\s*=)\s*(?:defineConfig\s*\(\s*)?/,
+  );
+  if (!exportMatch || exportMatch.index === undefined) return null;
+  let i = exportMatch.index + exportMatch[0].length;
+  while (i < raw.length && /\s/.test(raw[i])) i++;
+  if (raw[i] !== '{') return null;
+
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  let topLevel = '';
+  for (; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote) {
+      if (depth === 1) topLevel += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      if (depth === 1) topLevel += ch;
+      continue;
+    }
+    if (ch === '{' || ch === '[') {
+      depth++;
+      continue;
+    }
+    if (ch === '}' || ch === ']') {
+      depth--;
+      if (depth <= 0) break;
+      continue;
+    }
+    if (depth === 1) topLevel += ch;
+  }
+  return topLevel;
+}
+
+function resolveAstroOutDirInfo(root: string): {
+  dist: string;
+  canClean: boolean;
+} {
   const defaultDist = path.join(root, 'dist');
   for (const ext of ['mjs', 'ts', 'js', 'cjs', 'mts']) {
     const configPath = path.join(root, `astro.config.${ext}`);
@@ -162,18 +227,46 @@ export function resolveAstroOutDir(root: string): string {
         .readFileSync(configPath, 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/(?<!:)\/\/.*$/gm, '');
-      const match = raw.match(/\boutDir\s*:\s*(['"`])([^'"`]+)\1/);
-      if (match?.[2]) {
-        const candidate = path.resolve(root, match[2].trim());
-        if (isInside(root, candidate) && candidate !== path.resolve(root)) {
-          return candidate;
+      const mentionsOutDir = /\boutDir\b/.test(raw);
+      const topLevel = extractTopLevelConfigLiteral(raw);
+      if (topLevel) {
+        const matches = [
+          ...topLevel.matchAll(
+            /\boutDir\s*:\s*(['"`])([^'"`]+)\1(?=\s*[,}\n;]|$)/g,
+          ),
+        ];
+        if (matches.length === 1) {
+          const candidate = path.resolve(root, matches[0][2].trim());
+          if (
+            isInside(root, candidate) &&
+            candidate !== path.resolve(root) &&
+            !isProtectedOutDir(root, candidate)
+          ) {
+            return { dist: candidate, canClean: true };
+          }
+          return { dist: defaultDist, canClean: false };
         }
       }
+      // If `outDir` appears conditionally, dynamically, or multiple times, fall
+      // back to default `dist/` and refuse pre-build recursive deletion.
+      if (mentionsOutDir) {
+        return { dist: defaultDist, canClean: false };
+      }
+      return { dist: defaultDist, canClean: true };
     } catch {
-      // Ignore unreadable config and fall back to default dist/.
+      return { dist: defaultDist, canClean: false };
     }
   }
-  return defaultDist;
+  return { dist: defaultDist, canClean: true };
+}
+
+/**
+ * Resolve Astro's configured output directory from `astro.config.*`, defaulting
+ * to `dist/` and refusing protected source paths, conditional configs, or
+ * paths outside the site root.
+ */
+export function resolveAstroOutDir(root: string): string {
+  return resolveAstroOutDirInfo(root).dist;
 }
 
 export function resolveSiteBuildConfig(
@@ -181,12 +274,13 @@ export function resolveSiteBuildConfig(
   resolveToolOverride?: (tool: string) => string | null,
 ): {
   dist: string;
+  canCleanDist: boolean;
   manager: 'npm' | 'pnpm' | 'yarn';
   cmd: string;
   args: string[];
   env: NodeJS.ProcessEnv;
 } {
-  const dist = resolveAstroOutDir(root);
+  const { dist, canClean } = resolveAstroOutDirInfo(root);
   const setup = detectDependencySetup(root);
   const resolveTool = resolveToolOverride ?? resolveToolPath;
   const preferred = resolveTool(setup.manager);
@@ -200,6 +294,7 @@ export function resolveSiteBuildConfig(
   const env = childEnvForTools({ ...process.env, CI: '1' });
   return {
     dist,
+    canCleanDist: canClean,
     manager,
     cmd,
     args: ['run', 'build'],
@@ -216,8 +311,10 @@ function prepareSiteBuild(root: string): {
   const config = resolveSiteBuildConfig(root);
   try {
     if (
+      config.canCleanDist &&
       config.dist !== path.resolve(root) &&
       isInside(root, config.dist) &&
+      !isProtectedOutDir(root, config.dist) &&
       fs.existsSync(config.dist)
     ) {
       fs.rmSync(config.dist, { recursive: true, force: true });
