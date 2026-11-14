@@ -46,6 +46,7 @@ const {
   runAction,
   actionCatalogue,
   isReadOnlyAction,
+  editCssRule,
   createPageFile,
   readPageSections,
   reorderPageSections,
@@ -3609,5 +3610,130 @@ await (async () => {
     globalThis.__cauldronUserData = prevUd;
   }
 })();
+
+test('WDL-187: editCssRule matches whole selectors, replaces without duplicates, and stays inside Astro style blocks', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl-187-'));
+  fs.mkdirSync(path.join(dir, 'src/styles'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const cssFile = path.join(dir, 'src/styles/main.css');
+  fs.writeFileSync(
+    cssFile,
+    [
+      '/* h1 { color: purple; } */',
+      '.hero h1 {',
+      '  color: blue;',
+      '}',
+      'h1 {',
+      '  font-size: 2rem;',
+      '  color: black',
+      '}',
+    ].join('\n'),
+  );
+
+  const r1 = editCssRule(
+    dir,
+    'src/styles/main.css',
+    'h1',
+    'color',
+    '#b84b30',
+    hashOf(fs.readFileSync(cssFile, 'utf8')),
+  );
+  assert.equal(r1.ok, true);
+  const updatedCss = fs.readFileSync(cssFile, 'utf8');
+  assert.ok(updatedCss.includes('/* h1 { color: purple; } */'));
+  assert.ok(updatedCss.includes('.hero h1 {\n  color: blue;\n}'));
+  const h1Block = updatedCss.slice(updatedCss.indexOf('\nh1 {'));
+  assert.equal(h1Block.match(/\bcolor:/g)?.length, 1);
+  assert.equal(h1Block.includes('color: black'), false);
+  assert.ok(h1Block.includes('color: #b84b30;'));
+
+  const astroFile = path.join(dir, 'src/pages/index.astro');
+  fs.writeFileSync(
+    astroFile,
+    '<main><h1>Hi</h1></main>\n<style>\n.hero h1 { color: blue; }\n</style>\n',
+  );
+  const r2 = editCssRule(
+    dir,
+    'src/pages/index.astro',
+    'h1',
+    'color',
+    '#2a1712',
+    hashOf(fs.readFileSync(astroFile, 'utf8')),
+  );
+  assert.equal(r2.ok, true);
+  const updatedAstro = fs.readFileSync(astroFile, 'utf8');
+  assert.ok(updatedAstro.includes('.hero h1 { color: blue; }'));
+  assert.ok(
+    updatedAstro.indexOf('h1 {\n  color: #2a1712;\n}') <
+      updatedAstro.indexOf('</style>'),
+  );
+
+  // Quoted value without trailing semicolon + case-sensitive custom properties
+  const edgeCss = path.join(dir, 'src/styles/edge.css');
+  fs.writeFileSync(
+    edgeCss,
+    'h1 { font-family: "Arial" }\n:root { --Accent: red; --accent: blue; }\n',
+  );
+  const r3 = editCssRule(
+    dir,
+    'src/styles/edge.css',
+    'h1',
+    'color',
+    'red',
+    hashOf(fs.readFileSync(edgeCss, 'utf8')),
+  );
+  assert.equal(r3.ok, true);
+  assert.ok(fs.readFileSync(edgeCss, 'utf8').includes('font-family: "Arial";'));
+  const r4 = editCssRule(
+    dir,
+    'src/styles/edge.css',
+    ':root',
+    '--accent',
+    'green',
+    hashOf(fs.readFileSync(edgeCss, 'utf8')),
+  );
+  assert.equal(r4.ok, true);
+  const finalEdge = fs.readFileSync(edgeCss, 'utf8');
+  assert.ok(finalEdge.includes('--Accent: red;'));
+  assert.ok(finalEdge.includes('--accent: green;'));
+});
+
+test('WDL-191 & WDL-197: PageOutline inserts token-based library pieces and LibraryPanel uses previewHtml', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl-191-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'cauldron'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cauldron/tokens.css'), ':root {}\n');
+  const pageFile = path.join(dir, 'src/pages/index.astro');
+  const initial =
+    '---\nconst title = "Home";\n---\n<main>\n  <section>Existing</section>\n</main>\n';
+  fs.writeFileSync(pageFile, initial);
+
+  const res = insertPageSection(
+    dir,
+    '/',
+    0,
+    { pieceId: 'editorial-intro' },
+    hashOf(initial),
+  );
+  assert.equal(res.ok, true);
+  const written = fs.readFileSync(pageFile, 'utf8');
+  assert.ok(written.includes('cauldron/tokens.css'));
+  assert.ok(written.includes('var(--cauldron-'));
+  assert.ok(written.includes('<section class="cauldron-editorial-intro">'));
+  assert.equal(/\b(?:py-16|text-gray-600)\b/.test(written), false);
+
+  const outlineSrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/components/PageOutline.tsx'),
+    'utf8',
+  );
+  assert.equal(/\b(?:py-16|py-24|text-gray-600)\b/.test(outlineSrc), false);
+
+  const librarySrc = fs.readFileSync(
+    path.join(process.cwd(), 'src/components/LibraryPanel.tsx'),
+    'utf8',
+  );
+  assert.ok(librarySrc.includes('piece.previewHtml'));
+  assert.equal(librarySrc.includes('renderStageVisual'), false);
+});
 
 process.exitCode = failures ? 1 : 0;

@@ -1890,7 +1890,8 @@ function registerIpc(): void {
       payload: {
         page: string;
         afterIndex: number;
-        sectionCode: string;
+        sectionCode?: string;
+        pieceId?: string;
         baseHash: string;
       },
     ) => {

@@ -120,7 +120,8 @@ const api = {
   insertPageSection: (payload: {
     page: string;
     afterIndex: number;
-    sectionCode: string;
+    sectionCode?: string;
+    pieceId?: string;
     baseHash: string;
   }) => ipcRenderer.invoke('cauldron:insert-page-section', payload),
 
