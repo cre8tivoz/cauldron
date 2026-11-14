@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isInside } from './files';
+import { createFileAtomic, isInside, writeFileAtomic } from './files';
 import { EXTENDED_LIBRARY } from './library-pieces';
 
 /**
@@ -493,8 +493,50 @@ function placeOnPage(text: string, componentName: string): string {
 }
 
 export type AddResult =
-  | { ok: true; componentFile: string; page: string; replaced?: string }
+  | {
+      ok: true;
+      componentFile: string;
+      page: string;
+      replaced?: string;
+      reusedExisting?: boolean;
+    }
   | { ok: false; problem: string };
+
+function isSamePieceFile(existingText: string, item: LibraryPiece): boolean {
+  return (
+    existingText.includes(`cauldron-${item.id}`) ||
+    existingText.includes(`// ${item.name} — Cauldron`)
+  );
+}
+
+function resolveComponentTarget(
+  root: string,
+  baseName: string,
+  item: LibraryPiece,
+):
+  | {
+      ok: true;
+      componentName: string;
+      componentFile: string;
+      existed: boolean;
+    }
+  | { ok: false; problem: string } {
+  for (let attempt = 1; ; attempt += 1) {
+    const componentName = attempt === 1 ? baseName : `${baseName}${attempt}`;
+    const componentFile = path.join(
+      root,
+      'src/components',
+      `${componentName}.astro`,
+    );
+    if (!isInside(root, componentFile))
+      return { ok: false, problem: 'That path is outside the site.' };
+    if (!fs.existsSync(componentFile))
+      return { ok: true, componentName, componentFile, existed: false };
+    const existing = fs.readFileSync(componentFile, 'utf8');
+    if (isSamePieceFile(existing, item))
+      return { ok: true, componentName, componentFile, existed: true };
+  }
+}
 
 /**
  * Copies the piece into the site as the site's own file, and places it on one page.
@@ -521,14 +563,10 @@ export function addPiece(
   if (!pageFile)
     return { ok: false, problem: `No page file for ${options.page}.` };
 
-  const componentName = piece_.name.replace(/[^A-Za-z]/g, '');
-  const componentFile = path.join(
-    root,
-    'src/components',
-    `${componentName}.astro`,
-  );
-  if (!isInside(root, componentFile))
-    return { ok: false, problem: 'That path is outside the site.' };
+  const baseName = piece_.name.replace(/[^A-Za-z]/g, '') || 'Section';
+  const target = resolveComponentTarget(root, baseName, piece_);
+  if (!target.ok) return target;
+  const { componentName, componentFile, existed } = target;
 
   if (options.mode === 'replace' && !options.replaceSelector) {
     return { ok: false, problem: 'Choose the component tag to replace first.' };
@@ -588,17 +626,37 @@ export function addPiece(
     next = placeOnPage(next, componentName);
   }
 
-  // Re-adding must not overwrite the site's own edits to an existing component.
-  if (!fs.existsSync(componentFile)) {
-    fs.mkdirSync(path.dirname(componentFile), { recursive: true });
-    fs.writeFileSync(componentFile, piece_.astro, 'utf8');
+  // Re-adding the same Cauldron piece must not overwrite owner edits; an unrelated
+  // component with the same name already got a distinct suffix above.
+  let createdComponent = false;
+  try {
+    if (!existed) {
+      fs.mkdirSync(path.dirname(componentFile), { recursive: true });
+      createFileAtomic(componentFile, piece_.astro);
+      createdComponent = true;
+    }
+    writeFileAtomic(pageFile, next);
+  } catch (error) {
+    if (createdComponent) {
+      try {
+        fs.unlinkSync(componentFile);
+      } catch {
+        // Best-effort cleanup so a failed page write does not leave an orphan component.
+      }
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Library add failed for ${piece_.id}:`, error);
+    return {
+      ok: false,
+      problem: `Could not write component files: ${detail}`,
+    };
   }
-  fs.writeFileSync(pageFile, next, 'utf8');
   return {
     ok: true,
     componentFile: path.relative(root, componentFile),
     page: path.relative(root, pageFile),
     replaced: options.replaceSelector,
+    reusedExisting: existed,
   };
 }
 

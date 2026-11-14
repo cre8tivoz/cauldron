@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AGENT_TOOL_LABELS, type AgentTool } from '../agent-stream';
 import { CheckCircleIcon, ChevronDownIcon, WarningTriangleIcon } from './Icons';
 
 type Props = {
@@ -6,6 +7,13 @@ type Props = {
   direction: CauldronDirectionSummary | null;
   onBack: () => void;
   onOpenDesign: () => void;
+  tool: AgentTool;
+  onToolChange: (tool: AgentTool) => void;
+  agentRunning: boolean;
+  onSendToAgent: (
+    tool: AgentTool,
+    request: string,
+  ) => Promise<{ ok: boolean; problem?: string }>;
 };
 
 /**
@@ -13,11 +21,19 @@ type Props = {
  * 2-column split layout (N to fix warning rows with coral accent bar + expanded Passing checks
  * with green circle checkmark icons on left; Measured table + Design direction swatch card on right).
  */
-export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
+export function QualityPanel({
+  site,
+  direction,
+  onBack,
+  onOpenDesign,
+  tool,
+  onToolChange,
+  agentRunning,
+  onSendToAgent,
+}: Props) {
   const [report, setReport] = useState<QualityReport | null>(null);
   const [running, setRunning] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const [tool, setTool] = useState<'claude' | 'codex' | 'hermes'>('claude');
   const [message, setMessage] = useState<string | null>(null);
   const [passesOpen, setPassesOpen] = useState(true);
 
@@ -34,14 +50,12 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
   };
 
   const sendFeedback = async () => {
-    if (feedback.trim() === '') return;
-    const result = await window.cauldron.agentSend({
-      tool,
-      request: feedback.trim(),
-    });
+    if (feedback.trim() === '' || agentRunning) return;
+    const result = await onSendToAgent(tool, feedback.trim());
+    const label = AGENT_TOOL_LABELS[tool] ?? tool;
     setMessage(
       result.ok
-        ? `Sent to ${tool}. Watch the Agent column for progress, then run the checks again.`
+        ? `Sent to ${label}. Watch the Agent column on the left for progress, then run the checks again.`
         : (result.problem ?? 'The agent could not start.'),
     );
   };
@@ -292,7 +306,7 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
                   className="button primary send-feedback-btn"
                   type="button"
                   onClick={() => void sendFeedback()}
-                  disabled={!feedback.trim()}
+                  disabled={agentRunning || !feedback.trim()}
                 >
                   <span>➤</span>
                   <span>Send to the agent</span>
@@ -322,10 +336,9 @@ export function QualityPanel({ site, direction, onBack, onOpenDesign }: Props) {
                     className="feedback-agent-select"
                     aria-label="Agent to apply the feedback"
                     value={tool}
+                    disabled={agentRunning}
                     onChange={(event) =>
-                      setTool(
-                        event.target.value as 'claude' | 'codex' | 'hermes',
-                      )
+                      onToolChange(event.target.value as AgentTool)
                     }
                   >
                     <option value="claude">Claude Code</option>
