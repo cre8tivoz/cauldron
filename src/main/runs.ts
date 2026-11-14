@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import electron from 'electron';
+import { writeFileAtomic } from './files';
 
 /**
  * An agent job, kept reviewable: which files it changed, and the ability to put
@@ -350,7 +351,7 @@ export class Runs {
       if (change.before === null) fs.rmSync(full, { force: true });
       else {
         fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, change.before);
+        writeFileAtomic(full, change.before);
       }
     }
 
@@ -375,7 +376,7 @@ export class Runs {
     );
     fs.mkdirSync(dir, { recursive: true });
     const { files, ...rest } = run;
-    fs.writeFileSync(
+    writeFileAtomic(
       path.join(dir, `${run.id}.json`),
       JSON.stringify(
         {
@@ -391,7 +392,6 @@ export class Runs {
         null,
         2,
       ),
-      'utf8',
     );
   }
 }
