@@ -4451,7 +4451,7 @@ test('WDL-235 & WDL-233: canonical contrast module shared cleanly and checkSite 
     'utf8',
   );
   assert.ok(qualitySrc.includes('includeContrast: false'));
-  assert.ok(qualitySrc.includes('includeInteraction: width === 1280'));
+  assert.ok(qualitySrc.includes('verifiedInteractionKeys'));
 });
 
 process.exitCode = failures ? 1 : 0;

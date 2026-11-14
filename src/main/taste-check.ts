@@ -125,15 +125,15 @@ export async function measureTaste(
         kind?: 'site' | 'change';
         /** Skip redundant text/button contrast pass when caller already checked it. */
         includeContrast?: boolean;
-        /** Skip interactive Tab/hover/disabled/motion probing on secondary widths. */
-        includeInteraction?: boolean;
+        /** Per-page cache of passing control hover/disabled keys across widths. */
+        verifiedInteractionKeys?: Set<string>;
       } = {},
 ): Promise<Finding[]> {
   const opts = typeof options === 'string' ? { scope: options } : options;
   const scope = opts.scope ?? 'body';
   const judgeDeclarations = opts.declarations ?? true;
   const includeContrast = opts.includeContrast ?? true;
-  const includeInteraction = opts.includeInteraction ?? true;
+  const verifiedInteractionKeys = opts.verifiedInteractionKeys;
   const measured = (await window.webContents.executeJavaScript(`(() => {
     try {
     const direction = ${JSON.stringify(direction)};
@@ -382,7 +382,6 @@ export async function measureTaste(
       `${buttonContrast} button(s) under 4.5:1.`,
     );
   }
-  if (!includeInteraction) return findings;
   const settleFrames = () =>
     window.webContents.executeJavaScript(
       `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
@@ -569,16 +568,21 @@ export async function measureTaste(
       })()`;
     const before = (await window.webContents.executeJavaScript(
       sample(
-        `return {signature:${signature},rect:el.getBoundingClientRect().toJSON()};`,
+        `return {signature:${signature},where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40),rect:el.getBoundingClientRect().toJSON()};`,
       ),
-    )) as { signature: string; rect: { width: number; height: number } };
+    )) as {
+      signature: string;
+      where: string;
+      name: string;
+      rect: { width: number; height: number };
+    };
+    const interactionKey = `${before.where}::${before.name}::${before.signature}`;
+    if (verifiedInteractionKeys?.has(interactionKey)) continue;
     await force(index, ['hover']);
     await settleFrames();
     const hover = (await window.webContents.executeJavaScript(
-      sample(
-        `return {signature:${signature},where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40)};`,
-      ),
-    )) as { signature: string; where: string; name: string };
+      sample(`return {signature:${signature}};`),
+    )) as { signature: string };
     // The forced :hover must be removed before the disabled probe: it was not
     // once, and the settled disabled style was compared against a hovered one
     // (ticket 29 recheck).
@@ -593,7 +597,9 @@ export async function measureTaste(
           return disabledSignature;`),
     )) as string | null;
     await force(index, []);
-    const label = hover.name ? `${hover.where} (“${hover.name}”)` : hover.where;
+    const label = before.name
+      ? `${before.where} (“${before.name}”)`
+      : before.where;
     // Every control is measured normally. A control already in a selected or
     // pressed state (aria-pressed, aria-current) is measured the same way: the
     // selected style does not excuse a missing hover state. A control whose
@@ -609,6 +615,12 @@ export async function measureTaste(
     if (disabled !== null && disabled === before.signature) {
       disabledUnchanged++;
       disabledProblems.push(label);
+    }
+    if (
+      hover.signature !== before.signature &&
+      (disabled === null || disabled !== before.signature)
+    ) {
+      verifiedInteractionKeys?.add(interactionKey);
     }
   }
   add(
