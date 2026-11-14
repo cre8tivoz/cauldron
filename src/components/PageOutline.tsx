@@ -6,6 +6,13 @@ type Props = {
   onNavigateToLibrary?: (targetPage: string) => void;
 };
 
+const QUICK_SECTION_PIECES: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'editorial-intro', label: 'Editorial intro' },
+  { id: 'split-editorial-hero', label: 'Split hero' },
+  { id: 'trade-bento-grid', label: 'Bento grid' },
+  { id: 'studio-contact-hours', label: 'Contact & hours' },
+];
+
 export function PageOutline({
   site,
   currentPage = '/',
@@ -23,9 +30,28 @@ export function PageOutline({
   const [canUndo, setCanUndo] = useState(false);
   const [currentHash, setCurrentHash] = useState<string | null>(null);
   const [insertingAtIndex, setInsertingAtIndex] = useState<number | null>(null);
+  const [quickPieces, setQuickPieces] =
+    useState<ReadonlyArray<{ id: string; label: string }>>(
+      QUICK_SECTION_PIECES,
+    );
 
   const pageRef = useRef<string>(page);
   pageRef.current = page;
+
+  useEffect(() => {
+    void window.cauldron
+      .library()
+      .then((res) => {
+        const available = new Set(
+          res.pieces.filter((p) => p.codeAllowed).map((p) => p.id),
+        );
+        const filtered = QUICK_SECTION_PIECES.filter((item) =>
+          available.has(item.id),
+        );
+        if (filtered.length > 0) setQuickPieces(filtered);
+      })
+      .catch(() => {});
+  }, []);
 
   const loadSections = useCallback(async (targetPage: string) => {
     setLoading(true);
@@ -174,25 +200,13 @@ export function PageOutline({
     );
   };
 
-  const insert = async (
-    afterIndex: number,
-    kind: 'clean' | 'hero' | 'features',
-  ) => {
-    let code = '';
-    if (kind === 'clean') {
-      code = `<section class="section py-16 px-6">\n  <div class="max-w-4xl mx-auto">\n    <h2 class="text-2xl font-bold mb-4">New Section</h2>\n    <p class="text-base text-gray-600">Add your content here.</p>\n  </div>\n</section>`;
-    } else if (kind === 'hero') {
-      code = `<section class="hero py-24 px-6 text-center">\n  <div class="max-w-3xl mx-auto">\n    <h1 class="text-4xl font-extrabold tracking-tight">New Hero Title</h1>\n    <p class="mt-4 text-lg text-gray-600">Introduce your product or story with high visual impact.</p>\n  </div>\n</section>`;
-    } else if (kind === 'features') {
-      code = `<section class="features py-16 px-6">\n  <div class="max-w-5xl mx-auto">\n    <h2 class="text-3xl font-bold text-center mb-10">Features</h2>\n    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">\n      <div class="p-6 border rounded-lg"><h3>First Feature</h3><p class="mt-2 text-sm text-gray-600">Detail what makes this aspect great.</p></div>\n      <div class="p-6 border rounded-lg"><h3>Second Feature</h3><p class="mt-2 text-sm text-gray-600">Detail what makes this aspect great.</p></div>\n      <div class="p-6 border rounded-lg"><h3>Third Feature</h3><p class="mt-2 text-sm text-gray-600">Detail what makes this aspect great.</p></div>\n    </div>\n  </div>\n</section>`;
-    }
-
+  const insert = async (afterIndex: number, pieceId: string) => {
     setInsertingAtIndex(null);
     await runOutlineEdit((baseHash) =>
       window.cauldron.insertPageSection({
         page,
         afterIndex,
-        sectionCode: code,
+        pieceId,
         baseHash,
       }),
     );
@@ -257,30 +271,17 @@ export function PageOutline({
             </button>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <button
-              type="button"
-              className="button"
-              style={{ fontSize: 10, padding: '3px 8px' }}
-              onClick={() => void insert(slotIndex, 'clean')}
-            >
-              Clean section
-            </button>
-            <button
-              type="button"
-              className="button"
-              style={{ fontSize: 10, padding: '3px 8px' }}
-              onClick={() => void insert(slotIndex, 'hero')}
-            >
-              Hero
-            </button>
-            <button
-              type="button"
-              className="button"
-              style={{ fontSize: 10, padding: '3px 8px' }}
-              onClick={() => void insert(slotIndex, 'features')}
-            >
-              Features
-            </button>
+            {quickPieces.map((piece) => (
+              <button
+                key={piece.id}
+                type="button"
+                className="button"
+                style={{ fontSize: 10, padding: '3px 8px' }}
+                onClick={() => void insert(slotIndex, piece.id)}
+              >
+                {piece.label}
+              </button>
+            ))}
             {onNavigateToLibrary && (
               <button
                 type="button"

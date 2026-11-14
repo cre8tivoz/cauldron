@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import { ensureTokensImport, inlineLibraryPiece } from './library';
 import { toolsFor } from './mcp';
 import {
   applyEdit,
@@ -105,7 +106,8 @@ export type ActionRequest =
       action: 'insertPageSection';
       page: string;
       afterIndex: number;
-      sectionCode: string;
+      sectionCode?: string;
+      pieceId?: string;
       baseHash: string;
     };
 
@@ -790,16 +792,41 @@ export function insertPageSection(
   root: string,
   page: string,
   afterIndex: number,
-  sectionCode: string,
+  sectionInput: string | { sectionCode?: string; pieceId?: string },
   baseHash: string,
 ): ActionResult & { sections?: PageSection[]; hash?: string } {
   const checked = requirePageForEdit(root, page, baseHash);
   if (!checked.ok) return checked;
   const { file, disk } = checked;
 
+  const pieceId =
+    typeof sectionInput === 'object' && sectionInput !== null
+      ? sectionInput.pieceId
+      : undefined;
+  const rawCode =
+    typeof sectionInput === 'string'
+      ? sectionInput
+      : (sectionInput?.sectionCode ?? '');
+
+  let code = rawCode.trim();
+  let pieceStyle: { styleCss: string; markerClass: string } | null = null;
+  if (pieceId) {
+    const piece = inlineLibraryPiece(pieceId);
+    if (!piece) {
+      return { ok: false, problem: 'That piece is not in the starter set.' };
+    }
+    code = piece.sectionHtml;
+    pieceStyle = { styleCss: piece.styleCss, markerClass: piece.markerClass };
+  }
+  if (!code) {
+    return { ok: false, problem: 'Provide section markup or a library piece.' };
+  }
+
   const text = disk.text;
+  const alreadyStyled = pieceStyle
+    ? new RegExp(`\\.${pieceStyle.markerClass}\\b`).test(text)
+    : false;
   const blocks = findSectionBlocks(text);
-  const code = sectionCode.trim();
 
   let newText: string;
   if (afterIndex === -1) {
@@ -829,6 +856,13 @@ export function insertPageSection(
       text.slice(insertPos);
   } else {
     return { ok: false, problem: 'Invalid section index to insert after.' };
+  }
+
+  if (pieceStyle) {
+    newText = ensureTokensImport(root, file, newText);
+    if (!alreadyStyled && pieceStyle.styleCss) {
+      newText = `${newText.replace(/\s*$/, '')}\n\n<style>\n${pieceStyle.styleCss}\n</style>\n`;
+    }
   }
 
   writeFileAtomic(file, newText);
@@ -899,6 +933,287 @@ function writeChecked(
   return { ok: true, file, hash: result.hash, text: result.text };
 }
 
+function skipCssStringOrComment(source: string, i: number): number {
+  const ch = source[i];
+  if (ch === '/' && source[i + 1] === '*') {
+    const close = source.indexOf('*/', i + 2);
+    return close === -1 ? source.length : close + 2;
+  }
+  if (ch === '"' || ch === "'") {
+    let j = i + 1;
+    while (j < source.length) {
+      if (source[j] === '\\') {
+        j += 2;
+        continue;
+      }
+      if (source[j] === ch) return j + 1;
+      j += 1;
+    }
+    return source.length;
+  }
+  return -1;
+}
+
+function stripCssComments(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length;) {
+    if (text[i] === '/' && text[i + 1] === '*') {
+      const close = text.indexOf('*/', i + 2);
+      i = close === -1 ? text.length : close + 2;
+      continue;
+    }
+    if (text[i] === '"' || text[i] === "'") {
+      const end = skipCssStringOrComment(text, i);
+      out += text.slice(i, end);
+      i = end;
+      continue;
+    }
+    out += text[i++];
+  }
+  return out;
+}
+
+function normalizeCssSelector(selector: string): string {
+  return stripCssComments(selector)
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .trim();
+}
+
+function findMatchingCssRule(
+  text: string,
+  regionStart: number,
+  regionEnd: number,
+  normalizedTarget: string,
+): { bodyStart: number; bodyEnd: number } | null {
+  const stack: Array<{
+    selectorNorm: string;
+    bodyStart: number;
+    ignoreChildren: boolean;
+  }> = [];
+  let stmtStart = regionStart;
+  let parenDepth = 0;
+
+  for (let i = regionStart; i < regionEnd;) {
+    const skipped = skipCssStringOrComment(text, i);
+    if (skipped !== -1) {
+      i = Math.min(skipped, regionEnd);
+      continue;
+    }
+    const ch = text[i];
+    if (ch === '(' || ch === '[') {
+      parenDepth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ')' || ch === ']') {
+      if (parenDepth > 0) parenDepth -= 1;
+      i += 1;
+      continue;
+    }
+    if (parenDepth > 0) {
+      i += 1;
+      continue;
+    }
+    if (ch === ';') {
+      stmtStart = i + 1;
+      i += 1;
+      continue;
+    }
+    if (ch === '{') {
+      const parent = stack[stack.length - 1];
+      const preludeRaw = text.slice(stmtStart, i);
+      const selectorNorm = normalizeCssSelector(preludeRaw);
+      const isKeyframes = /^@(?:-[a-z-]+-)?keyframes\b/i.test(selectorNorm);
+      stack.push({
+        selectorNorm,
+        bodyStart: i + 1,
+        ignoreChildren: Boolean(parent?.ignoreChildren) || isKeyframes,
+      });
+      stmtStart = i + 1;
+      i += 1;
+      continue;
+    }
+    if (ch === '}') {
+      const frame = stack.pop();
+      if (
+        frame &&
+        !frame.ignoreChildren &&
+        !frame.selectorNorm.startsWith('@') &&
+        frame.selectorNorm === normalizedTarget
+      ) {
+        return { bodyStart: frame.bodyStart, bodyEnd: i };
+      }
+      stmtStart = i + 1;
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return null;
+}
+
+function updateRuleBodyDeclaration(
+  body: string,
+  property: string,
+  value: string,
+): string {
+  const declaration = `${property}: ${value};`;
+  const targetProp = property.toLowerCase();
+
+  type MatchSpan = {
+    propStart: number;
+    end: number;
+    stmtStart: number;
+  };
+  const matches: MatchSpan[] = [];
+  let lastNonWsOutsideNest = -1;
+  let stmtStart = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+
+  const inspectStatement = (
+    start: number,
+    end: number,
+    hasSemicolon: boolean,
+  ) => {
+    const raw = body.slice(start, end);
+    let idx = 0;
+    while (idx < raw.length) {
+      if (/\s/.test(raw[idx])) {
+        idx += 1;
+        continue;
+      }
+      if (raw[idx] === '/' && raw[idx + 1] === '*') {
+        const close = raw.indexOf('*/', idx + 2);
+        idx = close === -1 ? raw.length : close + 2;
+        continue;
+      }
+      break;
+    }
+    const propRelStart = idx;
+    let colonRel = -1;
+    let localParen = 0;
+    for (let k = idx; k < raw.length; k++) {
+      const sk = skipCssStringOrComment(raw, k);
+      if (sk !== -1) {
+        k = sk - 1;
+        continue;
+      }
+      const c = raw[k];
+      if (c === '(' || c === '[') localParen += 1;
+      else if ((c === ')' || c === ']') && localParen > 0) localParen -= 1;
+      else if (c === '{' || c === '}') return;
+      else if (c === ':' && localParen === 0) {
+        colonRel = k;
+        break;
+      }
+    }
+    if (colonRel === -1) return;
+    const propName = stripCssComments(raw.slice(propRelStart, colonRel)).trim();
+    if (propName.toLowerCase() !== targetProp) return;
+    const stmtEnd = hasSemicolon
+      ? end + 1
+      : start + raw.replace(/\s+$/, '').length;
+    matches.push({
+      propStart: start + propRelStart,
+      end: stmtEnd,
+      stmtStart: start,
+    });
+  };
+
+  for (let i = 0; i < body.length;) {
+    const skipped = skipCssStringOrComment(body, i);
+    if (skipped !== -1) {
+      i = skipped;
+      continue;
+    }
+    const ch = body[i];
+    if (ch === '{') {
+      braceDepth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === '}') {
+      if (braceDepth > 0) braceDepth -= 1;
+      if (braceDepth === 0) stmtStart = i + 1;
+      i += 1;
+      continue;
+    }
+    if (braceDepth > 0) {
+      i += 1;
+      continue;
+    }
+    if (!/\s/.test(ch)) lastNonWsOutsideNest = i;
+    if (ch === '(' || ch === '[') parenDepth += 1;
+    else if ((ch === ')' || ch === ']') && parenDepth > 0) parenDepth -= 1;
+    else if (ch === ';' && parenDepth === 0) {
+      inspectStatement(stmtStart, i, true);
+      stmtStart = i + 1;
+    }
+    i += 1;
+  }
+  if (braceDepth === 0 && stmtStart < body.length) {
+    inspectStatement(stmtStart, body.length, false);
+  }
+
+  if (matches.length > 0) {
+    // Replace the first declaration and drop any pre-existing duplicate lines.
+    const edits = matches
+      .map((m, idx) =>
+        idx === 0
+          ? { start: m.propStart, end: m.end, text: declaration }
+          : { start: m.stmtStart, end: m.end, text: '' },
+      )
+      .sort((a, b) => b.start - a.start);
+    let next = body;
+    for (const edit of edits) {
+      next = next.slice(0, edit.start) + edit.text + next.slice(edit.end);
+    }
+    return next;
+  }
+
+  if (lastNonWsOutsideNest >= 0) {
+    const tailChar = body[lastNonWsOutsideNest];
+    if (tailChar !== ';' && tailChar !== '}') {
+      const patched =
+        body.slice(0, lastNonWsOutsideNest + 1) +
+        ';' +
+        body.slice(lastNonWsOutsideNest + 1);
+      return `${patched.trimEnd()}\n  ${declaration}\n`;
+    }
+  }
+  return `${body.trimEnd()}\n  ${declaration}\n`;
+}
+
+function astroStyleRegions(
+  text: string,
+): Array<{ start: number; end: number }> {
+  const regions: Array<{ start: number; end: number }> = [];
+  const pattern = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    const innerStart = match.index + match[0].indexOf('>') + 1;
+    const innerEnd = innerStart + match[1].length;
+    regions.push({ start: innerStart, end: innerEnd });
+  }
+  return regions;
+}
+
+function hasUnquotedCssDelimiter(value: string): boolean {
+  for (let i = 0; i < value.length;) {
+    const skipped = skipCssStringOrComment(value, i);
+    if (skipped !== -1) {
+      i = skipped;
+      continue;
+    }
+    const ch = value[i];
+    if (ch === '{' || ch === '}' || ch === ';') return true;
+    i += 1;
+  }
+  return false;
+}
+
 /**
  * Sets one declaration inside a CSS rule, leaving the rest of the stylesheet as written.
  */
@@ -921,6 +1236,28 @@ export function editCssRule(
       ok: false,
       problem: 'CSS rules can only be edited in .css or .astro files.',
     };
+
+  const cleanProp = property.trim();
+  const cleanValue = value.trim();
+  const normalizedTarget = normalizeCssSelector(selector);
+  if (!normalizedTarget) {
+    return { ok: false, problem: 'Choose a valid CSS selector.' };
+  }
+  if (!/^(?:--[A-Za-z0-9_-]+|[A-Za-z][A-Za-z0-9-]*)$/.test(cleanProp)) {
+    return { ok: false, problem: 'Choose a valid CSS property name.' };
+  }
+  if (
+    !cleanValue ||
+    hasUnquotedCssDelimiter(cleanValue) ||
+    /<\/style>/i.test(cleanValue)
+  ) {
+    return {
+      ok: false,
+      problem:
+        'CSS declaration values cannot contain unquoted braces, semicolons, or closing style tags.',
+    };
+  }
+
   if (!fs.existsSync(full))
     return { ok: false, problem: 'That file no longer exists.' };
   const disk = readFile(full);
@@ -933,34 +1270,44 @@ export function editCssRule(
   }
 
   const text = disk.text;
-  const rulePattern = new RegExp(
-    `(${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{)`,
-    'm',
-  );
-  const match = rulePattern.exec(text);
-  const declaration = `${property}: ${value};`;
+  const isAstro = full.toLowerCase().endsWith('.astro');
+  const regions = isAstro
+    ? astroStyleRegions(text)
+    : [{ start: 0, end: text.length }];
 
-  if (match) {
-    const bodyStart = match.index + match[1].length;
-    const bodyEnd = text.indexOf('}', bodyStart);
-    if (bodyEnd === -1)
-      return { ok: false, problem: 'That rule is not closed.' };
-    const body = text.slice(bodyStart, bodyEnd);
-    const propertyPattern = new RegExp(
-      `(^|[;{]\\s*)${property}\\s*:[^;]*;`,
-      'm',
+  for (const region of regions) {
+    const match = findMatchingCssRule(
+      text,
+      region.start,
+      region.end,
+      normalizedTarget,
     );
-    const nextBody = propertyPattern.test(body)
-      ? body.replace(propertyPattern, `$1${declaration}`)
-      : `${body.trimEnd()}${body.trimEnd().length > 0 ? '\n  ' : '\n  '}${declaration}\n`;
-    const next = text.slice(0, bodyStart) + nextBody + text.slice(bodyEnd);
-    writeFileAtomic(full, next);
-    return { ok: true, file, hash: hashOf(next) };
+    if (match) {
+      const body = text.slice(match.bodyStart, match.bodyEnd);
+      const nextBody = updateRuleBodyDeclaration(body, cleanProp, cleanValue);
+      const next =
+        text.slice(0, match.bodyStart) + nextBody + text.slice(match.bodyEnd);
+      writeFileAtomic(full, next);
+      return { ok: true, file, hash: hashOf(next) };
+    }
   }
 
-  // No such rule yet: add it at the end of the file, which is where style blocks live.
-  const addition = `\n${selector} {\n  ${declaration}\n}\n`;
-  const next = text.replace(/\s*$/, '') + addition;
+  const declaration = `${cleanProp}: ${cleanValue};`;
+  const addition = `${normalizedTarget} {\n  ${declaration}\n}\n`;
+  let next: string;
+  if (isAstro) {
+    if (regions.length > 0) {
+      const last = regions[regions.length - 1];
+      const beforeClose = text.slice(0, last.end).replace(/\s*$/, '');
+      const prefix = beforeClose.length > last.start ? '\n' : '\n';
+      next = `${beforeClose}${prefix}${addition}${text.slice(last.end)}`;
+    } else {
+      next = `${text.replace(/\s*$/, '')}\n\n<style>\n${addition}</style>\n`;
+    }
+  } else {
+    const trimmed = text.replace(/\s*$/, '');
+    next = trimmed ? `${trimmed}\n\n${addition}` : addition;
+  }
   writeFileAtomic(full, next);
   return { ok: true, file, hash: hashOf(next), created: true };
 }
@@ -1099,7 +1446,7 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         root,
         request.page,
         request.afterIndex,
-        request.sectionCode,
+        { sectionCode: request.sectionCode, pieceId: request.pieceId },
         request.baseHash,
       );
 

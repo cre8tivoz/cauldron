@@ -538,6 +538,57 @@ function resolveComponentTarget(
   }
 }
 
+export function ensureTokensImport(
+  root: string,
+  pageFile: string,
+  text: string,
+): string {
+  const tokensFile = path.join(root, 'cauldron/tokens.css');
+  if (!fs.existsSync(tokensFile) || text.includes('cauldron/tokens.css')) {
+    return text;
+  }
+  let relative = path
+    .relative(path.dirname(pageFile), tokensFile)
+    .split(path.sep)
+    .join('/');
+  if (!relative.startsWith('.')) relative = `./${relative}`;
+  const tokensImport = `import '${relative}';\n`;
+  if (/^---\r?\n/.test(text)) {
+    return text.replace(/^---\r?\n/, (fence) => `${fence}${tokensImport}`);
+  }
+  return `---\n${tokensImport}---\n${text}`;
+}
+
+export function inlineLibraryPiece(pieceId: string): {
+  id: string;
+  name: string;
+  sectionHtml: string;
+  styleCss: string;
+  markerClass: string;
+} | null {
+  const found = [...LIBRARY, ...EXTENDED_LIBRARY].find(
+    (item) => item.id === pieceId,
+  );
+  if (!found || !found.codeAllowed) return null;
+  const markup = found.markup.replaceAll(
+    '{emailId}',
+    `"cauldron-email-${crypto.randomUUID()}"`,
+  );
+  const indented = markup
+    .split('\n')
+    .map((line) => (line.trim() === '' ? '' : `  ${line}`))
+    .join('\n');
+  const doubled = `.cauldron-${found.id}.cauldron-${found.id}`;
+  const styleCss = found.styles.split(`.cauldron-${found.id}`).join(doubled);
+  return {
+    id: found.id,
+    name: found.name,
+    sectionHtml: `<section class="cauldron-${found.id}">\n${indented}\n</section>`,
+    styleCss: styleCss.trim(),
+    markerClass: `cauldron-${found.id}`,
+  };
+}
+
 /**
  * Copies the piece into the site as the site's own file, and places it on one page.
  * Touches only those two files (plan 4.3, check 1).
@@ -588,18 +639,7 @@ export function addPiece(
   }
 
   // The piece is written in the site's direction, so the page has to load the tokens.
-  const tokensFile = path.join(root, 'cauldron/tokens.css');
-  if (fs.existsSync(tokensFile) && !next.includes('cauldron/tokens.css')) {
-    let relative = path
-      .relative(path.dirname(pageFile), tokensFile)
-      .split(path.sep)
-      .join('/');
-    if (!relative.startsWith('.')) relative = `./${relative}`;
-    const tokensImport = `import '${relative}';\n`;
-    if (next.startsWith('---\n'))
-      next = next.replace(/^---\n/, `---\n${tokensImport}`);
-    else next = `---\n${tokensImport}---\n${next}`;
-  }
+  next = ensureTokensImport(root, pageFile, next);
 
   if (options.mode === 'replace' && options.replaceSelector) {
     const selector = options.replaceSelector.replace(
