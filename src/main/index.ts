@@ -67,7 +67,11 @@ import {
   exportStaticSite,
   deployCloudflarePages,
 } from './publishing';
-import { getCuratedPhotos, saveAssetFile } from './assets';
+import {
+  downloadAndSaveStockPhoto,
+  getCuratedPhotos,
+  saveAssetFile,
+} from './assets';
 import { clearDrafts, loadDrafts, saveDrafts, type Draft } from './recovery';
 import {
   addRecent,
@@ -106,6 +110,8 @@ const SMOKE = process.env.CAULDRON_SMOKE === '1';
 // renderer, preload, IPC and backend all run exactly as a person sees them.
 const BACKGROUND_TEST = process.env.CAULDRON_BACKGROUND_TEST === '1';
 let sawUnexpectedError = '';
+let pendingProblem: string | null = null;
+let editorRendererGone = false;
 const E2E_SITE = process.env.CAULDRON_E2E_SITE ?? '';
 /**
  * The Astro version verified for this workflow in the project-backend proof
@@ -213,6 +219,84 @@ function status(message: string): void {
   if (E2E_SITE) console.log(`STATUS ${message}`);
   state.status = [...state.status.slice(-80), message];
   send('cauldron:status', message);
+}
+
+/** Format an thrown value or rejection reason into a readable one-line message. */
+export function formatUnexpectedError(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+/** True only while the editor window and its renderer process can display UI. */
+export function isEditorUiAvailable(
+  window:
+    | {
+        isDestroyed?: () => boolean;
+        webContents?: { isCrashed?: () => boolean } | null;
+      }
+    | null
+    | undefined,
+  rendererGone: boolean,
+): boolean {
+  if (!window || window.isDestroyed?.()) return false;
+  if (rendererGone) return false;
+  if (window.webContents?.isCrashed?.()) return false;
+  return true;
+}
+
+/** Deliver an error banner to the editor window, or buffer until startup finishes. */
+function notifyProblem(message: string): void {
+  const window = state.window;
+  if (
+    isEditorUiAvailable(window, editorRendererGone) &&
+    window &&
+    !window.webContents.isLoadingMainFrame()
+  ) {
+    send('cauldron:problem', message);
+    pendingProblem = null;
+  } else {
+    pendingProblem = message;
+  }
+}
+
+/** Log and surface an uncaught exception or unhandled promise rejection. */
+function reportUnexpectedError(
+  kind: 'error' | 'unhandled rejection',
+  error: unknown,
+): void {
+  const detail = formatUnexpectedError(error);
+  const message = `Unexpected ${kind}: ${detail}`;
+  sawUnexpectedError = detail;
+  console.error(`Cauldron hit an unexpected ${kind}:`, error);
+  status(message);
+  notifyProblem(message);
+  if (
+    !isEditorUiAvailable(state.window, editorRendererGone) &&
+    app.isPackaged &&
+    !SMOKE &&
+    !BACKGROUND_TEST &&
+    !E2E_SITE
+  ) {
+    dialog.showErrorBox('Cauldron hit an unexpected error', message);
+  }
+}
+
+/** Wire both uncaughtException and unhandledRejection to one reporting path. */
+export function registerUnexpectedErrorHandlers(
+  proc: Pick<NodeJS.Process, 'on'>,
+  report: (kind: 'error' | 'unhandled rejection', error: unknown) => void,
+): void {
+  proc.on('uncaughtException', (error) => {
+    report('error', error);
+  });
+  proc.on('unhandledRejection', (reason) => {
+    report('unhandled rejection', reason);
+  });
 }
 
 /** A failure the person must see, and a diagnostic for whoever reads the console. */
@@ -1210,16 +1294,45 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
 }
 
 /** Editing IPC is accepted only from the app's main frame, never the site preview. */
+export function isAuthorizedEditorIpc(
+  editor:
+    | {
+        isDestroyed?: () => boolean;
+        mainFrame?: { parent?: unknown; frameTreeNodeId?: number } | null;
+      }
+    | null
+    | undefined,
+  sender: unknown,
+  senderFrame:
+    | { parent?: unknown; frameTreeNodeId?: number }
+    | null
+    | undefined,
+): boolean {
+  if (!editor || editor.isDestroyed?.()) return false;
+  if (sender !== editor) return false;
+  const mainFrame = editor.mainFrame;
+  if (!mainFrame || !senderFrame) return false;
+  if (senderFrame === mainFrame) return true;
+  return (
+    senderFrame.parent == null &&
+    mainFrame.parent == null &&
+    typeof senderFrame.frameTreeNodeId === 'number' &&
+    senderFrame.frameTreeNodeId === mainFrame.frameTreeNodeId
+  );
+}
+
+/** Editing IPC is accepted only from the app's main frame, never the site preview. */
 function handle(
   channel: string,
   listener: Parameters<typeof ipcMain.handle>[1],
 ): void {
   ipcMain.handle(channel, (event, ...args) => {
-    const editor = state.window?.webContents;
     if (
-      !editor ||
-      event.sender !== editor ||
-      event.senderFrame !== editor.mainFrame
+      !isAuthorizedEditorIpc(
+        state.window?.webContents,
+        event.sender,
+        event.senderFrame,
+      )
     )
       throw new Error('The website preview has no editing powers.');
     return listener(event, ...args);
@@ -1402,15 +1515,20 @@ function registerIpc(): void {
     return { ok: !result.problem, problem: result.problem ?? undefined };
   });
 
-  handle('cauldron:site-state', () => ({
-    site: summaryOf(state.site),
-    running: Boolean(state.server),
-    url: state.server?.url ?? null,
-    status: state.status,
-    selection: selectionView(),
-    drafts: state.site ? storedDrafts(state.site.root) : [],
-    history: state.history.state(),
-  }));
+  handle('cauldron:site-state', () => {
+    const problem = pendingProblem;
+    pendingProblem = null;
+    return {
+      site: summaryOf(state.site),
+      running: Boolean(state.server),
+      url: state.server?.url ?? null,
+      status: state.status,
+      problem,
+      selection: selectionView(),
+      drafts: state.site ? storedDrafts(state.site.root) : [],
+      history: state.history.state(),
+    };
+  });
 
   handle('cauldron:start-preview', () => startPreview());
   handle('cauldron:stop-preview', async () => {
@@ -1721,14 +1839,34 @@ function registerIpc(): void {
         if (res.ok) {
           status(`Saved image to ${res.relativePath}`);
           state.preview.reload();
+        } else {
+          fail(res.problem);
         }
         return res;
       } catch (err) {
+        const problem = `Could not process image: ${err instanceof Error ? err.message : String(err)}`;
+        fail(problem);
         return {
           ok: false,
-          problem: `Could not process image: ${err instanceof Error ? err.message : String(err)}`,
+          problem,
         };
       }
+    },
+  );
+
+  handle(
+    'cauldron:save-stock-photo',
+    async (_event, payload: { photoId: string; url: string }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      const res = await downloadAndSaveStockPhoto(site.root, payload);
+      if (res.ok) {
+        status(`Saved image to ${res.relativePath}`);
+        state.preview.reload();
+      } else {
+        fail(res.problem);
+      }
+      return res;
     },
   );
 
@@ -2623,15 +2761,33 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
     return { action: 'deny' };
   });
 
+  // Assign state.window before starting the renderer load so initial startup IPC
+  // calls from the editor window are never rejected during page boot.
+  editorRendererGone = false;
+  state.window = window;
+  state.preview.attach(window, path.join(__dirname, 'preview-preload.js'));
+
+  window.webContents.on('did-start-loading', () => {
+    editorRendererGone = false;
+  });
+
+  window.webContents.on('render-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit') return;
+    editorRendererGone = true;
+    reportUnexpectedError(
+      'error',
+      new Error(
+        `Editor renderer exited unexpectedly (${details.reason}, exit code ${details.exitCode})`,
+      ),
+    );
+  });
+
   const rendererUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL;
   if (rendererUrl) void window.loadURL(rendererUrl);
   else
     void window.loadFile(
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
-
-  state.window = window;
-  state.preview.attach(window, path.join(__dirname, 'preview-preload.js'));
 
   window.on('closed', () => {
     state.agent?.cancel();
@@ -2930,13 +3086,9 @@ export function start(): void {
     state.server?.stop();
     state.mcp?.close();
   });
-  // A broken handler should never put a blocking error box on someone's screen.
-  // It is logged and shown in the status bar instead, and the app keeps its data.
-  process.on('uncaughtException', (error) => {
-    sawUnexpectedError = error.message;
-    console.error('Cauldron hit an unexpected error:', error);
-    status(`Unexpected error: ${error.message}`);
-  });
+  // Surface uncaught errors and unhandled promise rejections visibly and in
+  // the console rather than swallowing async failures silently.
+  registerUnexpectedErrorHandlers(process, reportUnexpectedError);
 
   if (!app.requestSingleInstanceLock()) {
     app.quit();
@@ -3003,6 +3155,8 @@ export function start(): void {
           console.log(`SMOKE SHOT: ${shot}`);
         }
         if (rendered.hasApp && rendered.hasRail && rendered.text > 0) {
+          // Let initial React mount effects finish before app.exit tears down state.window.
+          if (!shot) await new Promise((resolve) => setTimeout(resolve, 150));
           console.log('SMOKE PASS: window created and interface rendered');
           app.exit(0);
         } else {
