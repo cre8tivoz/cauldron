@@ -33,6 +33,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     ok: boolean;
     message: string;
     url?: string;
+    isAuthError?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -86,8 +87,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
       if (res.ok) {
         setDeployResult({
           ok: true,
-          message:
-            'Static site built successfully into dist/. Opened folder in Finder.',
+          message: `Static site built into ${res.distPath ?? 'dist/'}. Opened folder in Finder.`,
         });
       } else {
         setDeployResult({
@@ -110,20 +110,23 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     setDeployResult(null);
     try {
       const res = await window.cauldron.deployCloudflare(site?.name);
-      if (res.ok && res.url) {
+      if (res.ok) {
         setDeployResult({
           ok: true,
-          message: 'Deployed successfully to Cloudflare Pages!',
+          message: res.url
+            ? 'Deployed successfully to Cloudflare Pages!'
+            : (res.note ??
+              "Deployed, but Cloudflare didn't report the address — check your Cloudflare dashboard."),
           url: res.url,
         });
       } else {
         setDeployResult({
           ok: false,
-          message:
-            res.problem ??
-            'Cloudflare Pages deployment requires Wrangler authentication or CLOUDFLARE_API_TOKEN. Static site was built to dist/.',
+          message: res.problem ?? 'Cloudflare Pages deployment failed.',
+          isAuthError: Boolean(res.isAuthError),
         });
       }
+      setState(await window.cauldron.repoState());
     } catch (e) {
       setDeployResult({
         ok: false,
@@ -210,7 +213,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
               </a>
             </div>
           )}
-          {!deployResult.ok && (
+          {!deployResult.ok && deployResult.isAuthError && (
             <div
               style={{
                 marginTop: 8,
@@ -235,7 +238,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                   border: '1px solid rgba(239, 68, 68, 0.3)',
                 }}
               >
-                Coming Soon / Setup Required
+                Setup Required
               </span>
               <span
                 style={{
@@ -248,8 +251,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                 <code className="mono">npx wrangler login</code> in your
                 terminal or configure{' '}
                 <code className="mono">CLOUDFLARE_API_TOKEN</code> in your
-                environment. In the meantime, your static site is built and
-                ready in the <code className="mono">dist/</code> folder.
+                environment. Your static site is built and ready locally.
               </span>
             </div>
           )}

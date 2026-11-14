@@ -29,17 +29,30 @@ type Api = {
     runId?: string;
   };
   collections?: () => CauldronCollections;
-  repoState?: () => {
-    isRepo: boolean;
-    changes: Array<{ file: string }>;
-    branch?: string;
-  };
-  publish?: (payload: { message: string; push: boolean }) => {
-    ok: boolean;
-    problem?: string;
-    committed?: number;
-    details?: string;
-  };
+  repoState?: () =>
+    | Promise<{
+        isRepo: boolean;
+        changes: Array<{ file: string }>;
+        branch?: string;
+      }>
+    | {
+        isRepo: boolean;
+        changes: Array<{ file: string }>;
+        branch?: string;
+      };
+  publish?: (payload: { message: string; push: boolean }) =>
+    | Promise<{
+        ok: boolean;
+        problem?: string;
+        committed?: number;
+        details?: string;
+      }>
+    | {
+        ok: boolean;
+        problem?: string;
+        committed?: number;
+        details?: string;
+      };
   qualityRun?: (payload: { pages?: string[] }) => Promise<{
     built: boolean;
     findings: Array<{
@@ -930,7 +943,7 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
     git(['commit', '-q', '-m', 'Starting point']);
 
     await api.openSiteAt(scratch);
-    const state = api.repoState?.();
+    const state = await api.repoState?.();
     check(
       '5.1 the site is recognised as its own Git repository',
       Boolean(state?.isRepo),
@@ -951,7 +964,7 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
       problem?: string;
     };
     check('5.1 a change is made', Boolean(made?.ok), made?.problem ?? '');
-    const changed = api.repoState?.();
+    const changed = await api.repoState?.();
     check(
       '5.1 the change is shown before publishing',
       (changed?.changes.length ?? 0) > 0,
@@ -971,21 +984,24 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
         savedAt: Date.now(),
       },
     ]);
-    const pending = api.publish?.({ message: 'Must not commit', push: false });
+    const pending = await api.publish?.({
+      message: 'Must not commit',
+      push: false,
+    });
     check(
       '5.1 unsaved content blocks publishing',
       pending?.ok === false && Boolean(pending.problem?.includes('unsaved')),
       pending?.problem ?? '',
     );
     clearDrafts(scratch);
-    const noMessage = api.publish?.({ message: '   ', push: false });
+    const noMessage = await api.publish?.({ message: '   ', push: false });
     check(
       '5.1 a commit without a message is refused',
       noMessage?.ok === false,
       noMessage?.problem ?? '',
     );
 
-    const published = api.publish?.({
+    const published = await api.publish?.({
       message: 'Add the publish check page',
       push: false,
     });
@@ -1001,7 +1017,10 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
       lastCommit,
     );
 
-    const again = api.publish?.({ message: 'Nothing to do', push: false });
+    const again = await api.publish?.({
+      message: 'Nothing to do',
+      push: false,
+    });
     check(
       '5.1 publishing an unchanged site is refused',
       again?.ok === false,
@@ -1015,7 +1034,7 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
         path.join(scratch, 'publish-proof.txt'),
         'Real local-remote push check.',
       );
-      const pushed = api.publish?.({
+      const pushed = await api.publish?.({
         message: 'Prove remote publication',
         push: true,
       });
