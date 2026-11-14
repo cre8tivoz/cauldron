@@ -4470,6 +4470,13 @@ test('WDL-232: snapshot hashes files without holding site Buffers, skips build f
       Buffer.from([1, 2, 3, 4]),
     );
     fs.writeFileSync(path.join(site, 'public/changed.png'), png);
+    fs.mkdirSync(path.join(site, 'src/pages/build'), { recursive: true });
+    fs.writeFileSync(
+      path.join(site, 'src/pages/build/index.astro'),
+      '<h1>Build guide</h1>\n',
+    );
+    fs.mkdirSync(path.join(site, 'public/out'), { recursive: true });
+    fs.writeFileSync(path.join(site, 'public/out/image.png'), png);
     for (const dir of [
       'node_modules',
       'dist',
@@ -4496,6 +4503,8 @@ test('WDL-232: snapshot hashes files without holding site Buffers, skips build f
     const snap = snapshot(site);
     assert.equal(typeof snap.files.get('src/pages/index.astro'), 'string');
     assert.equal(snap.files.get('src/pages/index.astro').length, 64);
+    assert.ok(snap.files.has('src/pages/build/index.astro'));
+    assert.ok(snap.files.has('public/out/image.png'));
     for (const key of snap.files.keys()) {
       assert.equal(
         key.includes('artifact.js'),
@@ -4576,11 +4585,12 @@ test('WDL-196: persisted runs and undo backups survive restart and UI copy is ho
 
     // Simulate app restart with a fresh Runs instance
     const runs2 = new Runs();
-    const reloaded = runs2.load(site);
-    assert.equal(reloaded.length, 1);
-    assert.equal(reloaded[0].id, run.id);
-    assert.equal(reloaded[0].cssChanges.length, 1);
-    assert.equal(reloaded[0].otherPages[0].page, '/created');
+    const loaded = runs2.load(site);
+    assert.equal(loaded.problem, null);
+    assert.equal(loaded.runs.length, 1);
+    assert.equal(loaded.runs[0].id, run.id);
+    assert.equal(loaded.runs[0].cssChanges.length, 1);
+    assert.equal(loaded.runs[0].otherPages[0].page, '/created');
     assert.equal(runs2.canUndo(site, run.id), true);
 
     assert.deepEqual(runs2.undo(site, run.id), { ok: true });
@@ -4598,17 +4608,42 @@ test('WDL-196: persisted runs and undo backups survive restart and UI copy is ho
     );
     assert.equal(runs2.canUndo(site, run.id), false);
 
-    // Crashed running record loads back cleanly as failed and non-undoable
+    // Crashed running record is persisted by start(), loads back as failed and non-undoable
     const crashRuns = new Runs();
     const crashed = crashRuns.start(site, 'claude', 'interrupted job');
-    crashRuns['persist'](site, crashed);
     const afterCrash = new Runs();
-    const loadedCrash = afterCrash
-      .load(site)
-      .find((item) => item.id === crashed.id);
+    const loadedAfterCrash = afterCrash.load(site);
+    assert.equal(loadedAfterCrash.problem, null);
+    const loadedCrash = loadedAfterCrash.runs.find(
+      (item) => item.id === crashed.id,
+    );
     assert.equal(loadedCrash.status, 'failed');
     assert.match(loadedCrash.note, /Interrupted/);
     assert.equal(afterCrash.canUndo(site, crashed.id), false);
+
+    // Damaged run JSON surfaces a problem and preserves existing backup blobs
+    const nextRun = afterCrash.start(site, 'codex', 'valid undoable run');
+    fs.writeFileSync(
+      path.join(site, 'src/pages/index.astro'),
+      '<h1>Changed again</h1>\n',
+    );
+    afterCrash.finish(site, nextRun.id);
+    const siteHash = crypto
+      .createHash('sha256')
+      .update(Buffer.from(site))
+      .digest('hex')
+      .slice(0, 12);
+    const siteRunDir = path.join(userData, 'runs', siteHash);
+    const blobsBefore = fs.readdirSync(path.join(siteRunDir, 'blobs'));
+    assert.equal(blobsBefore.length, 1);
+    fs.writeFileSync(path.join(siteRunDir, 'corrupt.json'), '{ not json');
+    const damagedLoad = new Runs().load(site);
+    assert.match(damagedLoad.problem ?? '', /corrupt\.json/);
+    assert.deepEqual(
+      fs.readdirSync(path.join(siteRunDir, 'blobs')),
+      blobsBefore,
+      'incomplete load must never prune backup blobs',
+    );
 
     const agentPanelSrc = fs.readFileSync(
       path.join(process.cwd(), 'src/components/AgentPanel.tsx'),
@@ -4637,9 +4672,14 @@ await (async () => {
       {
         file: '/tmp/site/src/pages/about.astro',
         before:
-          '---\nconst msg = "<style>.fake { color: red; }</style>";\n---\n<style>.card { border: 1px solid #ccc; }</style>',
+          '---\nconst msg = "<style>.fake { color: red; }</style>";\n---\n<style>.card { color: red; &:hover { opacity: 0.5; } border: 1px solid #ccc; }</style>',
         after:
-          '---\nconst msg = "<style>.fake { color: blue; }</style>";\n---\n<style>.card { border: 2px solid #000; }</style>',
+          '---\nconst msg = "<style>.fake { color: blue; }</style>";\n---\n<style>.card { color: blue; &:hover { opacity: 0.5; } border: 2px solid #000; }</style>',
+      },
+      {
+        file: '/tmp/site/src/styles/nested.css',
+        before: '.panel { color: red; &:hover { opacity: 0.5; } }',
+        after: '.panel { color: blue; &:hover { opacity: 0.5; } }',
       },
     ]);
 
@@ -4681,6 +4721,14 @@ await (async () => {
         (c) =>
           c.file === 'src/pages/about.astro' &&
           c.selector === '.card' &&
+          c.status === 'changed',
+      ),
+    );
+    assert.ok(
+      cssChanges.some(
+        (c) =>
+          c.file === 'src/styles/nested.css' &&
+          c.selector === '.panel' &&
           c.status === 'changed',
       ),
     );

@@ -296,8 +296,10 @@ function extractCssRuleMap(css: string): Map<string, string[]> {
   const stack: Array<{
     selectorNorm: string;
     bodyStart: number;
+    cursor: number;
+    declChunks: string[];
+    isKeyframes: boolean;
     ignoreChildren: boolean;
-    hasChildRules: boolean;
   }> = [];
   let stmtStart = 0;
   let parenDepth = 0;
@@ -330,14 +332,18 @@ function extractCssRuleMap(css: string): Map<string, string[]> {
     }
     if (ch === '{') {
       const parent = stack[stack.length - 1];
-      if (parent) parent.hasChildRules = true;
+      if (parent && !parent.ignoreChildren) {
+        parent.declChunks.push(css.slice(parent.cursor, stmtStart));
+      }
       const selectorNorm = normalizeSelectorText(css.slice(stmtStart, i));
       const isKeyframes = /^@(?:-[a-z-]+-)?keyframes\b/i.test(selectorNorm);
       stack.push({
         selectorNorm,
         bodyStart: i + 1,
+        cursor: i + 1,
+        declChunks: [],
+        isKeyframes,
         ignoreChildren: Boolean(parent?.ignoreChildren) || isKeyframes,
-        hasChildRules: false,
       });
       stmtStart = i + 1;
       i += 1;
@@ -345,27 +351,34 @@ function extractCssRuleMap(css: string): Map<string, string[]> {
     }
     if (ch === '}') {
       const frame = stack.pop();
+      const parent = stack[stack.length - 1];
+      if (parent) parent.cursor = i + 1;
       if (
         frame &&
-        (!frame.hasChildRules ||
-          /^@(?:-[a-z-]+-)?keyframes\b/i.test(frame.selectorNorm)) &&
         frame.selectorNorm !== '' &&
-        !(
-          frame.ignoreChildren &&
-          !/^@(?:-[a-z-]+-)?keyframes\b/i.test(frame.selectorNorm)
-        )
+        !(frame.ignoreChildren && !frame.isKeyframes)
       ) {
-        const parentSelectors = stack
-          .map((item) => item.selectorNorm)
-          .filter(Boolean);
-        const fullSelector =
-          parentSelectors.length > 0
-            ? `${parentSelectors.join(' > ')} > ${frame.selectorNorm}`
-            : frame.selectorNorm;
-        const body = normalizeCssText(css.slice(frame.bodyStart, i));
-        const list = rules.get(fullSelector) ?? [];
-        list.push(body);
-        rules.set(fullSelector, list);
+        const body = frame.isKeyframes
+          ? normalizeCssText(css.slice(frame.bodyStart, i))
+          : normalizeCssText(
+              [...frame.declChunks, css.slice(frame.cursor, i)].join(' '),
+            );
+        const hadNoChildren = frame.declChunks.length === 0;
+        if (
+          body !== '' ||
+          (hadNoChildren && !frame.selectorNorm.startsWith('@'))
+        ) {
+          const parentSelectors = stack
+            .map((item) => item.selectorNorm)
+            .filter(Boolean);
+          const fullSelector =
+            parentSelectors.length > 0
+              ? `${parentSelectors.join(' > ')} > ${frame.selectorNorm}`
+              : frame.selectorNorm;
+          const list = rules.get(fullSelector) ?? [];
+          list.push(body);
+          rules.set(fullSelector, list);
+        }
       }
       stmtStart = i + 1;
       i += 1;

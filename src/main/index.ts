@@ -699,7 +699,7 @@ async function openSiteAt(root: string) {
   state.history = new History();
   pushHistory();
   state.runs = new Runs();
-  state.runs.load(detected.root);
+  const runHistory = state.runs.load(detected.root);
   // Read the saved edits once, and keep the failure for last: the status bar
   // shows one message, so a later "site opened" line must not bury it (plan 1.6).
   const recovery = loadDrafts(detected.root);
@@ -719,6 +719,7 @@ async function openSiteAt(root: string) {
   const problems = [
     recovery.problem,
     readDirection(detected.root).problem,
+    runHistory.problem,
   ].filter(Boolean);
   if (problems.length > 0) fail(problems.join(' '));
   await refreshSiteHealth();

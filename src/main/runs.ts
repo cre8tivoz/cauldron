@@ -53,10 +53,10 @@ export type UndoResult =
       uncertain: string[];
     };
 
-const SKIP = new Set([
-  'node_modules',
+const SKIP_ANY_DEPTH = new Set(['node_modules', '.git', '.pnpm-store']);
+
+const SKIP_ROOT_DIRS = new Set([
   'dist',
-  '.git',
   '.astro',
   '.vercel',
   '.netlify',
@@ -69,7 +69,6 @@ const SKIP = new Set([
   'out',
   '.turbo',
   'coverage',
-  '.pnpm-store',
   '.tmp',
 ]);
 
@@ -146,7 +145,14 @@ export function snapshot(root: string): Snapshot {
       return;
     }
     for (const entry of entries) {
-      if (SKIP.has(entry.name)) continue;
+      if (SKIP_ANY_DEPTH.has(entry.name)) continue;
+      if (
+        dir === root &&
+        entry.isDirectory() &&
+        SKIP_ROOT_DIRS.has(entry.name)
+      ) {
+        continue;
+      }
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
@@ -177,6 +183,8 @@ export class Runs {
   private roots = new Map<string, string>();
   /** Unreadable paths recorded during snapshot diffing, distinct from build diagnostics. */
   private unreadable = new Map<string, string[]>();
+  /** Sites whose run history failed to load completely; prevents pruning uninspected blobs. */
+  private incompleteHistory = new Set<string>();
   private idCounter = 0;
 
   start(root: string, tool: string, prompt: string): Run {
@@ -228,6 +236,7 @@ export class Runs {
     this.before.set(run.id, taken);
     this.roots.set(run.id, root);
     this.runs.push(run);
+    this.persist(root, run);
     return run;
   }
 
@@ -235,18 +244,25 @@ export class Runs {
    * Reloads persisted runs for a site after app launch. Any run that was
    * interrupted mid-flight is surfaced honestly as failed rather than left running.
    */
-  load(root: string): Run[] {
+  load(root: string): { runs: Run[]; problem: string | null } {
+    this.incompleteHistory.delete(root);
     const dir = siteRunsDir(root);
-    if (!dir || !fs.existsSync(dir)) return this.list();
+    if (!dir || !fs.existsSync(dir))
+      return { runs: this.list(), problem: null };
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (error) {
       console.error('Saved run records could not be read:', error);
-      return this.list();
+      this.incompleteHistory.add(root);
+      return {
+        runs: this.list(),
+        problem: 'Saved run history could not be read.',
+      };
     }
 
     const loaded: Run[] = [];
+    const damaged: string[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
       const full = path.join(dir, entry.name);
@@ -254,7 +270,10 @@ export class Runs {
         const parsed = JSON.parse(
           fs.readFileSync(full, 'utf8'),
         ) as Partial<PersistedRun>;
-        if (!parsed || typeof parsed.id !== 'string') continue;
+        if (!parsed || typeof parsed.id !== 'string') {
+          damaged.push(entry.name);
+          continue;
+        }
         const wasInterrupted = parsed.status === 'running';
         const files: RunFile[] = Array.isArray(parsed.files)
           ? parsed.files.map((item) => ({
@@ -295,6 +314,7 @@ export class Runs {
         if (wasInterrupted) this.persist(root, run);
       } catch (error) {
         console.error(`Run record ${entry.name} could not be parsed:`, error);
+        damaged.push(entry.name);
       }
     }
 
@@ -309,8 +329,15 @@ export class Runs {
       ...this.runs.filter((item) => activeIds.has(item.id)),
     ];
     this.runs = merged;
+    if (damaged.length > 0) {
+      this.incompleteHistory.add(root);
+      return {
+        runs: this.list(),
+        problem: `Some saved run records could not be read (${damaged.join(', ')}).`,
+      };
+    }
     this.pruneUnusedBlobs(root);
-    return this.list();
+    return { runs: this.list(), problem: null };
   }
 
   /**
@@ -677,6 +704,7 @@ export class Runs {
   }
 
   private pruneUnusedBlobs(root: string): void {
+    if (this.incompleteHistory.has(root)) return;
     const dir = siteRunsDir(root);
     if (!dir) return;
     const blobsDir = path.join(dir, 'blobs');
