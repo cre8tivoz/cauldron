@@ -113,6 +113,10 @@ import {
   type Location,
 } from './edit';
 
+const E2E_HARNESS_ENABLED =
+  typeof __CAULDRON_E2E__ === 'boolean'
+    ? __CAULDRON_E2E__
+    : process.env.CAULDRON_BUNDLE_E2E === '1';
 const SMOKE = process.env.CAULDRON_SMOKE === '1';
 // Test-only: hides the window, Dock and splash so an automated UI proof can
 // drive the real app in the background. It grants no other shortcut: the
@@ -121,7 +125,9 @@ const BACKGROUND_TEST = process.env.CAULDRON_BACKGROUND_TEST === '1';
 let sawUnexpectedError = '';
 let pendingProblem: string | null = null;
 let editorRendererGone = false;
-const E2E_SITE = process.env.CAULDRON_E2E_SITE ?? '';
+const E2E_SITE = E2E_HARNESS_ENABLED
+  ? (process.env.CAULDRON_E2E_SITE ?? '')
+  : '';
 /**
  * The Astro version verified for this workflow in the project-backend proof
  * (real installs from the shared store; see the issue-32 backend record).
@@ -2942,242 +2948,383 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
   return window;
 }
 
-function harnessApi() {
-  return {
-    mcpInfo: async () =>
-      state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
-    // Ticket 17 reads the same history the person's Undo uses.
-    history: () =>
-      state.history.list().map((change) => ({
-        file: path.relative(state.site?.root ?? '', change.file),
-        label: change.label,
-        runId: change.runId,
-        afterHash: change.afterHash,
-        created: change.created ?? false,
-      })),
-    // Ticket 17: a real agent run sets state.agentRunId in sendAgent; the
-    // harness needs the same tagging without launching a provider.
-    tagAgentRun: (id: string | null) => {
-      state.agentRunId = id;
-    },
-    addPiece: (payload: {
-      pieceId: string;
-      page: string;
-      mode: 'add' | 'replace';
-      replaceSelector?: string;
-    }) => {
-      if (!state.site) return { ok: false, problem: 'No site.' };
-      const run = state.runs.start(
-        state.site.root,
-        'library',
-        `Add ${payload.pieceId}`,
-      );
-      const result = addPiece(state.site.root, payload);
-      state.runs.finish(state.site.root, run.id);
-      return { ...result, runId: run.id };
-    },
-    collections: () => (state.site ? readCollections(state.site.root) : []),
-    runs: () => state.runs.list(),
-    repoState: () =>
-      state.site
-        ? repoStateAsync(state.site.root)
-        : { isRepo: false, changes: [] },
-    publish: (payload: { message: string; push: boolean }) =>
-      state.site
-        ? publishAsync(state.site.root, payload)
-        : { ok: false, problem: 'No site.' },
-    qualityRun: async (payload: { pages?: string[] }) => {
-      if (!state.site)
-        return {
-          built: false,
-          findings: [],
-          measured: [],
-          buildLog: '',
-          builtAt: '',
-        };
-      return checkSite({
-        root: state.site.root,
-        direction: directionFor(state.site.root),
-        pages: payload?.pages ?? ['/'],
-        changed: lastRunChanges(),
-      });
-    },
-    entry: (file: string) =>
-      state.site ? readEntry(state.site.root, file) : { problem: 'No site.' },
-    saveEntry: (payload: {
-      file: string;
-      baseHash: string;
-      change: Record<string, string>;
-      keepMine?: boolean;
-    }) =>
-      state.site ? saveContent(payload) : { ok: false, problem: 'No site.' },
-    openSiteAt,
-    startPreview,
-    previewLoad: (url: string) => state.preview.load(url),
-    previewBridgeAbsent: () =>
-      state.preview.webContents?.executeJavaScript(
-        'typeof window.cauldron === "undefined" && typeof window.require === "undefined" && typeof window.process === "undefined"',
-      ),
-    previewHtml: () =>
-      state.preview.webContents?.executeJavaScript(
-        'document.documentElement.outerHTML',
-      ) as Promise<string>,
-    previewClick: (selector: string) =>
-      state.preview.webContents?.executeJavaScript(
-        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; el.click(); return { tag: el.tagName.toLowerCase(), text: el.textContent }; })()`,
-      ) as Promise<unknown>,
-    previewClickLeaf: () =>
-      state.preview.webContents?.executeJavaScript(
-        `(() => {
-                const wanted = ['H1','H2','H3','H4','P','LI','A','SPAN','BUTTON'];
-                const els = [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')].filter((el) =>
-                  el.children.length === 0 &&
-                  el.textContent.trim().length > 2 &&
-                  wanted.includes(el.tagName)
-                );
-                const el = els[0];
-                if (!el) return null;
-                el.click();
-                return { tag: el.tagName.toLowerCase(), text: el.textContent };
-              })()`,
-      ) as Promise<unknown>,
-    getSelection: () => state.selection,
-    writeText: (value: string) => writeSelection({ kind: 'text', value }),
-    writeStyle: (properties: Record<string, string>) =>
-      writeSelection({ kind: 'style', properties }),
-    forceWrite: (operation: unknown) =>
-      writeSelection(operation as EditOperation, { force: true }),
-    undo: () => undoLast(),
-    createPage: (page: { path: string; title: string }) => createPage(page),
-    runAction: (request: unknown) =>
-      state.site
-        ? sharedAction(request as ActionRequest)
-        : { ok: false, problem: 'No site.' },
-    startRun: (payload: { tool: string; prompt: string }) => {
-      if (!state.site) return { ok: false };
-      state.beforeLocs = [];
-      const run = state.runs.start(
-        state.site.root,
-        payload.tool,
-        payload.prompt,
-      );
-      void collectLocs().then((locs) => {
-        state.beforeLocs = locs.elements;
-      });
-      return { ok: true, run: { id: run.id } };
-    },
-    beforeLocsCount: () => state.beforeLocs.length,
-    previewEval: (script: string) =>
-      state.preview.webContents?.executeJavaScript(script) as Promise<unknown>,
-    finishRun: async (id: string) => {
-      if (!state.site) return { ok: false };
-      await reloadPreview();
-      const after = await collectLocs();
-      const run = state.runs.finish(state.site.root, id, {
-        outside: outsideWrites(runStartedAt(id)),
-      });
-      if (!run) return { ok: false };
-      recordRunComparison(state.site.root, run, after);
-      return {
-        ok: true,
-        compared: after.problem === null,
-        run: {
-          files: run.files.map((file) => file.file),
-          deletedFiles: run.files
-            .filter((file) => file.status === 'removed')
-            .map((file) => file.file),
-          highlighted: run.highlighted,
-          cssChanges: run.cssChanges ?? [],
-          otherPages: run.otherPages ?? [],
-        },
-      };
-    },
-    setDirection: (id: string) => setDirectionTo(id),
-    sendAgent: (payload: { tool: AgentTool; request: string }) =>
-      sendAgent(payload),
-    cancelAgent: () => {
-      state.agent?.cancel();
-      return true;
-    },
-    agentStatuses: () =>
-      lastAgentEvents
-        .filter((event) => event.type === 'status')
-        .map((event) => event.text ?? ''),
-    agentErrors: () =>
-      lastAgentEvents
-        .filter((event) => event.type === 'error')
-        .map((event) => event.text ?? ''),
-    waitForAgent: (timeout: number) => waitForAgentDone(timeout),
-    settleRenderer: async () => {
-      const contents = state.window?.webContents;
-      if (!contents || contents.isDestroyed()) return;
-      await contents.executeJavaScript(
-        `new Promise(resolve => setTimeout(resolve, 0)).then(() => window.cauldron.runs())`,
-      );
-    },
-    agentReply: () =>
-      // Streamed pieces (delta) continue the previous text, as in the panel.
-      lastAgentEvents
-        .filter((event) => event.type === 'text')
-        .reduce(
-          (reply, event) =>
-            (event as { delta?: boolean }).delta
-              ? reply + (event.text ?? '')
-              : reply
-                ? `${reply}\n${event.text ?? ''}`
-                : (event.text ?? ''),
-          '',
+async function runE2eTests(): Promise<boolean> {
+  if (!E2E_HARNESS_ENABLED || !E2E_SITE) return false;
+
+  function harnessApi() {
+    return {
+      mcpInfo: async () =>
+        state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
+      // Ticket 17 reads the same history the person's Undo uses.
+      history: () =>
+        state.history.list().map((change) => ({
+          file: path.relative(state.site?.root ?? '', change.file),
+          label: change.label,
+          runId: change.runId,
+          afterHash: change.afterHash,
+          created: change.created ?? false,
+        })),
+      // Ticket 17: a real agent run sets state.agentRunId in sendAgent; the
+      // harness needs the same tagging without launching a provider.
+      tagAgentRun: (id: string | null) => {
+        state.agentRunId = id;
+      },
+      addPiece: (payload: {
+        pieceId: string;
+        page: string;
+        mode: 'add' | 'replace';
+        replaceSelector?: string;
+      }) => {
+        if (!state.site) return { ok: false, problem: 'No site.' };
+        const run = state.runs.start(
+          state.site.root,
+          'library',
+          `Add ${payload.pieceId}`,
+        );
+        const result = addPiece(state.site.root, payload);
+        state.runs.finish(state.site.root, run.id);
+        return { ...result, runId: run.id };
+      },
+      collections: () => (state.site ? readCollections(state.site.root) : []),
+      runs: () => state.runs.list(),
+      repoState: () =>
+        state.site
+          ? repoStateAsync(state.site.root)
+          : { isRepo: false, changes: [] },
+      publish: (payload: { message: string; push: boolean }) =>
+        state.site
+          ? publishAsync(state.site.root, payload)
+          : { ok: false, problem: 'No site.' },
+      qualityRun: async (payload: { pages?: string[] }) => {
+        if (!state.site)
+          return {
+            built: false,
+            findings: [],
+            measured: [],
+            buildLog: '',
+            builtAt: '',
+          };
+        return checkSite({
+          root: state.site.root,
+          direction: directionFor(state.site.root),
+          pages: payload?.pages ?? ['/'],
+          changed: lastRunChanges(),
+        });
+      },
+      entry: (file: string) =>
+        state.site ? readEntry(state.site.root, file) : { problem: 'No site.' },
+      saveEntry: (payload: {
+        file: string;
+        baseHash: string;
+        change: Record<string, string>;
+        keepMine?: boolean;
+      }) =>
+        state.site ? saveContent(payload) : { ok: false, problem: 'No site.' },
+      openSiteAt,
+      startPreview,
+      stopPreview,
+      previewLoad: (url: string) => state.preview.load(url),
+      previewBridgeAbsent: () =>
+        state.preview.webContents?.executeJavaScript(
+          'typeof window.cauldron === "undefined" && typeof window.require === "undefined" && typeof window.process === "undefined"',
         ),
-    /** The exact brief handed to the agent process, for the Codex proof. */
-    agentPrompt: () => lastAgentPrompt,
-    /** Every event the run reported, in order, so progress can be checked. */
-    agentEvents: () =>
-      lastAgentEvents.map((event) => ({
-        type: event.type,
-        text: event.text ?? '',
-        name: event.name ?? '',
-        paths: event.paths,
-      })),
-    /** The Cauldron actions an outside agent actually asked for. */
-    mcpServed: () => mcpCalls(),
-    agentTools: () =>
-      lastAgentEvents
-        .filter((event) => event.type === 'tool')
-        .map((event) => event.name ?? ''),
-    agentRunning: () => Boolean(state.agent),
-    /** Ticket 18: the session id the app will resume for a tool on this site. */
-    agentSession: (tool: string) =>
-      (state.site ? state.sessions.get(state.site.root) : undefined)?.[
-        tool as AgentTool
-      ] ?? null,
-    /** Ticket 18: the tool calls the outside-agent connection actually served. */
-    mcpCalls: () => mcpToolCalls.slice(),
-    clearMcpCalls: () => {
-      mcpToolCalls.length = 0;
-      clearMcpCallsLog();
-    },
-    buildPromptText: (request: string) => {
-      const site = state.site;
-      const direction = site ? directionFor(site.root) : null;
-      return buildPrompt({
-        request,
-        siteName: site?.name ?? '',
-        direction,
-        selection: promptSelection(),
-        catalogue: actionCatalogue(site?.name),
-      });
-    },
-    undoRun: (id: string) =>
-      state.site
-        ? state.runs.undo(state.site.root, id)
-        : { ok: false, problem: 'No site.' },
-    saveDraft: (drafts: Draft[]) => {
-      if (state.site) saveDrafts(state.site.root, drafts);
-    },
-    restoreDraft: (draft: Draft) => restoreDraft(draft),
-    status,
-    site: () => state.site,
-  };
+      previewHtml: () =>
+        state.preview.webContents?.executeJavaScript(
+          'document.documentElement.outerHTML',
+        ) as Promise<string>,
+      previewClick: (selector: string) =>
+        state.preview.webContents?.executeJavaScript(
+          `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; el.click(); return { tag: el.tagName.toLowerCase(), text: el.textContent }; })()`,
+        ) as Promise<unknown>,
+      previewClickLeaf: async () => {
+        const contents = state.preview.webContents;
+        if (!contents || contents.isDestroyed()) return null;
+        const count = Number(
+          await contents.executeJavaScript(
+            `(() => {
+              const wanted = ['H1','H2','H3','H4','P','LI','SPAN','BUTTON','A'];
+              const all = [...document.querySelectorAll('[data-cauldron-source-loc], [data-astro-source-loc]')].filter((el) =>
+                el.children.length === 0 &&
+                el.textContent.trim().length > 2 &&
+                wanted.includes(el.tagName)
+              );
+              all.sort((a, b) => wanted.indexOf(a.tagName) - wanted.indexOf(b.tagName));
+              window.__cauldronLeafCandidates = all;
+              return all.length;
+            })()`,
+          ),
+        );
+        if (!Number.isFinite(count) || count <= 0) return null;
+        let fallback: { tag: string; text: string } | null = null;
+        for (let index = 0; index < count; index += 1) {
+          // Clear stale selection first so we wait for this click's own pick IPC.
+          state.selection = null;
+          const picked = (await contents.executeJavaScript(
+            `(() => {
+              const el = window.__cauldronLeafCandidates?.[${index}];
+              if (!el) return null;
+              el.click();
+              return { tag: el.tagName.toLowerCase(), text: el.textContent };
+            })()`,
+          )) as { tag: string; text: string } | null;
+          if (!picked) continue;
+          if (!fallback) fallback = picked;
+          const deadline = Date.now() + 800;
+          while (Date.now() < deadline && !state.selection) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          const selected = state.selection as SelectionState | null;
+          if (selected?.snapshot.textEditable) return picked;
+        }
+        if (fallback) {
+          await contents.executeJavaScript(
+            `window.__cauldronLeafCandidates?.[0]?.click();`,
+          );
+          const deadline = Date.now() + 800;
+          while (Date.now() < deadline && !state.selection) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        }
+        return fallback;
+      },
+      getSelection: () => state.selection,
+      writeText: (value: string) => writeSelection({ kind: 'text', value }),
+      writeStyle: (properties: Record<string, string>) =>
+        writeSelection({ kind: 'style', properties }),
+      forceWrite: (operation: unknown) =>
+        writeSelection(operation as EditOperation, { force: true }),
+      undo: () => undoLast(),
+      createPage: (page: { path: string; title: string }) => createPage(page),
+      runAction: (request: unknown) =>
+        state.site
+          ? sharedAction(request as ActionRequest)
+          : { ok: false, problem: 'No site.' },
+      startRun: (payload: { tool: string; prompt: string }) => {
+        if (!state.site) return { ok: false };
+        state.beforeLocs = [];
+        const run = state.runs.start(
+          state.site.root,
+          payload.tool,
+          payload.prompt,
+        );
+        void collectLocs().then((locs) => {
+          state.beforeLocs = locs.elements;
+        });
+        return { ok: true, run: { id: run.id } };
+      },
+      beforeLocsCount: () => state.beforeLocs.length,
+      previewEval: (script: string) =>
+        state.preview.webContents?.executeJavaScript(
+          script,
+        ) as Promise<unknown>,
+      finishRun: async (id: string) => {
+        if (!state.site) return { ok: false };
+        await reloadPreview();
+        const after = await collectLocs();
+        const run = state.runs.finish(state.site.root, id, {
+          outside: outsideWrites(runStartedAt(id)),
+        });
+        if (!run) return { ok: false };
+        recordRunComparison(state.site.root, run, after);
+        return {
+          ok: true,
+          compared: after.problem === null,
+          run: {
+            files: run.files.map((file) => file.file),
+            deletedFiles: run.files
+              .filter((file) => file.status === 'removed')
+              .map((file) => file.file),
+            highlighted: run.highlighted,
+            cssChanges: run.cssChanges ?? [],
+            otherPages: run.otherPages ?? [],
+          },
+        };
+      },
+      setDirection: (id: string) => setDirectionTo(id),
+      sendAgent: (payload: { tool: AgentTool; request: string }) =>
+        sendAgent(payload),
+      cancelAgent: () => {
+        state.agent?.cancel();
+        return true;
+      },
+      agentStatuses: () =>
+        lastAgentEvents
+          .filter((event) => event.type === 'status')
+          .map((event) => event.text ?? ''),
+      agentErrors: () =>
+        lastAgentEvents
+          .filter((event) => event.type === 'error')
+          .map((event) => event.text ?? ''),
+      waitForAgent: (timeout: number) => waitForAgentDone(timeout),
+      settleRenderer: async () => {
+        const contents = state.window?.webContents;
+        if (!contents || contents.isDestroyed()) return;
+        await contents.executeJavaScript(
+          `new Promise(resolve => setTimeout(resolve, 0)).then(() => window.cauldron.runs())`,
+        );
+      },
+      agentReply: () =>
+        // Streamed pieces (delta) continue the previous text, as in the panel.
+        lastAgentEvents
+          .filter((event) => event.type === 'text')
+          .reduce(
+            (reply, event) =>
+              (event as { delta?: boolean }).delta
+                ? reply + (event.text ?? '')
+                : reply
+                  ? `${reply}\n${event.text ?? ''}`
+                  : (event.text ?? ''),
+            '',
+          ),
+      /** The exact brief handed to the agent process, for the Codex proof. */
+      agentPrompt: () => lastAgentPrompt,
+      /** Every event the run reported, in order, so progress can be checked. */
+      agentEvents: () =>
+        lastAgentEvents.map((event) => ({
+          type: event.type,
+          text: event.text ?? '',
+          name: event.name ?? '',
+          paths: event.paths,
+        })),
+      /** The Cauldron actions an outside agent actually asked for. */
+      mcpServed: () => mcpCalls(),
+      agentTools: () =>
+        lastAgentEvents
+          .filter((event) => event.type === 'tool')
+          .map((event) => event.name ?? ''),
+      agentRunning: () => Boolean(state.agent),
+      /** Ticket 18: the session id the app will resume for a tool on this site. */
+      agentSession: (tool: string) =>
+        (state.site ? state.sessions.get(state.site.root) : undefined)?.[
+          tool as AgentTool
+        ] ?? null,
+      /** Ticket 18: the tool calls the outside-agent connection actually served. */
+      mcpCalls: () => mcpToolCalls.slice(),
+      clearMcpCalls: () => {
+        mcpToolCalls.length = 0;
+        clearMcpCallsLog();
+      },
+      buildPromptText: (request: string) => {
+        const site = state.site;
+        const direction = site ? directionFor(site.root) : null;
+        return buildPrompt({
+          request,
+          siteName: site?.name ?? '',
+          direction,
+          selection: promptSelection(),
+          catalogue: actionCatalogue(site?.name),
+        });
+      },
+      undoRun: (id: string) =>
+        state.site
+          ? state.runs.undo(state.site.root, id)
+          : { ok: false, problem: 'No site.' },
+      saveDraft: (drafts: Draft[]) => {
+        if (state.site) saveDrafts(state.site.root, drafts);
+      },
+      restoreDraft: (draft: Draft) => restoreDraft(draft),
+      status,
+      site: () => state.site,
+    };
+  }
+
+  // Closing the window used to throw "Object has been destroyed" and put a dialog
+  // on screen. This exercises that exact path.
+  if (process.env.CAULDRON_CLOSE_TEST) {
+    await openSiteAt(E2E_SITE);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    state.window?.close();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    console.log(
+      sawUnexpectedError
+        ? `CLOSE FAIL: ${sawUnexpectedError}`
+        : 'CLOSE PASS: window closed cleanly after a site and preview were open',
+    );
+    app.exit(sawUnexpectedError ? 1 : 0);
+    return true;
+  }
+
+  const e2e = await import('./e2e');
+  const api = harnessApi();
+  const suites: Array<[string, () => Promise<void>]> = [
+    ['CAULDRON_TASTE_TEST', () => e2e.runTasteTest()],
+    [
+      'CAULDRON_CHANGE_TASTE_TEST',
+      () => e2e.runChangeTasteTest(E2E_SITE, api as never),
+    ],
+    [
+      'CAULDRON_UI_TEST',
+      () => e2e.runUiTest(E2E_SITE, state.window!, state.preview, openSiteAt),
+    ],
+    ['CAULDRON_PUBLISH_TEST', () => e2e.runPublishTest(E2E_SITE, api as never)],
+    [
+      'CAULDRON_PUBLISH_UI_TEST',
+      () =>
+        e2e.runPublishUiTest(E2E_SITE, state.window!, api as never, openSiteAt),
+    ],
+    ['CAULDRON_QUALITY_TEST', () => e2e.runQualityTest(E2E_SITE, api as never)],
+    [
+      'CAULDRON_QUALITY_FEEDBACK_TEST',
+      () => e2e.runQualityFeedbackTest(E2E_SITE, state.window!, api as never),
+    ],
+    ['CAULDRON_LIBRARY_TEST', () => e2e.runLibraryTest(E2E_SITE, api as never)],
+    ['CAULDRON_CONTENT_TEST', () => e2e.runContentTest(E2E_SITE, api as never)],
+    [
+      'CAULDRON_CODEX_TEST',
+      () => e2e.runCodexProofTest(E2E_SITE, api as never),
+    ],
+    [
+      'CAULDRON_HERMES_TEST',
+      () => e2e.runHermesProofTest(E2E_SITE, api as never),
+    ],
+    ['CAULDRON_BRIEF_TEST', () => e2e.runBriefTest(E2E_SITE, api as never)],
+    ['CAULDRON_AGENT_TEST', () => e2e.runAgentTest(E2E_SITE, api as never)],
+    [
+      'CAULDRON_CLAUDE_TEST',
+      () => e2e.runClaudeProofTest(E2E_SITE, state.window!, api as never),
+    ],
+    [
+      'CAULDRON_FAILURE_TEST',
+      () =>
+        e2e.runFailureTest(
+          E2E_SITE,
+          state.window!,
+          api as never,
+          openSiteAt,
+          process.env.CAULDRON_FAILURE_CONTENT_SITE,
+        ),
+    ],
+    [
+      'CAULDRON_ACTIONS_TEST',
+      () => e2e.runActionsParityTest(E2E_SITE, api as never, state.window!),
+    ],
+    [
+      'CAULDRON_CRASH_TEST',
+      () =>
+        e2e.runCrashTest(
+          E2E_SITE,
+          state.window!,
+          api as never,
+          openSiteAt,
+          process.env.CAULDRON_CRASH_TEST === 'restore' ? 'restore' : 'type',
+        ),
+    ],
+    [
+      'CAULDRON_COMPARE_TEST',
+      () =>
+        e2e.runCompareTest(E2E_SITE, state.window!, api as never, openSiteAt),
+    ],
+  ];
+
+  for (const [envKey, runSuite] of suites) {
+    if (process.env[envKey]) {
+      await runSuite();
+      return true;
+    }
+  }
+
+  await e2e.runEndToEnd(E2E_SITE, api as never);
+  return true;
 }
 
 async function isTextInputActiveIn(target: WebContents): Promise<boolean> {
@@ -3313,165 +3460,7 @@ export function start(): void {
       });
     }
 
-    // Closing the window used to throw "Object has been destroyed" and put a dialog
-    // on screen. This exercises that exact path.
-    if (E2E_SITE && process.env.CAULDRON_CLOSE_TEST) {
-      await openSiteAt(E2E_SITE);
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      state.window?.close();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      console.log(
-        sawUnexpectedError
-          ? `CLOSE FAIL: ${sawUnexpectedError}`
-          : 'CLOSE PASS: window closed cleanly after a site and preview were open',
-      );
-      app.exit(sawUnexpectedError ? 1 : 0);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_TASTE_TEST) {
-      const { runTasteTest } = await import('./e2e');
-      await runTasteTest();
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_CHANGE_TASTE_TEST) {
-      const { runChangeTasteTest } = await import('./e2e');
-      await runChangeTasteTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_UI_TEST) {
-      const { runUiTest } = await import('./e2e');
-      await runUiTest(E2E_SITE, state.window!, state.preview, openSiteAt);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_PUBLISH_TEST) {
-      const { runPublishTest } = await import('./e2e');
-      await runPublishTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_PUBLISH_UI_TEST) {
-      const { runPublishUiTest } = await import('./e2e');
-      await runPublishUiTest(
-        E2E_SITE,
-        state.window!,
-        harnessApi() as never,
-        openSiteAt,
-      );
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_QUALITY_TEST) {
-      const { runQualityTest } = await import('./e2e');
-      await runQualityTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_QUALITY_FEEDBACK_TEST) {
-      const { runQualityFeedbackTest } = await import('./e2e');
-      await runQualityFeedbackTest(
-        E2E_SITE,
-        state.window!,
-        harnessApi() as never,
-      );
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_LIBRARY_TEST) {
-      const { runLibraryTest } = await import('./e2e');
-      await runLibraryTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_CONTENT_TEST) {
-      const { runContentTest } = await import('./e2e');
-      await runContentTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_CODEX_TEST) {
-      const { runCodexProofTest } = await import('./e2e');
-      await runCodexProofTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_HERMES_TEST) {
-      const { runHermesProofTest } = await import('./e2e');
-      await runHermesProofTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_BRIEF_TEST) {
-      const { runBriefTest } = await import('./e2e');
-      await runBriefTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_AGENT_TEST) {
-      const { runAgentTest } = await import('./e2e');
-      await runAgentTest(E2E_SITE, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_CLAUDE_TEST) {
-      const { runClaudeProofTest } = await import('./e2e');
-      await runClaudeProofTest(E2E_SITE, state.window!, harnessApi() as never);
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_FAILURE_TEST) {
-      const { runFailureTest } = await import('./e2e');
-      await runFailureTest(
-        E2E_SITE,
-        state.window!,
-        harnessApi() as never,
-        openSiteAt,
-        process.env.CAULDRON_FAILURE_CONTENT_SITE,
-      );
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_ACTIONS_TEST) {
-      const { runActionsParityTest } = await import('./e2e');
-      await runActionsParityTest(
-        E2E_SITE,
-        harnessApi() as never,
-        state.window!,
-      );
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_CRASH_TEST) {
-      const { runCrashTest } = await import('./e2e');
-      await runCrashTest(
-        E2E_SITE,
-        state.window!,
-        harnessApi() as never,
-        openSiteAt,
-        process.env.CAULDRON_CRASH_TEST === 'restore' ? 'restore' : 'type',
-      );
-      return;
-    }
-
-    if (E2E_SITE && process.env.CAULDRON_COMPARE_TEST) {
-      const { runCompareTest } = await import('./e2e');
-      await runCompareTest(
-        E2E_SITE,
-        state.window!,
-        harnessApi() as never,
-        openSiteAt,
-      );
-      return;
-    }
-
-    if (E2E_SITE) {
-      const { runEndToEnd } = await import('./e2e');
-      await runEndToEnd(E2E_SITE, harnessApi() as never);
-      return;
-    }
+    if (E2E_HARNESS_ENABLED && E2E_SITE && (await runE2eTests())) return;
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

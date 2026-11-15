@@ -84,6 +84,7 @@ type Api = {
 
   openSiteAt: (root: string) => Promise<unknown>;
   startPreview: () => Promise<unknown>;
+  stopPreview?: () => Promise<void>;
   previewLoad: (url: string) => Promise<void>;
   previewHtml: () => Promise<string>;
   previewBridgeAbsent: () => Promise<boolean>;
@@ -917,19 +918,55 @@ export async function runLibraryTest(root: string, api: Api): Promise<void> {
 }
 
 /** 5.1: publishing through the site's own Git repository, on a throwaway copy. */
+/** Copies a project into a temp folder with `node_modules` intact for clean isolated E2E runs. */
+function copySiteScratch(root: string, prefix: string): string {
+  const scratch = path.join(app.getPath('temp'), `${prefix}-${Date.now()}`);
+  fs.cpSync(root, scratch, {
+    recursive: true,
+    verbatimSymlinks: true,
+    filter: (source) => {
+      const top = path.relative(root, source).split(path.sep)[0];
+      return top === '' || !['.git', 'dist', '.astro'].includes(top);
+    },
+  });
+  const gitignorePath = path.join(scratch, '.gitignore');
+  const existing = fs.existsSync(gitignorePath)
+    ? fs.readFileSync(gitignorePath, 'utf8')
+    : '';
+  if (!/(?:^|\n)node_modules\/?(?:\r?\n|$)/.test(existing)) {
+    const suffix = existing && !existing.endsWith('\n') ? '\n' : '';
+    fs.writeFileSync(
+      gitignorePath,
+      `${existing}${suffix}node_modules/\ndist/\n.astro/\n`,
+      'utf8',
+    );
+  }
+  return scratch;
+}
+
+async function removeScratchSite(
+  dir: string,
+  stopPreview?: () => Promise<void>,
+): Promise<void> {
+  await stopPreview?.();
+  if (!dir) return;
+  try {
+    fs.rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  } catch {
+    // Leaving a temp folder behind is better than failing cleanup after exit.
+  }
+}
+
 export async function runPublishTest(root: string, api: Api): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  const scratch = path.join(
-    app.getPath('temp'),
-    `cauldron-publish-${Date.now()}`,
-  );
+  const scratch = copySiteScratch(root, 'cauldron-publish');
   try {
     // A throwaway repository, so nothing real is ever committed to.
-    fs.cpSync(root, scratch, {
-      recursive: true,
-      filter: (source) =>
-        !/[\\/](node_modules|\.git|dist|\.astro)$/.test(source),
-    });
     const git = (args: string[]) =>
       execFileSync('git', args, {
         cwd: scratch,
@@ -1064,11 +1101,7 @@ export async function runPublishTest(root: string, api: Api): Promise<void> {
     console.error('PUBLISH TEST ERROR', error);
     check('PUBLISH TEST ERROR', false, String(error));
   } finally {
-    try {
-      fs.rmSync(scratch, { recursive: true, force: true });
-    } catch {
-      // Leaving a temp folder behind is better than failing the test.
-    }
+    await removeScratchSite(scratch, api.stopPreview);
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
 }
@@ -1149,11 +1182,11 @@ export async function runPublishUiTest(
       path.join(root, 'src/pages/index.astro'),
       '\n<!-- Ticket 16 UI proof -->\n',
     );
-    await open(root);
     await waitFor(
       async () => js<boolean>(`Boolean(document.querySelector('.app'))`),
       30000,
     );
+    await open(root);
     check(
       '5.1 the window shows the site',
       await waitFor(
@@ -1283,6 +1316,13 @@ export async function runPublishUiTest(
       'textarea',
     );
     await rail('Publishing');
+    await waitFor(
+      async () =>
+        /still being typed and have not been saved/.test(
+          (await panel()).text,
+        ) && (await panel()).buttons.some((b) => b.label === 'Commit'),
+      10000,
+    );
     const visualPanel = await panel();
     const visualNotice =
       visualPanel.text
@@ -1326,7 +1366,7 @@ export async function runPublishUiTest(
     git(['remote', 'set-url', 'origin', '/nonexistent-cauldron-remote']);
     await rail('Publishing');
     const dirtyReady = await waitFor(
-      async () => /changed file\(s\)/.test((await panel()).text),
+      async () => /\b\d+ changed files?\b/.test((await panel()).text),
       15000,
     );
     check('5.1 the changed files are shown before publishing', dirtyReady);
@@ -1334,7 +1374,7 @@ export async function runPublishUiTest(
     const messageTyped = await typedInto(
       '#commit-message',
       'Ticket 16 failed upload',
-      'input',
+      'textarea',
     );
     check('5.1 a commit message is typed', messageTyped);
     await wait(200);
@@ -1376,18 +1416,26 @@ export async function runPublishUiTest(
     await rail('Publishing');
     const retryReady = await waitFor(
       async () =>
-        /commit\(s\) not uploaded yet/.test((await panel()).text) &&
-        (await panel()).buttons.some((b) => b.label === 'Upload'),
+        /commit\(s\)\s+(?:have\s+not\s+been\s+|not\s+)uploaded\s+yet/.test(
+          (await panel()).text,
+        ) && (await panel()).buttons.some((b) => b.label === 'Upload commits'),
       15000,
     );
     const retryPanel = await panel();
     console.log(`[c] RETRY PANEL\n${retryPanel.text}`);
+    const retryLine =
+      retryPanel.text
+        .split(/\r?\n/)
+        .find(
+          (line) =>
+            line.includes('not been uploaded yet') ||
+            line.includes('not uploaded yet'),
+        ) ?? '';
     check(
       '5.1 the panel offers Upload for the already-committed change',
       retryReady,
-      retryPanel.text
-        .split('\n')
-        .find((line) => line.includes('not uploaded yet')) ?? '',
+      retryLine ||
+        `buttons=${JSON.stringify(retryPanel.buttons.map((b) => b.label))}`,
     );
     check(
       '5.1 nothing is left in the working tree for the retry',
@@ -1397,7 +1445,7 @@ export async function runPublishUiTest(
     await js<boolean>(
       `(() => {
         const button = [...document.querySelectorAll('.panes .pane-body button')].find(
-          (item) => item.textContent.trim() === 'Upload',
+          (item) => item.textContent.trim() === 'Upload commits',
         );
         if (!button) return false;
         button.click();
@@ -1757,8 +1805,10 @@ export async function runQualityFeedbackTest(
   const click = (text: string) =>
     renderer<boolean>(
       `(() => {
+        const normalize = (value) =>
+          (value || '').replace(/[➤✳←→]/g, '').replace(/\\s+/g, ' ').trim();
         const button = [...document.querySelectorAll('.panes button')].find(
-          (el) => el.textContent.trim() === ${JSON.stringify(text)},
+          (el) => normalize(el.textContent) === ${JSON.stringify(text)},
         );
         if (!button) return false;
         button.click();
@@ -1768,6 +1818,10 @@ export async function runQualityFeedbackTest(
   const request =
     'The Go button on the quality fixture page is too pale to read. In src/pages/quality-fixture.astro, change that button\u2019s text colour to the page\u2019s ink token so it meets 4.5:1 contrast. Change nothing else, and use Cauldron\u2019s actions.';
   try {
+    await waitFor(
+      async () => renderer<boolean>(`Boolean(document.querySelector('.app'))`),
+      30000,
+    );
     await api.openSiteAt(root);
     check(
       '4.4 the feedback run starts with a design direction',
@@ -2213,6 +2267,7 @@ export async function runAgentTest(
  */
 export type ClaudeProofApi = AgentTestApi & {
   startPreview: () => Promise<unknown>;
+  stopPreview?: () => Promise<void>;
   previewClickLeaf: () => Promise<unknown>;
   getSelection: () => {
     location: { file: string; line: number; column: number; name: string };
@@ -2242,7 +2297,31 @@ export async function runClaudeProofTest(
   api: ClaudeProofApi,
 ): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  const argsLog = process.env.CAULDRON_AGENT_ARGS_LOG ?? '';
+  const prevEnv = {
+    CAULDRON_AGENT_ARGS_LOG: process.env.CAULDRON_AGENT_ARGS_LOG,
+    CAULDRON_STANDIN_STATE: process.env.CAULDRON_STANDIN_STATE,
+    CAULDRON_STANDIN_MARKER: process.env.CAULDRON_STANDIN_MARKER,
+  };
+  let tempProofDir = '';
+  let autoFixtureSite = '';
+  const ensureTempDir = (): string => {
+    if (!tempProofDir) {
+      tempProofDir = fs.mkdtempSync(
+        path.join(app.getPath('temp'), 'cauldron-claude-proof-'),
+      );
+    }
+    return tempProofDir;
+  };
+  const argsLog =
+    process.env.CAULDRON_AGENT_ARGS_LOG ||
+    path.join(ensureTempDir(), 'agent-args.jsonl');
+  process.env.CAULDRON_AGENT_ARGS_LOG = argsLog;
+  if (!process.env.CAULDRON_STANDIN_STATE) {
+    process.env.CAULDRON_STANDIN_STATE = path.join(
+      ensureTempDir(),
+      'standin-state.json',
+    );
+  }
   type SpawnRecord = {
     tool: string;
     command: string;
@@ -2285,19 +2364,42 @@ export async function runClaudeProofTest(
     file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 
   // The app spawns `claude` from PATH, so a job's provider is whatever stands
-  // first on PATH when it starts. The fixture directory is a prepared wrapper.
-  const fixtureDir = process.env.CAULDRON_CLAUDE_STANDIN_DIR ?? '';
-  let originalPath = process.env.PATH ?? '';
+  // first on PATH when it starts. The fixture directory is a prepared wrapper;
+  // when CAULDRON_CLAUDE_STANDIN_DIR is omitted, materialize one from
+  // scripts/fixtures/claude-standin.mjs if present.
+  let fixtureDir = process.env.CAULDRON_CLAUDE_STANDIN_DIR ?? '';
+  if (!fixtureDir || !fs.existsSync(path.join(fixtureDir, 'claude'))) {
+    const standinScript = path.join(
+      app.getAppPath(),
+      'scripts/fixtures/claude-standin.mjs',
+    );
+    if (fs.existsSync(standinScript)) {
+      const binDir = path.join(ensureTempDir(), 'bin');
+      fs.mkdirSync(binDir, { recursive: true });
+      const wrapper = path.join(binDir, 'claude');
+      fs.writeFileSync(
+        wrapper,
+        `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${JSON.stringify(process.execPath)} ${JSON.stringify(standinScript)} "$@"\n`,
+        'utf8',
+      );
+      fs.chmodSync(wrapper, 0o755);
+      fixtureDir = binDir;
+    }
+  }
+  const originalPath = process.env.PATH ?? '';
   const useFixture = (): boolean => {
     if (!fixtureDir || !fs.existsSync(path.join(fixtureDir, 'claude')))
       return false;
-    originalPath = process.env.PATH ?? originalPath;
     process.env.PATH = `${fixtureDir}:${originalPath}`;
     resetRuntimeResolutionCache();
     return true;
   };
 
   try {
+    await waitFor(
+      async () => renderer<boolean>(`Boolean(document.querySelector('.app'))`),
+      30000,
+    );
     await api.openSiteAt(root);
     check(
       'REAL a design direction is chosen for the site',
@@ -2399,11 +2501,17 @@ export async function runClaudeProofTest(
     check(
       'FIXTURE a protocol stand-in is available for the app path',
       fixtureReady,
-      fixtureReady ? path.join(fixtureDir, 'claude') : 'no stand-in on PATH',
+      fixtureReady
+        ? path.join(fixtureDir, 'claude')
+        : 'no stand-in on PATH (set CAULDRON_CLAUDE_STANDIN_DIR)',
     );
     // A separate disposable site, so the fixture jobs never inherit a session id
     // from the real provider run.
-    const fixtureSite = process.env.CAULDRON_CLAUDE_FIXTURE_SITE ?? '';
+    let fixtureSite = process.env.CAULDRON_CLAUDE_FIXTURE_SITE ?? '';
+    if (fixtureReady && !fixtureSite) {
+      autoFixtureSite = copySiteScratch(root, 'cauldron-claude-fixture');
+      fixtureSite = autoFixtureSite;
+    }
     if (fixtureReady && fixtureSite) {
       await api.openSiteAt(fixtureSite);
       check(
@@ -2622,7 +2730,7 @@ export async function runClaudeProofTest(
       );
       check(
         'FIXTURE whole-run undo removes the file the agent added',
-        !fs.existsSync(path.join(root, 'src/proof-note.txt')),
+        !fs.existsSync(path.join(fixtureSite, 'src/proof-note.txt')),
       );
     }
 
@@ -2634,8 +2742,16 @@ export async function runClaudeProofTest(
     check('CLAUDE PROOF TEST ERROR', false, String(error));
   } finally {
     process.env.PATH = originalPath;
+    for (const [key, value] of Object.entries(prevEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    if (tempProofDir) {
+      fs.rmSync(tempProofDir, { recursive: true, force: true });
+    }
     resetRuntimeResolutionCache();
     await api.settleRenderer();
+    await removeScratchSite(autoFixtureSite, api.stopPreview);
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
 }
@@ -2672,6 +2788,36 @@ export type CodexProofApi = {
   settleRenderer: () => Promise<void>;
 };
 
+const CODEX_SCRIPT_RUNNERS = new Set([
+  'node',
+  'nodejs',
+  'bun',
+  'deno',
+  'sh',
+  'bash',
+  'zsh',
+  'env',
+]);
+
+/**
+ * True when a `ps` command line is invoking `codex` itself rather than merely
+ * mentioning `codex` inside a later CLI flag or data argument (such as an
+ * Electron helper's `--user-data-dir=.../codex`).
+ */
+export function isCodexProcessArgs(commandLine: string): boolean {
+  const tokens = commandLine.trim().split(/\s+/).filter(Boolean);
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token.startsWith('-')) return false;
+    const base = path.basename(token);
+    if (base === 'codex' || base === 'codex.js') return true;
+    if (CODEX_SCRIPT_RUNNERS.has(base)) continue;
+    if (i > 0 && base.includes('=')) continue;
+    return false;
+  }
+  return false;
+}
+
 /** Samples this app's own child processes, so the real command line is recorded. */
 function childCommandSampler(): { seen: string[]; stop: () => void } {
   const seen: string[] = [];
@@ -2684,8 +2830,8 @@ function childCommandSampler(): { seen: string[]; stop: () => void } {
         const match = /^\s*\d+\s+(\d+)\s+(.*)$/.exec(line);
         if (!match || Number(match[1]) !== process.pid) continue;
         // Only processes that run the codex program itself, not ones whose
-        // arguments merely contain the word (a folder named "ud-codex").
-        if (!/(^|[\s/])codex(\s|$)/.test(match[2])) continue;
+        // arguments merely contain the word (e.g. --user-data-dir=.../codex).
+        if (!isCodexProcessArgs(match[2])) continue;
         if (!seen.includes(match[2])) seen.push(match[2]);
       }
     } catch {
@@ -4633,13 +4779,32 @@ export async function runCrashTest(
   };
 
   try {
-    if (phase === 'type') {
-      await open(root);
-      const loaded = await waitFor(
+    const waitForShell = () =>
+      waitFor(
         async () =>
-          (await api.previewHtml()).includes('data-cauldron-source-loc'),
-        45000,
+          Boolean(
+            await window.webContents.executeJavaScript(
+              `Boolean(document.querySelector('button[title="Sites"]'))`,
+            ),
+          ),
+        30000,
       );
+    const ensureBuildView = () =>
+      window.webContents.executeJavaScript(
+        `document.querySelector('button[title="Sites"]')?.click(); true`,
+      );
+
+    if (phase === 'type') {
+      await waitForShell();
+      await open(root);
+      await ensureBuildView();
+      const loaded = await waitFor(async () => {
+        const html = await api.previewHtml();
+        return (
+          html.includes('data-cauldron-source-loc') ||
+          html.includes('data-astro-source-loc')
+        );
+      }, 45000);
       check('1.6 the site and its live preview are up', loaded);
       if (!loaded) throw new Error('preview never rendered');
 
@@ -4761,7 +4926,9 @@ export async function runCrashTest(
       draft.baseHash === hashOf(disk),
     );
 
+    await waitForShell();
     await open(root);
+    await ensureBuildView();
     const offered = await waitFor(
       async () =>
         Boolean(
@@ -5698,13 +5865,75 @@ export async function runCompareTest(
   api: CompareTestApi,
   openSiteAt: (root: string) => Promise<unknown>,
 ): Promise<void> {
+  const scratch = copySiteScratch(root, 'cauldron-compare');
   try {
-    await openSiteAt(root);
-    const marked = await waitFor(
+    const header = path.join(scratch, 'src/components/Header.astro');
+    const page = path.join(scratch, 'src/pages/index.astro');
+    fs.mkdirSync(path.dirname(header), { recursive: true });
+    fs.mkdirSync(path.dirname(page), { recursive: true });
+    fs.writeFileSync(
+      header,
+      '<header>\n  <a href="/" class="brand">Cauldron Test</a>\n</header>\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      page,
+      [
+        '---',
+        "import Header from '../components/Header.astro';",
+        '---',
+        '<html lang="en">',
+        '  <body>',
+        '    <Header />',
+        '    <section class="hero">',
+        '      <p class="eyebrow">A tiny coven of app makers in Melbourne</p>',
+        '      <h1>Build calm sites with a little <span class="magic">magic.</span></h1>',
+        '      <p class="lede">Plain Astro files you own.</p>',
+        '    </section>',
+        '  </body>',
+        '</html>',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const openBuildView = async () => {
+      await waitFor(
+        async () =>
+          Boolean(
+            await rendererEval(
+              window,
+              `(() => {
+                const btn = document.querySelector('button[title="Sites"]');
+                if (!btn) return false;
+                btn.click();
+                return btn.getAttribute('aria-current') === 'page';
+              })()`,
+            ),
+          ),
+        20000,
+      );
+    };
+
+    await waitFor(
       async () =>
-        String(await api.previewHtml()).includes('data-astro-source-loc'),
+        Boolean(
+          await rendererEval(
+            window,
+            `Boolean(document.querySelector('button[title="Sites"]'))`,
+          ),
+        ),
       30000,
     );
+    await openSiteAt(scratch);
+    await openBuildView();
+    const marked = await waitFor(async () => {
+      const html = String(await api.previewHtml());
+      return (
+        html.includes('data-cauldron-source-loc') ||
+        html.includes('data-astro-source-loc')
+      );
+    }, 30000);
     check('2.2 the preview marks source locations', marked);
 
     const started = api.startRun({
@@ -5722,7 +5951,6 @@ export async function runCompareTest(
       String(api.beforeLocsCount()),
     );
 
-    const page = path.join(root, 'src/pages/index.astro');
     let text = fs.readFileSync(page, 'utf8');
     const edits: Array<[string, string]> = [
       [
@@ -5744,7 +5972,6 @@ export async function runCompareTest(
     fs.writeFileSync(page, text);
 
     // The person's own edit, through Cauldron's editor, while the run is going.
-    const header = path.join(root, 'src/components/Header.astro');
     const headerText = fs.readFileSync(header, 'utf8');
     const brandAt = headerText.indexOf('<a href="/" class="brand"');
     const brandLine = headerText.slice(0, brandAt).split('\n');
@@ -5802,6 +6029,7 @@ export async function runCompareTest(
 
     // The real toggle: the renderer's own run list and its Show changes button.
     window.webContents.reload();
+    await openBuildView();
     const offered = await waitFor(
       async () =>
         Boolean(
@@ -5860,7 +6088,13 @@ export async function runCompareTest(
         return {
           tags: els.map((el) => el.tagName.toLowerCase()),
           boxes: els.filter((el) => getComputedStyle(el).outlineStyle === 'solid').length,
-          header: els.filter((el) => (el.getAttribute('data-astro-source-file') || '').includes('Header.astro')).length,
+          header: els.filter((el) =>
+            (
+              el.getAttribute('data-cauldron-source-file') ||
+              el.getAttribute('data-astro-source-file') ||
+              ''
+            ).includes('Header.astro'),
+          ).length,
           css: style.textContent.slice(0, 160),
         };
       })()`,
@@ -5917,6 +6151,7 @@ export async function runCompareTest(
     check('COMPARE TEST ERROR', false, String(error));
   } finally {
     await api.settleRenderer();
+    await removeScratchSite(scratch, api.stopPreview);
     app.exit(results.every((r) => r.ok) ? 0 : 1);
   }
 }
