@@ -55,7 +55,11 @@ registerHooks({
     if (specifier === 'electron') {
       return next(pathToFileURL(electronStub).href, context);
     }
-    if (specifier.startsWith('.') && !path.extname(specifier)) {
+    if (
+      specifier.startsWith('.') &&
+      !path.extname(specifier) &&
+      !context.parentURL?.includes('/node_modules/')
+    ) {
       return next(`${specifier}.ts`, context);
     }
     return next(specifier, context);
@@ -4947,6 +4951,101 @@ await (async () => {
       fs.rmSync(otherSiteRoot, { recursive: true, force: true });
     }
   })();
+})();
+
+await (async () => {
+  const { isCodexProcessArgs } = await import('../src/main/e2e.ts');
+  const { default: mainViteConfig } = await import('../vite.main.config.mts');
+
+  test('WDL-222: deleted documentation-audit.zip is absent and README documents its removal', () => {
+    assert.equal(
+      fs.existsSync(
+        path.join(process.cwd(), 'docs/checkpoints/documentation-audit.zip'),
+      ),
+      false,
+    );
+    const readme = fs.readFileSync(
+      path.join(process.cwd(), 'docs/checkpoints/README.md'),
+      'utf8',
+    );
+    assert.match(readme, /removed from the Git repository/i);
+  });
+
+  test('WDL-237: declarations.d.ts derives CauldronApi from preload.ts without duplication', () => {
+    const declarations = fs.readFileSync(
+      path.join(process.cwd(), 'src/declarations.d.ts'),
+      'utf8',
+    );
+    assert.match(declarations, /import\(['"]\.\/preload['"]\)\.CauldronApi/);
+    assert.equal(
+      /\b(?:type|interface)\s+CauldronApi\s*=\s*\{/.test(declarations),
+      false,
+    );
+  });
+
+  test('WDL-238: main Vite config gates __CAULDRON_E2E__ behind serve or CAULDRON_BUNDLE_E2E=1', () => {
+    const prev = process.env.CAULDRON_BUNDLE_E2E;
+    try {
+      delete process.env.CAULDRON_BUNDLE_E2E;
+      const prodDefault = mainViteConfig({
+        command: 'build',
+        mode: 'production',
+      });
+      const devDefault = mainViteConfig({
+        command: 'serve',
+        mode: 'development',
+      });
+      process.env.CAULDRON_BUNDLE_E2E = '1';
+      const prodOptIn = mainViteConfig({
+        command: 'build',
+        mode: 'production',
+      });
+      assert.equal(prodDefault.define?.__CAULDRON_E2E__, 'false');
+      assert.equal(devDefault.define?.__CAULDRON_E2E__, 'true');
+      assert.equal(prodOptIn.define?.__CAULDRON_E2E__, 'true');
+    } finally {
+      if (prev === undefined) delete process.env.CAULDRON_BUNDLE_E2E;
+      else process.env.CAULDRON_BUNDLE_E2E = prev;
+    }
+  });
+
+  test('WDL-253: isCodexProcessArgs distinguishes real codex processes from helper flags', () => {
+    assert.equal(isCodexProcessArgs('codex exec --json'), true);
+    assert.equal(
+      isCodexProcessArgs(
+        '/opt/homebrew/bin/codex exec --sandbox workspace-write',
+      ),
+      true,
+    );
+    assert.equal(
+      isCodexProcessArgs('/usr/local/bin/node /opt/homebrew/bin/codex exec'),
+      true,
+    );
+    assert.equal(
+      isCodexProcessArgs(
+        '/usr/local/bin/node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js exec',
+      ),
+      true,
+    );
+    assert.equal(
+      isCodexProcessArgs('/bin/sh /tmp/cauldron-codex-1/codex'),
+      true,
+    );
+    assert.equal(
+      isCodexProcessArgs(
+        'Cauldron Helper (GPU) --type=gpu-process --user-data-dir=/tmp/codex --no-sandbox',
+      ),
+      false,
+    );
+    assert.equal(
+      isCodexProcessArgs(
+        '/Applications/Cauldron.app/Contents/MacOS/Cauldron --user-data-dir=/tmp/ud-codex',
+      ),
+      false,
+    );
+    assert.equal(isCodexProcessArgs('node /tmp/smoke.mjs /tmp/codex'), false);
+    assert.equal(isCodexProcessArgs(''), false);
+  });
 })();
 
 process.exitCode = failures ? 1 : 0;
