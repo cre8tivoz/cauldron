@@ -268,6 +268,7 @@ export type ElementSnapshot = {
   sourceText: string;
   text: string;
   textEditable: boolean;
+  textEditReason?: string;
   style: Record<string, string>;
   attributes: Array<{ name: string; value: string }>;
 };
@@ -332,6 +333,20 @@ export function serialiseStyle(properties: Record<string, string>): string {
 }
 
 /** What the inspector shows, and what later edits are checked against. */
+function nonEditableTextReason(
+  inner: string,
+  hasClose: boolean,
+): string | null {
+  if (!hasClose) return 'This element has no closing tag to edit.';
+  if (/<[a-zA-Z]/.test(inner)) {
+    return 'This element holds other elements. Select the text itself, not the box around it.';
+  }
+  if (/[{}]/.test(inner)) {
+    return 'This text comes from the page’s code, so it can’t be edited here. Change it in the code or ask the agent.';
+  }
+  return null;
+}
+
 export function snapshotElement(
   text: string,
   location: Location,
@@ -340,7 +355,8 @@ export function snapshotElement(
   if (!tag) return null;
   const close = findClosingTag(text, tag);
   const inner = close ? text.slice(tag.tagEnd, close.start) : '';
-  const hasChildElements = /<[a-zA-Z]|[{}]/.test(inner);
+  const textEditReason = nonEditableTextReason(inner, Boolean(close));
+  const hasUneditableInner = textEditReason !== null;
   const trimmed = inner.trim();
   const styleAttribute = tag.attributes.find(
     (attribute) => attribute.name === 'style',
@@ -348,8 +364,9 @@ export function snapshotElement(
 
   return {
     sourceText: text,
-    text: hasChildElements ? '' : decodeEntities(trimmed),
-    textEditable: Boolean(close) && !hasChildElements,
+    text: hasUneditableInner ? '' : decodeEntities(trimmed),
+    textEditable: !hasUneditableInner,
+    ...(textEditReason ? { textEditReason } : {}),
     style: parseStyle(styleAttribute?.value ?? ''),
     attributes: tag.attributes
       .filter(
@@ -399,17 +416,12 @@ export function applyEdit(
   );
 
   if (operation.kind === 'text') {
+    const innerStart = tag.tagEnd;
+    const inner = close ? diskText.slice(innerStart, close.start) : '';
+    const reason = nonEditableTextReason(inner, Boolean(close));
+    if (reason) return { ok: false, reason };
     if (!close)
       return { ok: false, reason: 'This element has no closing tag to edit.' };
-    const innerStart = tag.tagEnd;
-    const inner = diskText.slice(innerStart, close.start);
-    if (/<[a-zA-Z]|[{}]/.test(inner)) {
-      return {
-        ok: false,
-        reason:
-          'This element holds other elements. Select the text itself, not the box around it.',
-      };
-    }
     const currentText = decodeEntities(inner.trim());
     if (expected.text !== undefined && currentText !== expected.text.trim()) {
       return {

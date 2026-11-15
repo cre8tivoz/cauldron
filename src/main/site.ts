@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
+import net from 'node:net';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import electron from 'electron';
+import { writeFileAtomic } from './files';
 import { childEnvForTools } from './runtime';
 
 export type PackageManager = 'npm' | 'pnpm' | 'yarn';
@@ -122,31 +125,314 @@ export type DevServer = {
   stop: () => void;
 };
 
+type TrackedDevServer = {
+  pid: number;
+  root: string;
+  port?: number;
+  startedAt: number;
+  processStart?: string;
+};
+
 const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)\/?/;
+const activeServerPids = new Set<number>();
+
+function userDataDir(): string | null {
+  const override = (globalThis as { __cauldronUserData?: string })
+    .__cauldronUserData;
+  if (override) return override;
+  const api = electron as unknown as {
+    app?: { getPath(name: string): string };
+    default?: { app?: { getPath(name: string): string } };
+  };
+  const app = api.app ?? api.default?.app;
+  try {
+    return app ? app.getPath('userData') : null;
+  } catch {
+    return null;
+  }
+}
+
+function previewServersFile(): string | null {
+  const base = userDataDir();
+  return base ? path.join(base, 'preview-servers.json') : null;
+}
+
+function readTrackedServers(file: string): TrackedDevServer[] {
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is TrackedDevServer =>
+        Boolean(entry) &&
+        typeof entry === 'object' &&
+        typeof (entry as TrackedDevServer).pid === 'number' &&
+        Number.isInteger((entry as TrackedDevServer).pid) &&
+        (entry as TrackedDevServer).pid > 0 &&
+        typeof (entry as TrackedDevServer).root === 'string',
+    );
+  } catch (error) {
+    console.error('Tracked preview server list could not be read:', error);
+    return [];
+  }
+}
+
+function writeTrackedServers(file: string, entries: TrackedDevServer[]): void {
+  try {
+    writeFileAtomic(file, JSON.stringify(entries, null, 2));
+  } catch (error) {
+    console.error('Tracked preview server list could not be saved:', error);
+  }
+}
+
+/** Persist a spawned preview PID so a hard crash (SIGKILL) leaves it cleanable on next launch. */
+export function recordDevServerPid(
+  pid: number,
+  root: string,
+  port?: number,
+): void {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  const file = previewServersFile();
+  if (!file) return;
+  const identity = readProcessIdentity(pid);
+  const existing = readTrackedServers(file).filter(
+    (entry) => entry.pid !== pid,
+  );
+  existing.push({
+    pid,
+    root,
+    ...(typeof port === 'number' && Number.isInteger(port) && port > 0
+      ? { port }
+      : {}),
+    startedAt: Date.now(),
+    ...(identity?.startTime ? { processStart: identity.startTime } : {}),
+  });
+  writeTrackedServers(file, existing);
+}
+
+/** Forget a tracked preview PID after clean exit or explicit stop. */
+export function removeDevServerPid(pid: number): void {
+  activeServerPids.delete(pid);
+  const file = previewServersFile();
+  if (!file || !fs.existsSync(file)) return;
+  const existing = readTrackedServers(file);
+  const next = existing.filter((entry) => entry.pid !== pid);
+  if (next.length !== existing.length) writeTrackedServers(file, next);
+}
+
+function readProcessIdentity(
+  pid: number,
+): { args: string; startTime: string | null } | null {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return null;
+  if (process.platform === 'win32') return null;
+  try {
+    const args = execFileSync('ps', ['-ww', '-p', String(pid), '-o', 'args='], {
+      encoding: 'utf8',
+      timeout: 2000,
+    }).trim();
+    if (!args) return null;
+    const startTime = execFileSync(
+      'ps',
+      ['-ww', '-p', String(pid), '-o', 'lstart='],
+      {
+        encoding: 'utf8',
+        timeout: 2000,
+        env: { ...process.env, TZ: 'UTC' },
+      },
+    ).trim();
+    return { args, startTime: startTime || null };
+  } catch {
+    return null;
+  }
+}
+
+function readProcessCwd(pid: number): string | null {
+  try {
+    if (process.platform === 'linux') {
+      return fs.readlinkSync(`/proc/${pid}/cwd`);
+    }
+    if (process.platform === 'darwin') {
+      const out = execFileSync(
+        'lsof',
+        ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'],
+        { encoding: 'utf8', timeout: 2000 },
+      );
+      const line = out.split('\n').find((item) => item.startsWith('n'));
+      return line ? line.slice(1) : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === 'EPERM';
+  }
+}
+
+function canonicalRoot(root: string): string {
+  try {
+    return fs.realpathSync(root);
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+function isOwnedAstroProcess(
+  entry: TrackedDevServer,
+  identity: { args: string; startTime: string | null },
+  cwd: string | null,
+): boolean {
+  // 1. Creation identity: process start timestamp must match when recorded.
+  if (!identity.startTime || !Number.isFinite(entry.startedAt)) return false;
+  if (entry.processStart && identity.startTime !== entry.processStart) {
+    return false;
+  }
+  const startMs = Date.parse(`${identity.startTime} UTC`);
+  if (Number.isNaN(startMs) || Math.abs(startMs - entry.startedAt) > 10_000) {
+    return false;
+  }
+
+  // 2. Executable and flags: must be an Astro dev server bound for Cauldron.
+  const args = identity.args;
+  const astroBin = path.join(entry.root, 'node_modules/.bin/astro');
+  const hasAstroCommand =
+    args.includes(astroBin) ||
+    /(?:^|[/\s])astro(?:\.(?:mjs|js|cjs))?(?:\s|$)/i.test(args);
+  const hasDevFlags =
+    /\bdev\b/.test(args) && /--host(?:=|\s+)127\.0\.0\.1(?:\s|$)/.test(args);
+  if (!hasAstroCommand || !hasDevFlags) return false;
+  if (
+    typeof entry.port === 'number' &&
+    !new RegExp(`--port(?:=|\\s+)${entry.port}(?:\\s|$)`).test(args)
+  ) {
+    return false;
+  }
+
+  // 3. Site ownership: arguments or working directory must point to this site.
+  const expectedRoot = canonicalRoot(entry.root);
+  const realCwd = cwd ? canonicalRoot(cwd) : null;
+  return (
+    args.includes(entry.root) ||
+    args.includes(expectedRoot) ||
+    realCwd === expectedRoot
+  );
+}
+
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !isProcessAlive(pid);
+}
+
+/** Stop any orphaned Astro preview servers left behind by an earlier Cauldron crash. */
+export async function cleanupOrphanedDevServers(): Promise<number> {
+  const file = previewServersFile();
+  if (!file || !fs.existsSync(file)) return 0;
+  const entries = readTrackedServers(file);
+  if (entries.length === 0) return 0;
+
+  const remaining: TrackedDevServer[] = [];
+  let cleaned = 0;
+
+  for (const entry of entries) {
+    if (activeServerPids.has(entry.pid)) {
+      remaining.push(entry);
+      continue;
+    }
+    const identity = readProcessIdentity(entry.pid);
+    if (!identity) {
+      // Process no longer exists: prune entry without signaling.
+      continue;
+    }
+    const cwd = readProcessCwd(entry.pid);
+    if (!isOwnedAstroProcess(entry, identity, cwd)) {
+      // PID was reused or belongs to another tool/site: prune without killing.
+      continue;
+    }
+    try {
+      process.kill(entry.pid, 'SIGTERM');
+      const exited = await waitForExit(entry.pid, 600);
+      if (!exited) {
+        process.kill(entry.pid, 'SIGKILL');
+        await waitForExit(entry.pid, 200);
+      }
+      cleaned += 1;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ESRCH') {
+        console.error(
+          `Could not clean up orphaned preview server (pid ${entry.pid}):`,
+          error,
+        );
+        remaining.push(entry);
+      }
+    }
+  }
+
+  writeTrackedServers(file, remaining);
+  return cleaned;
+}
+
+function tryBindPort(port: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', () => {
+      resolve(null);
+    });
+    server.listen(port, '127.0.0.1', () => {
+      const address = server.address();
+      const resolved =
+        address && typeof address === 'object' ? address.port : null;
+      server.close(() => resolve(resolved));
+    });
+  });
+}
+
+/** Prefer port 4321 when free, otherwise allocate an available ephemeral port. */
+export async function findFreePort(preferred = 4321): Promise<number> {
+  if (preferred > 0) {
+    const first = await tryBindPort(preferred);
+    if (first !== null) return first;
+  }
+  const ephemeral = await tryBindPort(0);
+  return ephemeral ?? preferred;
+}
 
 /**
  * Starts the site's own Astro dev server. Returns as soon as it prints its address.
  * Anything it needs installed first is reported, never installed silently.
  */
-export function startDevServer(
+export async function startDevServer(
   site: Site,
   onOutput: (line: string) => void,
 ): Promise<DevServer | Problem> {
   if (!site.hasDependencies) {
-    return Promise.resolve({
+    return {
       problem:
         'This site has not had its packages installed yet, so its preview cannot start.',
       detail: `Run "${site.packageManager} install" in ${site.root}, then open it again.`,
-    });
+    };
   }
 
   const astroBin = path.join(site.root, 'node_modules/.bin/astro');
   if (!fs.existsSync(astroBin)) {
-    return Promise.resolve({
+    return {
       problem: 'The site has no Astro command available.',
       detail: `Expected ${astroBin}. Run "${site.packageManager} install" and try again.`,
-    });
+    };
   }
+
+  await cleanupOrphanedDevServers();
+  const chosenPort = await findFreePort(4321);
 
   return new Promise((resolve) => {
     // A GUI launch has no terminal PATH; the astro shebang needs a real Node.
@@ -159,18 +445,31 @@ export function startDevServer(
       ASTRO_DEV_BACKGROUND: '1',
       ASTRO_PREVIEW_BACKGROUND: '1',
     });
-    const child = spawn(astroBin, ['dev', '--host', '127.0.0.1'], {
-      cwd: site.root,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      astroBin,
+      ['dev', '--host', '127.0.0.1', '--port', String(chosenPort)],
+      {
+        cwd: site.root,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    const pid = child.pid;
+    if (pid) {
+      activeServerPids.add(pid);
+      recordDevServerPid(pid, site.root, chosenPort);
+    }
 
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const untrack = () => {
+      if (pid) removeDevServerPid(pid);
+    };
     const finish = (result: DevServer | Problem) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if ('problem' in result) untrack();
       resolve(result);
     };
 
@@ -180,8 +479,10 @@ export function startDevServer(
       if (!line) return;
       onOutput(line);
       if (/already running|already in use/i.test(line)) {
+        child.kill('SIGTERM');
         finish({
-          problem: 'Another dev server is already running on this address.',
+          problem:
+            'Another dev server is already running on that port. Close any other Astro dev server running for this site and try starting the preview again.',
           detail: line,
         });
         return;
@@ -194,6 +495,7 @@ export function startDevServer(
           port,
           process: child,
           stop: () => {
+            untrack();
             child.kill('SIGTERM');
             setTimeout(() => child.kill('SIGKILL'), 2000).unref();
           },
@@ -216,6 +518,7 @@ export function startDevServer(
     pump(child.stderr);
 
     child.on('error', (error) => {
+      untrack();
       finish({
         problem: 'The Astro dev server could not start.',
         detail: error.message,
@@ -223,6 +526,7 @@ export function startDevServer(
     });
 
     child.on('exit', (code) => {
+      untrack();
       finish({
         problem: 'The Astro dev server stopped before it was ready.',
         detail: `It exited with code ${code ?? 'unknown'}.`,
@@ -231,6 +535,7 @@ export function startDevServer(
 
     timer = setTimeout(() => {
       if (settled) return;
+      untrack();
       child.kill('SIGTERM');
       finish({
         problem: 'The Astro dev server took too long to start.',

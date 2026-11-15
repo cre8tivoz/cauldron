@@ -27,6 +27,7 @@ type CauldronSelection = {
   name: string;
   text: string;
   textEditable: boolean;
+  textEditReason?: string;
   attributes: Array<{ name: string; value: string }>;
   style: Record<string, string>;
   pageUrl: string;
@@ -262,6 +263,7 @@ type CauldronApi = {
     url: string | null;
     status: string[];
     problem?: string | null;
+    direction?: CauldronDirectionSummary | null;
     selection: CauldronSelection | null;
     drafts: CauldronDraft[];
     history?: { canUndo: boolean; canRedo: boolean };

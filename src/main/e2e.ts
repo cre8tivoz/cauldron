@@ -4925,6 +4925,17 @@ export async function runFailureTest(
         String(five.text).includes('design setting could not be read'),
       String(five.text).slice(0, 200),
     );
+    const fiveBanner = await waitText(
+      '.notice.bad',
+      'design setting could not be read',
+    );
+    check(
+      '14.5a two failures at once both stay visible in the problem banner',
+      fiveBanner.found &&
+        String(fiveBanner.text).includes('Saved edits could not be read') &&
+        String(fiveBanner.text).includes('design setting could not be read'),
+      String(fiveBanner.text).slice(0, 200),
+    );
 
     // 5b. A missing design.json is not a failure: missing must stay distinguishable.
     //     Clear the damaged recovery file first so only the design setting is tested.

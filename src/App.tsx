@@ -27,6 +27,7 @@ import {
   type DraftSchedule,
 } from './draft-schedule';
 import { describeDraftBanner, selectionDraftValue } from './draft-restore';
+import { mergeProblemMessages } from './problems';
 import {
   INITIAL_AGENT_STREAM,
   applyAgentStreamEvent,
@@ -240,6 +241,9 @@ export function App() {
       if (state.site) {
         currentSiteRootRef.current = state.site.root;
       }
+      if (state.direction !== undefined) {
+        setDirection(state.direction);
+      }
       setPreview({ running: state.running, url: state.url });
       setSelection(state.selection);
       if (state.history) setHistoryState(state.history);
@@ -250,13 +254,18 @@ export function App() {
       setDrafts(state.drafts);
       if (state.status.length > 0)
         setStatus(state.status[state.status.length - 1]);
-      if (state.problem) setProblem(state.problem);
+      if (state.problem) {
+        setProblem((current) =>
+          mergeProblemMessages(current, state.problem ?? null),
+        );
+      }
     });
 
     const offSite = window.cauldron.on('cauldron:site', (payload: never) => {
       const next = payload as {
         site: CauldronSite | null;
         drafts: CauldronDraft[];
+        direction?: CauldronDirectionSummary | null;
         recovered?: boolean;
         history?: { canUndo: boolean; canRedo: boolean };
       };
@@ -281,9 +290,15 @@ export function App() {
       }
       setSite(next.site);
       setDrafts(incoming);
-      void window.cauldron.direction().then(setDirection);
+      if (next.direction !== undefined) {
+        setDirection(next.direction);
+      } else {
+        void window.cauldron.direction().then(setDirection);
+      }
       setSelection(null);
-      setProblem(null);
+      if (next.recovered || isNewSite || !next.site) {
+        setProblem(null);
+      }
       setConflict(null);
       if (isNewSite || !next.site) {
         setAgentStream(INITIAL_AGENT_STREAM);
@@ -314,7 +329,9 @@ export function App() {
     const offProblem = window.cauldron.on(
       'cauldron:problem',
       (payload: never) => {
-        setProblem(payload as unknown as string);
+        setProblem((current) =>
+          mergeProblemMessages(current, payload as unknown as string),
+        );
       },
     );
 
