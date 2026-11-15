@@ -19,6 +19,21 @@ npm run smoke     # package the app, open it hidden, confirm it renders
 
 Both must pass. CI runs the same commands on pushes to `main` and on pull requests.
 
+## Running the internal E2E harness (`WDL-238`, `WDL-253`)
+
+Production packages (`npm run package` / `npm run make`) exclude the internal E2E test harness (`src/main/e2e.ts`, `harnessApi`, and the `CAULDRON_*_TEST` switches). It is enabled in development (`npm start`), or can be opted into when packaging for full-app E2E verification:
+
+```bash
+CAULDRON_BUNDLE_E2E=1 npm run package
+```
+
+The Claude protocol proof suite (`CAULDRON_CLAUDE_TEST=1`) reads these optional environment settings (and creates temporary defaults when omitted for log/state/fixture paths):
+
+- `CAULDRON_AGENT_ARGS_LOG`: JSONL path recording exact spawned agent CLI arguments (used to inspect briefs and `--resume` flags).
+- `CAULDRON_STANDIN_STATE`: JSON file storing state across invocations of `scripts/fixtures/claude-standin.mjs`.
+- `CAULDRON_CLAUDE_STANDIN_DIR`: Directory containing an executable `claude` wrapper that runs `scripts/fixtures/claude-standin.mjs`.
+- `CAULDRON_CLAUDE_FIXTURE_SITE`: Separate disposable Astro site copy used for fixture provider runs so sessions never collide with real CLI runs.
+
 ## Style
 
 - TypeScript, strict. Prefer plain functions and small files over abstractions.
