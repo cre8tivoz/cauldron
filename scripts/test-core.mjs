@@ -4838,6 +4838,9 @@ await (async () => {
     const fakeSiteRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'cauldron-orphan-site-'),
     );
+    const otherSiteRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cauldron-other-site-'),
+    );
 
     const isAlive = (pid) => {
       try {
@@ -4848,47 +4851,100 @@ await (async () => {
       }
     };
 
-    const orphanChild = cpMod.spawn(
-      process.execPath,
-      ['-e', 'setTimeout(() => {}, 30000)', '--astro', fakeSiteRoot],
-      { stdio: 'ignore' },
-    );
-    const unrelatedChild = cpMod.spawn(
-      process.execPath,
-      ['-e', 'setTimeout(() => {}, 30000)'],
-      { stdio: 'ignore' },
-    );
-    try {
-      assert.ok(orphanChild.pid && unrelatedChild.pid);
-      siteMod.recordDevServerPid(orphanChild.pid, fakeSiteRoot);
-      siteMod.recordDevServerPid(
-        unrelatedChild.pid,
-        path.join(os.tmpdir(), 'never-matches-unrelated-site'),
+    const spawnDummy = (args, cwd = orphanUserData) =>
+      cpMod.spawn(
+        process.execPath,
+        ['-e', 'setTimeout(() => {}, 30000)', '--', ...args],
+        { cwd, stdio: 'ignore' },
       );
+
+    const orphanChild = spawnDummy(
+      [
+        path.join(fakeSiteRoot, 'node_modules/.bin/astro'),
+        'dev',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '49123',
+      ],
+      fakeSiteRoot,
+    );
+    const otherSiteAstroChild = spawnDummy(
+      [
+        path.join(otherSiteRoot, 'node_modules/.bin/astro'),
+        'dev',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '49123',
+      ],
+      otherSiteRoot,
+    );
+    const unrelatedChild = spawnDummy(['unrelated-tool', fakeSiteRoot]);
+    const staleStartChild = spawnDummy(
+      [
+        path.join(fakeSiteRoot, 'node_modules/.bin/astro'),
+        'dev',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '49125',
+      ],
+      fakeSiteRoot,
+    );
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.ok(
+        orphanChild.pid &&
+          otherSiteAstroChild.pid &&
+          unrelatedChild.pid &&
+          staleStartChild.pid,
+      );
+      siteMod.recordDevServerPid(orphanChild.pid, fakeSiteRoot, 49123);
+      siteMod.recordDevServerPid(otherSiteAstroChild.pid, fakeSiteRoot, 49123);
+      siteMod.recordDevServerPid(unrelatedChild.pid, fakeSiteRoot, 49123);
+      siteMod.recordDevServerPid(staleStartChild.pid, fakeSiteRoot, 49125);
+
+      const trackedFile = path.join(orphanUserData, 'preview-servers.json');
+      const entries = JSON.parse(fs.readFileSync(trackedFile, 'utf8'));
+      const tampered = entries.map((entry) =>
+        entry.pid === staleStartChild.pid
+          ? {
+              ...entry,
+              startedAt: Date.now() - 600_000,
+              processStart: 'Thu Jan 01 00:00:00 1970',
+            }
+          : entry,
+      );
+      fs.writeFileSync(trackedFile, JSON.stringify(tampered, null, 2));
+
       const cleanedCount = await siteMod.cleanupOrphanedDevServers();
       await new Promise((resolve) => setTimeout(resolve, 100));
-      test('WDL-248: orphaned Astro server is stopped while unrelated PID is spared', () => {
+      test('WDL-248: only verified orphaned Astro server for the site is stopped', () => {
         assert.equal(cleanedCount, 1);
         assert.equal(isAlive(orphanChild.pid), false);
+        assert.equal(isAlive(otherSiteAstroChild.pid), true);
         assert.equal(isAlive(unrelatedChild.pid), true);
-        const stored = JSON.parse(
-          fs.readFileSync(
-            path.join(orphanUserData, 'preview-servers.json'),
-            'utf8',
-          ),
-        );
+        assert.equal(isAlive(staleStartChild.pid), true);
+        const stored = JSON.parse(fs.readFileSync(trackedFile, 'utf8'));
         assert.deepEqual(stored, []);
       });
     } finally {
-      try {
-        orphanChild.kill('SIGKILL');
-      } catch {}
-      try {
-        unrelatedChild.kill('SIGKILL');
-      } catch {}
+      for (const child of [
+        orphanChild,
+        otherSiteAstroChild,
+        unrelatedChild,
+        staleStartChild,
+      ]) {
+        try {
+          child.kill('SIGKILL');
+        } catch {}
+      }
       globalThis.__cauldronUserData = prevUserData;
       fs.rmSync(orphanUserData, { recursive: true, force: true });
       fs.rmSync(fakeSiteRoot, { recursive: true, force: true });
+      fs.rmSync(otherSiteRoot, { recursive: true, force: true });
     }
   })();
 })();

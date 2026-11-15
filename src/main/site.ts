@@ -128,7 +128,9 @@ export type DevServer = {
 type TrackedDevServer = {
   pid: number;
   root: string;
+  port?: number;
   startedAt: number;
+  processStart?: string;
 };
 
 const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)\/?/;
@@ -184,14 +186,27 @@ function writeTrackedServers(file: string, entries: TrackedDevServer[]): void {
 }
 
 /** Persist a spawned preview PID so a hard crash (SIGKILL) leaves it cleanable on next launch. */
-export function recordDevServerPid(pid: number, root: string): void {
+export function recordDevServerPid(
+  pid: number,
+  root: string,
+  port?: number,
+): void {
   if (!Number.isInteger(pid) || pid <= 0) return;
   const file = previewServersFile();
   if (!file) return;
+  const identity = readProcessIdentity(pid);
   const existing = readTrackedServers(file).filter(
     (entry) => entry.pid !== pid,
   );
-  existing.push({ pid, root, startedAt: Date.now() });
+  existing.push({
+    pid,
+    root,
+    ...(typeof port === 'number' && Number.isInteger(port) && port > 0
+      ? { port }
+      : {}),
+    startedAt: Date.now(),
+    ...(identity?.startTime ? { processStart: identity.startTime } : {}),
+  });
   writeTrackedServers(file, existing);
 }
 
@@ -205,18 +220,50 @@ export function removeDevServerPid(pid: number): void {
   if (next.length !== existing.length) writeTrackedServers(file, next);
 }
 
-function processCommandLine(pid: number): string | null {
+function readProcessIdentity(
+  pid: number,
+): { args: string; startTime: string | null } | null {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return null;
   if (process.platform === 'win32') return null;
   try {
-    const out = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
+    const args = execFileSync('ps', ['-ww', '-p', String(pid), '-o', 'args='], {
       encoding: 'utf8',
       timeout: 2000,
     }).trim();
-    return out || null;
+    if (!args) return null;
+    const startTime = execFileSync(
+      'ps',
+      ['-ww', '-p', String(pid), '-o', 'lstart='],
+      {
+        encoding: 'utf8',
+        timeout: 2000,
+        env: { ...process.env, TZ: 'UTC' },
+      },
+    ).trim();
+    return { args, startTime: startTime || null };
   } catch {
     return null;
   }
+}
+
+function readProcessCwd(pid: number): string | null {
+  try {
+    if (process.platform === 'linux') {
+      return fs.readlinkSync(`/proc/${pid}/cwd`);
+    }
+    if (process.platform === 'darwin') {
+      const out = execFileSync(
+        'lsof',
+        ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'],
+        { encoding: 'utf8', timeout: 2000 },
+      );
+      const line = out.split('\n').find((item) => item.startsWith('n'));
+      return line ? line.slice(1) : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -228,8 +275,53 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function isOwnedAstroProcess(args: string, root: string): boolean {
-  return /\bastro\b/i.test(args) || (Boolean(root) && args.includes(root));
+function canonicalRoot(root: string): string {
+  try {
+    return fs.realpathSync(root);
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+function isOwnedAstroProcess(
+  entry: TrackedDevServer,
+  identity: { args: string; startTime: string | null },
+  cwd: string | null,
+): boolean {
+  // 1. Creation identity: process start timestamp must match when recorded.
+  if (!identity.startTime || !Number.isFinite(entry.startedAt)) return false;
+  if (entry.processStart && identity.startTime !== entry.processStart) {
+    return false;
+  }
+  const startMs = Date.parse(`${identity.startTime} UTC`);
+  if (Number.isNaN(startMs) || Math.abs(startMs - entry.startedAt) > 10_000) {
+    return false;
+  }
+
+  // 2. Executable and flags: must be an Astro dev server bound for Cauldron.
+  const args = identity.args;
+  const astroBin = path.join(entry.root, 'node_modules/.bin/astro');
+  const hasAstroCommand =
+    args.includes(astroBin) ||
+    /(?:^|[/\s])astro(?:\.(?:mjs|js|cjs))?(?:\s|$)/i.test(args);
+  const hasDevFlags =
+    /\bdev\b/.test(args) && /--host(?:=|\s+)127\.0\.0\.1(?:\s|$)/.test(args);
+  if (!hasAstroCommand || !hasDevFlags) return false;
+  if (
+    typeof entry.port === 'number' &&
+    !new RegExp(`--port(?:=|\\s+)${entry.port}(?:\\s|$)`).test(args)
+  ) {
+    return false;
+  }
+
+  // 3. Site ownership: arguments or working directory must point to this site.
+  const expectedRoot = canonicalRoot(entry.root);
+  const realCwd = cwd ? canonicalRoot(cwd) : null;
+  return (
+    args.includes(entry.root) ||
+    args.includes(expectedRoot) ||
+    realCwd === expectedRoot
+  );
 }
 
 async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
@@ -256,9 +348,14 @@ export async function cleanupOrphanedDevServers(): Promise<number> {
       remaining.push(entry);
       continue;
     }
-    const args = processCommandLine(entry.pid);
-    if (!args || !isOwnedAstroProcess(args, entry.root)) {
-      // Dead PID or PID reused by an unrelated program: prune without killing.
+    const identity = readProcessIdentity(entry.pid);
+    if (!identity) {
+      // Process no longer exists: prune entry without signaling.
+      continue;
+    }
+    const cwd = readProcessCwd(entry.pid);
+    if (!isOwnedAstroProcess(entry, identity, cwd)) {
+      // PID was reused or belongs to another tool/site: prune without killing.
       continue;
     }
     try {
@@ -360,7 +457,7 @@ export async function startDevServer(
     const pid = child.pid;
     if (pid) {
       activeServerPids.add(pid);
-      recordDevServerPid(pid, site.root);
+      recordDevServerPid(pid, site.root, chosenPort);
     }
 
     let settled = false;

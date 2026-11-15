@@ -334,13 +334,6 @@ function directionFor(
   return read.direction;
 }
 
-function siteDirectionView(root: string, reportProblem = false) {
-  const direction = reportProblem
-    ? directionFor(root)
-    : readDirection(root).direction;
-  return direction ? rendererDirection(direction) : null;
-}
-
 /**
  * The renderer gets font families as plain strings. Nothing from a saved
  * design file, a measured reference or a future plugin can reach the renderer
@@ -605,20 +598,64 @@ async function inspectPreviewError(): Promise<string | null> {
   }
 }
 
+function readSiteStateSnapshot(site: Site): {
+  summary: ReturnType<typeof summaryOf>;
+  drafts: Draft[];
+  direction: ReturnType<typeof rendererDirection> | null;
+  readProblems: string[];
+} {
+  const recovery = loadDrafts(site.root);
+  const design = readDirection(site.root);
+  return {
+    summary: summaryOf(site),
+    drafts: recovery.drafts,
+    direction: design.direction ? rendererDirection(design.direction) : null,
+    readProblems: [recovery.problem, design.problem].filter(
+      (problem): problem is string => Boolean(problem),
+    ),
+  };
+}
+
+function pushSiteSnapshot(
+  site: Site,
+  options?: {
+    reportProblems?: boolean;
+    recovered?: boolean;
+    history?: { canUndo: boolean; canRedo: boolean };
+  },
+): string[] {
+  const snapshot = readSiteStateSnapshot(site);
+  send('cauldron:site', {
+    site: snapshot.summary,
+    drafts: snapshot.drafts,
+    direction: snapshot.direction,
+    ...(options?.recovered !== undefined
+      ? { recovered: options.recovered }
+      : {}),
+    ...(options?.history ? { history: options.history } : {}),
+  });
+  if (options?.reportProblems !== false && snapshot.readProblems.length > 0) {
+    fail(snapshot.readProblems.join(' '));
+  }
+  return snapshot.readProblems;
+}
+
 /**
  * Rechecks missing package imports and preview overlay errors, updating
  * state.missingPackages and state.buildError, and sends an updated site summary.
  */
 async function refreshSiteHealth(options?: {
   buildVerifiedOk?: boolean;
+  reportProblems?: boolean;
 }): Promise<{
   missingPackages: string[];
   buildError: string | null;
+  readProblems: string[];
 }> {
   if (!state.site) {
     state.missingPackages = [];
     state.buildError = null;
-    return { missingPackages: [], buildError: null };
+    return { missingPackages: [], buildError: null, readProblems: [] };
   }
   const siteRoot = state.site.root;
   const previewError = await inspectPreviewError();
@@ -636,6 +673,7 @@ async function refreshSiteHealth(options?: {
       return {
         missingPackages: state.missingPackages,
         buildError: state.buildError,
+        readProblems: [],
       };
     }
     if (verification.ok) missing = [];
@@ -648,14 +686,13 @@ async function refreshSiteHealth(options?: {
       ? `Missing package imports: ${missing.join(', ')}`
       : null);
 
-  send('cauldron:site', {
-    site: summaryOf(state.site),
-    drafts: loadDrafts(state.site.root).drafts,
-    direction: siteDirectionView(state.site.root),
+  const readProblems = pushSiteSnapshot(state.site, {
+    reportProblems: options?.reportProblems,
   });
   return {
     missingPackages: state.missingPackages,
     buildError: state.buildError,
+    readProblems,
   };
 }
 
@@ -724,12 +761,8 @@ async function openSiteAt(root: string) {
   // Read the saved edits and design settings once, run health checks, then
   // surface every open-time failure together at the end so neither preview
   // status nor health refreshes bury or split them (WDL-252).
-  const recovery = loadDrafts(detected.root);
-  const design = readDirection(detected.root);
-  send('cauldron:site', {
-    site: summaryOf(detected),
-    drafts: recovery.drafts,
-    direction: design.direction ? rendererDirection(design.direction) : null,
+  pushSiteSnapshot(detected, {
+    reportProblems: false,
     recovered: true,
     history: state.history.state(),
   });
@@ -737,11 +770,10 @@ async function openSiteAt(root: string) {
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
   );
   const preview = await startPreview();
-  await refreshSiteHealth();
+  const health = await refreshSiteHealth({ reportProblems: false });
   const problems = [
     'problem' in preview ? preview.problem : null,
-    recovery.problem,
-    design.problem,
+    ...health.readProblems,
     runHistory.problem,
   ].filter((problem): problem is string => Boolean(problem));
   if (problems.length > 0) fail(problems.join(' '));
@@ -1579,17 +1611,23 @@ function registerIpc(): void {
   });
 
   handle('cauldron:site-state', () => {
-    const problem = pendingProblem;
+    const snapshot = state.site ? readSiteStateSnapshot(state.site) : null;
+    const readProblemText = snapshot?.readProblems.join(' ') ?? '';
+    if (readProblemText) {
+      console.error(readProblemText);
+      status(readProblemText);
+    }
+    const problem = mergeProblemMessages(pendingProblem, readProblemText);
     pendingProblem = null;
     return {
-      site: summaryOf(state.site),
+      site: snapshot?.summary ?? null,
       running: Boolean(state.server),
       url: state.server?.url ?? null,
       status: state.status,
       problem,
-      direction: state.site ? siteDirectionView(state.site.root) : null,
+      direction: snapshot?.direction ?? null,
       selection: selectionView(),
-      drafts: state.site ? loadDrafts(state.site.root).drafts : [],
+      drafts: snapshot?.drafts ?? [],
       history: state.history.state(),
     };
   });
@@ -2647,11 +2685,7 @@ async function finishAgentRun(note: string): Promise<void> {
         lines.at(-1) ??
         'astro build failed';
       state.buildError = buildLogLine;
-      send('cauldron:site', {
-        site: summaryOf(state.site),
-        drafts: loadDrafts(site.root).drafts,
-        direction: siteDirectionView(site.root),
-      });
+      if (state.site) pushSiteSnapshot(state.site);
     }
 
     if (
