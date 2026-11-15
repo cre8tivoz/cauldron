@@ -514,20 +514,33 @@ try {
   });
   test('1.5 generated Astro text is not replaced by a literal', () => {
     const source = '<h1>{title}</h1>';
-    assert.equal(
-      snapshotElement(source, { file, line: 1, column: 4, name: 'h1' })
-        .textEditable,
-      false,
+    const snap = snapshotElement(source, {
+      file,
+      line: 1,
+      column: 4,
+      name: 'h1',
+    });
+    assert.equal(snap.textEditable, false);
+    assert.match(snap.textEditReason ?? '', /page’s code/i);
+    assert.doesNotMatch(snap.textEditReason ?? '', /other elements/i);
+    const codeResult = applyEdit(
+      source,
+      { file, line: 1, column: 4, name: 'h1' },
+      { kind: 'text', value: 'literal' },
+      {},
     );
-    assert.equal(
-      applyEdit(
-        source,
-        { file, line: 1, column: 4, name: 'h1' },
-        { kind: 'text', value: 'literal' },
-        {},
-      ).ok,
-      false,
+    assert.equal(codeResult.ok, false);
+    assert.match(codeResult.reason ?? '', /page’s code/i);
+    assert.doesNotMatch(codeResult.reason ?? '', /other elements/i);
+
+    const nestedResult = applyEdit(
+      '<div><span>nested</span></div>',
+      { file, line: 1, column: 5, name: 'div' },
+      { kind: 'text', value: 'literal' },
+      {},
     );
+    assert.equal(nestedResult.ok, false);
+    assert.match(nestedResult.reason ?? '', /holds other elements/i);
   });
   test('1.5 literal braces and attribute quotes are escaped safely', () => {
     const source = '<h1 title="Original">Original</h1>';
@@ -4764,6 +4777,120 @@ await (async () => {
       { file: 'src/pages/index.astro', page: '/' },
     ]);
   });
+
+  await (async () => {
+    const { mergeProblemMessages } = await import('../src/problems.ts');
+    test('WDL-252: mergeProblemMessages keeps distinct simultaneous errors', () => {
+      assert.equal(mergeProblemMessages(null, null), null);
+      assert.equal(
+        mergeProblemMessages(null, 'Saved edits could not be read.'),
+        'Saved edits could not be read.',
+      );
+      assert.equal(
+        mergeProblemMessages(
+          'Saved edits could not be read.',
+          'Saved edits could not be read.',
+        ),
+        'Saved edits could not be read.',
+      );
+      assert.equal(
+        mergeProblemMessages(
+          'Saved edits could not be read.',
+          'The design setting could not be read.',
+        ),
+        'Saved edits could not be read. The design setting could not be read.',
+      );
+    });
+
+    const netMod = await import('node:net');
+    const cpMod = await import('node:child_process');
+    const siteMod = await import('../src/main/site.ts');
+
+    const busyServer = netMod.default.createServer();
+    await new Promise((resolve) =>
+      busyServer.listen(0, '127.0.0.1', () => resolve(undefined)),
+    );
+    const busyAddr = busyServer.address();
+    const busyPort =
+      busyAddr && typeof busyAddr === 'object' ? busyAddr.port : 0;
+    try {
+      const picked = await siteMod.findFreePort(busyPort);
+      test('WDL-248: findFreePort falls back when preferred port is busy', () => {
+        assert.ok(picked > 0 && picked !== busyPort);
+      });
+    } finally {
+      await new Promise((resolve) =>
+        busyServer.close(() => resolve(undefined)),
+      );
+    }
+
+    const freeCheckPort = await siteMod.findFreePort(0);
+    const keptPreferred = await siteMod.findFreePort(freeCheckPort);
+    test('WDL-248: findFreePort keeps free preferred port', () => {
+      assert.equal(keptPreferred, freeCheckPort);
+    });
+
+    const prevUserData = globalThis.__cauldronUserData;
+    const orphanUserData = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cauldron-orphan-ud-'),
+    );
+    globalThis.__cauldronUserData = orphanUserData;
+    const fakeSiteRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cauldron-orphan-site-'),
+    );
+
+    const isAlive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const orphanChild = cpMod.spawn(
+      process.execPath,
+      ['-e', 'setTimeout(() => {}, 30000)', '--astro', fakeSiteRoot],
+      { stdio: 'ignore' },
+    );
+    const unrelatedChild = cpMod.spawn(
+      process.execPath,
+      ['-e', 'setTimeout(() => {}, 30000)'],
+      { stdio: 'ignore' },
+    );
+    try {
+      assert.ok(orphanChild.pid && unrelatedChild.pid);
+      siteMod.recordDevServerPid(orphanChild.pid, fakeSiteRoot);
+      siteMod.recordDevServerPid(
+        unrelatedChild.pid,
+        path.join(os.tmpdir(), 'never-matches-unrelated-site'),
+      );
+      const cleanedCount = await siteMod.cleanupOrphanedDevServers();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      test('WDL-248: orphaned Astro server is stopped while unrelated PID is spared', () => {
+        assert.equal(cleanedCount, 1);
+        assert.equal(isAlive(orphanChild.pid), false);
+        assert.equal(isAlive(unrelatedChild.pid), true);
+        const stored = JSON.parse(
+          fs.readFileSync(
+            path.join(orphanUserData, 'preview-servers.json'),
+            'utf8',
+          ),
+        );
+        assert.deepEqual(stored, []);
+      });
+    } finally {
+      try {
+        orphanChild.kill('SIGKILL');
+      } catch {}
+      try {
+        unrelatedChild.kill('SIGKILL');
+      } catch {}
+      globalThis.__cauldronUserData = prevUserData;
+      fs.rmSync(orphanUserData, { recursive: true, force: true });
+      fs.rmSync(fakeSiteRoot, { recursive: true, force: true });
+    }
+  })();
 })();
 
 process.exitCode = failures ? 1 : 0;

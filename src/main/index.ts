@@ -11,7 +11,14 @@ import {
 import path from 'node:path';
 import fs from 'node:fs';
 import { buildMenu } from '../app-menu';
-import { detectSite, startDevServer, type DevServer, type Site } from './site';
+import { mergeProblemMessages } from '../problems';
+import {
+  cleanupOrphanedDevServers,
+  detectSite,
+  startDevServer,
+  type DevServer,
+  type Site,
+} from './site';
 import { Preview } from './preview';
 import { History } from './history';
 import { Runs, type Run } from './runs';
@@ -256,15 +263,16 @@ export function isEditorUiAvailable(
 /** Deliver an error banner to the editor window, or buffer until startup finishes. */
 function notifyProblem(message: string): void {
   const window = state.window;
+  const combined = mergeProblemMessages(pendingProblem, message) ?? message;
   if (
     isEditorUiAvailable(window, editorRendererGone) &&
     window &&
     !window.webContents.isLoadingMainFrame()
   ) {
-    send('cauldron:problem', message);
+    send('cauldron:problem', combined);
     pendingProblem = null;
   } else {
-    pendingProblem = message;
+    pendingProblem = combined;
   }
 }
 
@@ -307,6 +315,7 @@ export function registerUnexpectedErrorHandlers(
 function fail(message: string): void {
   console.error(message);
   status(message);
+  notifyProblem(message);
 }
 
 /** Saved edits, with damaged recovery data reported instead of shown as none. */
@@ -323,6 +332,13 @@ function directionFor(
   const read = readDirection(root);
   if (read.problem) fail(read.problem);
   return read.direction;
+}
+
+function siteDirectionView(root: string, reportProblem = false) {
+  const direction = reportProblem
+    ? directionFor(root)
+    : readDirection(root).direction;
+  return direction ? rendererDirection(direction) : null;
 }
 
 /**
@@ -393,6 +409,9 @@ function selectionView() {
     text: selection.snapshot.text,
     baseHash: hashOf(selection.snapshot.sourceText),
     textEditable: selection.snapshot.textEditable,
+    ...(selection.snapshot.textEditReason
+      ? { textEditReason: selection.snapshot.textEditReason }
+      : {}),
     attributes: selection.snapshot.attributes,
     style: selection.snapshot.style,
     pageUrl: selection.pageUrl,
@@ -631,7 +650,8 @@ async function refreshSiteHealth(options?: {
 
   send('cauldron:site', {
     site: summaryOf(state.site),
-    drafts: storedDrafts(state.site.root),
+    drafts: loadDrafts(state.site.root).drafts,
+    direction: siteDirectionView(state.site.root),
   });
   return {
     missingPackages: state.missingPackages,
@@ -694,18 +714,22 @@ async function openSiteAt(root: string) {
   }
 
   await stopPreview();
+  pendingProblem = null;
   state.site = detected;
   state.selection = null;
   state.history = new History();
   pushHistory();
   state.runs = new Runs();
   const runHistory = state.runs.load(detected.root);
-  // Read the saved edits once, and keep the failure for last: the status bar
-  // shows one message, so a later "site opened" line must not bury it (plan 1.6).
+  // Read the saved edits and design settings once, run health checks, then
+  // surface every open-time failure together at the end so neither preview
+  // status nor health refreshes bury or split them (WDL-252).
   const recovery = loadDrafts(detected.root);
+  const design = readDirection(detected.root);
   send('cauldron:site', {
-    site: detected,
+    site: summaryOf(detected),
     drafts: recovery.drafts,
+    direction: design.direction ? rendererDirection(design.direction) : null,
     recovered: true,
     history: state.history.state(),
   });
@@ -713,16 +737,14 @@ async function openSiteAt(root: string) {
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
   );
   const preview = await startPreview();
-  // The design setting is read again here for the same reason: anything that
-  // read it during start-up reported into a status line "Preview running" has
-  // since replaced. Both problems are shown together so neither hides the other.
-  const problems = [
-    recovery.problem,
-    readDirection(detected.root).problem,
-    runHistory.problem,
-  ].filter(Boolean);
-  if (problems.length > 0) fail(problems.join(' '));
   await refreshSiteHealth();
+  const problems = [
+    'problem' in preview ? preview.problem : null,
+    recovery.problem,
+    design.problem,
+    runHistory.problem,
+  ].filter((problem): problem is string => Boolean(problem));
+  if (problems.length > 0) fail(problems.join(' '));
   return 'problem' in preview
     ? { site: summaryOf(detected), ...preview }
     : { site: summaryOf(detected) };
@@ -1565,8 +1587,9 @@ function registerIpc(): void {
       url: state.server?.url ?? null,
       status: state.status,
       problem,
+      direction: state.site ? siteDirectionView(state.site.root) : null,
       selection: selectionView(),
-      drafts: state.site ? storedDrafts(state.site.root) : [],
+      drafts: state.site ? loadDrafts(state.site.root).drafts : [],
       history: state.history.state(),
     };
   });
@@ -2626,7 +2649,8 @@ async function finishAgentRun(note: string): Promise<void> {
       state.buildError = buildLogLine;
       send('cauldron:site', {
         site: summaryOf(state.site),
-        drafts: storedDrafts(site.root),
+        drafts: loadDrafts(site.root).drafts,
+        direction: siteDirectionView(site.root),
       });
     }
 
@@ -3222,6 +3246,7 @@ export function start(): void {
         },
       }),
     );
+    if (!SMOKE) await cleanupOrphanedDevServers();
     registerIpc();
     createWindow(showSplash());
 
