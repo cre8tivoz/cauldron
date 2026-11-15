@@ -11,7 +11,14 @@ import {
 import path from 'node:path';
 import fs from 'node:fs';
 import { buildMenu } from '../app-menu';
-import { detectSite, startDevServer, type DevServer, type Site } from './site';
+import { mergeProblemMessages } from '../problems';
+import {
+  cleanupOrphanedDevServers,
+  detectSite,
+  startDevServer,
+  type DevServer,
+  type Site,
+} from './site';
 import { Preview } from './preview';
 import { History } from './history';
 import { Runs, type Run } from './runs';
@@ -256,15 +263,16 @@ export function isEditorUiAvailable(
 /** Deliver an error banner to the editor window, or buffer until startup finishes. */
 function notifyProblem(message: string): void {
   const window = state.window;
+  const combined = mergeProblemMessages(pendingProblem, message) ?? message;
   if (
     isEditorUiAvailable(window, editorRendererGone) &&
     window &&
     !window.webContents.isLoadingMainFrame()
   ) {
-    send('cauldron:problem', message);
+    send('cauldron:problem', combined);
     pendingProblem = null;
   } else {
-    pendingProblem = message;
+    pendingProblem = combined;
   }
 }
 
@@ -307,6 +315,7 @@ export function registerUnexpectedErrorHandlers(
 function fail(message: string): void {
   console.error(message);
   status(message);
+  notifyProblem(message);
 }
 
 /** Saved edits, with damaged recovery data reported instead of shown as none. */
@@ -393,6 +402,9 @@ function selectionView() {
     text: selection.snapshot.text,
     baseHash: hashOf(selection.snapshot.sourceText),
     textEditable: selection.snapshot.textEditable,
+    ...(selection.snapshot.textEditReason
+      ? { textEditReason: selection.snapshot.textEditReason }
+      : {}),
     attributes: selection.snapshot.attributes,
     style: selection.snapshot.style,
     pageUrl: selection.pageUrl,
@@ -586,20 +598,64 @@ async function inspectPreviewError(): Promise<string | null> {
   }
 }
 
+function readSiteStateSnapshot(site: Site): {
+  summary: ReturnType<typeof summaryOf>;
+  drafts: Draft[];
+  direction: ReturnType<typeof rendererDirection> | null;
+  readProblems: string[];
+} {
+  const recovery = loadDrafts(site.root);
+  const design = readDirection(site.root);
+  return {
+    summary: summaryOf(site),
+    drafts: recovery.drafts,
+    direction: design.direction ? rendererDirection(design.direction) : null,
+    readProblems: [recovery.problem, design.problem].filter(
+      (problem): problem is string => Boolean(problem),
+    ),
+  };
+}
+
+function pushSiteSnapshot(
+  site: Site,
+  options?: {
+    reportProblems?: boolean;
+    recovered?: boolean;
+    history?: { canUndo: boolean; canRedo: boolean };
+  },
+): string[] {
+  const snapshot = readSiteStateSnapshot(site);
+  send('cauldron:site', {
+    site: snapshot.summary,
+    drafts: snapshot.drafts,
+    direction: snapshot.direction,
+    ...(options?.recovered !== undefined
+      ? { recovered: options.recovered }
+      : {}),
+    ...(options?.history ? { history: options.history } : {}),
+  });
+  if (options?.reportProblems !== false && snapshot.readProblems.length > 0) {
+    fail(snapshot.readProblems.join(' '));
+  }
+  return snapshot.readProblems;
+}
+
 /**
  * Rechecks missing package imports and preview overlay errors, updating
  * state.missingPackages and state.buildError, and sends an updated site summary.
  */
 async function refreshSiteHealth(options?: {
   buildVerifiedOk?: boolean;
+  reportProblems?: boolean;
 }): Promise<{
   missingPackages: string[];
   buildError: string | null;
+  readProblems: string[];
 }> {
   if (!state.site) {
     state.missingPackages = [];
     state.buildError = null;
-    return { missingPackages: [], buildError: null };
+    return { missingPackages: [], buildError: null, readProblems: [] };
   }
   const siteRoot = state.site.root;
   const previewError = await inspectPreviewError();
@@ -617,6 +673,7 @@ async function refreshSiteHealth(options?: {
       return {
         missingPackages: state.missingPackages,
         buildError: state.buildError,
+        readProblems: [],
       };
     }
     if (verification.ok) missing = [];
@@ -629,13 +686,13 @@ async function refreshSiteHealth(options?: {
       ? `Missing package imports: ${missing.join(', ')}`
       : null);
 
-  send('cauldron:site', {
-    site: summaryOf(state.site),
-    drafts: storedDrafts(state.site.root),
+  const readProblems = pushSiteSnapshot(state.site, {
+    reportProblems: options?.reportProblems,
   });
   return {
     missingPackages: state.missingPackages,
     buildError: state.buildError,
+    readProblems,
   };
 }
 
@@ -694,18 +751,18 @@ async function openSiteAt(root: string) {
   }
 
   await stopPreview();
+  pendingProblem = null;
   state.site = detected;
   state.selection = null;
   state.history = new History();
   pushHistory();
   state.runs = new Runs();
   const runHistory = state.runs.load(detected.root);
-  // Read the saved edits once, and keep the failure for last: the status bar
-  // shows one message, so a later "site opened" line must not bury it (plan 1.6).
-  const recovery = loadDrafts(detected.root);
-  send('cauldron:site', {
-    site: detected,
-    drafts: recovery.drafts,
+  // Read the saved edits and design settings once, run health checks, then
+  // surface every open-time failure together at the end so neither preview
+  // status nor health refreshes bury or split them (WDL-252).
+  pushSiteSnapshot(detected, {
+    reportProblems: false,
     recovered: true,
     history: state.history.state(),
   });
@@ -713,16 +770,13 @@ async function openSiteAt(root: string) {
     `${detected.name}: Astro ${detected.astroVersion}, ${detected.packageManager}`,
   );
   const preview = await startPreview();
-  // The design setting is read again here for the same reason: anything that
-  // read it during start-up reported into a status line "Preview running" has
-  // since replaced. Both problems are shown together so neither hides the other.
+  const health = await refreshSiteHealth({ reportProblems: false });
   const problems = [
-    recovery.problem,
-    readDirection(detected.root).problem,
+    'problem' in preview ? preview.problem : null,
+    ...health.readProblems,
     runHistory.problem,
-  ].filter(Boolean);
+  ].filter((problem): problem is string => Boolean(problem));
   if (problems.length > 0) fail(problems.join(' '));
-  await refreshSiteHealth();
   return 'problem' in preview
     ? { site: summaryOf(detected), ...preview }
     : { site: summaryOf(detected) };
@@ -1557,16 +1611,23 @@ function registerIpc(): void {
   });
 
   handle('cauldron:site-state', () => {
-    const problem = pendingProblem;
+    const snapshot = state.site ? readSiteStateSnapshot(state.site) : null;
+    const readProblemText = snapshot?.readProblems.join(' ') ?? '';
+    if (readProblemText) {
+      console.error(readProblemText);
+      status(readProblemText);
+    }
+    const problem = mergeProblemMessages(pendingProblem, readProblemText);
     pendingProblem = null;
     return {
-      site: summaryOf(state.site),
+      site: snapshot?.summary ?? null,
       running: Boolean(state.server),
       url: state.server?.url ?? null,
       status: state.status,
       problem,
+      direction: snapshot?.direction ?? null,
       selection: selectionView(),
-      drafts: state.site ? storedDrafts(state.site.root) : [],
+      drafts: snapshot?.drafts ?? [],
       history: state.history.state(),
     };
   });
@@ -2624,10 +2685,7 @@ async function finishAgentRun(note: string): Promise<void> {
         lines.at(-1) ??
         'astro build failed';
       state.buildError = buildLogLine;
-      send('cauldron:site', {
-        site: summaryOf(state.site),
-        drafts: storedDrafts(site.root),
-      });
+      if (state.site) pushSiteSnapshot(state.site);
     }
 
     if (
@@ -3222,6 +3280,7 @@ export function start(): void {
         },
       }),
     );
+    if (!SMOKE) await cleanupOrphanedDevServers();
     registerIpc();
     createWindow(showSplash());
 

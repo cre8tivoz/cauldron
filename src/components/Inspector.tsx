@@ -303,8 +303,8 @@ export function Inspector({
                   </div>
                 ) : (
                   <p className="hint">
-                    This element holds other child elements. Select the text
-                    inside it directly to edit.
+                    {selection.textEditReason ??
+                      'This element holds other child elements. Select the text inside it directly to edit.'}
                   </p>
                 )}
               </div>
