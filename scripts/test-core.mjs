@@ -5046,6 +5046,20 @@ await (async () => {
     assert.equal(isCodexProcessArgs('node /tmp/smoke.mjs /tmp/codex'), false);
     assert.equal(isCodexProcessArgs(''), false);
   });
+
+  test('WDL-253: runQualityFeedbackTest normalizes whitespace without stripping s', () => {
+    const e2eSource = fs.readFileSync(
+      path.join(process.cwd(), 'src/main/e2e.ts'),
+      'utf8',
+    );
+    assert.equal(
+      e2eSource.includes(
+        ".replace(/[➤✳←→]/g, '').replace(/\\\\s+/g, ' ').trim()",
+      ),
+      true,
+    );
+    assert.equal(e2eSource.includes('.replace(/s+/g,'), false);
+  });
 })();
 
 process.exitCode = failures ? 1 : 0;

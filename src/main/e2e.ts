@@ -1806,7 +1806,7 @@ export async function runQualityFeedbackTest(
     renderer<boolean>(
       `(() => {
         const normalize = (value) =>
-          (value || '').replace(/[➤✳←→]/g, '').replace(/s+/g, ' ').trim();
+          (value || '').replace(/[➤✳←→]/g, '').replace(/\\s+/g, ' ').trim();
         const button = [...document.querySelectorAll('.panes button')].find(
           (el) => normalize(el.textContent) === ${JSON.stringify(text)},
         );
