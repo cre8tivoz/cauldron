@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GitBranchIcon, ZipArchiveIcon } from './Icons';
+import { GitBranchIcon } from './Icons';
 
 type Props = {
   site: CauldronSite | null;
@@ -9,19 +9,14 @@ type Props = {
 };
 
 /**
- * Publishing panel matching Publishing Review_ Git Changes and Mac Build mockup:
+ * Publishing panel:
  * 2-column Git review layout (left: project title, branch badge, changed file rows with [M],
- * commit controls; right: Repository summary table + Your site stays yours)
- * + full-width bottom Mac download bar.
+ * commit controls; right: Repository summary table + Your site stays yours).
  */
 export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   const [state, setState] = useState<Awaited<
     ReturnType<CauldronApi['repoState']>
   > | null>(null);
-  const [build, setBuild] = useState<{
-    zip: string | null;
-    instructions: string;
-  } | null>(null);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
     null,
@@ -38,7 +33,6 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
 
   useEffect(() => {
     void window.cauldron.repoState().then(setState);
-    void window.cauldron.macBuild().then(setBuild);
   }, [site?.root]);
 
   const send = async (push: boolean) => {
@@ -512,31 +506,6 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
           </aside>
         </div>
       ) : null}
-
-      {/* Bottom Full-Width Mac Download Bar */}
-      <div className="mac-download-fullwidth-bar">
-        <div className="mac-download-left">
-          <ZipArchiveIcon size={28} />
-          <div className="mac-download-info">
-            <strong className="mac-download-title">
-              {build?.zip
-                ? build.zip.split('/').pop()
-                : 'Cauldron-darwin-arm64.zip'}
-            </strong>
-            <span className="mac-download-subtitle">
-              Ready-to-hand-over Mac build
-            </span>
-          </div>
-        </div>
-
-        <div className="mac-download-middle mono">
-          {build?.zip || 'out/make/zip/darwin/arm64/'}
-        </div>
-
-        <div className="mac-download-right">
-          <span>Unzip Cauldron, then move the app to Applications.</span>
-        </div>
-      </div>
     </div>
   );
 }

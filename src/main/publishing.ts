@@ -620,31 +620,6 @@ export function publishAsync(
   return runPublishWith(root, options, repoStateAsync, gitAsync);
 }
 
-/** The unsigned Mac build, ready to hand over (plan 5.2). */
-export function macBuildInfo(root: string): {
-  zip: string | null;
-  instructions: string;
-} {
-  const outDir = path.join(root, 'out/make/zip/darwin/arm64');
-  let zip: string | null = null;
-  if (fs.existsSync(outDir)) {
-    const found = fs
-      .readdirSync(outDir)
-      .filter((name) => name.endsWith('.zip'));
-    if (found.length > 0) zip = path.join(outDir, found[found.length - 1]);
-  }
-  return {
-    zip,
-    instructions: [
-      'Cauldron is not signed with an Apple Developer certificate yet.',
-      '1. Unzip the download and drag Cauldron to Applications.',
-      '2. Right-click Cauldron and choose Open, then Open again in the dialog.',
-      '3. After the first launch it opens normally.',
-      'If macOS says the app is damaged, run: xattr -dr com.apple.quarantine /Applications/Cauldron.app',
-    ].join('\n'),
-  };
-}
-
 export type StaticExportResult = {
   ok: boolean;
   distPath?: string;

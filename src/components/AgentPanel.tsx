@@ -50,17 +50,9 @@ export function AgentPanel({
   const [request, setRequest] = useState('');
   const [showing, setShowing] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement | null>(null);
-  const [connection, setConnection] = useState<{
-    url: string;
-    code: string;
-  } | null>(null);
   const [installingMissing, setInstallingMissing] = useState(false);
 
   const { lines, running, activePrompt, message } = stream;
-
-  useEffect(() => {
-    void window.cauldron.mcpInfo().then(setConnection);
-  }, [site?.root, site]);
 
   useEffect(() => {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
@@ -158,34 +150,6 @@ export function AgentPanel({
         aria-live="polite"
       >
         {!site ? <p className="hint">Open a site to work on it.</p> : null}
-
-        {site ? (
-          <details
-            className="mcp-outside-connect hint"
-            onToggle={() => {
-              void window.cauldron.mcpInfo().then(setConnection);
-            }}
-          >
-            <summary>Connect an outside agent</summary>
-            {connection ? (
-              <div className="mcp-details-body">
-                <p>
-                  Local MCP HTTP connection. Only works while this site is open.
-                </p>
-                <label className="field-compact">
-                  <span>URL</span>
-                  <input readOnly value={connection.url} />
-                </label>
-                <label className="field-compact">
-                  <span>Access code (x-cauldron-code header)</span>
-                  <input readOnly value={connection.code} />
-                </label>
-              </div>
-            ) : (
-              <p>Start the site preview to enable the connection.</p>
-            )}
-          </details>
-        ) : null}
 
         {message ? (
           <div className="notice" role="status">
