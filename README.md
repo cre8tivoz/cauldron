@@ -1,33 +1,37 @@
 # Cauldron
 
-Cauldron is a free Mac app for building websites with [Astro](https://astro.build). You design and edit the site visually, an AI agent works alongside you, and everything it makes is ordinary Astro code — yours, in your own folder, no lock-in.
+Cauldron is a free Mac app (Apple Silicon, v0.10) for building websites with [Astro](https://astro.build). You design and edit the site visually, an AI agent works alongside you, and everything it makes is ordinary Astro code — yours, in your own folder, no lock-in.
 
-It's open source and free, and it stays that way.
+It's open source (MIT) and free, and it stays that way.
 
-**Status: in development, not yet released.** The foundations work, and a full audit on 9 November 2026 listed what still needs fixing. Work is tracked in the [Cauldron Linear project](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b); the 9 November audit itself is in [fablefixes.md](fablefixes.md). Rules and scope for anyone working on the code are in [AGENTS.md](AGENTS.md).
+**Status: v0.10 (`0.10.0`) public MIT repository.** Type check, lint, unit suites, smoke launch, and CI macOS build/launch checks pass; work is tracked in the [Cauldron Linear project](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b). Rules and scope for contributors are in [AGENTS.md](AGENTS.md).
 
-## Try it
+## Download (unsigned Mac build)
 
-You'll need [Node.js](https://nodejs.org) 26.13 and npm 12.
+Download **`Cauldron-darwin-arm64-0.10.0.zip`** from [GitHub Releases](https://github.com/cre8tivoz/cauldron/releases), or build it locally from source (`Node.js` 26.13, `npm` 12):
+
+```bash
+npm install
+npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.10.0.zip
+```
+
+> **Unsigned macOS app — First launch:**
+> Cauldron is distributed **unsigned and not notarised** (no Apple Developer certificate). On first launch, macOS Gatekeeper may block `Cauldron.app`:
+>
+> 1. Unzip `Cauldron-darwin-arm64-0.10.0.zip` and move **`Cauldron.app`** into **Applications**.
+> 2. Try opening **`Cauldron.app`**. If macOS says the developer cannot be verified, dismiss the dialog.
+> 3. Open **System Settings → Privacy & Security**, scroll down to the Cauldron security notice, click **Open Anyway**, and confirm **Open**.
+>
+> _(Note: CI builds and launches the packaged `.app` cleanly, though opening a downloaded copy by hand on a separate Mac has not been manually tested.)_
+
+## Try it from source
+
+You'll need [Node.js](https://nodejs.org) 26.13 (`npm` 12 ships with Node; `pnpm` is optional and used automatically when installed).
 
 ```bash
 npm install
 npm start
 ```
-
-## Download (unsigned test build)
-
-A packaged macOS (Apple silicon) zip can be built from source:
-
-```bash
-npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-<version>.zip
-```
-
-The build is **unsigned and not notarised**, so macOS Gatekeeper may warn that it cannot
-verify the developer on first launch. If that happens, open
-**System Settings → Privacy & Security**, find the blocked-app message, and press
-**Open Anyway** (then Open). No public release has been published yet. Opening a
-downloaded copy on a second Mac by hand has not been verified.
 
 ## Checks
 

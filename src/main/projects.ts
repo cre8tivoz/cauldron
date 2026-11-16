@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DIRECTIONS, writeDirection } from './directions';
+import { resolveToolPath } from './runtime';
 import { getTemplateFiles, STARTER_TEMPLATES } from './templates';
 
 /**
@@ -168,6 +169,7 @@ export type CreatedProject = {
   astroVersion: string;
   /** The npm manifest name derived from the display name. */
   slug: string;
+  packageManager: 'pnpm' | 'npm';
 };
 
 export type CreateProblem = { problem: string; detail: string };
@@ -214,6 +216,8 @@ export function createProject(options: {
   name: string;
   astroVersion: string;
   template?: string;
+  /** Test-only override for checking pnpm availability without spawning shells. */
+  resolveToolOverride?: (tool: string) => string | null;
 }): { ok: true; project: CreatedProject } | CreateProblem {
   const nameProblem = validateProjectName(options.name);
   if (nameProblem) return { problem: nameProblem, detail: options.name };
@@ -247,6 +251,11 @@ export function createProject(options: {
 
     const slug = packageSlug(options.name);
     const version = options.astroVersion;
+    const resolveTool = options.resolveToolOverride ?? resolveToolPath;
+    const usePnpm = Boolean(resolveTool('pnpm'));
+    const selectedManager: CreatedProject['packageManager'] = usePnpm
+      ? 'pnpm'
+      : 'npm';
     fs.writeFileSync(
       path.join(root, 'package.json'),
       `${JSON.stringify(
@@ -255,7 +264,7 @@ export function createProject(options: {
           type: 'module',
           version: '0.0.1',
           private: true,
-          packageManager: CAULDRON_PACKAGE_MANAGER,
+          ...(usePnpm ? { packageManager: CAULDRON_PACKAGE_MANAGER } : {}),
           scripts: {
             dev: 'astro dev',
             build: 'astro build',
@@ -370,6 +379,7 @@ export function createProject(options: {
         name: options.name,
         astroVersion: version,
         slug,
+        packageManager: selectedManager,
       },
     };
   } catch (error) {

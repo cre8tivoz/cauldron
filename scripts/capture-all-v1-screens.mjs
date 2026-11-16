@@ -999,7 +999,7 @@ try {
         }),
         repoState: async () => window.__initialData.repoState,
         macBuild: async () => ({
-          zip: 'Cauldron-darwin-arm64-0.0.1.zip',
+          zip: 'Cauldron-darwin-arm64-0.10.0.zip',
           instructions: 'Built for macOS Apple Silicon. Unsigned developer build.',
         }),
         exportStatic: async () => ({ ok: true, distPath: 'dist/' }),

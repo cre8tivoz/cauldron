@@ -81,8 +81,11 @@ const {
 const { History } = await import('../src/main/history.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
 const {
+  detectDependencySetup,
   findMissingPackages,
   planMissingPackageInstall,
+  planPrepareDependencies,
+  prepareDependencies,
   startInstallMissingPackages,
 } = await import('../src/main/dependencies.ts');
 const { resolveAstroOutDir, resolveSiteBuildConfig, buildSiteAsync } =
@@ -5060,6 +5063,169 @@ await (async () => {
     );
     assert.equal(e2eSource.includes('.replace(/s+/g,'), false);
   });
+})();
+
+await (async () => {
+  const { createProject } = await import('../src/main/projects.ts');
+  const { CURATED_STOCK_PHOTOS, getCuratedPhotos } =
+    await import('../src/main/assets.ts');
+
+  const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-wdl-batch-'));
+  try {
+    const withPnpmParent = path.join(tmpBase, 'with-pnpm');
+    const npmOnlyParent = path.join(tmpBase, 'npm-only');
+    fs.mkdirSync(withPnpmParent, { recursive: true });
+    fs.mkdirSync(npmOnlyParent, { recursive: true });
+
+    const createdPnpm = createProject({
+      parent: withPnpmParent,
+      name: 'Pnpm Site',
+      astroVersion: '7.4.7',
+      resolveToolOverride: (t) => (t === 'pnpm' ? '/usr/local/bin/pnpm' : null),
+    });
+    const createdNpm = createProject({
+      parent: npmOnlyParent,
+      name: 'Npm Fallback Site',
+      astroVersion: '7.4.7',
+      resolveToolOverride: (t) => (t === 'npm' ? '/usr/bin/npm' : null),
+    });
+
+    assert.equal('ok' in createdPnpm && createdPnpm.ok, true);
+    assert.equal('ok' in createdNpm && createdNpm.ok, true);
+    const npmRoot = createdNpm.project.root;
+    const fakeNpmBin = path.join(tmpBase, 'fake-npm');
+    const argvLog = path.join(tmpBase, 'fake-npm-args.json');
+    fs.writeFileSync(
+      fakeNpmBin,
+      `#!${process.execPath}\nconst fs = require('node:fs');\nfs.writeFileSync(${JSON.stringify(argvLog)}, JSON.stringify(process.argv.slice(2)));\n`,
+      { mode: 0o755 },
+    );
+    const legacyPnpmRoot = path.join(tmpBase, 'legacy-pnpm');
+    fs.mkdirSync(legacyPnpmRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyPnpmRoot, 'package.json'),
+      JSON.stringify({ name: 'legacy', packageManager: 'pnpm@10.34.2' }),
+      'utf8',
+    );
+    const prepUpdates = [];
+    await new Promise((resolve) => {
+      prepareDependencies({
+        root: legacyPnpmRoot,
+        storeDir: path.join(tmpBase, 'store'),
+        resolveToolOverride: (t) => (t === 'npm' ? fakeNpmBin : null),
+        onUpdate: (update) => {
+          prepUpdates.push(update);
+          if (update.type === 'done') resolve(undefined);
+        },
+      });
+    });
+
+    test('WDL-201: new projects choose pnpm when available and fall back to npm cleanly', () => {
+      const pnpmPkg = JSON.parse(
+        fs.readFileSync(
+          path.join(createdPnpm.project.root, 'package.json'),
+          'utf8',
+        ),
+      );
+      const npmPkg = JSON.parse(
+        fs.readFileSync(path.join(npmRoot, 'package.json'), 'utf8'),
+      );
+      assert.equal(createdPnpm.project.packageManager, 'pnpm');
+      assert.match(pnpmPkg.packageManager, /^pnpm@/);
+      assert.equal(createdNpm.project.packageManager, 'npm');
+      assert.equal('packageManager' in npmPkg, false);
+      const setup = detectDependencySetup(npmRoot);
+      assert.equal(setup.manager, 'npm');
+      assert.equal(setup.conflict, null);
+
+      const fallbackPlan = planPrepareDependencies({
+        setup: {
+          manager: 'pnpm',
+          lockfile: null,
+          hasNodeModules: false,
+          hasAstroBin: false,
+          conflict: null,
+        },
+        storeDir: '/tmp/store',
+        resolveToolOverride: (t) => (t === 'npm' ? '/usr/bin/npm' : null),
+      });
+      assert.equal(fallbackPlan.ok, true);
+      assert.equal(fallbackPlan.manager, 'npm');
+      assert.equal(fallbackPlan.fallbackFrom, 'pnpm');
+      assert.deepEqual(fallbackPlan.args, [
+        'install',
+        '--no-audit',
+        '--no-fund',
+      ]);
+
+      const missingPlan = planPrepareDependencies({
+        setup: {
+          manager: 'pnpm',
+          lockfile: null,
+          hasNodeModules: false,
+          hasAstroBin: false,
+          conflict: null,
+        },
+        resolveToolOverride: () => null,
+      });
+      assert.equal(missingPlan.ok, false);
+      assert.match(missingPlan.problem, /pnpm could not be found/);
+      assert.match(missingPlan.detail, /nodejs\.org/i);
+
+      assert.equal(prepUpdates.at(-1)?.type, 'done');
+      assert.equal(prepUpdates.at(-1)?.ok, true);
+      assert.deepEqual(JSON.parse(fs.readFileSync(argvLog, 'utf8')), [
+        'install',
+        '--no-audit',
+        '--no-fund',
+      ]);
+    });
+
+    test('WDL-189: unverified stock photo credits removed and Tray shows COMING SOON', () => {
+      assert.deepEqual(CURATED_STOCK_PHOTOS, []);
+      assert.deepEqual(getCuratedPhotos(), []);
+      const assetsSrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/main/assets.ts'),
+        'utf8',
+      );
+      assert.equal(assetsSrc.includes('unsplash.com/photos/'), false);
+      const traySrc = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/AssetTray.tsx'),
+        'utf8',
+      );
+      assert.equal(traySrc.includes('COMING SOON'), true);
+      assert.equal(traySrc.includes('public/images/'), true);
+    });
+
+    test('WDL-153: version 0.10.0, unsigned release docs, and research cleanup match', () => {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'),
+      );
+      assert.equal(pkg.version, '0.10.0');
+      assert.equal(pkg.license, 'MIT');
+      assert.equal(
+        fs.existsSync(path.join(process.cwd(), 'originalresearch')),
+        false,
+      );
+      assert.equal(
+        fs.existsSync(
+          path.join(
+            process.cwd(),
+            'docs/rescue/reference-upload-manifest.json',
+          ),
+        ),
+        false,
+      );
+      const readme = fs.readFileSync(
+        path.join(process.cwd(), 'README.md'),
+        'utf8',
+      );
+      assert.equal(readme.includes('Cauldron-darwin-arm64-0.10.0.zip'), true);
+      assert.equal(readme.includes('Open Anyway'), true);
+    });
+  } finally {
+    fs.rmSync(tmpBase, { recursive: true, force: true });
+  }
 })();
 
 process.exitCode = failures ? 1 : 0;

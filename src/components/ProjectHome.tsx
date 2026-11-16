@@ -498,8 +498,8 @@ export function ProjectHome({
         <p className="hint" style={{ margin: 0 }}>
           The folder is created fresh at the chosen location — an existing
           folder or file there is never overwritten. “Create and prepare”
-          downloads the project's packages through Cauldron's shared store
-          (packages already downloaded by earlier projects are reused, nothing
+          downloads packages into the project (reusing Cauldron's shared store
+          when pnpm is installed, or falling back to npm automatically; nothing
           is installed globally).
         </p>
         <div>
@@ -542,9 +542,9 @@ export function ProjectHome({
             {pendingExisting.setup.lockfile
               ? `, lockfile ${pendingExisting.setup.lockfile}`
               : ', no lockfile yet'}
-            . The install uses this project's own manager — nothing is converted
-            or changed globally; packages download through Cauldron's shared
-            store.
+            . The install uses this project's own manager (falling back to npm
+            if pnpm is not installed) — nothing is converted or changed
+            globally.
           </p>
           {pendingExisting.setup.conflict ? (
             <div className="notice" role="alert" style={{ margin: 0 }}>

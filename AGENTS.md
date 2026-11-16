@@ -12,7 +12,7 @@ A Mac desktop app for designing and building real Astro websites, with design ta
 | [Linear: Cauldron](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b) | **The one work list.** Open, in-progress and done work lives there. |
 | [`README.md`](README.md)                                                        | The short public description and how to run the app.                |
 
-Supporting reference, still current: [`GLOSSARY.md`](GLOSSARY.md), the decisions in [`docs/adr/`](docs/adr/), [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`REFERENCE-MATERIAL.md`](REFERENCE-MATERIAL.md).
+Supporting reference, still current: [`GLOSSARY.md`](GLOSSARY.md), the decisions in [`docs/adr/`](docs/adr/), and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 Everything else is **history** (see "History" at the end). Read it for background if you need it. Do not treat any "done", "verified" or "complete" in it as true today.
 
@@ -24,17 +24,18 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 
 **Done means it works through the delivered app.** Passing tests, a tidy document or a good-looking demo is not that.
 
-## Where things honestly stand (10 November 2026)
+## Where things honestly stand (16 November 2026)
 
-- The foundations are real: project creation and opening, safe versioned saves, crash recovery, the agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
-- A full audit on 9 November found 80 problems, including screens that said untrue things. They are now Linear issues (see the mapping in [`fablefixes.md`](fablefixes.md)).
-- Type check, lint and the three unit suites pass. CI on `main` is green.
-- **Not proven:** opening the downloaded app on a second Mac by hand (Gatekeeper), publishing to a real hosted Git account, and a full walkthrough of every screen in the packaged app after the audit. Do not claim these without fresh evidence.
+- Repository is public under MIT (`v0.10.0`), with `originalresearch/` and third-party study codebases removed and purged from Git history (`WDL-153`).
+- The foundations are real: project creation and opening (with `pnpm` shared store or automatic `npm` fallback), safe versioned saves, crash recovery, agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
+- Type check, lint, unit suites, and smoke packaging pass. CI on `main` runs Linux checks plus Apple Silicon build & launch verification (`mac-build`, `separate-mac-launch`).
+- **Not proven:** opening a downloaded copy by hand on a separate Mac (`Open Anyway` Gatekeeper flow), publishing to a real hosted Git account, and live-API Unsplash/Pexels stock search (disabled with a "COMING SOON" overlay under `WDL-189` / `WDL-171`). Do not claim these without fresh evidence.
 
 ## What is settled — do not reopen
 
-- **In v1:** new site, open existing, a persistent recent list, shared dependency storage. The built-in chat drives installed Claude Code, Codex and Hermes in the background.
+- **In v1:** new site, open existing, a persistent recent list, shared dependency storage (`pnpm` when installed, seamless `npm` fallback otherwise). The built-in chat drives installed Claude Code, Codex and Hermes in the background.
 - **Outside v1:** other agent apps controlling Cauldron from outside, bring-your-own API keys, Windows and Linux, a cloud platform. Real one-click Cloudflare deploy is parked until Billy authorises it separately.
+- **macOS distribution & signing (closed):** Cauldron distributes through **GitHub Releases** as an **unsigned** Apple Silicon build (`Cauldron-darwin-arm64-<version>.zip`) with **"Open Anyway"** instructions in [`README.md`](README.md). Do not reopen Apple Developer code signing/notarisation (Billy has no Apple Developer account) or a `witchdaddylabs.com` download page (`WDL-178` canceled).
 - **Design judgement is closed.** Billy accepted the reviewed PeNtA iteration. No further blind comparisons or regeneration are required.
 - **Ten design directions**, including Componine, Niki Studio and Henry From Online. Keep them.
 - **App look:** Source Sans 3, Coral, system light/dark. Agent on the left, preview in the centre, inspector on the right. Minimum window 1280 × 800. The websites it makes must still work at phone, tablet and desktop widths.
@@ -94,13 +95,13 @@ Vocabulary is fixed in `GLOSSARY.md`. Decisions are in `docs/adr/`; read them be
 
 ## History — background only
 
-| Where                                                                                 | What it was                                                                                                  |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `docs/history/RESCUE-PLAN.md`                                                         | The 8 November rescue handoff. Its §5 walkthrough table is still a useful checklist of what the app must do. |
-| `docs/history/upgrades.md`, `docs/history/gemini-upgrades.md`                         | The visual upgrade and "Gemini upgrades" plans.                                                              |
-| `docs/plan-verification.md`, `docs/cauldron-retro.md`, `docs/cauldron-code-review.md` | Earlier audits and a retrospective.                                                                          |
-| `docs/rescue/`                                                                        | Snapshots of the original plan, starter set and taste tests, plus audit evidence.                            |
-| `.scratch/`, `docs/agents/`                                                           | The old ticket tracker (tickets 00–32) and its settings.                                                     |
-| [`fablefixes.md`](fablefixes.md)                                                      | The 9–10 November 2026 full-project audit. Items are now Linear tickets; see the mapping in that file.       |
-| `originalresearch/`                                                                   | Billy's original research and evaluation material. Reference only; never copy code from it.                  |
-| `v1screenshots/`                                                                      | Design renders made with sample data. They are not screenshots of the real app in use.                       |
+| Where                                                                                 | What it was                                                                                                           |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `docs/history/RESCUE-PLAN.md`                                                         | The 8 November rescue handoff. Its §5 walkthrough table is still a useful checklist of what the app must do.          |
+| `docs/history/upgrades.md`, `docs/history/gemini-upgrades.md`                         | The visual upgrade and "Gemini upgrades" plans.                                                                       |
+| `docs/plan-verification.md`, `docs/cauldron-retro.md`, `docs/cauldron-code-review.md` | Earlier audits and a retrospective.                                                                                   |
+| `docs/rescue/`                                                                        | Snapshots of the original plan, starter set and taste tests, plus audit evidence.                                     |
+| `.scratch/`, `docs/agents/`                                                           | The old ticket tracker (tickets 00–32) and its settings.                                                              |
+| [`fablefixes.md`](fablefixes.md)                                                      | The 9–10 November 2026 full-project audit. Items are now Linear tickets; see the mapping in that file.                |
+| `v1screenshots/`                                                                      | Design renders made with sample data. They are not screenshots of the real app in use.                                |
+| `originalresearch/` _(removed under `WDL-153`)_                                       | Billy's original research and third-party study codebases; purged from the public repository and archived externally. |
