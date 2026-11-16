@@ -103,5 +103,5 @@ Vocabulary is fixed in `GLOSSARY.md`. Decisions are in `docs/adr/`; read them be
 | `docs/rescue/`                                                                        | Snapshots of the original plan, starter set and taste tests, plus audit evidence.                                     |
 | `.scratch/`, `docs/agents/`                                                           | The old ticket tracker (tickets 00–32) and its settings.                                                              |
 | [`fablefixes.md`](fablefixes.md)                                                      | The 9–10 November 2026 full-project audit. Items are now Linear tickets; see the mapping in that file.                |
-| `v1screenshots/`                                                                      | Design renders made with sample data. They are not screenshots of the real app in use.                                |
+| `v1screenshots/` _(removed under `WDL-218`)_                                          | Design renders made with sample data; removed from the repository under `WDL-218`.                                    |
 | `originalresearch/` _(removed under `WDL-153`)_                                       | Billy's original research and third-party study codebases; purged from the public repository and archived externally. |

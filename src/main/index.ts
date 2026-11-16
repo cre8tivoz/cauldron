@@ -70,7 +70,6 @@ import { EXTENDED_LIBRARY } from './library-pieces';
 import { checkSite, buildSiteAsync } from './quality';
 import { directionFromUrl } from './reference';
 import {
-  macBuildInfo,
   publishAsync,
   repoStateAsync,
   exportStaticSiteAsync,
@@ -1890,12 +1889,6 @@ function registerIpc(): void {
     },
   );
 
-  handle('cauldron:mac-build', () =>
-    macBuildInfo(
-      app.isPackaged ? path.dirname(app.getAppPath()) : process.cwd(),
-    ),
-  );
-
   handle('cauldron:export-static', async () => {
     const site = requireSite();
     if ('problem' in site) return site;
@@ -2154,10 +2147,6 @@ function registerIpc(): void {
       if (res.ok) state.preview.reload();
       return res;
     },
-  );
-
-  handle('cauldron:mcp-info', () =>
-    state.mcp ? { url: state.mcp.url, code: state.mcp.code } : null,
   );
 
   handle('cauldron:directions', () => DIRECTIONS.map(rendererDirection));

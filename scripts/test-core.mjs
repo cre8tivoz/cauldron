@@ -5223,6 +5223,62 @@ await (async () => {
       assert.equal(readme.includes('Cauldron-darwin-arm64-0.10.0.zip'), true);
       assert.equal(readme.includes('Open Anyway'), true);
     });
+
+    test('WDL-198: Publishing removes fake Mac download bar and macBuild IPC', () => {
+      const publishPanel = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/PublishPanel.tsx'),
+        'utf8',
+      );
+      const publishingMain = fs.readFileSync(
+        path.join(process.cwd(), 'src/main/publishing.ts'),
+        'utf8',
+      );
+      assert.equal(publishPanel.includes('mac-download-fullwidth-bar'), false);
+      assert.equal(publishPanel.includes('window.cauldron.macBuild'), false);
+      assert.equal(publishingMain.includes('macBuildInfo'), false);
+    });
+
+    test('WDL-220: Agent panel removes outside-agent connection details and preload mcpInfo', () => {
+      const agentPanel = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/AgentPanel.tsx'),
+        'utf8',
+      );
+      const preload = fs.readFileSync(
+        path.join(process.cwd(), 'src/preload.ts'),
+        'utf8',
+      );
+      assert.equal(agentPanel.includes('mcp-outside-connect'), false);
+      assert.equal(agentPanel.includes('window.cauldron.mcpInfo'), false);
+      assert.equal(preload.includes('mcpInfo'), false);
+    });
+
+    test('WDL-239: App menu omits View Reload and Toggle Developer Tools while keeping GitHub link', () => {
+      const appMenu = fs.readFileSync(
+        path.join(process.cwd(), 'src/app-menu.ts'),
+        'utf8',
+      );
+      assert.equal(appMenu.includes("role: 'reload'"), false);
+      assert.equal(appMenu.includes("role: 'toggleDevTools'"), false);
+      assert.equal(appMenu.includes('Cauldron on GitHub'), true);
+    });
+
+    test('WDL-218: staged v1screenshots folder is removed', () => {
+      assert.equal(
+        fs.existsSync(path.join(process.cwd(), 'v1screenshots')),
+        false,
+      );
+    });
+
+    test('WDL-219: GLOSSARY aligns Site/Project and Starter template with product wording', () => {
+      const glossary = fs.readFileSync(
+        path.join(process.cwd(), 'GLOSSARY.md'),
+        'utf8',
+      );
+      assert.equal(glossary.includes('**Site / Project**'), true);
+      assert.equal(glossary.includes('**Starter template**'), true);
+      assert.equal(glossary.includes('_Avoid_: Project'), false);
+      assert.equal(glossary.includes('templates'), false);
+    });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });
   }

@@ -7,11 +7,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'v1screenshots/**'
   pull_request:
-    paths-ignore:
-      - 'v1screenshots/**'
   workflow_dispatch:
 
 # A newer push to the same branch or pull request cancels the older run.
@@ -59,7 +55,7 @@ jobs:
             pull_request)
               # HEAD is the pull request's merge commit; HEAD^1 is the base.
               if git diff --name-only HEAD^1 HEAD \
-                | grep -qvE '(\.md$|^docs/|^\.scratch/|^v1screenshots/)'; then
+                | grep -qvE '(\.md$|^docs/|^\.scratch/)'; then
                 echo "mac=true" >> "$GITHUB_OUTPUT"
               else
                 echo "Docs-only pull request; skipping the Mac jobs."

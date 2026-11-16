@@ -133,8 +133,6 @@ const api = {
       payload,
     ),
   agentCancel: () => invoke<boolean>('cauldron:agent-cancel'),
-  mcpInfo: () =>
-    invoke<{ url: string; code: string } | null>('cauldron:mcp-info'),
   collections: () =>
     invoke<{ collections: CauldronCollection[] }>('cauldron:collections'),
   entry: (file: string) =>
@@ -182,8 +180,6 @@ const api = {
       upload?: string;
       message?: string;
     }>('cauldron:publish', payload),
-  macBuild: () =>
-    invoke<{ zip: string | null; instructions: string }>('cauldron:mac-build'),
   exportStatic: () =>
     invoke<{
       ok: boolean;

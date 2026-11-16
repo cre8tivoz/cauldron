@@ -4,26 +4,23 @@ A free, open-source desktop app for designing and building real Astro websites w
 
 ## Language
 
-**Site**:
-The Astro website being designed and built in Cauldron.
-_Avoid_: Project (for the website itself)
+**Site / Project**:
+The Astro website folder being designed and built in Cauldron. The home screen and File menu use **Project** when creating, opening, or managing folders on disk; the workspace, navigation rail, and inspector use **Site** for the website being edited.
+
+**Starter template**:
+One of the built-in Astro site starters used when creating a new project.
 
 **Component library**:
-Cauldron's collection of reusable sections, components and design files that people drop into a site to build it.
-_Avoid_: Section library, blocks, templates
+Cauldron's collection of reusable plain-Astro sections and components that people add to a page.
+_Avoid_: Blocks
 
 **Design direction**:
-A site's chosen look (references, type, colour and spacing), saved inside the site.
-_Avoid_: Theme, design package, style
+A site's chosen look (references, type, colour and spacing), saved inside the site (`cauldron/DESIGN.md` and `cauldron/tokens.css`).
+_Avoid_: Theme, design package
 
 **Taste rules**:
-The always-on rules for good design that every agent job follows, beneath a site's own design direction.
+The always-on rules for good design that every agent run follows, beneath a site's own design direction.
 _Avoid_: Guardrails, mandates
 
 **Agent run**:
-One agent job and every change it made, which can be reviewed and undone as a whole.
-_Avoid_: Job, session, task
-
-**Outside agent**:
-An agent tool, such as Claude Code in a terminal, connecting to Cauldron from outside the app.
-_Avoid_: External client, plugin
+One built-in agent job (Claude Code, Codex, or Hermes) and every change it made, which can be reviewed and undone as a whole.
