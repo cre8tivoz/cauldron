@@ -93,7 +93,7 @@ jobs:
           name: Cauldron-Mac-${{ github.sha }}
           path: out/make/zip/darwin/arm64/*.zip
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   separate-mac-launch:
     needs: mac-build
