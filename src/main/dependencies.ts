@@ -88,9 +88,109 @@ export type PrepareUpdate =
 
 export type PrepareHandle = { cancel: () => void };
 
+export type PreparePlan =
+  | {
+      ok: true;
+      manager: ManagerSetup['manager'];
+      fallbackFrom?: 'pnpm';
+      cmd: string;
+      args: string[];
+      storeDir?: string;
+    }
+  | {
+      ok: false;
+      manager: ManagerSetup['manager'];
+      problem: string;
+      detail: string;
+    };
+
+function resolvePackageManagerTool(
+  requested: ManagerSetup['manager'],
+  resolveToolOverride?: (manager: string) => string | null,
+):
+  | {
+      ok: true;
+      manager: ManagerSetup['manager'];
+      fallbackFrom?: 'pnpm';
+      cmd: string;
+    }
+  | { ok: false; manager: ManagerSetup['manager'] } {
+  const resolveTool = resolveToolOverride ?? resolveToolPath;
+  let effectiveManager: ManagerSetup['manager'] = requested;
+  let fallbackFrom: 'pnpm' | undefined;
+  let resolved = resolveTool(requested);
+
+  if (!resolved && requested === 'pnpm') {
+    const npmFallback = resolveTool('npm');
+    if (npmFallback) {
+      effectiveManager = 'npm';
+      fallbackFrom = 'pnpm';
+      resolved = npmFallback;
+    }
+  }
+
+  if (!resolved) return { ok: false, manager: requested };
+  return {
+    ok: true,
+    manager: effectiveManager,
+    ...(fallbackFrom ? { fallbackFrom } : {}),
+    cmd: resolved,
+  };
+}
+
 /**
- * Installs a project's dependencies with its own package manager.
- * - New pnpm projects (the ones Cauldron creates) use the caller-supplied
+ * Plans the command and flags for `prepareDependencies`, using the shared
+ * pnpm store when available and falling back to npm when pnpm is absent.
+ */
+export function planPrepareDependencies(options: {
+  setup: ManagerSetup;
+  storeDir?: string;
+  resolveToolOverride?: (manager: string) => string | null;
+}): PreparePlan {
+  const resolution = resolvePackageManagerTool(
+    options.setup.manager,
+    options.resolveToolOverride,
+  );
+  if (!resolution.ok) {
+    return {
+      ok: false,
+      manager: resolution.manager,
+      problem: `${resolution.manager} could not be found.`,
+      detail:
+        resolution.manager === 'pnpm'
+          ? 'Neither pnpm nor npm executable was found in PATH or standard locations. Install Node.js (from https://nodejs.org — npm is included automatically), then try again.'
+          : `No ${resolution.manager} executable was found in the usual installed locations or PATH. Install Node.js, then try again.`,
+    };
+  }
+
+  const args =
+    resolution.manager === 'pnpm'
+      ? [
+          'install',
+          ...(options.storeDir ? ['--store-dir', options.storeDir] : []),
+        ]
+      : resolution.manager === 'yarn'
+        ? ['install']
+        : ['install', '--no-audit', '--no-fund'];
+
+  return {
+    ok: true,
+    manager: resolution.manager,
+    ...(resolution.fallbackFrom
+      ? { fallbackFrom: resolution.fallbackFrom }
+      : {}),
+    cmd: resolution.cmd,
+    args,
+    ...(resolution.manager === 'pnpm' && options.storeDir
+      ? { storeDir: options.storeDir }
+      : {}),
+  };
+}
+
+/**
+ * Installs a project's dependencies with its own package manager (or falls back
+ * from pnpm to bundled npm when pnpm is not installed).
+ * - New pnpm projects (when pnpm is installed) use the caller-supplied
  *   store directory (`--store-dir`), so identical package versions reuse the
  *   same content-addressed files while each project keeps its own resolution
  *   and node_modules.
@@ -113,42 +213,28 @@ export function prepareDependencies(options: {
       ? { type: 'done', ok: true, detail }
       : { type: 'done', ok: false, problem: text, detail };
 
-  const manager = setup.manager;
-  const resolved = options.resolveToolOverride
-    ? options.resolveToolOverride(manager)
-    : manager === 'pnpm'
-      ? resolveToolPath('pnpm') // Cauldron-created projects use pnpm.
-      : resolveToolPath(manager);
-  if (!resolved) {
-    onUpdate(
-      done(
-        false,
-        `${manager} could not be found.`,
-        `No ${manager} executable was found in the usual installed locations or PATH. Install Node.js${
-          manager === 'pnpm' ? ' (and pnpm: npm install -g pnpm)' : ''
-        }, then try again.`,
-      ),
-    );
+  const plan = planPrepareDependencies({
+    setup,
+    storeDir: options.storeDir,
+    resolveToolOverride: options.resolveToolOverride,
+  });
+  if (!plan.ok) {
+    onUpdate(done(false, plan.problem, plan.detail));
     return { cancel: () => {} };
   }
 
-  const args =
-    manager === 'pnpm'
-      ? [
-          'install',
-          ...(options.storeDir ? ['--store-dir', options.storeDir] : []),
-        ]
-      : manager === 'yarn'
-        ? ['install']
-        : ['install', '--no-audit', '--no-fund'];
-
-  onUpdate({ type: 'progress', text: `Running ${manager} install…` });
+  onUpdate({
+    type: 'progress',
+    text: plan.fallbackFrom
+      ? `pnpm was not found; running npm install instead…`
+      : `Running ${plan.manager} install…`,
+  });
   const env = childEnvForTools({
     ...process.env,
     FORCE_COLOR: '0',
     NO_COLOR: '1',
   });
-  const child = spawn(resolved, args, {
+  const child = spawn(plan.cmd, plan.args, {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -184,7 +270,7 @@ export function prepareDependencies(options: {
   pump(child.stderr, 'stderr');
 
   child.on('error', (error) => {
-    settle(done(false, `${manager} could not start.`, error.message));
+    settle(done(false, `${plan.manager} could not start.`, error.message));
   });
   child.on('close', (code) => {
     for (const line of [trailing.stdout, trailing.stderr])
@@ -192,10 +278,10 @@ export function prepareDependencies(options: {
     if (cancelled) return; // Cancellation already owns the outcome.
     settle(
       code === 0
-        ? done(true, '', `${manager} install finished in ${root}.`)
+        ? done(true, '', `${plan.manager} install finished in ${root}.`)
         : done(
             false,
-            `${manager} install failed with exit code ${code ?? 'unknown'}.`,
+            `${plan.manager} install failed with exit code ${code ?? 'unknown'}.`,
             `Check the output above for the cause; nothing in ${root} was deleted.`,
           ),
     );
@@ -597,23 +683,12 @@ export function planMissingPackageInstall(options: {
 }): InstallPlan {
   const { setupManager, packages, storeDirOrUserData, resolveToolOverride } =
     options;
-  const resolveTool = resolveToolOverride ?? resolveToolPath;
-  const primaryTool = resolveTool(setupManager);
+  const resolution = resolvePackageManagerTool(
+    setupManager,
+    resolveToolOverride,
+  );
 
-  let effectiveManager: 'npm' | 'pnpm' | 'yarn' = setupManager;
-  let fallbackFrom: 'pnpm' | undefined;
-  let resolved = primaryTool;
-
-  if (!resolved && setupManager === 'pnpm') {
-    const npmFallback = resolveTool('npm');
-    if (npmFallback) {
-      effectiveManager = 'npm';
-      fallbackFrom = 'pnpm';
-      resolved = npmFallback;
-    }
-  }
-
-  if (!resolved) {
+  if (!resolution.ok) {
     return {
       ok: false,
       manager: setupManager,
@@ -625,12 +700,12 @@ export function planMissingPackageInstall(options: {
     };
   }
 
-  if (effectiveManager === 'pnpm') {
+  if (resolution.manager === 'pnpm') {
     const effectiveStoreDir = resolveEffectiveStoreDir(storeDirOrUserData);
     return {
       ok: true,
       manager: 'pnpm',
-      cmd: resolved,
+      cmd: resolution.cmd,
       storeDir: effectiveStoreDir,
       args: [
         'add',
@@ -641,11 +716,11 @@ export function planMissingPackageInstall(options: {
     };
   }
 
-  if (effectiveManager === 'yarn') {
+  if (resolution.manager === 'yarn') {
     return {
       ok: true,
       manager: 'yarn',
-      cmd: resolved,
+      cmd: resolution.cmd,
       args: ['add', ...packages],
     };
   }
@@ -653,8 +728,8 @@ export function planMissingPackageInstall(options: {
   return {
     ok: true,
     manager: 'npm',
-    fallbackFrom,
-    cmd: resolved,
+    fallbackFrom: resolution.fallbackFrom,
+    cmd: resolution.cmd,
     args: ['install', '--save', '--no-audit', '--no-fund', ...packages],
   };
 }

@@ -463,23 +463,14 @@ let visitorCount = 42;
 });
 
 // -----------------------------------------------------------------------------
-// Phase 4: Asset Saving & Curated Photos
+// Phase 4: Asset Saving & Removed Placeholder Stock Photos (WDL-189)
 // -----------------------------------------------------------------------------
 
-test('Phase 4: Curated photography list is populated and asset saving validates path safety', () => {
+test('Phase 4: Unverified curated photo placeholders are removed and asset saving validates path safety', () => {
   assert.ok(
-    Array.isArray(CURATED_STOCK_PHOTOS) && CURATED_STOCK_PHOTOS.length > 0,
-    'CURATED_STOCK_PHOTOS has entries',
+    Array.isArray(CURATED_STOCK_PHOTOS) && CURATED_STOCK_PHOTOS.length === 0,
+    'CURATED_STOCK_PHOTOS is empty pending verified live stock search',
   );
-
-  for (const photo of CURATED_STOCK_PHOTOS) {
-    assert.ok(photo.id, 'photo id');
-    assert.ok(photo.title, 'photo title');
-    assert.ok(photo.fullUrl || photo.thumbUrl, 'photo url');
-    assert.ok(photo.thumbUrl, 'photo thumbUrl');
-    assert.ok(photo.photographer, 'photo photographer');
-    assert.ok(photo.directionId, 'photo directionId');
-  }
 
   const tmpParent = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-assets-'));
   const projRes = createProject({

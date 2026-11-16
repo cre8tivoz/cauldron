@@ -124,7 +124,7 @@ export function AssetTray({
           Photography &amp; Assets
         </span>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Curated starter photography and local asset management.
+          Local asset management (stock photography is coming soon).
         </span>
       </div>
 
@@ -137,98 +137,6 @@ export function AssetTray({
           {statusMessage}
         </div>
       )}
-
-      {/* Live Search feature with Coming Soon frosted overlay */}
-      <div
-        style={{
-          position: 'relative',
-          borderRadius: 6,
-          border: '1px solid var(--hairline)',
-          background: 'var(--bg, #141414)',
-          padding: '10px 12px',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          aria-hidden="true"
-          style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            opacity: 0.35,
-            pointerEvents: 'none',
-            userSelect: 'none',
-          }}
-        >
-          <input
-            type="text"
-            tabIndex={-1}
-            readOnly
-            placeholder="Search Unsplash &amp; Pexels photos…"
-            style={{
-              flex: 1,
-              fontSize: 11,
-              padding: '4px 8px',
-              borderRadius: 4,
-              border: '1px solid var(--hairline)',
-              background: 'rgba(0, 0, 0, 0.2)',
-              color: 'inherit',
-            }}
-          />
-          <button
-            type="button"
-            tabIndex={-1}
-            disabled
-            className="button"
-            style={{ fontSize: 11, padding: '4px 8px' }}
-          >
-            Search
-          </button>
-        </div>
-
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(18, 18, 18, 0.85)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            textAlign: 'center',
-            padding: '8px 12px',
-            gap: 4,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: 0.3,
-              padding: '2px 8px',
-              borderRadius: 10,
-              background: 'rgba(49, 130, 206, 0.15)',
-              border: '1px solid var(--accent, #3182ce)',
-              color: 'var(--accent, #60a5fa)',
-            }}
-          >
-            Live Unsplash &amp; Pexels Search (Coming Soon)
-          </span>
-          <span
-            style={{
-              fontSize: 10,
-              color: 'var(--muted)',
-              lineHeight: 1.35,
-              maxWidth: 320,
-            }}
-          >
-            Direct live API search will be available in an upcoming release. In
-            the meantime, use the curated starter assets or drag and drop your
-            own images below.
-          </span>
-        </div>
-      </div>
 
       {/* Drag & Drop Target for local files */}
       <div
@@ -272,158 +180,124 @@ export function AssetTray({
         </div>
       </div>
 
-      {/* Curated Starter Photos Section */}
+      {/* Greyed-out Stock Photos & Live Search section with COMING SOON overlay */}
       <div
+        aria-disabled="true"
         style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          marginTop: 2,
-        }}
-      >
-        <span style={{ fontSize: 11, fontWeight: 600 }}>
-          Curated Starter Photos
-        </span>
-
-        {/* Category Pills */}
-        {categories.length > 1 && (
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 4,
-              alignItems: 'center',
-            }}
-          >
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setCategoryFilter(cat)}
-                style={{
-                  fontSize: 10,
-                  padding: '2px 7px',
-                  borderRadius: 10,
-                  border:
-                    categoryFilter === cat
-                      ? '1px solid var(--accent, #3182ce)'
-                      : '1px solid var(--hairline)',
-                  background:
-                    categoryFilter === cat
-                      ? 'var(--accent, #3182ce)'
-                      : 'transparent',
-                  color: categoryFilter === cat ? '#fff' : 'var(--muted)',
-                  cursor: 'pointer',
-                }}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Photo Cards Grid */}
-      <div
-        style={{
+          position: 'relative',
+          borderRadius: 6,
+          border: '1px solid var(--hairline)',
+          background: 'var(--panel)',
+          padding: 12,
+          overflow: 'hidden',
+          minHeight: 280,
           display: 'flex',
           flexDirection: 'column',
           gap: 10,
-          marginTop: 2,
         }}
       >
-        {loading ? (
-          <p className="hint" style={{ fontSize: 11, margin: 0 }}>
-            Loading curated collection…
-          </p>
-        ) : displayedPhotos.length === 0 ? (
-          <p className="hint" style={{ fontSize: 11, margin: 0 }}>
-            No photos found in category "{categoryFilter}".
-          </p>
-        ) : (
-          displayedPhotos.map((photo) => (
+        <div
+          aria-hidden="true"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            opacity: 0.25,
+            filter: 'grayscale(100%)',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600 }}>
+              Stock Photography
+            </span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="text"
+                tabIndex={-1}
+                readOnly
+                placeholder="Search Unsplash &amp; Pexels photos…"
+                style={{
+                  flex: 1,
+                  fontSize: 11,
+                  padding: '4px 8px',
+                  borderRadius: 4,
+                  border: '1px solid var(--hairline)',
+                  background: 'var(--panel-sunken)',
+                  color: 'inherit',
+                }}
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled
+                className="button"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+              >
+                Search
+              </button>
+            </div>
+          </div>
+
+          {categories.length > 1 && (
             <div
-              key={photo.id}
               style={{
-                borderRadius: 6,
-                border: '1px solid var(--hairline)',
-                background: 'var(--bg, #141414)',
-                overflow: 'hidden',
                 display: 'flex',
-                flexDirection: 'column',
+                flexWrap: 'wrap',
+                gap: 4,
+                alignItems: 'center',
               }}
             >
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  tabIndex={-1}
+                  disabled
+                  onClick={() => setCategoryFilter(cat)}
+                  style={{
+                    fontSize: 10,
+                    padding: '2px 7px',
+                    borderRadius: 10,
+                    border: '1px solid var(--hairline)',
+                    background: 'transparent',
+                    color: 'var(--muted)',
+                  }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {loading ? (
+            <p className="hint" style={{ fontSize: 11, margin: 0 }}>
+              Loading stock photography…
+            </p>
+          ) : displayedPhotos.length > 0 ? (
+            displayedPhotos.map((photo) => (
               <div
+                key={photo.id}
                 style={{
-                  height: 110,
-                  width: '100%',
-                  position: 'relative',
+                  borderRadius: 6,
+                  border: '1px solid var(--hairline)',
                   overflow: 'hidden',
-                  background: '#0a0a0a',
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
                 <img
                   src={photo.thumbUrl}
                   alt={photo.title}
                   loading="lazy"
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                  }}
+                  style={{ width: '100%', height: 96, objectFit: 'cover' }}
                 />
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: 6,
-                    right: 6,
-                    fontSize: 9,
-                    background: 'rgba(0,0,0,0.65)',
-                    color: '#fff',
-                    padding: '1px 5px',
-                    borderRadius: 3,
-                  }}
-                >
-                  {photo.source}
-                </span>
-              </div>
-
-              <div
-                style={{
-                  padding: '8px 10px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {photo.title}
-                  </span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>
-                    By {photo.photographer} ·{' '}
-                    <a
-                      href={photo.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: 'inherit', textDecoration: 'underline' }}
-                    >
-                      View on {photo.source}
-                    </a>
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ padding: '8px 10px', display: 'flex', gap: 6 }}>
                   <button
                     type="button"
+                    tabIndex={-1}
+                    disabled
                     className="button"
                     style={{ flex: 1, fontSize: 10, padding: '3px 6px' }}
                     onClick={() => void handleSavePhotoToSite(photo)}
@@ -435,6 +309,8 @@ export function AssetTray({
                     selection.name === 'img' && (
                       <button
                         type="button"
+                        tabIndex={-1}
+                        disabled
                         className="button primary"
                         style={{ fontSize: 10, padding: '3px 6px' }}
                         onClick={() => {
@@ -447,9 +323,115 @@ export function AssetTray({
                     )}
                 </div>
               </div>
+            ))
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 8,
+              }}
+            >
+              {[1, 2, 3, 4].map((slot) => (
+                <div
+                  key={slot}
+                  style={{
+                    borderRadius: 6,
+                    border: '1px solid var(--hairline)',
+                    overflow: 'hidden',
+                    background: 'var(--panel-sunken)',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: 76,
+                      background:
+                        'repeating-linear-gradient(135deg, rgba(128,128,128,0.12) 0 8px, rgba(128,128,128,0.06) 8px 16px)',
+                    }}
+                  />
+                  <div
+                    style={{
+                      padding: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 5,
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: 8,
+                        width: '72%',
+                        borderRadius: 3,
+                        background: 'rgba(128,128,128,0.28)',
+                      }}
+                    />
+                    <div
+                      style={{
+                        height: 7,
+                        width: '48%',
+                        borderRadius: 3,
+                        background: 'rgba(128,128,128,0.2)',
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
-          ))
-        )}
+          )}
+        </div>
+
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(18, 18, 18, 0.82)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            padding: '16px 14px',
+            gap: 8,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              padding: '4px 10px',
+              borderRadius: 999,
+              background: 'rgba(184, 75, 48, 0.24)',
+              border: '1px solid rgba(242, 125, 98, 0.8)',
+              color: '#ffffff',
+            }}
+          >
+            COMING SOON
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#ffffff',
+            }}
+          >
+            Live Unsplash &amp; Pexels Stock Photos
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              color: 'rgba(255, 255, 255, 0.82)',
+              lineHeight: 1.4,
+              maxWidth: 280,
+            }}
+          >
+            Built-in stock photography is disabled until live Unsplash &amp;
+            Pexels search is connected. Drag or upload your own images above for
+            now.
+          </span>
+        </div>
       </div>
     </div>
   );

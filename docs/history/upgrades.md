@@ -5,15 +5,15 @@
 **Date:** 9 November 2026  
 **Sources:**
 
-1. Billy's 6 visual mockups in [`originalresearch/visual-mockups/`](../../originalresearch/visual-mockups/):
+1. Billy's 6 visual mockups (previously in `originalresearch/visual-mockups/`, archived externally under `WDL-153`):
    - `Cauldron’s Sunday Table workspace.png`
    - `Seven design directions in Cauldron.png`
    - `Cauldron’s Sunday Table components.png`
    - `Cauldron content editor for Sunday Table.png`
    - `Sunday Table quality report.png`
    - `Publishing Review_ Git Changes and Mac Build.png`
-2. Camillo's app-look proposal & interactive specimen in [`originalresearch/design/camillo/app-look/`](../../originalresearch/design/camillo/app-look/) (`proposal.md`, `specimen.html`, `contrast.py`).
-3. Camillo's direction specimen board ([`originalresearch/design/camillo/directions-v2/preview.html`](../../originalresearch/design/camillo/directions-v2/preview.html)), 35-piece section catalogue ([`originalresearch/design/camillo/library/catalogue/catalogue.html`](../../originalresearch/design/camillo/library/catalogue/catalogue.html)), MIT [`design-bites`](../../originalresearch/references/source/design-bites/), and MIT [`threeui`](../../originalresearch/references/source/threeui/) shaders.
+2. Camillo's app-look proposal & interactive specimen (`originalresearch/design/camillo/app-look/`: `proposal.md`, `specimen.html`, `contrast.py`).
+3. Camillo's direction specimen board (`originalresearch/design/camillo/directions-v2/preview.html`), 35-piece section catalogue (`originalresearch/design/camillo/library/catalogue/catalogue.html`), MIT `design-bites`, and MIT `threeui` shaders.
 
 ---
 
@@ -36,7 +36,7 @@ Specifically:
 ### Phase 1: App Shell, Left Icon Rail, Top Bar & Theme Polish
 
 **Target files:** [`src/App.tsx`](../../src/App.tsx), [`src/index.css`](../../src/index.css), [`src/components/TopBar.tsx`](../../src/components/TopBar.tsx), [`src/components/StatusBar.tsx`](../../src/components/StatusBar.tsx)  
-**Reference mockups:** All 6 PNGs in `originalresearch/visual-mockups/` + [`originalresearch/design/camillo/app-look/specimen.html`](../../originalresearch/design/camillo/app-look/specimen.html)
+**Reference mockups:** All 6 PNGs in `originalresearch/visual-mockups/` + `originalresearch/design/camillo/app-look/specimen.html`
 
 - [x] **1. Left Navigation Rail (`68px` wide):**
   - [x] Top **serif `C` brand mark** in a rounded coral square (`32×32px`, `border-radius: 8px`).
@@ -67,7 +67,7 @@ Specifically:
 ### Phase 2: Main Workspace — Conversational Agent Column & Visual Element Inspector
 
 **Target files:** [`src/components/AgentPanel.tsx`](../../src/components/AgentPanel.tsx), [`src/components/Inspector.tsx`](../../src/components/Inspector.tsx), [`src/index.css`](../../src/index.css)  
-**Reference mockups:** `Cauldron’s Sunday Table workspace.png` + [`originalresearch/design/camillo/app-look/specimen.html`](../../originalresearch/design/camillo/app-look/specimen.html)
+**Reference mockups:** `Cauldron’s Sunday Table workspace.png` + `originalresearch/design/camillo/app-look/specimen.html`
 
 - [x] **1. Agent Column (Left, `360px–400px`):**
   - [x] **Header & Active Direction Subheader:**
@@ -103,7 +103,7 @@ Specifically:
 ### Phase 3: Design Directions — Visual Hero Specimen Cards & Real-Site Library
 
 **Target files:** [`src/components/DesignPanel.tsx`](../../src/components/DesignPanel.tsx), [`src/main/directions.ts`](../../src/main/directions.ts), [`src/index.css`](../../src/index.css)  
-**Reference mockups:** `Seven design directions in Cauldron.png` + [`originalresearch/design/camillo/directions-v2/preview.html`](../../originalresearch/design/camillo/directions-v2/preview.html)
+**Reference mockups:** `Seven design directions in Cauldron.png` + `originalresearch/design/camillo/directions-v2/preview.html`
 
 - [x] **1. Load Direction Google Fonts in the Picker:**
   - [x] Preload and link Google Fonts for all starter directions in `index.html` so every card renders in its **actual typeface** (`Fraunces`, `Newsreader`, `Archivo`, `Anton`, `Playfair Display`, `Cormorant Garamond`, `Lora`, `Instrument Serif`, `Bricolage Grotesque`, `Syne`).
@@ -130,7 +130,7 @@ Specifically:
 ### Phase 4: Component Library — Live Styled Preview Cards, Expanded Catalogue & Links Shelf
 
 **Target files:** [`src/components/LibraryPanel.tsx`](../../src/components/LibraryPanel.tsx), [`src/main/library.ts`](../../src/main/library.ts), [`src/index.css`](../../src/index.css)  
-**Reference mockups:** `Cauldron’s Sunday Table components.png` + [`originalresearch/design/camillo/library/catalogue/catalogue.html`](../../originalresearch/design/camillo/library/catalogue/catalogue.html)
+**Reference mockups:** `Cauldron’s Sunday Table components.png` + `originalresearch/design/camillo/library/catalogue/catalogue.html`
 
 - [x] **1. Header Bar with Right-Aligned Page Selector (`Cauldron’s Sunday Table components.png`):**
   - [x] Left: `Components` title + subtitle (`Plain Astro, built on the site's design direction.`).
