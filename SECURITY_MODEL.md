@@ -30,7 +30,7 @@ Code: `src/main/**`, `src/preload.ts`, `src/preview/preload.ts`, the renderer un
 
 ## Existing controls
 
-`contextIsolation: true`, `nodeIntegration: false` and `sandbox: true` on every window and the preview; navigation blocked and window opening handled in `src/main/index.ts`; Codex runs with a workspace-write sandbox limited to the site root.
+`contextIsolation: true`, `nodeIntegration: false` and `sandbox: true` on every window and the preview. The editor window blocks navigation and handles window opening (`src/main/index.ts`). The preview runs in its own session with pop-ups and device permissions denied (`configurePreviewSecurity` in `src/main/preview.ts`); it has no navigation blocker, so a previewed site can navigate its own view. Codex runs with a workspace-write sandbox limited to the site root.
 
 ## Out of scope / accepted risk
 
