@@ -5470,6 +5470,54 @@ await (async () => {
         height: 500,
       });
     });
+
+    const { EXTENDED_LIBRARY } = await import('../src/main/library-pieces.ts');
+    const { LIBRARY_CATEGORIES, filterLibraryPieces } =
+      await import('../src/library-filter.ts');
+    test('WDL-242: EXTENDED_LIBRARY includes 25 plain-Astro tokenised pieces across Galleries, Pricing, and all categories', () => {
+      assert.equal(EXTENDED_LIBRARY.length, 25);
+      const ids = new Set(EXTENDED_LIBRARY.map((p) => p.id));
+      assert.equal(ids.size, 25);
+      for (const expectedId of [
+        'mobile-slide-menu',
+        'card-carousel-hero',
+        'hover-reveal-work',
+        'masonry-photo-lookbook',
+        'before-after-compare',
+        'product-showcase-grid',
+        'tiered-pricing-cards',
+        'comparison-pricing-strip',
+        'map-directions-card',
+        'newsletter-footer',
+      ]) {
+        const piece = EXTENDED_LIBRARY.find((p) => p.id === expectedId);
+        assert.ok(piece, `Missing WDL-242 piece: ${expectedId}`);
+        assert.equal(piece.plainAstro, true);
+        assert.equal(piece.needsScript, false);
+        assert.ok(piece.styles?.includes('--cauldron-'));
+        assert.ok(piece.styles?.includes('@media (max-width: 768px)'));
+        assert.ok(piece.styles?.includes(':focus-visible'));
+      }
+      assert.equal(LIBRARY_CATEGORIES.includes('Galleries'), true);
+      assert.equal(LIBRARY_CATEGORIES.includes('Pricing'), true);
+      assert.equal(
+        filterLibraryPieces(EXTENDED_LIBRARY, 'Galleries', '').length,
+        4,
+      );
+      assert.equal(
+        filterLibraryPieces(EXTENDED_LIBRARY, 'Pricing', '').length,
+        2,
+      );
+      assert.equal(
+        filterLibraryPieces(EXTENDED_LIBRARY, 'Featured 5', 'pricing').length,
+        3,
+      );
+      assert.equal(
+        filterLibraryPieces(EXTENDED_LIBRARY, 'Pricing', 'dual').length,
+        1,
+      );
+      assert.equal(filterLibraryPieces(EXTENDED_LIBRARY, 'All', '').length, 25);
+    });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });
   }
