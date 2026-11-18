@@ -5440,6 +5440,36 @@ await (async () => {
       assert.equal(cfCreateAuthFailRes.isAuthError, true);
       assert.ok(cfCreateAuthFailRes.problem?.includes('Wrangler login'));
     });
+
+    const { computePreviewBounds } = await import('../src/preview-viewport.ts');
+    test('WDL-173: computePreviewBounds centers 768px tablet and 375px phone inside stage and clamps narrow windows', () => {
+      const wideStage = { left: 320, top: 84, width: 900, height: 700 };
+      assert.deepEqual(computePreviewBounds(wideStage, 'desktop'), {
+        x: 320,
+        y: 84,
+        width: 900,
+        height: 700,
+      });
+      assert.deepEqual(computePreviewBounds(wideStage, 'tablet'), {
+        x: 386,
+        y: 84,
+        width: 768,
+        height: 700,
+      });
+      assert.deepEqual(computePreviewBounds(wideStage, 'phone'), {
+        x: 583,
+        y: 84,
+        width: 375,
+        height: 700,
+      });
+      const narrowStage = { left: 100, top: 80, width: 600, height: 500 };
+      assert.deepEqual(computePreviewBounds(narrowStage, 'tablet'), {
+        x: 100,
+        y: 80,
+        width: 600,
+        height: 500,
+      });
+    });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });
   }
