@@ -1,20 +1,11 @@
 import { useEffect, useState } from 'react';
+import { LIBRARY_CATEGORIES, filterLibraryPieces } from '../library-filter';
 import { ChevronDownIcon } from './Icons';
 
 type Props = {
   site: CauldronSite | null;
   onBack: () => void;
 };
-
-const CATEGORIES = [
-  'Featured 5',
-  'Navigation',
-  'Heroes',
-  'Services',
-  'Proof & Testimonials',
-  'Contact & FAQ',
-  'Footers',
-];
 
 /**
  * Visual Component Library matching Cauldron’s Sunday Table components mockup:
@@ -41,6 +32,7 @@ export function LibraryPanel({ site, onBack }: Props) {
   const [replaceTag, setReplaceTag] = useState('');
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [category, setCategory] = useState('Featured 5');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     window.cauldron
@@ -111,39 +103,7 @@ export function LibraryPanel({ site, onBack }: Props) {
   };
 
   const pieceList = pieces ?? [];
-  const filteredPieces =
-    category === 'Featured 5'
-      ? pieceList.slice(0, 5)
-      : pieceList.filter((p) => {
-          const cat = (p.category || '').toLowerCase();
-          const target = category.toLowerCase();
-          if (cat === target || cat.includes(target)) return true;
-          if (
-            target === 'proof & testimonials' &&
-            (cat.includes('proof') || cat.includes('testimonial'))
-          )
-            return true;
-          if (
-            target === 'contact & faq' &&
-            (cat.includes('contact') || cat.includes('faq'))
-          )
-            return true;
-          if (
-            target === 'footers' &&
-            (cat.includes('footer') || cat === 'footer')
-          )
-            return true;
-          if (target === 'navigation' && cat.includes('nav')) return true;
-          if (target === 'heroes' && cat.includes('hero')) return true;
-          if (
-            target === 'services' &&
-            (cat.includes('service') || cat.includes('menu'))
-          )
-            return true;
-          return false;
-        });
-
-  const displayPieces = filteredPieces;
+  const displayPieces = filterLibraryPieces(pieceList, category, searchQuery);
 
   return (
     <div
@@ -196,7 +156,7 @@ export function LibraryPanel({ site, onBack }: Props) {
 
       {/* Category Pills Bar */}
       <div className="library-category-bar">
-        {CATEGORIES.map((cat) => (
+        {LIBRARY_CATEGORIES.map((cat) => (
           <button
             key={cat}
             type="button"
@@ -208,8 +168,16 @@ export function LibraryPanel({ site, onBack }: Props) {
         ))}
       </div>
 
-      {/* Component Replacement and Undo Bar */}
+      {/* Search, Component Replacement, and Undo Bar */}
       <div className="library-controls-bar">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Search sections..."
+          aria-label="Search sections"
+          className="library-search-input"
+        />
         <label className="replace-tag-label">
           <span>Replace component tag (for example Editorialintro):</span>
           <input

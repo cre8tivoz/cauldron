@@ -1174,4 +1174,990 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   }
 }`,
   ),
+  cataloguePiece(
+    'mobile-slide-menu',
+    'Mobile Slide-Out Menu',
+    'Navigation',
+    'Responsive header with keyboard-accessible disclosure menu drawer on compact viewports.',
+    `<nav class="nav-shell" aria-label="Primary">
+  <a href="/" class="brand-mark">ATELIER</a>
+  <div class="desktop-links">
+    <a href="/work">Work</a>
+    <a href="/services">Services</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/contact" class="nav-cta">Start a project</a>
+  </div>
+  <details class="mobile-drawer">
+    <summary class="drawer-toggle">Menu</summary>
+    <div class="drawer-panel">
+      <a href="/work">Work</a>
+      <a href="/services">Services</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/contact" class="nav-cta">Start a project</a>
+    </div>
+  </details>
+</nav>`,
+    `.cauldron-mobile-slide-menu {
+  background: var(--cauldron-c-surface);
+  border-bottom: 1px solid var(--cauldron-c-line);
+  padding: var(--cauldron-space-3) var(--cauldron-space-5);
+}
+.cauldron-mobile-slide-menu .nav-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cauldron-space-4);
+  position: relative;
+}
+.cauldron-mobile-slide-menu .brand-mark {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  font-weight: 700;
+  color: var(--cauldron-c-ink);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.cauldron-mobile-slide-menu .desktop-links {
+  display: flex;
+  align-items: center;
+  gap: var(--cauldron-space-4);
+}
+.cauldron-mobile-slide-menu .desktop-links a,
+.cauldron-mobile-slide-menu .drawer-panel a {
+  text-decoration: none;
+  color: var(--cauldron-c-ink);
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-mobile-slide-menu .desktop-links a.nav-cta,
+.cauldron-mobile-slide-menu .drawer-panel a.nav-cta {
+  padding: 8px 16px;
+  border-radius: var(--cauldron-radius-pill);
+  background: var(--cauldron-c-primary);
+  color: var(--cauldron-c-surface);
+  font-weight: 600;
+}
+.cauldron-mobile-slide-menu .mobile-drawer {
+  display: none;
+}
+.cauldron-mobile-slide-menu .drawer-toggle {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 14px;
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-1);
+  color: var(--cauldron-c-ink);
+  font-size: var(--cauldron-size-2);
+  font-weight: 600;
+}
+.cauldron-mobile-slide-menu .drawer-toggle:focus-visible {
+  outline: 2px solid var(--cauldron-c-primary);
+  outline-offset: 2px;
+}
+.cauldron-mobile-slide-menu .drawer-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  min-width: 220px;
+  background: var(--cauldron-c-surface);
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cauldron-space-3);
+  z-index: 20;
+}
+@media (max-width: 768px) {
+  .cauldron-mobile-slide-menu .desktop-links {
+    display: none;
+  }
+  .cauldron-mobile-slide-menu .mobile-drawer {
+    display: block;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'card-carousel-hero',
+    'Card Carousel Hero',
+    'Heroes',
+    'Editorial hero paired with a keyboard-scrollable horizontal showcase card strip.',
+    `<div class="carousel-hero">
+  <div class="hero-copy">
+    <p class="hero-kicker">Featured Editions</p>
+    <h1>Built for calm browsing on every screen</h1>
+    <p class="hero-lead">A tactile showcase of recent releases, paced cleanly with snap-aligned cards.</p>
+    <a href="/work" class="hero-cta">Explore archive</a>
+  </div>
+  <div class="card-track" tabindex="0" aria-label="Featured project cards">
+    <article class="snap-card">
+      <span class="card-tag">01 / Brand</span>
+      <h2>Harbour Roasters</h2>
+      <p>Packaging and direct-to-consumer storefront.</p>
+    </article>
+    <article class="snap-card">
+      <span class="card-tag">02 / Architecture</span>
+      <h2>Kestrel House</h2>
+      <p>Monograph and daylight study archive.</p>
+    </article>
+    <article class="snap-card">
+      <span class="card-tag">03 / Craft</span>
+      <h2>Loom &amp; Kiln</h2>
+      <p>Seasonal ceramics catalogue and studio notes.</p>
+    </article>
+  </div>
+</div>`,
+    `.cauldron-card-carousel-hero {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-card-carousel-hero .carousel-hero {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--cauldron-space-5);
+}
+.cauldron-card-carousel-hero .hero-kicker {
+  font-size: var(--cauldron-size-1);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--cauldron-c-primary);
+  margin: 0 0 var(--cauldron-space-2);
+  font-weight: 700;
+}
+.cauldron-card-carousel-hero h1 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-7);
+  line-height: 1.05;
+  margin: 0 0 var(--cauldron-space-3);
+  max-width: 18ch;
+}
+.cauldron-card-carousel-hero .hero-lead {
+  color: var(--cauldron-c-muted);
+  max-width: 52ch;
+  margin: 0 0 var(--cauldron-space-4);
+  line-height: 1.55;
+}
+.cauldron-card-carousel-hero .hero-cta {
+  display: inline-block;
+  padding: 12px 22px;
+  border-radius: var(--cauldron-radius-pill);
+  background: var(--cauldron-c-ink);
+  color: var(--cauldron-c-surface);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-card-carousel-hero .card-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: var(--cauldron-space-4);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: var(--cauldron-space-2);
+}
+.cauldron-card-carousel-hero .card-track:focus-visible {
+  outline: 2px solid var(--cauldron-c-primary);
+  outline-offset: 4px;
+}
+.cauldron-card-carousel-hero .snap-card {
+  scroll-snap-align: start;
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-5);
+  background: var(--cauldron-c-surface);
+}
+.cauldron-card-carousel-hero .card-tag {
+  font-size: var(--cauldron-size-1);
+  color: var(--cauldron-c-primary);
+  font-weight: 700;
+}
+.cauldron-card-carousel-hero .snap-card h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  margin: var(--cauldron-space-2) 0;
+}
+.cauldron-card-carousel-hero .snap-card p {
+  margin: 0;
+  color: var(--cauldron-c-muted);
+  font-size: var(--cauldron-size-2);
+  line-height: 1.5;
+}
+@media (max-width: 768px) {
+  .cauldron-card-carousel-hero {
+    padding: var(--cauldron-space-5) var(--cauldron-space-4);
+  }
+  .cauldron-card-carousel-hero h1 {
+    font-size: var(--cauldron-size-5);
+  }
+}`,
+  ),
+  cataloguePiece(
+    'hover-reveal-work',
+    'Hover-Reveal Work List',
+    'Galleries',
+    'Editorial index of projects with subtle discipline and year reveal on hover or keyboard focus.',
+    `<div class="work-index">
+  <div class="index-head">
+    <h2>Selected Work</h2>
+    <p>Recent commissions across editorial, identity, and digital craft.</p>
+  </div>
+  <ul class="work-rows">
+    <li>
+      <a href="/work/solstice-press" class="work-row">
+        <span class="work-title">Solstice Press</span>
+        <span class="work-meta">Editorial System · 2026</span>
+      </a>
+    </li>
+    <li>
+      <a href="/work/north-pier" class="work-row">
+        <span class="work-title">North Pier Bakery</span>
+        <span class="work-meta">Identity &amp; Web · 2026</span>
+      </a>
+    </li>
+    <li>
+      <a href="/work/meridian-labs" class="work-row">
+        <span class="work-title">Meridian Acoustic</span>
+        <span class="work-meta">Product Catalogue · 2025</span>
+      </a>
+    </li>
+  </ul>
+</div>`,
+    `.cauldron-hover-reveal-work {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-hover-reveal-work .work-index {
+  max-width: 960px;
+  margin: 0 auto;
+}
+.cauldron-hover-reveal-work .index-head h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-hover-reveal-work .index-head p {
+  margin: 0 0 var(--cauldron-space-5);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-hover-reveal-work .work-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--cauldron-c-line);
+}
+.cauldron-hover-reveal-work .work-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--cauldron-space-4);
+  padding: var(--cauldron-space-4) var(--cauldron-space-2);
+  border-bottom: 1px solid var(--cauldron-c-line);
+  text-decoration: none;
+  color: var(--cauldron-c-ink);
+  transition: border-color 180ms ease, padding-inline-start 180ms ease;
+}
+.cauldron-hover-reveal-work .work-title {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  font-weight: 600;
+}
+.cauldron-hover-reveal-work .work-meta {
+  font-size: var(--cauldron-size-2);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-hover-reveal-work .work-row:hover,
+.cauldron-hover-reveal-work .work-row:focus-visible {
+  border-bottom-color: var(--cauldron-c-primary);
+  padding-inline-start: var(--cauldron-space-4);
+}
+.cauldron-hover-reveal-work .work-row:hover .work-meta,
+.cauldron-hover-reveal-work .work-row:focus-visible .work-meta {
+  color: var(--cauldron-c-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cauldron-hover-reveal-work .work-row {
+    transition: none;
+  }
+}
+@media (max-width: 768px) {
+  .cauldron-hover-reveal-work .work-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'masonry-photo-lookbook',
+    'Masonry Photo Lookbook',
+    'Galleries',
+    'Multi-column editorial lookbook frames using CSS columns for varied vertical rhythm.',
+    `<div class="lookbook-wrap">
+  <div class="lookbook-head">
+    <h2>Studio Lookbook</h2>
+    <p>Staggered frames sized naturally for photography, sketches, and print specimens.</p>
+  </div>
+  <div class="lookbook-columns">
+    <figure class="lookbook-frame tall">
+      <div class="frame-art" aria-hidden="true">01</div>
+      <figcaption>Morning light on raw linen, Autumn edition.</figcaption>
+    </figure>
+    <figure class="lookbook-frame">
+      <div class="frame-art" aria-hidden="true">02</div>
+      <figcaption>Hand-glazed stoneware vessel study.</figcaption>
+    </figure>
+    <figure class="lookbook-frame">
+      <div class="frame-art" aria-hidden="true">03</div>
+      <figcaption>Letterpress cover proof on cotton stock.</figcaption>
+    </figure>
+    <figure class="lookbook-frame tall">
+      <div class="frame-art" aria-hidden="true">04</div>
+      <figcaption>Timber joinery detail from the workshop.</figcaption>
+    </figure>
+  </div>
+</div>`,
+    `.cauldron-masonry-photo-lookbook {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-masonry-photo-lookbook .lookbook-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.cauldron-masonry-photo-lookbook .lookbook-head h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-masonry-photo-lookbook .lookbook-head p {
+  margin: 0 0 var(--cauldron-space-5);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-masonry-photo-lookbook .lookbook-columns {
+  columns: 2;
+  column-gap: var(--cauldron-space-4);
+}
+.cauldron-masonry-photo-lookbook .lookbook-frame {
+  break-inside: avoid;
+  margin: 0 0 var(--cauldron-space-4);
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-3);
+  background: var(--cauldron-c-surface);
+}
+.cauldron-masonry-photo-lookbook .frame-art {
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: var(--cauldron-radius-1);
+  border: 1px dashed var(--cauldron-c-line);
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-masonry-photo-lookbook .lookbook-frame.tall .frame-art {
+  aspect-ratio: 3 / 4;
+}
+.cauldron-masonry-photo-lookbook figcaption {
+  margin-top: var(--cauldron-space-2);
+  font-size: var(--cauldron-size-2);
+  color: var(--cauldron-c-muted);
+}
+@media (max-width: 768px) {
+  .cauldron-masonry-photo-lookbook .lookbook-columns {
+    columns: 1;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'before-after-compare',
+    'Before & After Showcase',
+    'Galleries',
+    'Clear side-by-side Before and After comparison cards with measurable outcomes.',
+    `<div class="compare-wrap">
+  <div class="compare-head">
+    <h2>Before &amp; After Transformation</h2>
+    <p>Side-by-side clarity without hidden controls or mouse-only gestures.</p>
+  </div>
+  <div class="compare-grid">
+    <article class="compare-card">
+      <span class="state-badge">Before</span>
+      <h3>Unstructured Legacy Front</h3>
+      <p>Slow navigation, cramped mobile cards, and low-contrast action links.</p>
+    </article>
+    <article class="compare-card after">
+      <span class="state-badge primary">After</span>
+      <h3>Tokenised Editorial Rebuild</h3>
+      <p>4.8s faster first paint, 4.5:1 verified contrast, and clean 375px stacking.</p>
+    </article>
+  </div>
+</div>`,
+    `.cauldron-before-after-compare {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-before-after-compare .compare-wrap {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+.cauldron-before-after-compare .compare-head h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-before-after-compare .compare-head p {
+  margin: 0 0 var(--cauldron-space-5);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-before-after-compare .compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--cauldron-space-4);
+}
+.cauldron-before-after-compare .compare-card {
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-5);
+  background: var(--cauldron-c-surface);
+}
+.cauldron-before-after-compare .compare-card.after {
+  border-color: var(--cauldron-c-primary);
+}
+.cauldron-before-after-compare .state-badge {
+  display: inline-block;
+  font-size: var(--cauldron-size-1);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: var(--cauldron-radius-pill);
+  border: 1px solid var(--cauldron-c-line);
+  color: var(--cauldron-c-ink);
+  margin-bottom: var(--cauldron-space-3);
+}
+.cauldron-before-after-compare .state-badge.primary {
+  background: var(--cauldron-c-primary);
+  border-color: var(--cauldron-c-primary);
+  color: var(--cauldron-c-surface);
+}
+.cauldron-before-after-compare h3 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-before-after-compare p {
+  margin: 0;
+  color: var(--cauldron-c-muted);
+  line-height: 1.55;
+}
+@media (max-width: 768px) {
+  .cauldron-before-after-compare .compare-grid {
+    grid-template-columns: 1fr;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'product-showcase-grid',
+    'Product Showcase Grid',
+    'Galleries',
+    'Three-column product and edition grid with category tags, pricing, and clear links.',
+    `<div class="showcase-wrap">
+  <div class="showcase-head">
+    <h2>Studio Editions</h2>
+    <p>Small-batch objects and print monographs available directly.</p>
+  </div>
+  <div class="product-grid">
+    <article class="product-card">
+      <div class="product-thumb" aria-hidden="true">Edition 01</div>
+      <div class="product-meta"><span>Print</span><strong>$48</strong></div>
+      <h3>Field Notes Vol. IV</h3>
+      <p>128-page thread-sewn monograph on natural light.</p>
+      <a href="/shop/field-notes" class="product-link">View edition</a>
+    </article>
+    <article class="product-card">
+      <div class="product-thumb" aria-hidden="true">Edition 02</div>
+      <div class="product-meta"><span>Ceramic</span><strong>$95</strong></div>
+      <h3>Ash Glaze Carafe</h3>
+      <p>Wheel-thrown stoneware fired in small studio runs.</p>
+      <a href="/shop/carafe" class="product-link">View edition</a>
+    </article>
+    <article class="product-card">
+      <div class="product-thumb" aria-hidden="true">Edition 03</div>
+      <div class="product-meta"><span>Textile</span><strong>$140</strong></div>
+      <h3>Heavy Linen Apron</h3>
+      <p>Washed Belgian flax with reinforced studio pockets.</p>
+      <a href="/shop/apron" class="product-link">View edition</a>
+    </article>
+  </div>
+</div>`,
+    `.cauldron-product-showcase-grid {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-product-showcase-grid .showcase-wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.cauldron-product-showcase-grid .showcase-head h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-product-showcase-grid .showcase-head p {
+  margin: 0 0 var(--cauldron-space-5);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-product-showcase-grid .product-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--cauldron-space-4);
+}
+.cauldron-product-showcase-grid .product-card {
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cauldron-space-2);
+}
+.cauldron-product-showcase-grid .product-thumb {
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: var(--cauldron-radius-1);
+  border: 1px dashed var(--cauldron-c-line);
+  color: var(--cauldron-c-muted);
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-product-showcase-grid .product-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--cauldron-size-2);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-product-showcase-grid .product-meta strong {
+  color: var(--cauldron-c-ink);
+}
+.cauldron-product-showcase-grid h3 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  margin: 0;
+}
+.cauldron-product-showcase-grid .product-card p {
+  margin: 0;
+  color: var(--cauldron-c-muted);
+  font-size: var(--cauldron-size-2);
+  line-height: 1.5;
+  flex: 1;
+}
+.cauldron-product-showcase-grid .product-link {
+  margin-top: var(--cauldron-space-2);
+  display: inline-block;
+  font-weight: 600;
+  color: var(--cauldron-c-primary);
+  text-decoration: none;
+  font-size: var(--cauldron-size-2);
+}
+@media (max-width: 768px) {
+  .cauldron-product-showcase-grid .product-grid {
+    grid-template-columns: 1fr;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'tiered-pricing-cards',
+    '3-Tier Pricing Grid',
+    'Pricing',
+    'Three structured pricing tiers with a highlighted recommended option and clear CTAs.',
+    `<div class="pricing-wrap">
+  <div class="pricing-head">
+    <h2>Transparent Packages</h2>
+    <p>Fixed-scope engagements built in clean, maintainable Astro.</p>
+  </div>
+  <div class="tier-grid">
+    <article class="tier-card">
+      <h3>Starter Site</h3>
+      <p class="tier-price">$1,800</p>
+      <p class="tier-desc">Focused 3-page presence for a local studio or practice.</p>
+      <ul>
+        <li>Custom design tokens &amp; typography</li>
+        <li>Mobile &amp; accessibility verification</li>
+        <li>Static Cloudflare or Git deploy</li>
+      </ul>
+      <a href="/contact?plan=starter" class="tier-btn">Choose Starter</a>
+    </article>
+    <article class="tier-card featured">
+      <span class="tier-badge">Most Popular</span>
+      <h3>Editorial Studio</h3>
+      <p class="tier-price">$3,400</p>
+      <p class="tier-desc">Multi-page portfolio with lookbook galleries and FAQ.</p>
+      <ul>
+        <li>Up to 8 bespoke Astro pages</li>
+        <li>Collection-driven content schemas</li>
+        <li>Two post-launch refinement rounds</li>
+      </ul>
+      <a href="/contact?plan=studio" class="tier-btn primary">Choose Studio</a>
+    </article>
+    <article class="tier-card">
+      <h3>Ongoing Partner</h3>
+      <p class="tier-price">$950<span>/mo</span></p>
+      <p class="tier-desc">Monthly new sections, campaigns, and performance audits.</p>
+      <ul>
+        <li>Quarterly design direction refresh</li>
+        <li>Priority content &amp; release updates</li>
+        <li>Direct repository ownership</li>
+      </ul>
+      <a href="/contact?plan=partner" class="tier-btn">Inquire</a>
+    </article>
+  </div>
+</div>`,
+    `.cauldron-tiered-pricing-cards {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-tiered-pricing-cards .pricing-wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.cauldron-tiered-pricing-cards .pricing-head h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-tiered-pricing-cards .pricing-head p {
+  margin: 0 0 var(--cauldron-space-5);
+  color: var(--cauldron-c-muted);
+}
+.cauldron-tiered-pricing-cards .tier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--cauldron-space-4);
+  align-items: stretch;
+}
+.cauldron-tiered-pricing-cards .tier-card {
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cauldron-space-3);
+}
+.cauldron-tiered-pricing-cards .tier-card.featured {
+  border-color: var(--cauldron-c-primary);
+  box-shadow: 0 0 0 1px var(--cauldron-c-primary);
+}
+.cauldron-tiered-pricing-cards .tier-badge {
+  align-self: flex-start;
+  font-size: var(--cauldron-size-1);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cauldron-c-primary);
+}
+.cauldron-tiered-pricing-cards h3 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  margin: 0;
+}
+.cauldron-tiered-pricing-cards .tier-price {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-6);
+  font-weight: 700;
+  margin: 0;
+}
+.cauldron-tiered-pricing-cards .tier-price span {
+  font-size: var(--cauldron-size-2);
+  color: var(--cauldron-c-muted);
+  font-weight: 400;
+}
+.cauldron-tiered-pricing-cards .tier-desc {
+  margin: 0;
+  color: var(--cauldron-c-muted);
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-tiered-pricing-cards ul {
+  margin: 0;
+  padding-left: var(--cauldron-space-4);
+  display: grid;
+  gap: var(--cauldron-space-2);
+  color: var(--cauldron-c-ink);
+  font-size: var(--cauldron-size-2);
+  flex: 1;
+}
+.cauldron-tiered-pricing-cards .tier-btn {
+  display: inline-block;
+  text-align: center;
+  padding: 10px 18px;
+  border-radius: var(--cauldron-radius-pill);
+  border: 1px solid var(--cauldron-c-line);
+  text-decoration: none;
+  color: var(--cauldron-c-ink);
+  font-weight: 600;
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-tiered-pricing-cards .tier-btn.primary {
+  background: var(--cauldron-c-primary);
+  border-color: var(--cauldron-c-primary);
+  color: var(--cauldron-c-surface);
+}
+@media (max-width: 768px) {
+  .cauldron-tiered-pricing-cards .tier-grid {
+    grid-template-columns: 1fr;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'comparison-pricing-strip',
+    'Simple Dual Plan Strip',
+    'Pricing',
+    'Two-column plan comparison for service businesses offering fixed vs bespoke work.',
+    `<div class="dual-pricing">
+  <article class="plan-box">
+    <h3>Single-Day Audit</h3>
+    <p class="plan-rate">$650 flat</p>
+    <p>Full typography, contrast, and mobile layout tune-up delivered in 48 hours.</p>
+    <a href="/contact?plan=audit">Book audit</a>
+  </article>
+  <article class="plan-box">
+    <h3>Full Site Build</h3>
+    <p class="plan-rate">From $2,800</p>
+    <p>Complete design system, custom sections, and clean Astro codebase handoff.</p>
+    <a href="/contact?plan=build">Request scope</a>
+  </article>
+</div>`,
+    `.cauldron-comparison-pricing-strip {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-6) var(--cauldron-space-5);
+}
+.cauldron-comparison-pricing-strip .dual-pricing {
+  max-width: 980px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--cauldron-space-4);
+}
+.cauldron-comparison-pricing-strip .plan-box {
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cauldron-space-2);
+}
+.cauldron-comparison-pricing-strip h3 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  margin: 0;
+}
+.cauldron-comparison-pricing-strip .plan-rate {
+  font-size: var(--cauldron-size-5);
+  font-weight: 700;
+  color: var(--cauldron-c-primary);
+  margin: 0;
+}
+.cauldron-comparison-pricing-strip p {
+  margin: 0;
+  color: var(--cauldron-c-muted);
+  line-height: 1.5;
+  flex: 1;
+}
+.cauldron-comparison-pricing-strip a {
+  align-self: flex-start;
+  margin-top: var(--cauldron-space-2);
+  font-weight: 600;
+  color: var(--cauldron-c-ink);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (max-width: 768px) {
+  .cauldron-comparison-pricing-strip .dual-pricing {
+    grid-template-columns: 1fr;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'map-directions-card',
+    'Map & Directions Card',
+    'Contact & FAQ',
+    'Two-column studio address, transit notes, and visual directions card without third-party trackers.',
+    `<div class="directions-grid">
+  <div class="directions-info">
+    <h2>Visit the Studio</h2>
+    <p class="address">42 Johnston Street, Fitzroy VIC 3065</p>
+    <p class="transit">Two blocks east of Nicholson St tram stop 14. Step-free ground floor entry.</p>
+    <a href="https://maps.apple.com/?q=42+Johnston+Street+Fitzroy" class="directions-btn">Open in Maps</a>
+  </div>
+  <div class="map-card" role="img" aria-label="Studio neighbourhood map marker at 42 Johnston Street">
+    <span class="map-pin">42 Johnston St</span>
+    <span class="map-grid-note">Tue – Sat · 09:00 – 17:00</span>
+  </div>
+</div>`,
+    `.cauldron-map-directions-card {
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-map-directions-card .directions-grid {
+  max-width: 1040px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--cauldron-space-5);
+  align-items: center;
+}
+.cauldron-map-directions-card h2 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-5);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-map-directions-card .address {
+  font-weight: 600;
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-map-directions-card .transit {
+  color: var(--cauldron-c-muted);
+  margin: 0 0 var(--cauldron-space-4);
+  line-height: 1.55;
+}
+.cauldron-map-directions-card .directions-btn {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: var(--cauldron-radius-pill);
+  border: 1px solid var(--cauldron-c-line);
+  color: var(--cauldron-c-ink);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-map-directions-card .map-card {
+  min-height: 220px;
+  border: 1px solid var(--cauldron-c-line);
+  border-radius: var(--cauldron-radius-2);
+  padding: var(--cauldron-space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cauldron-space-2);
+  background: var(--cauldron-c-surface);
+}
+.cauldron-map-directions-card .map-pin {
+  padding: 6px 14px;
+  border-radius: var(--cauldron-radius-pill);
+  background: var(--cauldron-c-primary);
+  color: var(--cauldron-c-surface);
+  font-weight: 700;
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-map-directions-card .map-grid-note {
+  color: var(--cauldron-c-muted);
+  font-size: var(--cauldron-size-2);
+}
+@media (max-width: 768px) {
+  .cauldron-map-directions-card .directions-grid {
+    grid-template-columns: 1fr;
+  }
+}`,
+  ),
+  cataloguePiece(
+    'editorial-newsletter-footer',
+    'Newsletter Signup Footer',
+    'Footers',
+    'Compact editorial footer pairing a labeled email signup form with site navigation links.',
+    `<footer class="nl-footer">
+  <div class="nl-grid">
+    <div class="nl-copy">
+      <h3>Seasonal Dispatch</h3>
+      <p>Quarterly studio notes, new editions, and open workshop dates.</p>
+      <form class="nl-form" action="/subscribe" method="post">
+        <label for="nl-email" class="sr-only">Email address</label>
+        <input id="nl-email" name="email" type="email" required placeholder="you@example.com" />
+        <button type="submit">Subscribe</button>
+      </form>
+    </div>
+    <nav class="nl-links" aria-label="Footer navigation">
+      <a href="/work">Work</a>
+      <a href="/services">Services</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/contact">Contact</a>
+    </nav>
+  </div>
+</footer>`,
+    `.cauldron-editorial-newsletter-footer {
+  background: var(--cauldron-c-ink);
+  color: var(--cauldron-c-surface);
+  padding: var(--cauldron-space-7) var(--cauldron-space-5);
+}
+.cauldron-editorial-newsletter-footer .nl-grid {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--cauldron-space-6);
+}
+.cauldron-editorial-newsletter-footer h3 {
+  font-family: var(--cauldron-font-display);
+  font-size: var(--cauldron-size-4);
+  margin: 0 0 var(--cauldron-space-2);
+}
+.cauldron-editorial-newsletter-footer p {
+  margin: 0 0 var(--cauldron-space-4);
+  color: var(--cauldron-c-line);
+  font-size: var(--cauldron-size-2);
+}
+.cauldron-editorial-newsletter-footer .nl-form {
+  display: flex;
+  gap: var(--cauldron-space-2);
+  flex-wrap: wrap;
+}
+.cauldron-editorial-newsletter-footer .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.cauldron-editorial-newsletter-footer input {
+  padding: 10px 14px;
+  border-radius: var(--cauldron-radius-pill);
+  border: 1px solid var(--cauldron-c-line);
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
+  min-width: 220px;
+}
+.cauldron-editorial-newsletter-footer button {
+  padding: 10px 18px;
+  border-radius: var(--cauldron-radius-pill);
+  border: 0;
+  background: var(--cauldron-c-primary);
+  color: var(--cauldron-c-surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+.cauldron-editorial-newsletter-footer .nl-links {
+  display: flex;
+  gap: var(--cauldron-space-4);
+  flex-wrap: wrap;
+}
+.cauldron-editorial-newsletter-footer .nl-links a {
+  color: var(--cauldron-c-surface);
+  text-decoration: none;
+  font-size: var(--cauldron-size-2);
+}
+@media (max-width: 768px) {
+  .cauldron-editorial-newsletter-footer .nl-grid {
+    flex-direction: column;
+  }
+}`,
+  ),
 ];
