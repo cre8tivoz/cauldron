@@ -1913,6 +1913,7 @@ export async function runQualityFeedbackTest(
       'edit_element_style',
       'edit_element_text',
       'edit_element_attribute',
+      'write_source',
     ];
     const served = (api.mcpServed?.() ?? []).slice(servedBefore);
     check(

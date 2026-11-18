@@ -28,6 +28,7 @@ import {
 } from './draft-schedule';
 import { describeDraftBanner, selectionDraftValue } from './draft-restore';
 import { mergeProblemMessages } from './problems';
+import { computePreviewBounds, type PreviewViewport } from './preview-viewport';
 import {
   INITIAL_AGENT_STREAM,
   applyAgentStreamEvent,
@@ -134,6 +135,8 @@ export function App() {
     running: false,
     url: null,
   });
+  const [previewViewport, setPreviewViewport] =
+    useState<PreviewViewport>('desktop');
   const [selection, setSelection] = useState<CauldronSelection | null>(null);
   const [drafts, setDrafts] = useState<CauldronDraft[]>([]);
   const [status, setStatus] = useState('Ready');
@@ -489,12 +492,9 @@ export function App() {
 
     const measure = () => {
       const rect = stage.getBoundingClientRect();
-      void window.cauldron.setPreviewBounds({
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      });
+      void window.cauldron.setPreviewBounds(
+        computePreviewBounds(rect, previewViewport),
+      );
     };
 
     measure();
@@ -505,7 +505,14 @@ export function App() {
       observer.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [agentWidth, inspectorWidth, agentCollapsed, inspectorCollapsed, view]);
+  }, [
+    agentWidth,
+    inspectorWidth,
+    agentCollapsed,
+    inspectorCollapsed,
+    view,
+    previewViewport,
+  ]);
 
   useEffect(() => {
     if (view !== 'build')
@@ -1133,6 +1140,8 @@ export function App() {
                   stageRef={stageRef}
                   site={site}
                   running={preview.running}
+                  viewport={previewViewport}
+                  onViewportChange={setPreviewViewport}
                   onOpen={openSite}
                 />
 
