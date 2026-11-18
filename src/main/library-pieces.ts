@@ -1230,7 +1230,8 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   color: var(--cauldron-c-ink);
   font-size: var(--cauldron-size-2);
 }
-.cauldron-mobile-slide-menu .nav-cta {
+.cauldron-mobile-slide-menu .desktop-links a.nav-cta,
+.cauldron-mobile-slide-menu .drawer-panel a.nav-cta {
   padding: 8px 16px;
   border-radius: var(--cauldron-radius-pill);
   background: var(--cauldron-c-primary);
@@ -2068,7 +2069,7 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
 }`,
   ),
   cataloguePiece(
-    'newsletter-footer',
+    'editorial-newsletter-footer',
     'Newsletter Signup Footer',
     'Footers',
     'Compact editorial footer pairing a labeled email signup form with site navigation links.',
@@ -2091,12 +2092,12 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
     </nav>
   </div>
 </footer>`,
-    `.cauldron-newsletter-footer {
+    `.cauldron-editorial-newsletter-footer {
   background: var(--cauldron-c-ink);
   color: var(--cauldron-c-surface);
   padding: var(--cauldron-space-7) var(--cauldron-space-5);
 }
-.cauldron-newsletter-footer .nl-grid {
+.cauldron-editorial-newsletter-footer .nl-grid {
   max-width: 1100px;
   margin: 0 auto;
   display: flex;
@@ -2104,29 +2105,29 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   align-items: flex-start;
   gap: var(--cauldron-space-6);
 }
-.cauldron-newsletter-footer h3 {
+.cauldron-editorial-newsletter-footer h3 {
   font-family: var(--cauldron-font-display);
   font-size: var(--cauldron-size-4);
   margin: 0 0 var(--cauldron-space-2);
 }
-.cauldron-newsletter-footer p {
+.cauldron-editorial-newsletter-footer p {
   margin: 0 0 var(--cauldron-space-4);
   color: var(--cauldron-c-line);
   font-size: var(--cauldron-size-2);
 }
-.cauldron-newsletter-footer .nl-form {
+.cauldron-editorial-newsletter-footer .nl-form {
   display: flex;
   gap: var(--cauldron-space-2);
   flex-wrap: wrap;
 }
-.cauldron-newsletter-footer .sr-only {
+.cauldron-editorial-newsletter-footer .sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
-.cauldron-newsletter-footer input {
+.cauldron-editorial-newsletter-footer input {
   padding: 10px 14px;
   border-radius: var(--cauldron-radius-pill);
   border: 1px solid var(--cauldron-c-line);
@@ -2134,7 +2135,7 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   color: var(--cauldron-c-ink);
   min-width: 220px;
 }
-.cauldron-newsletter-footer button {
+.cauldron-editorial-newsletter-footer button {
   padding: 10px 18px;
   border-radius: var(--cauldron-radius-pill);
   border: 0;
@@ -2143,18 +2144,18 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   font-weight: 600;
   cursor: pointer;
 }
-.cauldron-newsletter-footer .nl-links {
+.cauldron-editorial-newsletter-footer .nl-links {
   display: flex;
   gap: var(--cauldron-space-4);
   flex-wrap: wrap;
 }
-.cauldron-newsletter-footer .nl-links a {
+.cauldron-editorial-newsletter-footer .nl-links a {
   color: var(--cauldron-c-surface);
   text-decoration: none;
   font-size: var(--cauldron-size-2);
 }
 @media (max-width: 768px) {
-  .cauldron-newsletter-footer .nl-grid {
+  .cauldron-editorial-newsletter-footer .nl-grid {
     flex-direction: column;
   }
 }`,

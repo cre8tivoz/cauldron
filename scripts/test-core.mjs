@@ -5471,6 +5471,7 @@ await (async () => {
       });
     });
 
+    const { LIBRARY } = await import('../src/main/library.ts');
     const { EXTENDED_LIBRARY } = await import('../src/main/library-pieces.ts');
     const { LIBRARY_CATEGORIES, filterLibraryPieces } =
       await import('../src/library-filter.ts');
@@ -5478,6 +5479,11 @@ await (async () => {
       assert.equal(EXTENDED_LIBRARY.length, 25);
       const ids = new Set(EXTENDED_LIBRARY.map((p) => p.id));
       assert.equal(ids.size, 25);
+      const combinedIds = new Set([
+        ...LIBRARY.map((p) => p.id),
+        ...EXTENDED_LIBRARY.map((p) => p.id),
+      ]);
+      assert.equal(combinedIds.size, LIBRARY.length + EXTENDED_LIBRARY.length);
       for (const expectedId of [
         'mobile-slide-menu',
         'card-carousel-hero',
@@ -5488,7 +5494,7 @@ await (async () => {
         'tiered-pricing-cards',
         'comparison-pricing-strip',
         'map-directions-card',
-        'newsletter-footer',
+        'editorial-newsletter-footer',
       ]) {
         const piece = EXTENDED_LIBRARY.find((p) => p.id === expectedId);
         assert.ok(piece, `Missing WDL-242 piece: ${expectedId}`);
