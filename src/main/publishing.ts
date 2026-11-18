@@ -939,6 +939,8 @@ export function deployCloudflarePages(
     );
     if (createResult && createResult.status === 0 && !createResult.error) {
       deployResult = runSyncWrangler(step.cmd, step.args, root, step.env);
+    } else if (createResult) {
+      deployResult = createResult;
     }
   }
   return finalizeCloudflareDeploy(
@@ -971,6 +973,8 @@ export async function deployCloudflarePagesAsync(
     const createResult = await runner(step.createCmd, step.createArgs, runOpts);
     if (createResult.status === 0 && !createResult.error) {
       deployResult = await runner(step.cmd, step.args, runOpts);
+    } else {
+      deployResult = createResult;
     }
   }
   return finalizeCloudflareDeploy(

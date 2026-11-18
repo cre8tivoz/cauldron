@@ -5314,7 +5314,9 @@ await (async () => {
       );
       const finished1 = runs.finish(runsDir, r1.id, {
         claimed: ['src/pages/index.astro', 'src/styles/main.css'],
-        checkedFiles: ['src/pages/index.astro'],
+        checkedFiles: {
+          'src/pages/index.astro': hashOf('<h1>v2</h1>\n'),
+        },
       });
       assert.deepEqual(finished1?.directEdits, ['src/styles/main.css']);
       assert.equal(runs.canUndo(runsDir, r1.id), true);
@@ -5326,9 +5328,25 @@ await (async () => {
       );
       const finished2 = runs.finish(runsDir, r2.id, {
         claimed: ['src/pages/index.astro'],
-        checkedFiles: ['src/pages/index.astro'],
+        checkedFiles: {
+          'src/pages/index.astro': hashOf('<h1>v3</h1>\n'),
+        },
       });
       assert.equal(finished2?.directEdits, undefined);
+
+      // Codex P2: checked MCP edit followed by direct overwrite on the same file
+      const r3 = runs.start(runsDir, 'codex', 'Checked then overwritten');
+      fs.writeFileSync(
+        path.join(runsDir, 'src/pages/index.astro'),
+        '<h1>v3-direct-overwrite</h1>\n',
+      );
+      const finished3 = runs.finish(runsDir, r3.id, {
+        claimed: ['src/pages/index.astro'],
+        checkedFiles: {
+          'src/pages/index.astro': hashOf('<h1>v3-mcp-only</h1>\n'),
+        },
+      });
+      assert.deepEqual(finished3?.directEdits, ['src/pages/index.astro']);
     });
 
     const cfSiteRoot = path.join(tmpBase, 'wdl-241-cf');
@@ -5391,6 +5409,36 @@ await (async () => {
       assert.equal(cfCalls[1].includes('create'), true);
       assert.equal(cfCalls[1].includes('--production-branch'), true);
       assert.equal(cfCalls[2].includes('--branch'), true);
+    });
+
+    let cfCreateFailStep = 0;
+    const cfCreateAuthFailRes = await deployCloudflarePagesAsync(
+      cfSiteRoot,
+      'wdl-241-auth-fail',
+      {
+        runner: async () => {
+          cfCreateFailStep += 1;
+          if (cfCreateFailStep === 1) {
+            return {
+              status: 1,
+              stdout: '',
+              stderr:
+                '✘ [ERROR] This command cannot be run in a non-interactive context',
+            };
+          }
+          return {
+            status: 1,
+            stdout: '',
+            stderr:
+              '✘ [ERROR] Not logged in. Run wrangler login or set CLOUDFLARE_API_TOKEN',
+          };
+        },
+      },
+    );
+    test('WDL-241: failed project create surfaces create failure and auth guidance', () => {
+      assert.equal(cfCreateAuthFailRes.ok, false);
+      assert.equal(cfCreateAuthFailRes.isAuthError, true);
+      assert.ok(cfCreateAuthFailRes.problem?.includes('Wrangler login'));
     });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });

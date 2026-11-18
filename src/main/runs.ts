@@ -358,10 +358,10 @@ export class Runs {
        */
       claimed?: string[];
       /**
-       * Files modified through Cauldron's own checked MCP actions.
-       * Any other agent-claimed file edit was made directly outside Cauldron's stale-file guards.
+       * Post-action content hashes (null if deleted) for files modified through Cauldron's checked MCP actions.
+       * Any changed file missing here or whose final hash differs was edited directly outside stale-file guards.
        */
-      checkedFiles?: string[];
+      checkedFiles?: Record<string, string | null>;
     } = {},
   ): Run | null {
     const run = this.runs.find((item) => item.id === id);
@@ -376,7 +376,12 @@ export class Runs {
       ? new Set(options.claimed.map(relative))
       : null;
     const checked = options.checkedFiles
-      ? new Set(options.checkedFiles.map(relative))
+      ? new Map(
+          Object.entries(options.checkedFiles).map(([file, hash]) => [
+            relative(file),
+            hash,
+          ]),
+        )
       : null;
     const outside = new Map<string, { firstBefore: string; last: string }>();
     for (const item of options.outside ?? []) {
@@ -443,7 +448,11 @@ export class Runs {
       .map((file) => file.file);
     if (checked !== null) {
       const directEdits = run.files
-        .filter((file) => !checked.has(file.file))
+        .filter(
+          (file) =>
+            !checked.has(file.file) ||
+            checked.get(file.file) !== file.afterHash,
+        )
         .map((file) => file.file);
       if (directEdits.length > 0) run.directEdits = directEdits;
       else delete run.directEdits;
