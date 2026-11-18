@@ -593,9 +593,13 @@ test('Phase 5 (P0 Finding 1): deployCloudflarePages fails honestly without crede
     'utf8',
   );
 
-  // Ensure no accidental credentials in test runner environment
+  // Ensure no accidental credentials (env token or logged-in Wrangler home config)
   const savedToken = process.env.CLOUDFLARE_API_TOKEN;
+  const savedHome = process.env.HOME;
+  const savedXdg = process.env.XDG_CONFIG_HOME;
   delete process.env.CLOUDFLARE_API_TOKEN;
+  process.env.HOME = tmpParent;
+  process.env.XDG_CONFIG_HOME = tmpParent;
 
   try {
     const deployRes = deployCloudflarePages(mockProj, 'mock-honest-site');
@@ -622,7 +626,13 @@ test('Phase 5 (P0 Finding 1): deployCloudflarePages fails honestly without crede
       'deployCloudflarePages must not silently create wrangler.toml',
     );
   } finally {
-    if (savedToken) process.env.CLOUDFLARE_API_TOKEN = savedToken;
+    if (savedToken !== undefined) process.env.CLOUDFLARE_API_TOKEN = savedToken;
+    else delete process.env.CLOUDFLARE_API_TOKEN;
+    if (savedHome !== undefined) process.env.HOME = savedHome;
+    else delete process.env.HOME;
+    if (savedXdg !== undefined) process.env.XDG_CONFIG_HOME = savedXdg;
+    else delete process.env.XDG_CONFIG_HOME;
+    fs.rmSync(tmpParent, { recursive: true, force: true });
   }
 });
 

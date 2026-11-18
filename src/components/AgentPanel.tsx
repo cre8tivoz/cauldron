@@ -262,6 +262,16 @@ export function AgentPanel({
                   </div>
                 ) : null}
 
+                {run.directEdits && run.directEdits.length > 0 ? (
+                  <div className="notice" role="status">
+                    Edited outside Cauldron’s checked actions (
+                    <span className="mono">{run.directEdits.join(', ')}</span>)
+                    — stale-file guards were skipped for{' '}
+                    {run.directEdits.length === 1 ? 'that file' : 'those files'}
+                    .
+                  </div>
+                ) : null}
+
                 {/* Changed file pills (including deleted whole files) */}
                 {run.files.length > 0 ? (
                   <div className="run-file-pills">

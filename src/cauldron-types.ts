@@ -163,6 +163,8 @@ export type CauldronRun = {
   finishedAt: number | null;
   files: string[];
   deletedFiles?: string[];
+  /** Files modified directly by the agent outside Cauldron's checked actions (WDL-159). */
+  directEdits?: string[];
   problems?: string[];
   undoAvailable?: boolean;
   highlighted: Array<{

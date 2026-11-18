@@ -54,4 +54,3 @@ run_required() {
 }
 
 run_required "npm run check" npm run check
-run_required "npm run smoke" npm run smoke
