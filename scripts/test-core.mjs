@@ -79,6 +79,7 @@ const {
   insertPageSection,
 } = await import('../src/main/actions.ts');
 const { History } = await import('../src/main/history.ts');
+const { Runs } = await import('../src/main/runs.ts');
 const { hashOf, isInside } = await import('../src/main/files.ts');
 const {
   detectDependencySetup,
@@ -5278,6 +5279,166 @@ await (async () => {
       assert.equal(glossary.includes('**Starter template**'), true);
       assert.equal(glossary.includes('_Avoid_: Project'), false);
       assert.equal(glossary.includes('templates'), false);
+    });
+
+    test('WDL-234: pre-commit hook runs npm run check and skips npm run smoke', () => {
+      const hook = fs.readFileSync(
+        path.join(process.cwd(), '.githooks/pre-commit'),
+        'utf8',
+      );
+      assert.equal(hook.includes('npm run check'), true);
+      assert.equal(hook.includes('npm run smoke'), false);
+    });
+
+    test('WDL-159: Runs.finish tracks directEdits outside checked MCP actions while preserving undo', () => {
+      const runsDir = path.join(tmpBase, 'wdl-159-runs');
+      fs.mkdirSync(path.join(runsDir, 'src/pages'), { recursive: true });
+      fs.mkdirSync(path.join(runsDir, 'src/styles'), { recursive: true });
+      fs.writeFileSync(
+        path.join(runsDir, 'src/pages/index.astro'),
+        '<h1>v1</h1>\n',
+      );
+      fs.writeFileSync(
+        path.join(runsDir, 'src/styles/main.css'),
+        'body { color: #111; }\n',
+      );
+      const runs = new Runs();
+      const r1 = runs.start(runsDir, 'codex', 'Mixed edits');
+      fs.writeFileSync(
+        path.join(runsDir, 'src/pages/index.astro'),
+        '<h1>v2</h1>\n',
+      );
+      fs.writeFileSync(
+        path.join(runsDir, 'src/styles/main.css'),
+        'body { color: #222; }\n',
+      );
+      const finished1 = runs.finish(runsDir, r1.id, {
+        claimed: ['src/pages/index.astro', 'src/styles/main.css'],
+        checkedFiles: {
+          'src/pages/index.astro': hashOf('<h1>v2</h1>\n'),
+        },
+      });
+      assert.deepEqual(finished1?.directEdits, ['src/styles/main.css']);
+      assert.equal(runs.canUndo(runsDir, r1.id), true);
+
+      const r2 = runs.start(runsDir, 'codex', 'Checked edit only');
+      fs.writeFileSync(
+        path.join(runsDir, 'src/pages/index.astro'),
+        '<h1>v3</h1>\n',
+      );
+      const finished2 = runs.finish(runsDir, r2.id, {
+        claimed: ['src/pages/index.astro'],
+        checkedFiles: {
+          'src/pages/index.astro': hashOf('<h1>v3</h1>\n'),
+        },
+      });
+      assert.equal(finished2?.directEdits, undefined);
+
+      // Codex P2: checked MCP edit followed by direct overwrite on the same file
+      const r3 = runs.start(runsDir, 'codex', 'Checked then overwritten');
+      fs.writeFileSync(
+        path.join(runsDir, 'src/pages/index.astro'),
+        '<h1>v3-direct-overwrite</h1>\n',
+      );
+      const finished3 = runs.finish(runsDir, r3.id, {
+        claimed: ['src/pages/index.astro'],
+        checkedFiles: {
+          'src/pages/index.astro': hashOf('<h1>v3-mcp-only</h1>\n'),
+        },
+      });
+      assert.deepEqual(finished3?.directEdits, ['src/pages/index.astro']);
+    });
+
+    const cfSiteRoot = path.join(tmpBase, 'wdl-241-cf');
+    fs.mkdirSync(path.join(cfSiteRoot, 'src/pages'), { recursive: true });
+    fs.writeFileSync(
+      path.join(cfSiteRoot, 'astro.config.mjs'),
+      'export default {};\n',
+    );
+    fs.writeFileSync(
+      path.join(cfSiteRoot, 'src/pages/index.astro'),
+      '<h1>Hi</h1>\n',
+    );
+    fs.writeFileSync(
+      path.join(cfSiteRoot, 'package.json'),
+      JSON.stringify({
+        name: 'wdl-241-cf',
+        scripts: {
+          build:
+            "node -e \"const fs=require('node:fs'); fs.mkdirSync('dist',{recursive:true}); fs.writeFileSync('dist/index.html','<h1>Hi</h1>');\"",
+        },
+      }),
+    );
+    const cfCalls = [];
+    const cfAutoCreateRes = await deployCloudflarePagesAsync(
+      cfSiteRoot,
+      'wdl-241-new-site',
+      {
+        runner: async (_cmd, args) => {
+          cfCalls.push(args);
+          if (cfCalls.length === 1) {
+            return {
+              status: 1,
+              stdout: '',
+              stderr:
+                '✘ [ERROR] This command cannot be run in a non-interactive context',
+            };
+          }
+          if (cfCalls.length === 2) {
+            return { status: 0, stdout: 'Created project', stderr: '' };
+          }
+          return {
+            status: 0,
+            stdout:
+              'Deployment complete! Take a peek over at https://wdl-241-new-site.pages.dev\n',
+            stderr: '',
+          };
+        },
+      },
+    );
+    test('WDL-241: deployCloudflarePagesAsync creates missing Pages project and retries deploy with --branch main', () => {
+      assert.equal(
+        cfAutoCreateRes.ok,
+        true,
+        `${cfAutoCreateRes.problem ?? ''}\n${cfAutoCreateRes.log ?? ''}`,
+      );
+      assert.equal(cfAutoCreateRes.url, 'https://wdl-241-new-site.pages.dev');
+      assert.equal(cfCalls.length, 3);
+      assert.equal(cfCalls[0].includes('--branch'), true);
+      assert.equal(cfCalls[0].includes('main'), true);
+      assert.equal(cfCalls[1].includes('create'), true);
+      assert.equal(cfCalls[1].includes('--production-branch'), true);
+      assert.equal(cfCalls[2].includes('--branch'), true);
+    });
+
+    let cfCreateFailStep = 0;
+    const cfCreateAuthFailRes = await deployCloudflarePagesAsync(
+      cfSiteRoot,
+      'wdl-241-auth-fail',
+      {
+        runner: async () => {
+          cfCreateFailStep += 1;
+          if (cfCreateFailStep === 1) {
+            return {
+              status: 1,
+              stdout: '',
+              stderr:
+                '✘ [ERROR] This command cannot be run in a non-interactive context',
+            };
+          }
+          return {
+            status: 1,
+            stdout: '',
+            stderr:
+              '✘ [ERROR] Not logged in. Run wrangler login or set CLOUDFLARE_API_TOKEN',
+          };
+        },
+      },
+    );
+    test('WDL-241: failed project create surfaces create failure and auth guidance', () => {
+      assert.equal(cfCreateAuthFailRes.ok, false);
+      assert.equal(cfCreateAuthFailRes.isAuthError, true);
+      assert.ok(cfCreateAuthFailRes.problem?.includes('Wrangler login'));
     });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });

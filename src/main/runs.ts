@@ -42,6 +42,8 @@ export type Run = {
   cssChanges?: CssRuleChange[];
   /** Changed non-deleted pages other than the page currently open in the preview. */
   otherPages?: ChangedPage[];
+  /** Files the agent edited outside Cauldron's checked MCP actions (WDL-159). */
+  directEdits?: string[];
 };
 
 export type UndoResult =
@@ -355,6 +357,11 @@ export class Runs {
        * Any other change could be someone else's, so undo refuses it.
        */
       claimed?: string[];
+      /**
+       * Post-action content hashes (null if deleted) for files modified through Cauldron's checked MCP actions.
+       * Any changed file missing here or whose final hash differs was edited directly outside stale-file guards.
+       */
+      checkedFiles?: Record<string, string | null>;
     } = {},
   ): Run | null {
     const run = this.runs.find((item) => item.id === id);
@@ -367,6 +374,14 @@ export class Runs {
       path.isAbsolute(file) ? path.relative(root, file) : file;
     const claimed = options.claimed
       ? new Set(options.claimed.map(relative))
+      : null;
+    const checked = options.checkedFiles
+      ? new Map(
+          Object.entries(options.checkedFiles).map(([file, hash]) => [
+            relative(file),
+            hash,
+          ]),
+        )
       : null;
     const outside = new Map<string, { firstBefore: string; last: string }>();
     for (const item of options.outside ?? []) {
@@ -431,6 +446,17 @@ export class Runs {
     run.outside = sorted
       .filter((file) => file.ownership === 'outside')
       .map((file) => file.file);
+    if (checked !== null) {
+      const directEdits = run.files
+        .filter(
+          (file) =>
+            !checked.has(file.file) ||
+            checked.get(file.file) !== file.afterHash,
+        )
+        .map((file) => file.file);
+      if (directEdits.length > 0) run.directEdits = directEdits;
+      else delete run.directEdits;
+    }
     const unreadable = [
       ...new Set([...before.problems, ...after.problems]),
     ].sort();

@@ -963,6 +963,9 @@ function runSummary(run: Run) {
     highlighted: run.highlighted,
     cssChanges: run.cssChanges ?? [],
     otherPages: run.otherPages ?? [],
+    ...(run.directEdits && run.directEdits.length > 0
+      ? { directEdits: run.directEdits }
+      : {}),
     undoAvailable: state.site
       ? state.runs.canUndo(state.site.root, run.id)
       : false,
@@ -971,12 +974,29 @@ function runSummary(run: Run) {
 
 /** Files each Cauldron-started agent run said it wrote, by run id (plan 2.2). */
 const runClaims = new Map<string, Set<string>>();
+/** Files edited via Cauldron's own checked MCP actions with post-action hashes, by run id (WDL-159). */
+const checkedRunClaims = new Map<string, Map<string, string | null>>();
 
 function claimForRun(id: string | null, file: string): void {
   if (!id) return;
   const claims = runClaims.get(id) ?? new Set<string>();
   claims.add(file);
   runClaims.set(id, claims);
+}
+
+function claimCheckedForRun(id: string | null, file: string): void {
+  if (!id) return;
+  const claims = checkedRunClaims.get(id) ?? new Map<string, string | null>();
+  let hash: string | null = null;
+  try {
+    if (fs.existsSync(file)) {
+      hash = hashOf(fs.readFileSync(file, 'utf8'));
+    }
+  } catch {
+    // Leave null so finish() surfaces the file if its state cannot be verified.
+  }
+  claims.set(file, hash);
+  checkedRunClaims.set(id, claims);
 }
 
 function resolveActionFile(
@@ -1006,8 +1026,10 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
       ? readFile(full)
       : null;
   const result = runAction(site.root, request);
-  if (result.ok && fromAgent && full && !isReadOnlyAction(request.action))
+  if (result.ok && fromAgent && full && !isReadOnlyAction(request.action)) {
     claimForRun(state.agentRunId, full);
+    claimCheckedForRun(state.agentRunId, full);
+  }
   if (result.ok && full) {
     const exists = fs.existsSync(full);
     if (before && exists) {
@@ -2654,8 +2676,10 @@ async function finishAgentRun(note: string): Promise<void> {
   const run = state.runs.finish(site.root, id, {
     outside: outsideWrites(runStartedAt(id)),
     claimed: [...(runClaims.get(id) ?? [])],
+    checkedFiles: Object.fromEntries(checkedRunClaims.get(id) ?? []),
   });
   runClaims.delete(id);
+  checkedRunClaims.delete(id);
   if (!run) return;
   recordRunComparison(site.root, run, after);
   if (note) state.runs.fail(id, note);

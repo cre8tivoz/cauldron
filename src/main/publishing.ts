@@ -726,6 +726,25 @@ export function classifyWranglerFailure(
   };
 }
 
+function isMissingCloudflareProjectError(output: string): boolean {
+  return /project not found|cannot be run in a non-interactive context/i.test(
+    output,
+  );
+}
+
+function buildWranglerCommand(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): { cmd: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const wranglerBin = resolveToolPath('wrangler');
+  const npxBin = resolveToolPath('npx') ?? 'npx';
+  return {
+    cmd: wranglerBin ?? npxBin,
+    args: wranglerBin ? args : ['--no-install', 'wrangler', ...args],
+    env,
+  };
+}
+
 function prepareCloudflareDeployStep(
   root: string,
   build: { ok: boolean; log: string; dist: string },
@@ -735,8 +754,11 @@ function prepareCloudflareDeployStep(
   | { ok: false; result: CloudflareDeployResult }
   | {
       ok: true;
+      slug: string;
       cmd: string;
       args: string[];
+      createCmd: string;
+      createArgs: string[];
       env: NodeJS.ProcessEnv;
       createdFiles: string[];
       buildLog: string;
@@ -796,22 +818,26 @@ function prepareCloudflareDeployStep(
     FORCE_COLOR: '0',
     NO_COLOR: '1',
   });
-  const wranglerBin = resolveToolPath('wrangler');
-  const npxBin = resolveToolPath('npx') ?? 'npx';
-  const cmd = wranglerBin ?? npxBin;
-  const args = wranglerBin
-    ? ['pages', 'deploy', outRel, '--project-name', slug]
-    : [
-        '--no-install',
-        'wrangler',
-        'pages',
-        'deploy',
-        outRel,
-        '--project-name',
-        slug,
-      ];
+  const deployCmd = buildWranglerCommand(
+    ['pages', 'deploy', outRel, '--project-name', slug, '--branch', 'main'],
+    env,
+  );
+  const createCmd = buildWranglerCommand(
+    ['pages', 'project', 'create', slug, '--production-branch', 'main'],
+    env,
+  );
 
-  return { ok: true, cmd, args, env, createdFiles, buildLog: build.log };
+  return {
+    ok: true,
+    slug,
+    cmd: deployCmd.cmd,
+    args: deployCmd.args,
+    createCmd: createCmd.cmd,
+    createArgs: createCmd.args,
+    env,
+    createdFiles,
+    buildLog: build.log,
+  };
 }
 
 function finalizeCloudflareDeploy(
@@ -862,6 +888,38 @@ function finalizeCloudflareDeploy(
   };
 }
 
+function runSyncWrangler(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): CommandOutput | null {
+  try {
+    const res = spawnSync(cmd, args, {
+      cwd,
+      env,
+      encoding: 'utf8',
+      timeout: 120000,
+    });
+    return {
+      status: res.status,
+      stdout: res.stdout ?? '',
+      stderr: res.stderr ?? '',
+      error: res.error,
+    };
+  } catch (err) {
+    console.error('[publishing] Cloudflare deployment process failed:', err);
+    return null;
+  }
+}
+
+function shouldCreateCloudflareProject(result: CommandOutput | null): boolean {
+  if (!result || (result.status === 0 && !result.error)) return false;
+  const combined =
+    `${result.stdout}\n${result.stderr}\n${result.error?.message ?? ''}`.trim();
+  return isMissingCloudflareProjectError(combined);
+}
+
 export function deployCloudflarePages(
   root: string,
   projectName?: string,
@@ -871,22 +929,19 @@ export function deployCloudflarePages(
   const step = prepareCloudflareDeployStep(root, build, projectName, options);
   if (!step.ok) return step.result;
 
-  let deployResult: CommandOutput | null = null;
-  try {
-    const res = spawnSync(step.cmd, step.args, {
-      cwd: root,
-      env: step.env,
-      encoding: 'utf8',
-      timeout: 120000,
-    });
-    deployResult = {
-      status: res.status,
-      stdout: res.stdout ?? '',
-      stderr: res.stderr ?? '',
-      error: res.error,
-    };
-  } catch (err) {
-    console.error('[publishing] Cloudflare deployment process failed:', err);
+  let deployResult = runSyncWrangler(step.cmd, step.args, root, step.env);
+  if (shouldCreateCloudflareProject(deployResult)) {
+    const createResult = runSyncWrangler(
+      step.createCmd,
+      step.createArgs,
+      root,
+      step.env,
+    );
+    if (createResult && createResult.status === 0 && !createResult.error) {
+      deployResult = runSyncWrangler(step.cmd, step.args, root, step.env);
+    } else if (createResult) {
+      deployResult = createResult;
+    }
   }
   return finalizeCloudflareDeploy(
     deployResult,
@@ -912,11 +967,16 @@ export async function deployCloudflarePagesAsync(
   if (!step.ok) return step.result;
 
   const runner = options.runner ?? runCommandAsync;
-  const deployResult = await runner(step.cmd, step.args, {
-    cwd: root,
-    env: step.env,
-    timeoutMs: 120000,
-  });
+  const runOpts = { cwd: root, env: step.env, timeoutMs: 120000 };
+  let deployResult = await runner(step.cmd, step.args, runOpts);
+  if (shouldCreateCloudflareProject(deployResult)) {
+    const createResult = await runner(step.createCmd, step.createArgs, runOpts);
+    if (createResult.status === 0 && !createResult.error) {
+      deployResult = await runner(step.cmd, step.args, runOpts);
+    } else {
+      deployResult = createResult;
+    }
+  }
   return finalizeCloudflareDeploy(
     deployResult,
     step.createdFiles,
