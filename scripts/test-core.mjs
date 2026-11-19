@@ -5651,6 +5651,92 @@ await (async () => {
         true,
       );
     });
+    const {
+      isHomePreviewUrl,
+      readProjectThemePalette,
+      readProjectThumbnailDataUrl,
+      removeProjectThumbnail,
+      saveProjectThumbnail,
+      thumbnailFilePath,
+    } = await import('../src/main/thumbnails.ts');
+
+    test('WDL-174: project card thumbnail cache, theme palette fallback, and home URL guard', () => {
+      const thumbsDir = path.join(tmpBase, 'wdl-174-thumbs');
+      const siteDir = path.join(tmpBase, 'wdl-174-site');
+      fs.mkdirSync(path.join(siteDir, 'cauldron'), { recursive: true });
+      fs.writeFileSync(
+        path.join(siteDir, 'cauldron', 'tokens.css'),
+        `:root {
+          --cauldron-c-bg: #f8f4e9;
+          --cauldron-c-surface: #fffdf7;
+          --cauldron-c-ink: #2a1712;
+          --cauldron-c-primary: #b84b30;
+          --cauldron-c-line: #d99a5b;
+        }`,
+      );
+
+      assert.equal(readProjectThumbnailDataUrl(thumbsDir, siteDir), null);
+      assert.equal(
+        saveProjectThumbnail(thumbsDir, siteDir, Buffer.alloc(0)),
+        false,
+      );
+      assert.equal(
+        saveProjectThumbnail(thumbsDir, siteDir, Buffer.alloc(600 * 1024, 1)),
+        false,
+      );
+
+      const sampleJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+      assert.equal(saveProjectThumbnail(thumbsDir, siteDir, sampleJpeg), true);
+      const dataUrl = readProjectThumbnailDataUrl(thumbsDir, siteDir);
+      assert.equal(
+        dataUrl,
+        `data:image/jpeg;base64,${sampleJpeg.toString('base64')}`,
+      );
+      assert.equal(fs.existsSync(thumbnailFilePath(thumbsDir, siteDir)), true);
+
+      removeProjectThumbnail(thumbsDir, siteDir);
+      assert.equal(readProjectThumbnailDataUrl(thumbsDir, siteDir), null);
+      assert.equal(fs.existsSync(siteDir), true);
+
+      const palette = readProjectThemePalette(siteDir);
+      assert.deepEqual(palette, {
+        bg: '#f8f4e9',
+        surface: '#fffdf7',
+        ink: '#2a1712',
+        primary: '#b84b30',
+        line: '#d99a5b',
+      });
+
+      // Unsafe CSS token values are rejected cleanly.
+      fs.writeFileSync(
+        path.join(siteDir, 'cauldron', 'tokens.css'),
+        `:root { --cauldron-c-bg: url(javascript:alert(1)); --cauldron-c-ink: #111; }`,
+      );
+      assert.equal(readProjectThemePalette(siteDir), null);
+
+      assert.equal(
+        isHomePreviewUrl('http://127.0.0.1:4321/', 'http://127.0.0.1:4321'),
+        true,
+      );
+      assert.equal(
+        isHomePreviewUrl(
+          'http://127.0.0.1:4321/index.html',
+          'http://127.0.0.1:4321',
+        ),
+        true,
+      );
+      assert.equal(
+        isHomePreviewUrl(
+          'http://127.0.0.1:4321/about',
+          'http://127.0.0.1:4321',
+        ),
+        false,
+      );
+      assert.equal(
+        isHomePreviewUrl('http://127.0.0.1:9999/', 'http://127.0.0.1:4321'),
+        false,
+      );
+    });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });
   }

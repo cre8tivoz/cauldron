@@ -90,6 +90,14 @@ import {
   loadRecents,
   removeRecent,
 } from './projects';
+import {
+  isHomePreviewUrl,
+  readProjectThemePalette,
+  readProjectThumbnailDataUrl,
+  removeProjectThumbnail,
+  saveProjectThumbnail,
+  thumbnailFilePath,
+} from './thumbnails';
 import { STARTER_TEMPLATES } from './templates';
 import {
   detectDependencySetup,
@@ -207,6 +215,53 @@ function summaryOf(site: Site | null): Site | null {
 /** The small JSON library of recent projects, persisted across restarts. */
 function recentsStorePath(): string {
   return path.join(app.getPath('userData'), 'recent-projects.json');
+}
+
+/** Cached JPEG snapshots of opened projects for the Projects screen (WDL-174). */
+function thumbnailsDir(): string {
+  return path.join(app.getPath('userData'), 'project-thumbnails');
+}
+
+let thumbnailTimer: NodeJS.Timeout | null = null;
+
+function cancelThumbnailCapture(): void {
+  if (thumbnailTimer) {
+    clearTimeout(thumbnailTimer);
+    thumbnailTimer = null;
+  }
+}
+
+/**
+ * Schedules a debounced preview snapshot for the open site (WDL-174). Only
+ * overwrites an existing thumbnail when viewing the home page (`/`), skips
+ * Vite build-error overlays, and never touches the site folder itself.
+ */
+function scheduleThumbnailCapture(root: string, serverUrl: string): void {
+  cancelThumbnailCapture();
+  thumbnailTimer = setTimeout(() => {
+    thumbnailTimer = null;
+    void (async () => {
+      if (state.site?.root !== root || state.server?.url !== serverUrl) return;
+      const contents = state.preview.webContents;
+      if (!contents) return;
+      const currentUrl = contents.getURL();
+      const cacheDir = thumbnailsDir();
+      const hasExisting = fs.existsSync(thumbnailFilePath(cacheDir, root));
+      if (hasExisting && !isHomePreviewUrl(currentUrl, serverUrl)) return;
+      const previewError = await inspectPreviewError();
+      if (previewError) return;
+      if (state.site?.root !== root || state.server?.url !== serverUrl) return;
+      const bytes = await state.preview.captureThumbnail(480);
+      if (
+        !bytes ||
+        state.site?.root !== root ||
+        state.server?.url !== serverUrl
+      ) {
+        return;
+      }
+      saveProjectThumbnail(cacheDir, root, bytes);
+    })();
+  }, 800);
 }
 
 /**
@@ -429,6 +484,7 @@ function pushHistory(): void {
 }
 
 async function stopPreview(): Promise<void> {
+  cancelThumbnailCapture();
   if (state.server) {
     const s = state.server;
     state.server = null;
@@ -499,6 +555,7 @@ async function startPreview(): Promise<
   }
   await startMcp(site);
   send('cauldron:preview', { running: true, url: server.url });
+  scheduleThumbnailCapture(site.root, server.url);
   status(`Preview running at ${server.url}`);
   return { url: server.url };
 }
@@ -1486,17 +1543,21 @@ function registerIpc(): void {
 
   handle('cauldron:projects-home', () => {
     const library = loadRecents(recentsStorePath());
+    const cacheDir = thumbnailsDir();
     return {
       problem: library.problem,
-      projects: library.projects.map((project) => ({
-        ...project,
-        missing: !fs.existsSync(project.path),
-        // So the library can offer "Install dependencies" again on an entry
-        // whose install failed or was dismissed, without re-opening first.
-        prepared:
-          fs.existsSync(project.path) &&
-          detectDependencySetup(project.path).hasAstroBin,
-      })),
+      projects: library.projects.map((project) => {
+        const exists = fs.existsSync(project.path);
+        return {
+          ...project,
+          missing: !exists,
+          // So the library can offer "Install dependencies" again on an entry
+          // whose install failed or was dismissed, without re-opening first.
+          prepared: exists && detectDependencySetup(project.path).hasAstroBin,
+          thumbnailUrl: readProjectThumbnailDataUrl(cacheDir, project.path),
+          palette: exists ? readProjectThemePalette(project.path) : null,
+        };
+      }),
     };
   });
 
@@ -1636,6 +1697,7 @@ function registerIpc(): void {
   handle('cauldron:remove-recent', (_event, projectPath: string) => {
     const result = removeRecent(recentsStorePath(), projectPath);
     if (result.problem) fail(result.problem);
+    else removeProjectThumbnail(thumbnailsDir(), projectPath);
     return { ok: !result.problem, problem: result.problem ?? undefined };
   });
 
@@ -2975,6 +3037,11 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
   editorRendererGone = false;
   state.window = window;
   state.preview.attach(window, path.join(__dirname, 'preview-preload.js'));
+  state.preview.webContents?.on('did-finish-load', () => {
+    if (state.site && state.server) {
+      scheduleThumbnailCapture(state.site.root, state.server.url);
+    }
+  });
 
   window.webContents.on('did-start-loading', () => {
     editorRendererGone = false;
