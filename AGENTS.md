@@ -33,8 +33,8 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 
 ## What is settled — do not reopen
 
-- **In v1:** new site, open existing, a persistent recent list, shared dependency storage (`pnpm` when installed, seamless `npm` fallback otherwise). The built-in chat drives installed Claude Code, Codex and Hermes in the background.
-- **Outside v1:** other agent apps controlling Cauldron from outside, bring-your-own API keys, Windows and Linux, a cloud platform. Real one-click Cloudflare deploy is parked until Billy authorises it separately.
+- **In v1:** new site, open existing, a persistent recent list with project-card thumbnails (`WDL-174`), shared dependency storage (`pnpm` when installed, seamless `npm` fallback otherwise), built-in chat driving installed Claude Code, Codex and Hermes, and one-click publishing to Cloudflare Pages, Vercel, and GitHub Pages (`WDL-241`, live-verified).
+- **Outside v1:** other agent apps controlling Cauldron from outside, bring-your-own API keys, Windows and Linux, a cloud platform, and one-click Netlify deploy (moved to Backlog under `WDL-255`).
 - **macOS distribution & signing (closed):** Cauldron distributes through **GitHub Releases** as an **unsigned** Apple Silicon build (`Cauldron-darwin-arm64-<version>.zip`) with **"Open Anyway"** instructions in [`README.md`](README.md). Do not reopen Apple Developer code signing/notarisation (Billy has no Apple Developer account) or a `witchdaddylabs.com` download page (`WDL-178` canceled).
 - **Design judgement is closed.** Billy accepted the reviewed PeNtA iteration. No further blind comparisons or regeneration are required.
 - **Ten design directions**, including Componine, Niki Studio and Henry From Online. Keep them.
