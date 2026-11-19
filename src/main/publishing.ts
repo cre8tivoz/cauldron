@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { loadDrafts } from './recovery';
 import { buildSite, buildSiteAsync } from './quality';
@@ -982,4 +983,554 @@ export async function deployCloudflarePagesAsync(
     step.createdFiles,
     step.buildLog,
   );
+}
+
+export type CommandRunner = (
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
+) => Promise<CommandOutput>;
+
+function slugForSite(root: string, projectName?: string): string {
+  const raw = projectName
+    ? packageSlug(projectName)
+    : path
+        .basename(root)
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-');
+  return raw || 'cauldron-site';
+}
+
+function validateBuiltDist(
+  root: string,
+  build: { ok: boolean; log: string; dist: string },
+  hostLabel: string,
+):
+  | { ok: true; outRel: string }
+  | { ok: false; result: CloudflareDeployResult } {
+  if (!build.ok) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        problem: `Static build failed before ${hostLabel} deployment.`,
+        log: build.log,
+      },
+    };
+  }
+  const outRel = path.relative(root, build.dist) || 'dist';
+  if (!fs.existsSync(path.join(build.dist, 'index.html'))) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        problem: `Build output missing ${path.join(outRel, 'index.html')}.`,
+        log: build.log,
+      },
+    };
+  }
+  return { ok: true, outRel };
+}
+
+function summarizeCliError(
+  output: string,
+  status: number | null,
+  hostLabel: string,
+): string {
+  const errorLines = output
+    .split('\n')
+    .map((line) => line.replace(/^[\s✘✕*─!>]+/, '').trim())
+    .filter(Boolean);
+  const concise =
+    errorLines.find((line) => /^error[:\s]/i.test(line)) ??
+    errorLines[errorLines.length - 1];
+  const shortReason = concise ? concise.slice(0, 220) : '';
+  return shortReason
+    ? `${hostLabel} deployment failed: ${shortReason}`
+    : `${hostLabel} deployment failed (exit code ${status ?? 'unknown'}).`;
+}
+
+export function parseVercelUrl(output: string): string | undefined {
+  const aliased = output.match(
+    /Aliased\s+(https:\/\/[a-z0-9.-]+\.vercel\.app(?:\/[^\s)'"`]*)?)/i,
+  )?.[1];
+  if (aliased) return aliased;
+  const production = output.match(
+    /Production\s+(https:\/\/[a-z0-9.-]+\.vercel\.app(?:\/[^\s)'"`]*)?)/i,
+  )?.[1];
+  if (production) return production;
+  return output.match(
+    /https:\/\/[a-z0-9.-]+\.vercel\.app(?:\/[^\s)'"`]*)?/i,
+  )?.[0];
+}
+
+export function classifyVercelFailure(
+  output: string,
+  status: number | null,
+  timedOut?: boolean,
+  error?: Error,
+): { isAuthError: boolean; problem: string } {
+  if (timedOut) {
+    return {
+      isAuthError: false,
+      problem: 'Vercel deployment timed out before Vercel CLI finished.',
+    };
+  }
+  const cleanOutput = output.trim();
+  if (
+    /no existing credentials|not logged in|vercel login|VERCEL_TOKEN|invalid token|not authorized|unauthorized/i.test(
+      cleanOutput,
+    )
+  ) {
+    return {
+      isAuthError: true,
+      problem:
+        'Vercel deployment requires login (`npx vercel login`) or a valid VERCEL_TOKEN.',
+    };
+  }
+  if (
+    (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' ||
+    /could not determine executable|vercel: command not found|vercel.*not found/i.test(
+      cleanOutput,
+    )
+  ) {
+    return {
+      isAuthError: false,
+      problem:
+        'Vercel CLI could not be found. Install vercel before deploying to Vercel.',
+    };
+  }
+  return {
+    isAuthError: false,
+    problem: summarizeCliError(cleanOutput, status, 'Vercel'),
+  };
+}
+
+export async function deployVercelAsync(
+  root: string,
+  projectName?: string,
+  options: { runner?: CommandRunner } = {},
+): Promise<CloudflareDeployResult> {
+  const build = await buildSiteAsync(root);
+  const valid = validateBuiltDist(root, build, 'Vercel');
+  if (!valid.ok) return valid.result;
+
+  const slug = slugForSite(root, projectName);
+  const env = childEnvForTools({
+    ...process.env,
+    CI: '1',
+    VERCEL_TELEMETRY_DISABLED: '1',
+    FORCE_COLOR: '0',
+    NO_COLOR: '1',
+  });
+  const vercelBin = resolveToolPath('vercel');
+  const npxBin = resolveToolPath('npx') ?? 'npx';
+  const runner = options.runner ?? runCommandAsync;
+
+  const stagingParent = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-vercel-'),
+  );
+  const stagingDir = path.join(stagingParent, slug);
+  try {
+    fs.cpSync(build.dist, stagingDir, { recursive: true });
+    const deployArgs = ['deploy', stagingDir, '--prod', '--yes'];
+    const cmd = vercelBin ?? npxBin;
+    const args = vercelBin
+      ? deployArgs
+      : ['--no-install', 'vercel', ...deployArgs];
+    const deployResult = await runner(cmd, args, {
+      cwd: stagingParent,
+      env,
+      timeoutMs: 180000,
+    });
+    const output = `${deployResult.stdout}\n${deployResult.stderr}`.trim();
+    if (deployResult.status !== 0 || deployResult.error) {
+      const details = output || deployResult.error?.message || '';
+      console.error(
+        `[publishing] Vercel deployment failed:${details ? `\n${details}` : ''}`,
+      );
+      const classified = classifyVercelFailure(
+        details,
+        deployResult.status,
+        deployResult.timedOut,
+        deployResult.error,
+      );
+      return {
+        ok: false,
+        isAuthError: classified.isAuthError,
+        problem: classified.problem,
+        log: `${build.log}\n${details}`.trim(),
+      };
+    }
+
+    const url = parseVercelUrl(output);
+    return {
+      ok: true,
+      url,
+      ...(url
+        ? {}
+        : {
+            note: "Deployed, but Vercel didn't report the address — check your Vercel dashboard.",
+          }),
+      log:
+        output ||
+        (url ? `Site deployed to Vercel: ${url}` : 'Deployed to Vercel.'),
+    };
+  } finally {
+    fs.rmSync(stagingParent, { recursive: true, force: true });
+  }
+}
+
+export function parseGitHubRepoFromRemote(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim();
+  const httpsMatch = trimmed.match(
+    /^https?:\/\/github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i,
+  );
+  if (httpsMatch) return httpsMatch[1];
+  const sshMatch = trimmed.match(
+    /^git@github\.com:([^/\s]+\/[^/\s]+?)(?:\.git)?$/i,
+  );
+  return sshMatch ? sshMatch[1] : null;
+}
+
+export function parseGitHubPagesUrl(output: string): string | undefined {
+  return output.match(
+    /https:\/\/[a-z0-9.-]+\.github\.io(?:\/[^\s)'"`]*)?/i,
+  )?.[0];
+}
+
+export function classifyGitHubPagesFailure(
+  output: string,
+  status: number | null,
+  timedOut?: boolean,
+  error?: Error,
+): { isAuthError: boolean; problem: string } {
+  if (timedOut) {
+    return {
+      isAuthError: false,
+      problem: 'GitHub Pages deployment timed out before completion.',
+    };
+  }
+  const cleanOutput = output.trim();
+  if (
+    /not logged into any github hosts|gh auth login|authentication failed|could not read username|bad credentials|requires authentication|HTTP 401|HTTP 403/i.test(
+      cleanOutput,
+    )
+  ) {
+    return {
+      isAuthError: true,
+      problem:
+        'GitHub Pages deployment requires GitHub CLI login (`gh auth login`).',
+    };
+  }
+  if (
+    (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' ||
+    /gh: command not found|gh.*not found/i.test(cleanOutput)
+  ) {
+    return {
+      isAuthError: false,
+      problem:
+        'GitHub CLI (`gh`) could not be found. Install gh and run `gh auth login` before deploying to GitHub Pages.',
+    };
+  }
+  return {
+    isAuthError: false,
+    problem: summarizeCliError(cleanOutput, status, 'GitHub Pages'),
+  };
+}
+
+export function rewriteGitHubPagesBase(dir: string, basePrefix: string): void {
+  const cleanPrefix = basePrefix.replace(/\/+$/, '');
+  if (!cleanPrefix || cleanPrefix === '/') return;
+
+  const prefixPath = (raw: string): string => {
+    if (!raw.startsWith('/') || raw.startsWith('//')) return raw;
+    if (raw === cleanPrefix || raw.startsWith(`${cleanPrefix}/`)) return raw;
+    return raw === '/' ? `${cleanPrefix}/` : `${cleanPrefix}${raw}`;
+  };
+
+  const rewriteText = (text: string, isHtml: boolean): string => {
+    let out = text.replace(
+      /\burl\(\s*(['"]?)(\/[^)'"\s]*)\1\s*\)/gi,
+      (_m, quote: string, p: string) => `url(${quote}${prefixPath(p)}${quote})`,
+    );
+    if (isHtml) {
+      out = out.replace(
+        /\b(href|src|action|poster)=(['"])(\/[^'"]*)\2/gi,
+        (_m, attr: string, quote: string, p: string) =>
+          `${attr}=${quote}${prefixPath(p)}${quote}`,
+      );
+      out = out.replace(
+        /\bsrcset=(['"])([^'"]*)\1/gi,
+        (_m, quote: string, value: string) => {
+          const updated = value
+            .split(',')
+            .map((part) => {
+              const trimmed = part.trim();
+              if (!trimmed) return trimmed;
+              const [urlPart, ...rest] = trimmed.split(/\s+/);
+              return [prefixPath(urlPart), ...rest].join(' ');
+            })
+            .join(', ');
+          return `srcset=${quote}${updated}${quote}`;
+        },
+      );
+    }
+    return out;
+  };
+
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && /\.(html|css)$/i.test(entry.name)) {
+        const original = fs.readFileSync(full, 'utf8');
+        const next = rewriteText(original, /\.html$/i.test(entry.name));
+        if (next !== original) fs.writeFileSync(full, next, 'utf8');
+      }
+    }
+  };
+  walk(dir);
+}
+
+export async function deployGitHubPagesAsync(
+  root: string,
+  repoName?: string,
+  options: { runner?: CommandRunner } = {},
+): Promise<CloudflareDeployResult> {
+  const build = await buildSiteAsync(root);
+  const valid = validateBuiltDist(root, build, 'GitHub Pages');
+  if (!valid.ok) return valid.result;
+
+  const runner = options.runner ?? runCommandAsync;
+  const env = childEnvForTools({
+    ...process.env,
+    CI: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    NO_COLOR: '1',
+  });
+  const ghBin = resolveToolPath('gh') ?? 'gh';
+  const gitBin = resolveToolPath('git') ?? 'git';
+  const logs: string[] = [build.log];
+
+  const failStep = (res: CommandOutput) => {
+    const details =
+      `${res.stdout}\n${res.stderr}`.trim() || res.error?.message || '';
+    const classified = classifyGitHubPagesFailure(
+      details,
+      res.status,
+      res.timedOut,
+      res.error,
+    );
+    return {
+      ok: false as const,
+      isAuthError: classified.isAuthError,
+      problem: classified.problem,
+      log: [...logs, details].filter(Boolean).join('\n'),
+    };
+  };
+
+  // 1. Verify gh CLI authentication
+  const authRes = await runner(ghBin, ['auth', 'status'], {
+    cwd: root,
+    env,
+    timeoutMs: 15000,
+  });
+  if (authRes.status !== 0 || authRes.error) {
+    return failStep(authRes);
+  }
+
+  // 2. Resolve target GitHub owner/repo (from existing GitHub origin remote or gh user + slug)
+  let repoSlug: string | null = null;
+  if (fs.existsSync(path.join(root, '.git'))) {
+    const remoteRes = await runner(gitBin, ['remote', 'get-url', 'origin'], {
+      cwd: root,
+      env,
+      timeoutMs: 10000,
+    });
+    if (remoteRes.status === 0) {
+      repoSlug = parseGitHubRepoFromRemote(remoteRes.stdout);
+    }
+  }
+  if (!repoSlug) {
+    const userRes = await runner(ghBin, ['api', 'user', '--jq', '.login'], {
+      cwd: root,
+      env,
+      timeoutMs: 15000,
+    });
+    if (userRes.status !== 0 || userRes.error || !userRes.stdout.trim()) {
+      return failStep(userRes);
+    }
+    const owner = userRes.stdout.trim();
+    const name = slugForSite(root, repoName);
+    repoSlug = `${owner}/${name}`;
+  }
+
+  // 3. Ensure repository exists on GitHub
+  const viewRes = await runner(
+    ghBin,
+    ['repo', 'view', repoSlug, '--json', 'nameWithOwner'],
+    { cwd: root, env, timeoutMs: 15000 },
+  );
+  if (viewRes.status !== 0 || viewRes.error) {
+    const createRes = await runner(
+      ghBin,
+      ['repo', 'create', repoSlug, '--public'],
+      { cwd: root, env, timeoutMs: 30000 },
+    );
+    if (createRes.status !== 0 || createRes.error) {
+      return failStep(createRes);
+    }
+    logs.push(createRes.stdout.trim());
+  }
+
+  // 4. Stage dist/, apply project base-path prefix if not a user/org root site or CNAME, and push to gh-pages
+  const [repoOwner, repoShortName] = repoSlug.split('/');
+  const isUserRootSite =
+    repoShortName.toLowerCase() === `${repoOwner.toLowerCase()}.github.io`;
+  const hasCname =
+    fs.existsSync(path.join(build.dist, 'CNAME')) ||
+    fs.existsSync(path.join(root, 'public/CNAME'));
+
+  const stagingDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-ghpages-'),
+  );
+  try {
+    fs.cpSync(build.dist, stagingDir, { recursive: true });
+    if (!isUserRootSite && !hasCname) {
+      rewriteGitHubPagesBase(stagingDir, `/${repoShortName}`);
+    }
+    fs.writeFileSync(path.join(stagingDir, '.nojekyll'), '', 'utf8');
+
+    const remoteUrl = `https://github.com/${repoSlug}.git`;
+    const gitSteps: string[][] = [
+      ['init', '-b', 'gh-pages'],
+      ['config', 'user.name', 'Cauldron'],
+      ['config', 'user.email', 'cauldron@users.noreply.github.com'],
+      ['add', '-A'],
+      ['commit', '-m', 'Deploy static site to GitHub Pages'],
+      [
+        '-c',
+        'credential.helper=',
+        '-c',
+        `credential.helper=!${ghBin} auth git-credential`,
+        'push',
+        '--force',
+        remoteUrl,
+        'gh-pages',
+      ],
+    ];
+    for (const args of gitSteps) {
+      const stepRes = await runner(gitBin, args, {
+        cwd: stagingDir,
+        env,
+        timeoutMs: 60000,
+      });
+      if (stepRes.status !== 0 || stepRes.error) {
+        return failStep(stepRes);
+      }
+    }
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
+
+  // 5. Verify/configure GitHub Pages source on gh-pages and fetch the real html_url
+  const pagesGetRes = await runner(ghBin, ['api', `repos/${repoSlug}/pages`], {
+    cwd: root,
+    env,
+    timeoutMs: 15000,
+  });
+  let url: string | undefined;
+  if (pagesGetRes.status === 0 && !pagesGetRes.error) {
+    let parsed: {
+      html_url?: string;
+      build_type?: string;
+      source?: { branch?: string; path?: string };
+    } | null = null;
+    try {
+      parsed = JSON.parse(pagesGetRes.stdout);
+    } catch {
+      // Fall back to regex URL parse if test mock or output is plain text
+    }
+    url = parsed?.html_url
+      ? parseGitHubPagesUrl(parsed.html_url)
+      : parseGitHubPagesUrl(pagesGetRes.stdout);
+    const wrongSource =
+      parsed !== null &&
+      (parsed.build_type === 'workflow' ||
+        parsed.source?.branch !== 'gh-pages' ||
+        parsed.source?.path !== '/');
+    if (wrongSource) {
+      const updateRes = await runner(
+        ghBin,
+        [
+          'api',
+          '-X',
+          'PUT',
+          `repos/${repoSlug}/pages`,
+          '-f',
+          'build_type=legacy',
+          '-f',
+          'source[branch]=gh-pages',
+          '-f',
+          'source[path]=/',
+        ],
+        { cwd: root, env, timeoutMs: 20000 },
+      );
+      if (updateRes.status !== 0 || updateRes.error) {
+        return failStep(updateRes);
+      }
+      url = parseGitHubPagesUrl(updateRes.stdout) ?? url;
+    }
+  } else {
+    const pagesCreateRes = await runner(
+      ghBin,
+      [
+        'api',
+        '-X',
+        'POST',
+        `repos/${repoSlug}/pages`,
+        '-f',
+        'source[branch]=gh-pages',
+        '-f',
+        'source[path]=/',
+        '--jq',
+        '.html_url',
+      ],
+      { cwd: root, env, timeoutMs: 20000 },
+    );
+    const combined = `${pagesCreateRes.stdout}\n${pagesCreateRes.stderr}`;
+    url = parseGitHubPagesUrl(combined);
+    if (
+      pagesCreateRes.status !== 0 &&
+      !/already exists|already enabled|\b409\b/i.test(combined)
+    ) {
+      return failStep(pagesCreateRes);
+    }
+    if (!url) {
+      const retryGet = await runner(
+        ghBin,
+        ['api', `repos/${repoSlug}/pages`, '--jq', '.html_url'],
+        { cwd: root, env, timeoutMs: 15000 },
+      );
+      url = parseGitHubPagesUrl(retryGet.stdout);
+    }
+  }
+
+  return {
+    ok: true,
+    url,
+    ...(url
+      ? {}
+      : {
+          note: "Pushed to gh-pages, but GitHub didn't report the Pages URL yet — check your repository Settings → Pages.",
+        }),
+    log: [
+      ...logs,
+      url ? `Site deployed to GitHub Pages: ${url}` : 'Pushed to gh-pages.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  };
 }
