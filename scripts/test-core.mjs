@@ -102,6 +102,7 @@ const {
   parseVercelUrl,
   parseGitHubRepoFromRemote,
   parseGitHubPagesUrl,
+  rewriteGitHubPagesBase,
   classifyWranglerFailure,
   classifyVercelFailure,
   classifyGitHubPagesFailure,
@@ -5606,7 +5607,32 @@ await (async () => {
       assert.equal(ghRes.ok, true);
       assert.equal(ghRes.url, 'https://cre8tivoz.github.io/wdl-241-gh/');
       assert.equal(
-        ghCalls.some((args) => args[0] === 'push' && args.includes('gh-pages')),
+        ghCalls.some(
+          (args) =>
+            args.includes('push') &&
+            args.includes('gh-pages') &&
+            args.some((a) => a.includes('auth git-credential')),
+        ),
+        true,
+      );
+      const rewriteTmp = path.join(tmpBase, 'wdl-241-rewrite');
+      fs.mkdirSync(rewriteTmp, { recursive: true });
+      fs.writeFileSync(
+        path.join(rewriteTmp, 'index.html'),
+        '<link rel="stylesheet" href="/_astro/main.css"><a href="/work">Work</a><a href="//cdn.example.com/x.js">CDN</a>',
+      );
+      rewriteGitHubPagesBase(rewriteTmp, '/wdl-241-gh');
+      const rewrittenHtml = fs.readFileSync(
+        path.join(rewriteTmp, 'index.html'),
+        'utf8',
+      );
+      assert.equal(
+        rewrittenHtml.includes('href="/wdl-241-gh/_astro/main.css"'),
+        true,
+      );
+      assert.equal(rewrittenHtml.includes('href="/wdl-241-gh/work"'), true);
+      assert.equal(
+        rewrittenHtml.includes('href="//cdn.example.com/x.js"'),
         true,
       );
       assert.equal(ghAuthFail.ok, false);

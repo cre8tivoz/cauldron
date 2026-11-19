@@ -1239,6 +1239,61 @@ export function classifyGitHubPagesFailure(
   };
 }
 
+export function rewriteGitHubPagesBase(dir: string, basePrefix: string): void {
+  const cleanPrefix = basePrefix.replace(/\/+$/, '');
+  if (!cleanPrefix || cleanPrefix === '/') return;
+
+  const prefixPath = (raw: string): string => {
+    if (!raw.startsWith('/') || raw.startsWith('//')) return raw;
+    if (raw === cleanPrefix || raw.startsWith(`${cleanPrefix}/`)) return raw;
+    return raw === '/' ? `${cleanPrefix}/` : `${cleanPrefix}${raw}`;
+  };
+
+  const rewriteText = (text: string, isHtml: boolean): string => {
+    let out = text.replace(
+      /\burl\(\s*(['"]?)(\/[^)'"\s]*)\1\s*\)/gi,
+      (_m, quote: string, p: string) => `url(${quote}${prefixPath(p)}${quote})`,
+    );
+    if (isHtml) {
+      out = out.replace(
+        /\b(href|src|action|poster)=(['"])(\/[^'"]*)\2/gi,
+        (_m, attr: string, quote: string, p: string) =>
+          `${attr}=${quote}${prefixPath(p)}${quote}`,
+      );
+      out = out.replace(
+        /\bsrcset=(['"])([^'"]*)\1/gi,
+        (_m, quote: string, value: string) => {
+          const updated = value
+            .split(',')
+            .map((part) => {
+              const trimmed = part.trim();
+              if (!trimmed) return trimmed;
+              const [urlPart, ...rest] = trimmed.split(/\s+/);
+              return [prefixPath(urlPart), ...rest].join(' ');
+            })
+            .join(', ');
+          return `srcset=${quote}${updated}${quote}`;
+        },
+      );
+    }
+    return out;
+  };
+
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && /\.(html|css)$/i.test(entry.name)) {
+        const original = fs.readFileSync(full, 'utf8');
+        const next = rewriteText(original, /\.html$/i.test(entry.name));
+        if (next !== original) fs.writeFileSync(full, next, 'utf8');
+      }
+    }
+  };
+  walk(dir);
+}
+
 export async function deployGitHubPagesAsync(
   root: string,
   repoName?: string,
@@ -1330,12 +1385,22 @@ export async function deployGitHubPagesAsync(
     logs.push(createRes.stdout.trim());
   }
 
-  // 4. Push dist/ with .nojekyll to gh-pages branch from an isolated temp directory
+  // 4. Stage dist/, apply project base-path prefix if not a user/org root site or CNAME, and push to gh-pages
+  const [repoOwner, repoShortName] = repoSlug.split('/');
+  const isUserRootSite =
+    repoShortName.toLowerCase() === `${repoOwner.toLowerCase()}.github.io`;
+  const hasCname =
+    fs.existsSync(path.join(build.dist, 'CNAME')) ||
+    fs.existsSync(path.join(root, 'public/CNAME'));
+
   const stagingDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'cauldron-ghpages-'),
   );
   try {
     fs.cpSync(build.dist, stagingDir, { recursive: true });
+    if (!isUserRootSite && !hasCname) {
+      rewriteGitHubPagesBase(stagingDir, `/${repoShortName}`);
+    }
     fs.writeFileSync(path.join(stagingDir, '.nojekyll'), '', 'utf8');
 
     const remoteUrl = `https://github.com/${repoSlug}.git`;
@@ -1345,7 +1410,16 @@ export async function deployGitHubPagesAsync(
       ['config', 'user.email', 'cauldron@users.noreply.github.com'],
       ['add', '-A'],
       ['commit', '-m', 'Deploy static site to GitHub Pages'],
-      ['push', '--force', remoteUrl, 'gh-pages'],
+      [
+        '-c',
+        'credential.helper=',
+        '-c',
+        `credential.helper=!${ghBin} auth git-credential`,
+        'push',
+        '--force',
+        remoteUrl,
+        'gh-pages',
+      ],
     ];
     for (const args of gitSteps) {
       const stepRes = await runner(gitBin, args, {
@@ -1361,14 +1435,55 @@ export async function deployGitHubPagesAsync(
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }
 
-  // 5. Ensure GitHub Pages is enabled on gh-pages and fetch the real html_url
-  const pagesGetRes = await runner(
-    ghBin,
-    ['api', `repos/${repoSlug}/pages`, '--jq', '.html_url'],
-    { cwd: root, env, timeoutMs: 15000 },
-  );
-  let url = parseGitHubPagesUrl(pagesGetRes.stdout);
-  if (pagesGetRes.status !== 0 || !url) {
+  // 5. Verify/configure GitHub Pages source on gh-pages and fetch the real html_url
+  const pagesGetRes = await runner(ghBin, ['api', `repos/${repoSlug}/pages`], {
+    cwd: root,
+    env,
+    timeoutMs: 15000,
+  });
+  let url: string | undefined;
+  if (pagesGetRes.status === 0 && !pagesGetRes.error) {
+    let parsed: {
+      html_url?: string;
+      build_type?: string;
+      source?: { branch?: string; path?: string };
+    } | null = null;
+    try {
+      parsed = JSON.parse(pagesGetRes.stdout);
+    } catch {
+      // Fall back to regex URL parse if test mock or output is plain text
+    }
+    url = parsed?.html_url
+      ? parseGitHubPagesUrl(parsed.html_url)
+      : parseGitHubPagesUrl(pagesGetRes.stdout);
+    const wrongSource =
+      parsed !== null &&
+      (parsed.build_type === 'workflow' ||
+        parsed.source?.branch !== 'gh-pages' ||
+        parsed.source?.path !== '/');
+    if (wrongSource) {
+      const updateRes = await runner(
+        ghBin,
+        [
+          'api',
+          '-X',
+          'PUT',
+          `repos/${repoSlug}/pages`,
+          '-f',
+          'build_type=legacy',
+          '-f',
+          'source[branch]=gh-pages',
+          '-f',
+          'source[path]=/',
+        ],
+        { cwd: root, env, timeoutMs: 20000 },
+      );
+      if (updateRes.status !== 0 || updateRes.error) {
+        return failStep(updateRes);
+      }
+      url = parseGitHubPagesUrl(updateRes.stdout) ?? url;
+    }
+  } else {
     const pagesCreateRes = await runner(
       ghBin,
       [
