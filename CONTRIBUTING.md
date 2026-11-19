@@ -1,54 +1,50 @@
-# Contributing
+# Contributing to Cauldron
 
-Cauldron is MIT licensed. Small, clear changes are easiest to review.
+G'day! Thanks for dropping by.
 
-## Before you start
+Cauldron is a small, open-source tinkering project built for fun and usefulness. There are no massive legal disclaimers or bureaucratic hoops here. The vibe is simple:
 
-- Read `AGENTS.md` and the decisions in `docs/adr/`.
-- Work is tracked in [Linear](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b), the one work list. Only start work that has a Linear issue, and put its WDL ID in your branch name or pull-request title (for example `WDL-170: …`), so Linear can follow the change.
-- In the pull request, say what you actually ran to check it.
-- [`fablefixes.md`](fablefixes.md) is the 9–10 November 2026 audit. Its items are now Linear issues; it is not the work list.
+- **Don't be a dickhead.** Be decent, helpful, and respectful to everyone in issues and pull requests.
+- **Contribute whatever you reckon is useful.** Bug fixes, polish, better Astro starter bits, accessibility improvements, or ideas — if it makes Cauldron nicer to use, we'd love to see it.
+- **We'll get to pull requests in a timely manner.** Small, focused PRs are the quickest to review and merge.
 
-## Making a change
+## Running Cauldron locally
+
+You'll need **Node.js 26.13** (see `.nvmrc`) and **npm 12**. (`pnpm` is optional — Cauldron uses it automatically if you have it installed, and falls back to `npm` if you don't.)
 
 ```bash
+git clone https://github.com/cre8tivoz/cauldron.git
+cd cauldron
 npm install
-npm run check     # type check, lint and unit tests
-npm run smoke     # package the app, open it hidden, confirm it renders
+npm start
 ```
 
-Both must pass. CI runs the same commands on pushes to `main` and on pull requests.
+## Checking your changes
 
-## Running the internal E2E harness (`WDL-238`, `WDL-253`)
-
-Production packages (`npm run package` / `npm run make`) exclude the internal E2E test harness (`src/main/e2e.ts`, `harnessApi`, and the `CAULDRON_*_TEST` switches). It is enabled in development (`npm start`), or can be opted into when packaging for full-app E2E verification:
+Before opening a pull request, give the checks a run so we know everything still builds and passes:
 
 ```bash
-CAULDRON_BUNDLE_E2E=1 npm run package
+npm run check       # type check, lint, formatting, and unit tests
+npm run verify:mac  # runs check + packages and smoke-launches the Mac app locally
 ```
 
-The Claude protocol proof suite (`CAULDRON_CLAUDE_TEST=1`) reads these optional environment settings (and creates temporary defaults when omitted for log/state/fixture paths):
-
-- `CAULDRON_AGENT_ARGS_LOG`: JSONL path recording exact spawned agent CLI arguments (used to inspect briefs and `--resume` flags).
-- `CAULDRON_STANDIN_STATE`: JSON file storing state across invocations of `scripts/fixtures/claude-standin.mjs`.
-- `CAULDRON_CLAUDE_STANDIN_DIR`: Directory containing an executable `claude` wrapper that runs `scripts/fixtures/claude-standin.mjs`.
-- `CAULDRON_CLAUDE_FIXTURE_SITE`: Separate disposable Astro site copy used for fixture provider runs so sessions never collide with real CLI runs.
-
-## Style
-
-- TypeScript, strict. Prefer plain functions and small files over abstractions.
-- Comments say why, not what.
-- Keep UI text in plain Australian English, no jargon.
-- Don't reformat files you're not changing.
-
-## Commits
-
-One purpose per commit, imperative subject line, no more than about 72 characters. Explain why in the body when it isn't obvious.
-
-This repository ships a tracked pre-commit hook in `.githooks/`. It is not installed automatically; run this once in each checkout you work in:
+If you'd like Git to run `npm run check` automatically before every commit, you can opt in to the repo's pre-commit hook:
 
 ```bash
 npm run hooks:install
 ```
 
-The hook checks the Node version against `.nvmrc` and runs `npm run check` and `npm run smoke`, blocking the commit if either fails. `git commit --no-verify` bypasses it and must not be used to commit failing work.
+In your pull request description, a quick note on what you changed and what you ran to test it is heaps helpful.
+
+## Handy tips
+
+- **Plain Australian English** in the UI and docs (colour, licence, behaviour — keep it clear and jargon-free).
+- **Keep sites ordinary Astro.** Anything Cauldron creates or edits should stay plain Astro files that build cleanly without Cauldron.
+- **No silent failures.** If something goes wrong in the app, show a clear message so the person using it knows what happened.
+- Curious why something is built a particular way? Have a look at [`docs/adr/`](docs/adr/) and [`AGENTS.md`](AGENTS.md).
+
+## Licence
+
+By contributing, you agree that your changes are licensed under the same [MIT licence](LICENSE) as the rest of the repo.
+
+Happy tinkering!
