@@ -28,7 +28,7 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 
 - Repository is public under MIT (`v0.10.0`), with `originalresearch/` and third-party study codebases removed and purged from Git history (`WDL-153`).
 - The foundations are real: project creation and opening (with `pnpm` shared store or automatic `npm` fallback), safe versioned saves, crash recovery, agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
-- Type check, lint, unit suites, and smoke packaging pass. CI on `main` runs Linux checks plus Apple Silicon build & launch verification (`mac-build`, `separate-mac-launch`).
+- Type check, lint, unit suites, and smoke packaging pass. CI runs Linux checks on pull requests; Apple Silicon build & launch verification (`mac-build`) runs on release tags (`v*`) or manual `workflow_dispatch` with zero artifact uploads, while routine Mac verification runs locally via `npm run verify:mac`.
 - **Not proven:** opening a downloaded copy by hand on a separate Mac (`Open Anyway` Gatekeeper flow), publishing to a real hosted Git account, and live-API Unsplash/Pexels stock search (disabled with a "COMING SOON" overlay under `WDL-189` / `WDL-171`). Do not claim these without fresh evidence.
 
 ## What is settled — do not reopen
@@ -85,9 +85,10 @@ npm install          # Node 26.13 (.nvmrc), npm 12
 npm start            # run the app in development
 npm run check        # type check, lint and unit tests — must pass
 npm run smoke        # package the app, open it hidden, confirm the interface renders
+npm run verify:mac   # run check + local Mac smoke verification before opening a PR
 ```
 
-Run `npm run check` before every commit (`npm run hooks:install` once per checkout makes the pre-commit hook do it) and run `npm run smoke` before opening or merging a PR that touches app code. CI runs both `check` and `smoke` on Linux for pushes to `main` and pull requests, and must be green. The Mac build and separate-Mac launch check run on pull requests that change more than docs, or by hand from the Actions tab (Run workflow) — start one before calling a direct push to `main` releasable. If you cannot run one of them (for example, no Mac), say so plainly in your report.
+Run `npm run check` before every commit (`npm run hooks:install` once per checkout makes the pre-commit hook do it) and run `npm run verify:mac` (or `npm run smoke`) locally on your Mac before opening or merging a PR that touches app code. CI runs `check` (including Linux `smoke`) on pull requests and must be green. The `mac-build` job (packaging and unzipping/launching the `.zip` in one macOS job with zero Actions artifact storage) runs on `v*` release tags or by hand from the Actions tab (Run workflow) — run it before cutting a release. If you cannot run local Mac verification (for example, no Mac), say so plainly in your report.
 
 ## Vocabulary and decisions
 
