@@ -24,6 +24,7 @@
     "test:projects": "node scripts/test-projects.mjs",
     "test:projects:ui": "node scripts/test-projects-ui.mjs",
     "check": "npm run typecheck && npm run lint && npm test",
+    "verify:mac": "npm run check && npm run smoke",
     "hooks:install": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
