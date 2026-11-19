@@ -96,8 +96,15 @@ const {
   publishAsync,
   exportStaticSiteAsync,
   deployCloudflarePagesAsync,
+  deployVercelAsync,
+  deployGitHubPagesAsync,
   parseCloudflarePagesUrl,
+  parseVercelUrl,
+  parseGitHubRepoFromRemote,
+  parseGitHubPagesUrl,
   classifyWranglerFailure,
+  classifyVercelFailure,
+  classifyGitHubPagesFailure,
 } = await import('../src/main/publishing.ts');
 const { downloadAndSaveStockPhoto, extensionForImageMime } =
   await import('../src/main/assets.ts');
@@ -5523,6 +5530,100 @@ await (async () => {
         1,
       );
       assert.equal(filterLibraryPieces(EXTENDED_LIBRARY, 'All', '').length, 25);
+    });
+
+    const vercelRes = await deployVercelAsync(cfSiteRoot, 'wdl-241-vercel', {
+      runner: async (_cmd, args) => {
+        assert.equal(args.includes('--prod'), true);
+        assert.equal(args.includes('--yes'), true);
+        return {
+          status: 0,
+          stdout:
+            '▲ Production  https://wdl-241-vercel-abc.vercel.app\n▲ Aliased     https://wdl-241-vercel.vercel.app\n',
+          stderr: '',
+        };
+      },
+    });
+    const vercelAuthFail = await deployVercelAsync(
+      cfSiteRoot,
+      'wdl-241-vercel',
+      {
+        runner: async () => ({
+          status: 1,
+          stdout: '',
+          stderr:
+            'Error: No existing credentials found. Please run `vercel login`.',
+        }),
+      },
+    );
+    const ghCalls = [];
+    const ghRes = await deployGitHubPagesAsync(cfSiteRoot, 'wdl-241-gh', {
+      runner: async (_cmd, args) => {
+        ghCalls.push(args);
+        if (args[0] === 'auth')
+          return { status: 0, stdout: 'Logged in', stderr: '' };
+        if (args[0] === 'api' && args[1] === 'user')
+          return { status: 0, stdout: 'cre8tivoz\n', stderr: '' };
+        if (args[0] === 'repo' && args[1] === 'view')
+          return { status: 1, stdout: '', stderr: 'not found' };
+        if (args[0] === 'repo' && args[1] === 'create')
+          return {
+            status: 0,
+            stdout: 'https://github.com/cre8tivoz/wdl-241-gh\n',
+            stderr: '',
+          };
+        if (args[0] === 'api' && args.includes('POST'))
+          return {
+            status: 0,
+            stdout: 'https://cre8tivoz.github.io/wdl-241-gh/\n',
+            stderr: '',
+          };
+        if (args[0] === 'api' && args[1] === 'repos/cre8tivoz/wdl-241-gh/pages')
+          return { status: 1, stdout: '', stderr: '404' };
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    });
+    const ghAuthFail = await deployGitHubPagesAsync(cfSiteRoot, 'wdl-241-gh', {
+      runner: async () => ({
+        status: 1,
+        stdout: '',
+        stderr:
+          'You are not logged into any GitHub hosts. To log in, run: gh auth login',
+      }),
+    });
+    test('WDL-241 Step 2: Vercel and GitHub Pages deploy cleanly, parse real URLs, and classify auth failures', () => {
+      assert.equal(vercelRes.ok, true);
+      assert.equal(vercelRes.url, 'https://wdl-241-vercel.vercel.app');
+      assert.equal(vercelAuthFail.ok, false);
+      assert.equal(vercelAuthFail.isAuthError, true);
+      assert.ok(vercelAuthFail.problem?.includes('vercel login'));
+      assert.equal(
+        parseVercelUrl('▲ Aliased https://demo.vercel.app'),
+        'https://demo.vercel.app',
+      );
+      assert.equal(classifyVercelFailure('not logged in', 1).isAuthError, true);
+
+      assert.equal(ghRes.ok, true);
+      assert.equal(ghRes.url, 'https://cre8tivoz.github.io/wdl-241-gh/');
+      assert.equal(
+        ghCalls.some((args) => args[0] === 'push' && args.includes('gh-pages')),
+        true,
+      );
+      assert.equal(ghAuthFail.ok, false);
+      assert.equal(ghAuthFail.isAuthError, true);
+      assert.ok(ghAuthFail.problem?.includes('gh auth login'));
+      assert.equal(
+        parseGitHubRepoFromRemote('git@github.com:cre8tivoz/cauldron.git'),
+        'cre8tivoz/cauldron',
+      );
+      assert.equal(
+        parseGitHubPagesUrl('https://cre8tivoz.github.io/demo/'),
+        'https://cre8tivoz.github.io/demo/',
+      );
+      assert.equal(
+        classifyGitHubPagesFailure('gh auth login', 1).isAuthError,
+        true,
+      );
     });
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });

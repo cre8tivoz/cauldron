@@ -197,6 +197,24 @@ const api = {
       problem?: string;
       log?: string;
     }>('cauldron:deploy-cloudflare', { projectName }),
+  deployVercel: (projectName?: string) =>
+    invoke<{
+      ok: boolean;
+      url?: string;
+      note?: string;
+      isAuthError?: boolean;
+      problem?: string;
+      log?: string;
+    }>('cauldron:deploy-vercel', { projectName }),
+  deployGitHubPages: (repoName?: string) =>
+    invoke<{
+      ok: boolean;
+      url?: string;
+      note?: string;
+      isAuthError?: boolean;
+      problem?: string;
+      log?: string;
+    }>('cauldron:deploy-github-pages', { repoName }),
   stockPhotos: (query?: string, directionId?: string) =>
     invoke<CauldronStockPhoto[]>('cauldron:stock-photos', {
       query,

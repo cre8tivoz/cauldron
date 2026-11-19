@@ -74,6 +74,8 @@ import {
   repoStateAsync,
   exportStaticSiteAsync,
   deployCloudflarePagesAsync,
+  deployGitHubPagesAsync,
+  deployVercelAsync,
 } from './publishing';
 import {
   downloadAndSaveStockPhoto,
@@ -1948,6 +1950,54 @@ function registerIpc(): void {
         );
       } else {
         fail(result.problem || 'Cloudflare Pages deployment failed.');
+      }
+      return result;
+    },
+  );
+
+  handle(
+    'cauldron:deploy-vercel',
+    async (_event, payload?: { projectName?: string }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      status('Deploying to Vercel…');
+      const result = await deployVercelAsync(
+        site.root,
+        payload?.projectName || site.name,
+      );
+      if (result.ok) {
+        status(
+          result.url
+            ? `Vercel ready: ${result.url}`
+            : result.note ||
+                "Deployed, but Vercel didn't report the address — check your Vercel dashboard.",
+        );
+      } else {
+        fail(result.problem || 'Vercel deployment failed.');
+      }
+      return result;
+    },
+  );
+
+  handle(
+    'cauldron:deploy-github-pages',
+    async (_event, payload?: { repoName?: string }) => {
+      const site = requireSite();
+      if ('problem' in site) return site;
+      status('Deploying to GitHub Pages…');
+      const result = await deployGitHubPagesAsync(
+        site.root,
+        payload?.repoName || site.name,
+      );
+      if (result.ok) {
+        status(
+          result.url
+            ? `GitHub Pages ready: ${result.url}`
+            : result.note ||
+                'Pushed to gh-pages — check your repository Settings → Pages.',
+        );
+      } else {
+        fail(result.problem || 'GitHub Pages deployment failed.');
       }
       return result;
     },

@@ -23,9 +23,13 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   );
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [deploying, setDeploying] = useState(false);
+  const [deployingHost, setDeployingHost] = useState<
+    'cloudflare' | 'vercel' | 'github' | null
+  >(null);
+  const deploying = deployingHost !== null;
   const [deployResult, setDeployResult] = useState<{
     ok: boolean;
+    host?: 'cloudflare' | 'vercel' | 'github';
     message: string;
     url?: string;
     isAuthError?: boolean;
@@ -99,24 +103,36 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     }
   };
 
-  const handleDeployCloudflare = async () => {
-    setDeploying(true);
+  const handleDeployHost = async (host: 'cloudflare' | 'vercel' | 'github') => {
+    setDeployingHost(host);
     setDeployResult(null);
+    const labels = {
+      cloudflare: 'Cloudflare Pages',
+      vercel: 'Vercel',
+      github: 'GitHub Pages',
+    } as const;
     try {
-      const res = await window.cauldron.deployCloudflare(site?.name);
+      const res =
+        host === 'cloudflare'
+          ? await window.cauldron.deployCloudflare(site?.name)
+          : host === 'vercel'
+            ? await window.cauldron.deployVercel(site?.name)
+            : await window.cauldron.deployGitHubPages(site?.name);
       if (res.ok) {
         setDeployResult({
           ok: true,
+          host,
           message: res.url
-            ? 'Deployed successfully to Cloudflare Pages!'
+            ? `Deployed successfully to ${labels[host]}!`
             : (res.note ??
-              "Deployed, but Cloudflare didn't report the address — check your Cloudflare dashboard."),
+              `Deployed, but ${labels[host]} didn't report the address — check your dashboard.`),
           url: res.url,
         });
       } else {
         setDeployResult({
           ok: false,
-          message: res.problem ?? 'Cloudflare Pages deployment failed.',
+          host,
+          message: res.problem ?? `${labels[host]} deployment failed.`,
           isAuthError: Boolean(res.isAuthError),
         });
       }
@@ -124,20 +140,21 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
     } catch (e) {
       setDeployResult({
         ok: false,
+        host,
         message: e instanceof Error ? e.message : String(e),
       });
     } finally {
-      setDeploying(false);
+      setDeployingHost(null);
     }
   };
 
   const projectName = site?.name ?? 'No site open';
 
-  // Export and Cloudflare do not need Git, so this card is shown for any open
+  // Export and static hosting do not need Git, so this card is shown for any open
   // site, not only a Git repository (fablefixes 25).
   const productionCard = (
     <div className="publish-sidebar-card" style={{ marginTop: 14 }}>
-      <h3 className="sidebar-card-title">Production & Cloudflare</h3>
+      <h3 className="sidebar-card-title">Production & Hosting</h3>
       <p
         style={{
           fontSize: 12,
@@ -146,8 +163,8 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
           lineHeight: 1.4,
         }}
       >
-        1-click export to pure static HTML/CSS, or stage directly for Cloudflare
-        Pages edge hosting.
+        1-click export to pure static HTML/CSS, or deploy directly to Cloudflare
+        Pages, Vercel, or GitHub Pages.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -170,7 +187,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
           type="button"
           className="button primary"
           disabled={exporting || deploying}
-          onClick={handleDeployCloudflare}
+          onClick={() => void handleDeployHost('cloudflare')}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -179,9 +196,43 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
             fontSize: 12,
           }}
         >
-          {deploying
+          {deployingHost === 'cloudflare'
             ? 'Deploying to Cloudflare…'
             : 'Deploy to Cloudflare Pages'}
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={exporting || deploying}
+          onClick={() => void handleDeployHost('vercel')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            fontSize: 12,
+          }}
+        >
+          {deployingHost === 'vercel'
+            ? 'Deploying to Vercel…'
+            : 'Deploy to Vercel'}
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={exporting || deploying}
+          onClick={() => void handleDeployHost('github')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            fontSize: 12,
+          }}
+        >
+          {deployingHost === 'github'
+            ? 'Deploying to GitHub Pages…'
+            : 'Deploy to GitHub Pages'}
         </button>
       </div>
 
@@ -241,11 +292,30 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
                   lineHeight: 1.35,
                 }}
               >
-                To deploy directly to Cloudflare Pages, run{' '}
-                <code className="mono">npx wrangler login</code> in your
-                terminal or configure{' '}
-                <code className="mono">CLOUDFLARE_API_TOKEN</code> in your
-                environment. Your static site is built and ready locally.
+                {deployResult.host === 'vercel' ? (
+                  <>
+                    To deploy directly to Vercel, run{' '}
+                    <code className="mono">npx vercel login</code> in your
+                    terminal or configure{' '}
+                    <code className="mono">VERCEL_TOKEN</code> in your
+                    environment. Your static site is built and ready locally.
+                  </>
+                ) : deployResult.host === 'github' ? (
+                  <>
+                    To deploy directly to GitHub Pages, install{' '}
+                    <code className="mono">gh</code> and run{' '}
+                    <code className="mono">gh auth login</code> in your
+                    terminal. Your static site is built and ready locally.
+                  </>
+                ) : (
+                  <>
+                    To deploy directly to Cloudflare Pages, run{' '}
+                    <code className="mono">npx wrangler login</code> in your
+                    terminal or configure{' '}
+                    <code className="mono">CLOUDFLARE_API_TOKEN</code> in your
+                    environment. Your static site is built and ready locally.
+                  </>
+                )}
               </span>
             </div>
           )}
