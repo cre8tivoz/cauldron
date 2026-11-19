@@ -193,6 +193,14 @@ export type WriteOutcome = {
   selection?: CauldronSelection;
 };
 
+export type CauldronProjectPalette = {
+  bg: string;
+  surface: string;
+  ink: string;
+  primary: string;
+  line: string;
+};
+
 export type CauldronRecent = {
   path: string;
   name: string;
@@ -202,6 +210,10 @@ export type CauldronRecent = {
   missing: boolean;
   /** The project has its dependencies (node_modules/.bin/astro) ready. */
   prepared: boolean;
+  /** Cached JPEG snapshot data URL captured from the live preview (WDL-174). */
+  thumbnailUrl?: string | null;
+  /** Site colour tokens from cauldron/tokens.css for fallback card previews. */
+  palette?: CauldronProjectPalette | null;
 };
 
 export type CauldronDependencySetup = {

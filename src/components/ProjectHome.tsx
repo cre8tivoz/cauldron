@@ -18,6 +18,232 @@ type Props = {
 };
 
 type Recent = CauldronRecent;
+
+/** Mini visual layout thumbnail for a starter template card (WDL-174). */
+function StarterThumbnail({ tpl }: { tpl: CauldronStarterTemplate }) {
+  const [
+    bg = '#ffffff',
+    surface = '#f5f5f5',
+    primary = '#b84b30',
+    accent = '#666666',
+    ink = '#1a1a1a',
+  ] = tpl.swatches;
+  const darkTheme = tpl.id === 'penta';
+  const fg = darkTheme ? '#f5f5f5' : ink;
+  const mutedLine = darkTheme ? '#444444' : accent;
+
+  return (
+    <div
+      className="starter-thumb"
+      aria-hidden="true"
+      style={{ background: bg, color: fg }}
+    >
+      <div
+        className="starter-thumb-nav"
+        style={{ borderBottomColor: darkTheme ? '#262626' : `${mutedLine}33` }}
+      >
+        <span className="starter-thumb-brand" style={{ background: fg }} />
+        <span className="starter-thumb-nav-links">
+          <span style={{ background: mutedLine }} />
+          <span style={{ background: mutedLine }} />
+        </span>
+      </div>
+      {tpl.id === 'penta' ? (
+        <div className="starter-thumb-body starter-thumb-penta">
+          <div className="starter-thumb-h1" style={{ background: fg }} />
+          <div className="starter-thumb-masonry">
+            <span style={{ background: surface, borderColor: '#2c2c2c' }} />
+            <span style={{ background: '#262626', borderColor: '#333333' }} />
+          </div>
+        </div>
+      ) : tpl.id === 'the-desk' ? (
+        <div className="starter-thumb-body starter-thumb-editorial">
+          <div
+            className="starter-thumb-h1"
+            style={{ background: primary, width: '68%', margin: '0 auto' }}
+          />
+          <div
+            className="starter-thumb-line"
+            style={{
+              background: mutedLine,
+              width: '82%',
+              margin: '4px auto 0',
+            }}
+          />
+          <div
+            className="starter-thumb-line"
+            style={{
+              background: mutedLine,
+              width: '60%',
+              margin: '3px auto 0',
+            }}
+          />
+          <div
+            className="starter-thumb-card-strip"
+            style={{ background: surface, borderColor: ink }}
+          />
+        </div>
+      ) : tpl.id === 'minimal' ? (
+        <div className="starter-thumb-body starter-thumb-minimal">
+          <div
+            className="starter-thumb-h1"
+            style={{ background: primary, width: '56%' }}
+          />
+          <div
+            className="starter-thumb-line"
+            style={{ background: accent, width: '78%' }}
+          />
+          <div
+            className="starter-thumb-line"
+            style={{ background: accent, width: '62%' }}
+          />
+        </div>
+      ) : (
+        <div className="starter-thumb-body">
+          <div className="starter-thumb-hero">
+            <div
+              className="starter-thumb-h1"
+              style={{ background: fg, width: '72%' }}
+            />
+            <div
+              className="starter-thumb-pill"
+              style={{ background: primary }}
+            />
+          </div>
+          <div className="starter-thumb-cards">
+            <span
+              style={{ background: surface, borderColor: `${mutedLine}44` }}
+            />
+            <span
+              style={{ background: surface, borderColor: `${mutedLine}44` }}
+            />
+            <span
+              style={{ background: surface, borderColor: `${mutedLine}44` }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Snapshot image or site-palette fallback preview for a recent project card (WDL-174). */
+function ProjectCardThumbnail({
+  recent,
+  disabled,
+  onOpen,
+}: {
+  recent: Recent;
+  disabled: boolean;
+  onOpen: () => void;
+}) {
+  const palette = recent.palette;
+  const content = recent.thumbnailUrl ? (
+    <img
+      className="project-card-thumb-img"
+      src={recent.thumbnailUrl}
+      alt={`Preview of ${recent.name}`}
+    />
+  ) : (
+    <div
+      className="project-card-thumb-fallback"
+      style={
+        palette && !recent.missing
+          ? { background: palette.bg, color: palette.ink }
+          : undefined
+      }
+    >
+      <div
+        className="project-card-wire-nav"
+        style={
+          palette && !recent.missing
+            ? { borderBottomColor: `${palette.line}55` }
+            : undefined
+        }
+      >
+        <span
+          className="project-card-wire-dot"
+          style={
+            palette && !recent.missing
+              ? { background: palette.primary }
+              : undefined
+          }
+        />
+        <span
+          className="project-card-wire-bar"
+          style={
+            palette && !recent.missing
+              ? { background: palette.ink, opacity: 0.45 }
+              : undefined
+          }
+        />
+      </div>
+      <div className="project-card-wire-body">
+        <div
+          className="project-card-wire-title"
+          style={
+            palette && !recent.missing
+              ? { background: palette.ink, opacity: 0.8 }
+              : undefined
+          }
+        />
+        <div
+          className="project-card-wire-sub"
+          style={
+            palette && !recent.missing
+              ? { background: palette.ink, opacity: 0.3 }
+              : undefined
+          }
+        />
+        <div className="project-card-wire-cards">
+          <span
+            style={
+              palette && !recent.missing
+                ? {
+                    background: palette.surface,
+                    borderColor: `${palette.line}66`,
+                  }
+                : undefined
+            }
+          />
+          <span
+            style={
+              palette && !recent.missing
+                ? {
+                    background: palette.surface,
+                    borderColor: `${palette.line}66`,
+                  }
+                : undefined
+            }
+          />
+        </div>
+      </div>
+      <span className="project-card-thumb-caption">
+        {recent.missing ? 'Folder missing' : 'Snapshot updates on open'}
+      </span>
+    </div>
+  );
+
+  if (recent.missing) {
+    return (
+      <div className="project-card-thumb project-card-thumb-missing">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="project-card-thumb project-card-thumb-btn"
+      disabled={disabled}
+      onClick={onOpen}
+      aria-label={`Open ${recent.name}`}
+    >
+      {content}
+    </button>
+  );
+}
 type PrepareState = {
   root: string;
   lines: string[];
@@ -401,94 +627,33 @@ export function ProjectHome({
                 <button
                   key={tpl.id}
                   type="button"
+                  className={`starter-card${active ? ' starter-card-active' : ''}`}
                   onClick={() => setSelectedTemplate(tpl.id)}
                   disabled={!canFormEdit}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-start',
-                    gap: 4,
-                    padding: '8px 10px',
-                    borderRadius: 6,
-                    border: active
-                      ? '1.5px solid var(--accent, #b84b30)'
-                      : '1px solid var(--hairline)',
-                    background: active
-                      ? 'rgba(184, 75, 48, 0.08)'
-                      : 'var(--panel)',
-                    cursor: canFormEdit ? 'pointer' : 'default',
-                    textAlign: 'left',
-                    color: 'inherit',
-                  }}
                 >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      width: '100%',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 9,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.06em',
-                        padding: '1px 5px',
-                        borderRadius: 3,
-                        background: active
-                          ? 'var(--accent)'
-                          : 'var(--panel-sunken)',
-                        color: active ? 'var(--accent-text)' : 'var(--muted)',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {tpl.badge}
-                    </span>
-                    {active ? (
+                  <StarterThumbnail tpl={tpl} />
+                  <div className="starter-card-meta">
+                    <div className="starter-card-top">
                       <span
-                        style={{
-                          fontSize: 10,
-                          color: 'var(--accent, #b84b30)',
-                          fontWeight: 700,
-                        }}
+                        className={`starter-card-badge${active ? ' starter-card-badge-active' : ''}`}
                       >
-                        ✓
+                        {tpl.badge}
                       </span>
-                    ) : null}
-                  </div>
-                  <div
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 12,
-                      color: 'var(--text)',
-                    }}
-                  >
-                    {tpl.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--muted)',
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    {tpl.category}
-                  </div>
-                  <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
-                    {tpl.swatches.map((color, idx) => (
-                      <span
-                        key={idx}
-                        style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: 2,
-                          background: color,
-                          border: '1px solid rgba(0,0,0,0.2)',
-                          display: 'inline-block',
-                        }}
-                      />
-                    ))}
+                      {active ? (
+                        <span className="starter-card-check">✓</span>
+                      ) : null}
+                    </div>
+                    <div className="starter-card-name">{tpl.name}</div>
+                    <div className="starter-card-cat">{tpl.category}</div>
+                    <div className="starter-card-swatches">
+                      {tpl.swatches.map((color, idx) => (
+                        <span
+                          key={idx}
+                          className="starter-card-swatch"
+                          style={{ background: color }}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </button>
               );
@@ -718,91 +883,70 @@ export function ProjectHome({
             and it survives restarting Cauldron.
           </p>
         ) : (
-          <ul
-            className="recent-list"
-            style={{
-              listStyle: 'none',
-              margin: 0,
-              padding: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
+          <ul className="recent-list project-card-grid">
             {recents.map((recent) => (
-              <li
-                key={recent.path}
-                className="recent-row"
-                style={{
-                  border: '1px solid var(--hairline)',
-                  borderRadius: 6,
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <strong>{recent.name}</strong>
-                  {recent.missing ? (
-                    <span
-                      className="badge-missing"
-                      style={{ marginLeft: 8, color: 'var(--danger)' }}
-                    >
-                      Folder moved or missing
-                    </span>
-                  ) : null}
-                  <div
-                    className="hint"
-                    style={{ fontSize: 11, wordBreak: 'break-all' }}
-                  >
+              <li key={recent.path} className="recent-row project-card">
+                <ProjectCardThumbnail
+                  recent={recent}
+                  disabled={busy || busyRoot === recent.path}
+                  onOpen={() => void open(recent.path)}
+                />
+                <div className="project-card-body">
+                  <div className="project-card-title-row">
+                    <strong className="project-card-name">{recent.name}</strong>
+                    {recent.missing ? (
+                      <span className="badge-missing">
+                        Folder moved or missing
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="hint project-card-path" title={recent.path}>
                     {recent.path}
                   </div>
-                  <div className="hint" style={{ fontSize: 11 }}>
+                  <div className="hint project-card-time">
                     {recent.lastOpenedAt
                       ? `Last opened ${new Date(recent.lastOpenedAt).toLocaleString()}`
                       : 'Never opened'}
                   </div>
-                </div>
-                {recent.missing ? (
-                  <span className="hint" style={{ maxWidth: 260 }}>
-                    Nothing can be opened from here until the folder is back.
-                    Removing the entry leaves the project on disk untouched.
-                  </span>
-                ) : null}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {!recent.missing ? (
-                    <>
-                      <button
-                        className="button primary"
-                        type="button"
-                        disabled={busy || busyRoot === recent.path}
-                        onClick={() => void open(recent.path)}
-                      >
-                        {busyRoot === recent.path ? 'Opening…' : 'Open'}
-                      </button>
-                      {!recent.prepared ? (
-                        <button
-                          className="button"
-                          type="button"
-                          disabled={
-                            busy || busyRoot === recent.path || !!prepare
-                          }
-                          onClick={() => void installFor(recent.path, true)}
-                        >
-                          Install dependencies
-                        </button>
-                      ) : null}
-                    </>
+                  {recent.missing ? (
+                    <span className="hint project-card-missing-note">
+                      Nothing can be opened from here until the folder is back.
+                      Removing the entry leaves the project on disk untouched.
+                    </span>
                   ) : null}
-                  <button
-                    className="button quiet"
-                    type="button"
-                    onClick={() => void remove(recent.path)}
-                  >
-                    Remove from list
-                  </button>
+                  <div className="project-card-actions">
+                    {!recent.missing ? (
+                      <>
+                        <button
+                          className="button primary"
+                          type="button"
+                          disabled={busy || busyRoot === recent.path}
+                          onClick={() => void open(recent.path)}
+                        >
+                          {busyRoot === recent.path ? 'Opening…' : 'Open'}
+                        </button>
+                        {!recent.prepared ? (
+                          <button
+                            className="button"
+                            type="button"
+                            disabled={
+                              busy || busyRoot === recent.path || !!prepare
+                            }
+                            onClick={() => void installFor(recent.path, true)}
+                          >
+                            Install dependencies
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <button
+                      className="button quiet"
+                      type="button"
+                      onClick={() => void remove(recent.path)}
+                    >
+                      Remove from list
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}

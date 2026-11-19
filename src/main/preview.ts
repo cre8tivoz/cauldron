@@ -144,6 +144,35 @@ export class Preview {
     };
   }
 
+  /**
+   * Captures a compact JPEG snapshot of the visible preview page for project
+   * cards on the Projects home screen (WDL-174). Returns null when the view
+   * is hidden, too small, destroyed, or empty.
+   */
+  async captureThumbnail(width = 480): Promise<Buffer | null> {
+    const contents = this.webContents;
+    if (
+      !contents ||
+      !this.visible ||
+      this.bounds.width < 160 ||
+      this.bounds.height < 120
+    ) {
+      return null;
+    }
+    try {
+      const image = await contents.capturePage();
+      if (image.isEmpty()) return null;
+      const size = image.getSize();
+      const resized =
+        size.width > width ? image.resize({ width, quality: 'good' }) : image;
+      const jpeg = resized.toJPEG(82);
+      return jpeg.length > 0 ? jpeg : null;
+    } catch (err) {
+      console.warn('[preview] Thumbnail capture failed:', err);
+      return null;
+    }
+  }
+
   /** The child page's own rendering, as a data URL (test-only). */
   async captureChild(): Promise<string | null> {
     const contents = this.webContents;
