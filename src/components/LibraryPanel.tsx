@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LIBRARY_CATEGORIES, filterLibraryPieces } from '../library-filter';
 import { ChevronDownIcon } from './Icons';
+import { LibrarySpecimen } from './LibrarySpecimen';
 
 type Props = {
   site: CauldronSite | null;
@@ -33,6 +34,10 @@ export function LibraryPanel({ site, onBack }: Props) {
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [category, setCategory] = useState('Featured 5');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selected, setSelected] = useState('');
+  const [mobile, setMobile] = useState(false);
+  const [replay, setReplay] = useState(0);
+  const [directionName, setDirectionName] = useState<string | null>(null);
 
   useEffect(() => {
     window.cauldron
@@ -40,6 +45,7 @@ export function LibraryPanel({ site, onBack }: Props) {
       .then((result) => {
         setPieces(result?.pieces ?? []);
         setLinks(result?.links ?? []);
+        setDirectionName(result?.directionName ?? null);
       })
       .catch((error: unknown) => {
         setMessage(
@@ -81,29 +87,36 @@ export function LibraryPanel({ site, onBack }: Props) {
     }
     setBusy(pieceId);
     setMessage(null);
-    const result = await window.cauldron.addPiece({
-      pieceId,
-      page,
-      mode,
-      replaceSelector: mode === 'replace' ? replaceTag.trim() : undefined,
-    });
-    setBusy(null);
-    if (!result.ok) {
-      setMessage(result.problem ?? 'That piece could not be added.');
-      return;
+    try {
+      const result = await window.cauldron.addPiece({
+        pieceId,
+        page,
+        mode,
+        replaceSelector: mode === 'replace' ? replaceTag.trim() : undefined,
+      });
+      if (!result.ok) {
+        setMessage(result.problem ?? 'That piece could not be added.');
+        return;
+      }
+      setLastRun(result.runId ?? null);
+      const fileNote = result.componentFile ? ` (${result.componentFile})` : '';
+      setMessage(
+        result.reusedExisting
+          ? `${pieceName} already existed in the site${fileNote}, so the existing file was kept and placed on ${result.page}.`
+          : `${pieceName} was copied into the site${fileNote} and placed on ${result.page}.`,
+        true,
+      );
+    } catch (error) {
+      setMessage(`The component could not be placed: ${error}`);
+    } finally {
+      setBusy(null);
     }
-    setLastRun(result.runId ?? null);
-    const fileNote = result.componentFile ? ` (${result.componentFile})` : '';
-    setMessage(
-      result.reusedExisting
-        ? `${pieceName} already existed in the site${fileNote}, so the existing file was kept and placed on ${result.page}.`
-        : `${pieceName} was copied into the site${fileNote} and placed on ${result.page}.`,
-      true,
-    );
   };
 
   const pieceList = pieces ?? [];
   const displayPieces = filterLibraryPieces(pieceList, category, searchQuery);
+  const piece =
+    displayPieces.find((item) => item.id === selected) ?? displayPieces[0];
 
   return (
     <div
@@ -115,8 +128,8 @@ export function LibraryPanel({ site, onBack }: Props) {
         <div className="library-title-group">
           <h2 className="library-heading">Components</h2>
           <span className="library-subtitle">
-            {pieceList.length} piece{pieceList.length === 1 ? '' : 's'}, plain
-            Astro, built on the site's design direction.
+            {pieceList.length} editable Astro components. Inspect the actual
+            section before adding it.
           </span>
         </div>
 
@@ -218,91 +231,133 @@ export function LibraryPanel({ site, onBack }: Props) {
         </div>
       ) : null}
 
-      {/* 3-Column Visual Component Cards Grid */}
-      <div className="library-component-grid">
-        {displayPieces.map((piece) => {
-          const isBusy = busy === piece.id;
-
-          return (
-            <div key={piece.id} className="component-visual-card">
-              {/* Top Zone — Live Direction-Styled Preview Stage */}
-              <div className="component-preview-stage">
-                <iframe
-                  className="component-preview-frame"
-                  title={`${piece.name} preview`}
-                  srcDoc={piece.previewHtml}
-                  sandbox=""
-                  tabIndex={-1}
-                />
+      <div className="library-browser">
+        <nav className="library-index" aria-label="Components">
+          <p className="library-count" role="status">
+            {displayPieces.length}{' '}
+            {displayPieces.length === 1 ? 'component' : 'components'}
+          </p>
+          <ul className="library-piece-list">
+            {displayPieces.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  aria-pressed={item.id === piece?.id}
+                  onClick={() => setSelected(item.id)}
+                >
+                  {item.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        {piece ? (
+          <section className="library-detail" aria-label={piece.name}>
+            <header className="library-detail-head">
+              <div>
+                <h3>{piece.name}</h3>
+                <p>{piece.description}</p>
               </div>
-
-              {/* Bottom Zone — Dark/Contrasting Card Footer */}
-              <div className="component-card-footer">
-                <strong className="component-name">{piece.name}</strong>
-                <p className="component-description">{piece.description}</p>
-
-                <div className="component-actions-bar">
-                  <span className="component-licence-badge">
-                    {piece.licence}
-                  </span>
-                  <div className="component-btn-group">
-                    {replaceTag.trim() ? (
-                      <button
-                        className="button replace-comp-btn"
-                        type="button"
-                        onClick={() =>
-                          void add(piece.id, piece.name, 'replace')
-                        }
-                        disabled={!site || busy !== null}
-                      >
-                        Replace {replaceTag.trim()}
-                      </button>
-                    ) : null}
-                    <button
-                      className="button primary add-to-page-btn"
-                      type="button"
-                      onClick={() => void add(piece.id, piece.name, 'add')}
-                      disabled={!site || isBusy}
-                    >
-                      {isBusy ? 'Adding…' : `Add to ${page}`}
-                    </button>
-                  </div>
-                </div>
+              <div className="component-btn-group">
+                {replaceTag.trim() && (
+                  <button
+                    className="button replace-comp-btn"
+                    type="button"
+                    onClick={() => void add(piece.id, piece.name, 'replace')}
+                    disabled={!site || !pages.length || busy !== null}
+                  >
+                    Replace on page
+                  </button>
+                )}
+                <button
+                  className="button primary add-to-page-btn"
+                  type="button"
+                  onClick={() => void add(piece.id, piece.name)}
+                  disabled={!site || !pages.length || busy !== null}
+                >
+                  {busy === piece.id ? 'Adding…' : 'Add to page'}
+                </button>
+              </div>
+            </header>
+            <div className="library-specimen-toolbar">
+              <span>
+                {directionName
+                  ? `Site direction: ${directionName}`
+                  : 'Example direction: Long Lunch'}
+              </span>
+              <div
+                className="library-viewport"
+                role="group"
+                aria-label="Preview width"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!mobile}
+                  onClick={() => setMobile(false)}
+                >
+                  Desktop
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mobile}
+                  onClick={() => setMobile(true)}
+                >
+                  Phone
+                </button>
+                {piece.id === 'heading-reveal' && (
+                  <button
+                    type="button"
+                    onClick={() => setReplay((value) => value + 1)}
+                  >
+                    Replay reveal
+                  </button>
+                )}
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Polished Horizontal Links Shelf Footer matching mockup */}
-      <div className="links-shelf-section">
-        <div className="links-shelf-header">
-          <h3 className="links-shelf-title">Links shelf — ideas, not code</h3>
-          <p className="links-shelf-subtitle">
-            References only; these are not copied into your site.
+            <div
+              className={`library-canvas${mobile ? ' library-canvas-phone' : ''}`}
+            >
+              <LibrarySpecimen
+                key={`${piece.id}-${replay}`}
+                html={piece.previewHtml}
+                title={`${piece.name} preview`}
+                width={mobile ? 375 : 960}
+                height={mobile ? 570 : 520}
+              />
+            </div>
+            <details className="library-source">
+              <summary>Source and licence</summary>
+              <p>
+                {piece.source}. {piece.licence}
+              </p>
+            </details>
+          </section>
+        ) : (
+          <p className="library-empty">
+            {!pieces.length && !message
+              ? 'Loading the library…'
+              : 'No components match this search.'}
           </p>
-        </div>
-
-        <div className="links-shelf-row">
-          {links.map((link, index, arr) => (
-            <span key={link.name} className="link-shelf-item">
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noreferrer"
-                className="link-shelf-anchor"
-              >
-                {link.name}
-              </a>
-              {index < arr.length - 1 ? (
-                <span className="link-divider" aria-hidden="true">
-                  |
-                </span>
-              ) : null}
-            </span>
-          ))}
-        </div>
+        )}
       </div>
+
+      <details className="links-shelf-section">
+        <summary>Design references · {links.length} sources</summary>
+        <p>
+          Browse the originals. These are reference links and aren’t copied into
+          your site.
+        </p>
+        <ul className="library-reference-list">
+          {links.map((link) => (
+            <li key={link.url}>
+              <a href={link.url} target="_blank" rel="noreferrer">
+                {link.name} <span aria-hidden="true">↗</span>
+              </a>
+              <span>{link.why}</span>
+            </li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }

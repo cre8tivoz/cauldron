@@ -153,6 +153,7 @@ const api = {
   library: () =>
     invoke<{
       pieces: CauldronPiece[];
+      directionName: string | null;
       links: Array<{ name: string; url: string; why: string }>;
     }>('cauldron:library'),
   repoState: () =>

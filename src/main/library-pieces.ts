@@ -1,4 +1,5 @@
 import type { LibraryPiece } from './library';
+import { lookbookImages } from './library-lookbook-images';
 
 function cataloguePiece(
   id: string,
@@ -39,7 +40,10 @@ ${strongStyles}
     name,
     category,
     description,
-    licence: 'MIT (Plain Astro). Cauldron starter set, MIT.',
+    licence:
+      id === 'masonry-photo-lookbook'
+        ? 'Astro code MIT; prints CC0, Cleveland Museum of Art Open Access.'
+        : 'MIT (Plain Astro). Cauldron starter set, MIT.',
     source: 'Cauldron Section Catalogue',
     needsScript: false,
     codeAllowed: true,
@@ -1495,28 +1499,28 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
     'masonry-photo-lookbook',
     'Masonry Photo Lookbook',
     'Galleries',
-    'Multi-column editorial lookbook frames using CSS columns for varied vertical rhythm.',
+    'An editorial image gallery with staggered columns and captions.',
     `<div class="lookbook-wrap">
-  <div class="lookbook-head">
-    <h2>Studio Lookbook</h2>
-    <p>Staggered frames sized naturally for photography, sketches, and print specimens.</p>
-  </div>
+  <header class="lookbook-head">
+    <h2>Hokusai: mountain and weather</h2>
+    <p>Four woodblock prints from the Cleveland Museum of Art’s open collection.</p>
+  </header>
   <div class="lookbook-columns">
-    <figure class="lookbook-frame tall">
-      <div class="frame-art" aria-hidden="true">01</div>
-      <figcaption>Morning light on raw linen, Autumn edition.</figcaption>
+    <figure class="lookbook-frame">
+      <img src="${lookbookImages.clear}" alt="A red Mount Fuji beneath rows of clouds" width="900" height="617" />
+      <figcaption><a href="https://clevelandart.org/art/1930.189">South Wind, Clear Sky</a></figcaption>
     </figure>
     <figure class="lookbook-frame">
-      <div class="frame-art" aria-hidden="true">02</div>
-      <figcaption>Hand-glazed stoneware vessel study.</figcaption>
+      <img src="${lookbookImages.rain}" alt="Lightning below a dark Mount Fuji" width="1263" height="852" loading="lazy" />
+      <figcaption><a href="https://clevelandart.org/art/1940.1002">Rain Below the Mountain</a></figcaption>
     </figure>
     <figure class="lookbook-frame">
-      <div class="frame-art" aria-hidden="true">03</div>
-      <figcaption>Letterpress cover proof on cotton stock.</figcaption>
+      <img src="${lookbookImages.muneyuki}" alt="Figures gathered outside a shelter in the snow" width="900" height="626" loading="lazy" />
+      <figcaption><a href="https://clevelandart.org/art/1985.327">Poem by Minamoto no Muneyuki</a></figcaption>
     </figure>
-    <figure class="lookbook-frame tall">
-      <div class="frame-art" aria-hidden="true">04</div>
-      <figcaption>Timber joinery detail from the workshop.</figcaption>
+    <figure class="lookbook-frame">
+      <img src="${lookbookImages.sanjo}" alt="Landscape from Hokusai’s print illustrating a poem by Emperor Sanjo" width="900" height="613" loading="lazy" />
+      <figcaption><a href="https://clevelandart.org/art/1985.326">Poem by Emperor Sanjo</a></figcaption>
     </figure>
   </div>
 </div>`,
@@ -1544,24 +1548,16 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
 }
 .cauldron-masonry-photo-lookbook .lookbook-frame {
   break-inside: avoid;
-  margin: 0 0 var(--cauldron-space-4);
-  border: 1px solid var(--cauldron-c-line);
-  border-radius: var(--cauldron-radius-2);
-  padding: var(--cauldron-space-3);
-  background: var(--cauldron-c-surface);
+  margin: 0 0 var(--cauldron-space-5);
 }
-.cauldron-masonry-photo-lookbook .frame-art {
-  aspect-ratio: 4 / 3;
-  display: grid;
-  place-items: center;
-  border-radius: var(--cauldron-radius-1);
-  border: 1px dashed var(--cauldron-c-line);
-  font-family: var(--cauldron-font-display);
-  font-size: var(--cauldron-size-5);
-  color: var(--cauldron-c-muted);
+.cauldron-masonry-photo-lookbook .lookbook-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
-.cauldron-masonry-photo-lookbook .lookbook-frame.tall .frame-art {
-  aspect-ratio: 3 / 4;
+.cauldron-masonry-photo-lookbook .lookbook-frame a {
+  color: inherit;
+  text-underline-offset: 3px;
 }
 .cauldron-masonry-photo-lookbook figcaption {
   margin-top: var(--cauldron-space-2);
