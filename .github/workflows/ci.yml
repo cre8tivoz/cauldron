@@ -19,7 +19,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -34,6 +34,19 @@ jobs:
       - run: npm run lint
         timeout-minutes: 5
       - run: npm test
+        timeout-minutes: 10
+      # WDL-236: re-run the headless project-lifecycle proof on every PR
+      # (real Astro creates, shared pnpm store, offline reuse, dev server,
+      # build). GUI proofs stay Mac-only via npm run verify:mac.
+      - name: Install pnpm and expose tools to the GUI-path resolver
+        run: |
+          npm install -g pnpm@10.34.2
+          # The proof exercises the app's dock-launch PATH resolver, which
+          # searches standard install locations, not the runner toolcache.
+          for tool in node npm npx pnpm; do
+            sudo ln -sf "$(command -v "$tool")" "/usr/local/bin/$tool"
+          done
+      - run: npm run test:projects
         timeout-minutes: 10
       # Ubuntu 24.04 blocks the unprivileged namespaces Electron's sandbox
       # needs; allow them so the packaged app can open on this runner.
