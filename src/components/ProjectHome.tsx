@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { LibrarySpecimen } from './LibrarySpecimen';
 
 type Props = {
   busy: boolean;
@@ -19,110 +20,16 @@ type Props = {
 
 type Recent = CauldronRecent;
 
-/** Mini visual layout thumbnail for a starter template card (WDL-174). */
 function StarterThumbnail({ tpl }: { tpl: CauldronStarterTemplate }) {
-  const [
-    bg = '#ffffff',
-    surface = '#f5f5f5',
-    primary = '#b84b30',
-    accent = '#666666',
-    ink = '#1a1a1a',
-  ] = tpl.swatches;
-  const darkTheme = tpl.id === 'penta';
-  const fg = darkTheme ? '#f5f5f5' : ink;
-  const mutedLine = darkTheme ? '#444444' : accent;
-
   return (
-    <div
-      className="starter-thumb"
-      aria-hidden="true"
-      style={{ background: bg, color: fg }}
-    >
-      <div
-        className="starter-thumb-nav"
-        style={{ borderBottomColor: darkTheme ? '#262626' : `${mutedLine}33` }}
-      >
-        <span className="starter-thumb-brand" style={{ background: fg }} />
-        <span className="starter-thumb-nav-links">
-          <span style={{ background: mutedLine }} />
-          <span style={{ background: mutedLine }} />
-        </span>
-      </div>
-      {tpl.id === 'penta' ? (
-        <div className="starter-thumb-body starter-thumb-penta">
-          <div className="starter-thumb-h1" style={{ background: fg }} />
-          <div className="starter-thumb-masonry">
-            <span style={{ background: surface, borderColor: '#2c2c2c' }} />
-            <span style={{ background: '#262626', borderColor: '#333333' }} />
-          </div>
-        </div>
-      ) : tpl.id === 'the-desk' ? (
-        <div className="starter-thumb-body starter-thumb-editorial">
-          <div
-            className="starter-thumb-h1"
-            style={{ background: primary, width: '68%', margin: '0 auto' }}
-          />
-          <div
-            className="starter-thumb-line"
-            style={{
-              background: mutedLine,
-              width: '82%',
-              margin: '4px auto 0',
-            }}
-          />
-          <div
-            className="starter-thumb-line"
-            style={{
-              background: mutedLine,
-              width: '60%',
-              margin: '3px auto 0',
-            }}
-          />
-          <div
-            className="starter-thumb-card-strip"
-            style={{ background: surface, borderColor: ink }}
-          />
-        </div>
-      ) : tpl.id === 'minimal' ? (
-        <div className="starter-thumb-body starter-thumb-minimal">
-          <div
-            className="starter-thumb-h1"
-            style={{ background: primary, width: '56%' }}
-          />
-          <div
-            className="starter-thumb-line"
-            style={{ background: accent, width: '78%' }}
-          />
-          <div
-            className="starter-thumb-line"
-            style={{ background: accent, width: '62%' }}
-          />
-        </div>
-      ) : (
-        <div className="starter-thumb-body">
-          <div className="starter-thumb-hero">
-            <div
-              className="starter-thumb-h1"
-              style={{ background: fg, width: '72%' }}
-            />
-            <div
-              className="starter-thumb-pill"
-              style={{ background: primary }}
-            />
-          </div>
-          <div className="starter-thumb-cards">
-            <span
-              style={{ background: surface, borderColor: `${mutedLine}44` }}
-            />
-            <span
-              style={{ background: surface, borderColor: `${mutedLine}44` }}
-            />
-            <span
-              style={{ background: surface, borderColor: `${mutedLine}44` }}
-            />
-          </div>
-        </div>
-      )}
+    <div className="starter-thumb" aria-hidden="true">
+      <LibrarySpecimen
+        html={tpl.previewHtml}
+        title={`${tpl.name} homepage`}
+        width={960}
+        height={540}
+        passive
+      />
     </div>
   );
 }

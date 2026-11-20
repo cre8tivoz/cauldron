@@ -258,6 +258,7 @@ export type CauldronStarterTemplate = {
   swatches: string[];
   fonts: string;
   pages: string[];
+  previewHtml: string;
 };
 
 export type CauldronCreatedProject = {

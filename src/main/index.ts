@@ -98,7 +98,7 @@ import {
   saveProjectThumbnail,
   thumbnailFilePath,
 } from './thumbnails';
-import { STARTER_TEMPLATES } from './templates';
+import { STARTER_TEMPLATES, starterPreview } from './templates';
 import {
   detectDependencySetup,
   prepareDependencies,
@@ -1591,7 +1591,12 @@ function registerIpc(): void {
     },
   );
 
-  handle('cauldron:starter-templates', () => STARTER_TEMPLATES);
+  handle('cauldron:starter-templates', () =>
+    STARTER_TEMPLATES.map((template) => ({
+      ...template,
+      previewHtml: starterPreview(template),
+    })),
+  );
 
   handle('cauldron:detect-dependencies', (_event, root: string) => {
     const site = detectSite(root);
@@ -2145,20 +2150,24 @@ function registerIpc(): void {
     },
   );
 
-  handle('cauldron:library', () => ({
-    pieces: [...LIBRARY, ...EXTENDED_LIBRARY].map((piece) => ({
-      id: piece.id,
-      name: piece.name,
-      category: piece.category,
-      description: piece.description,
-      licence: piece.licence,
-      source: piece.source,
-      needsScript: piece.needsScript,
-      codeAllowed: piece.codeAllowed,
-      previewHtml: piecePreview(piece),
-    })),
-    links: LINKS_SHELF,
-  }));
+  handle('cauldron:library', () => {
+    const direction = state.site ? directionFor(state.site.root) : null;
+    return {
+      pieces: [...LIBRARY, ...EXTENDED_LIBRARY].map((piece) => ({
+        id: piece.id,
+        name: piece.name,
+        category: piece.category,
+        description: piece.description,
+        licence: piece.licence,
+        source: piece.source,
+        needsScript: piece.needsScript,
+        codeAllowed: piece.codeAllowed,
+        previewHtml: piecePreview(piece, direction ?? undefined),
+      })),
+      links: LINKS_SHELF,
+      directionName: direction?.name ?? null,
+    };
+  });
 
   handle(
     'cauldron:add-piece',

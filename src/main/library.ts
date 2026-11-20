@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createFileAtomic, isInside, writeFileAtomic } from './files';
 import { EXTENDED_LIBRARY } from './library-pieces';
+import { DIRECTIONS, tokensCss, type DesignDirection } from './directions';
 
 /**
  * The starter component library (plan 4.3). Five starter pieces here (more in
@@ -405,7 +406,7 @@ export const LINKS_SHELF = [
   },
   {
     name: 'Lander blocks',
-    url: 'https://blocks.lander.studio',
+    url: 'https://blocks.lander.studio/?category=website',
     why: 'Figma blocks. No reuse licence.',
   },
   {
@@ -420,12 +421,12 @@ export const LINKS_SHELF = [
   },
   {
     name: 'Subframe Motion',
-    url: 'https://www.subframe.com',
+    url: 'https://www.subframe.com/motion',
     why: 'Motion reference.',
   },
   {
     name: 'Prompt Motion',
-    url: 'https://promptmotion.com',
+    url: 'https://prompt-motion.com/?tag=diagrams',
     why: 'Motion reference.',
   },
   {
@@ -441,29 +442,29 @@ export const LINKS_SHELF = [
   },
 ];
 
-export function piecePreview(piece_: LibraryPiece): string {
+export function piecePreview(
+  piece: LibraryPiece,
+  direction: DesignDirection = DIRECTIONS[0],
+): string {
+  // Never interpolate site files into a preview. Only the shipped component and
+  // the selected design tokens are used. Escaping '<' keeps tokens inside CSS.
+  const css = tokensCss(direction).replaceAll('<', '\\3c ');
+  const markup = piece.markup
+    .replaceAll('{emailId}', '"cauldron-news-email-preview"')
+    .replace(/href="[^"]*"/g, 'href="#"');
   return `<!doctype html>
 <html lang="en-AU"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; form-action 'none'; base-uri 'none'" />
+<style>${css}</style>
 <style>
-  :root {
-    --cauldron-c-bg: #f8f4e9; --cauldron-c-surface: #fffdf7; --cauldron-c-ink: #2a1712; --cauldron-c-muted: #6b5a52;
-    --cauldron-c-primary: #b84b30; --cauldron-c-primary-deep: #5f1d1a; --cauldron-c-line: #e3d9c8;
-    --cauldron-font-display: Georgia, serif; --cauldron-font-body: -apple-system, BlinkMacSystemFont, sans-serif;
-    --cauldron-size-1: 0.8125rem; --cauldron-size-2: 0.9375rem; --cauldron-size-3: 1.0625rem; --cauldron-size-4: 1.25rem;
-    --cauldron-size-5: 1.5625rem; --cauldron-size-6: 1.9375rem; --cauldron-size-7: 2.4375rem; --cauldron-size-8: 3.0625rem;
-    --cauldron-size-9: 3.8125rem;
-    --cauldron-space-1: 0.25rem; --cauldron-space-2: 0.5rem; --cauldron-space-3: 0.75rem; --cauldron-space-4: 1rem;
-    --cauldron-space-5: 1.5rem; --cauldron-space-6: 2rem; --cauldron-space-7: 3rem; --cauldron-space-8: 4rem;
-    --cauldron-radius-0: 0px; --cauldron-radius-1: 4px; --cauldron-radius-2: 10px; --cauldron-radius-4: 999px;
-    --cauldron-motion-quick: 140ms; --cauldron-motion-settle: 240ms; --cauldron-motion-easing: cubic-bezier(0.2,0.7,0.3,1);
-  }
-  body { margin: 0; background: #fff; }
-  section { max-width: 100%; }
-</style>
-<style>${piece_.styles}</style>
-</head>
-<body><section class="cauldron-${piece_.id}">${piece_.markup.replaceAll('{emailId}', '"cauldron-news-email-preview"')}</section></body></html>`;
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; align-items: safe center;
+    background: var(--cauldron-c-bg); color: var(--cauldron-c-ink);
+    font-family: var(--cauldron-font-body); }
+  ${piece.styles}
+</style></head>
+<body><section class="cauldron-${piece.id}">${markup}</section></body></html>`;
 }
 
 /**

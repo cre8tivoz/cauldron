@@ -1,3 +1,5 @@
+import { DIRECTIONS, tokensCss } from './directions';
+
 export type StarterTemplate = {
   id: 'sunday-table' | 'penta' | 'good-trade' | 'the-desk' | 'minimal';
   name: string;
@@ -579,6 +581,70 @@ const { title } = Astro.props;
 `;
 }
 
+export const MINIMAL_STARTER_CSS = `/* Minimal starter tokens. Cauldron updates this file when you pick a direction. */
+:root {
+  --cauldron-c-bg: #ffffff;
+  --cauldron-c-surface: #f8fafc;
+  --cauldron-c-ink: #0f172a;
+  --cauldron-c-muted: #475569;
+  --cauldron-c-primary: #0f172a;
+  --cauldron-c-line: #cbd5e1;
+  --cauldron-size-1: 0.8125rem;
+  --cauldron-size-2: 0.9375rem;
+  --cauldron-size-3: 1.0625rem;
+  --cauldron-size-4: 1.25rem;
+  --cauldron-size-5: 1.5625rem;
+  --cauldron-size-6: 1.9375rem;
+  --cauldron-size-7: 2.4375rem;
+  --cauldron-size-8: 3.0625rem;
+  --cauldron-space-0: 0rem;
+  --cauldron-space-1: 0.0625rem;
+  --cauldron-space-2: 0.25rem;
+  --cauldron-space-3: 0.5rem;
+  --cauldron-space-4: 0.75rem;
+  --cauldron-space-5: 1rem;
+  --cauldron-space-6: 1.5rem;
+  --cauldron-space-7: 2rem;
+  --cauldron-space-8: 3rem;
+  --cauldron-space-9: 4rem;
+  --cauldron-space-10: 6rem;
+  --cauldron-radius-0: 0px;
+  --cauldron-radius-1: 4px;
+  --cauldron-radius-2: 10px;
+  --cauldron-radius-3: 20px;
+  --cauldron-radius-4: 999px;
+  --cauldron-font-display: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --cauldron-font-body: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-family: var(--cauldron-font-body);
+}
+`;
+
+/** Render the static homepage of a built-in starter with the same layout and
+ * tokens used at creation. Only these app-owned templates are accepted. */
+export function starterPreview(template: StarterTemplate): string {
+  const files = getTemplateFiles(template.id, template.name);
+  const layout = files['src/layouts/Base.astro'].replace(
+    /^---\n[\s\S]*?\n---\n/,
+    '',
+  );
+  const page = files['src/pages/index.astro'].match(
+    /<Base title=\{projectName\}>([\s\S]*?)<\/Base>/,
+  )?.[1];
+  if (!page) throw new Error(`Could not preview starter ${template.id}`);
+  const direction = DIRECTIONS.find((item) => item.id === template.directionId);
+  const name = template.name.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
+  return layout
+    .replace(
+      '<head>',
+      `<head><style>${direction ? tokensCss(direction) : MINIMAL_STARTER_CSS}</style>`,
+    )
+    .replace('<style is:global>', '<style>')
+    .replaceAll('{title}', () => name)
+    .replace('{new Date().getFullYear()}', String(new Date().getFullYear()))
+    .replace('<slot />', () => page.replaceAll('{projectName}', () => name))
+    .replace(/<script\b[\s\S]*?<\/script>/g, '');
+}
+
 export function getTemplateFiles(
   templateId: string,
   projectName: string,
@@ -784,21 +850,18 @@ const projectName = ${safeName};
 
       <div class="grid-3">
         <article class="card">
-          <div class="media-placeholder">[Project Photography]</div>
           <span class="meta-label">2025 · Residential</span>
           <h3>House in the Dunes</h3>
           <p>Flinders, Mornington Peninsula</p>
         </article>
 
         <article class="card">
-          <div class="media-placeholder">[Project Photography]</div>
           <span class="meta-label">2024 · Civic</span>
           <h3>Concrete & Glass Pavilions</h3>
           <p>Kyoto Forest Reserve</p>
         </article>
 
         <article class="card">
-          <div class="media-placeholder">[Project Photography]</div>
           <span class="meta-label">2024 · Alpine</span>
           <h3>Charred Timber Refuge</h3>
           <p>Mount Buller Summit</p>
