@@ -340,10 +340,10 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
     'Galleries',
     'Staggered columns of real prints with captions.',
     `<div class="mg-grid">
-  <figure class="mg-item"><img src="${lookbookImages.clear}" alt="Hokusai, South Wind Clear Sky" /><figcaption>South Wind, Clear Sky</figcaption></figure>
-  <figure class="mg-item"><img src="${lookbookImages.rain}" alt="Hokusai, Rainstorm beneath the summit" /><figcaption>Rainstorm Beneath the Summit</figcaption></figure>
-  <figure class="mg-item"><img src="${lookbookImages.sanjo}" alt="Hokusai, Fine wind clear morning" /><figcaption>Fine Wind, Clear Morning</figcaption></figure>
-  <figure class="mg-item"><img src="${lookbookImages.muneyuki}" alt="Hokusai, Kajikazawa in Kai Province" /><figcaption>Kajikazawa in Kai Province</figcaption></figure>
+  <figure class="mg-item"><img src="${lookbookImages.clear}" alt="A snow-streaked red Mount Fuji beneath a blue sky of banded white clouds" /><figcaption>South Wind, Clear Sky</figcaption></figure>
+  <figure class="mg-item"><img src="${lookbookImages.rain}" alt="Mount Fuji rising above dark storm clouds and a jagged streak of lightning" /><figcaption>Rain Below the Mountain</figcaption></figure>
+  <figure class="mg-item"><img src="${lookbookImages.sanjo}" alt="Robed courtiers gathered on an open palace veranda at night beneath a full moon" /><figcaption>Poem by Emperor Sanjo</figcaption></figure>
+  <figure class="mg-item"><img src="${lookbookImages.muneyuki}" alt="Travellers warming themselves around a smoky fire outside a shelter in the snow" /><figcaption>Poem by Minamoto no Muneyuki</figcaption></figure>
 </div>`,
     `.cauldron-masonry-gallery { background: var(--cauldron-c-bg); padding: var(--cauldron-space-8) var(--cauldron-space-6); }
 .cauldron-masonry-gallery .mg-grid { max-width: 900px; margin: 0 auto; columns: 3; column-gap: var(--cauldron-space-4); }
