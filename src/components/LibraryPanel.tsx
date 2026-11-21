@@ -37,7 +37,6 @@ export function LibraryPanel({ site, onBack }: Props) {
   const [selected, setSelected] = useState('');
   const [mobile, setMobile] = useState(false);
   const [replay, setReplay] = useState(0);
-  const [directionName, setDirectionName] = useState<string | null>(null);
 
   useEffect(() => {
     window.cauldron
@@ -45,7 +44,6 @@ export function LibraryPanel({ site, onBack }: Props) {
       .then((result) => {
         setPieces(result?.pieces ?? []);
         setLinks(result?.links ?? []);
-        setDirectionName(result?.directionName ?? null);
       })
       .catch((error: unknown) => {
         setMessage(
@@ -280,11 +278,7 @@ export function LibraryPanel({ site, onBack }: Props) {
               </div>
             </header>
             <div className="library-specimen-toolbar">
-              <span>
-                {directionName
-                  ? `Site direction: ${directionName}`
-                  : 'Example direction: Long Lunch'}
-              </span>
+              <span>Shown in {piece.directionName}</span>
               <div
                 className="library-viewport"
                 role="group"

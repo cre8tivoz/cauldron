@@ -66,6 +66,7 @@ import {
 } from './mcp';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
+import { demoDirectionFor } from './library-demo-directions';
 import { EXTENDED_LIBRARY } from './library-pieces';
 import { checkSite, buildSiteAsync } from './quality';
 import { directionFromUrl } from './reference';
@@ -2151,21 +2152,26 @@ function registerIpc(): void {
   );
 
   handle('cauldron:library', () => {
-    const direction = state.site ? directionFor(state.site.root) : null;
     return {
-      pieces: [...LIBRARY, ...EXTENDED_LIBRARY].map((piece) => ({
-        id: piece.id,
-        name: piece.name,
-        category: piece.category,
-        description: piece.description,
-        licence: piece.licence,
-        source: piece.source,
-        needsScript: piece.needsScript,
-        codeAllowed: piece.codeAllowed,
-        previewHtml: piecePreview(piece, direction ?? undefined),
-      })),
+      pieces: [...LIBRARY, ...EXTENDED_LIBRARY].map((piece) => {
+        // Showcase each component in a researched direction that suits it, so
+        // the library shows real, varied colour. Insertion still adopts the
+        // open site's own direction.
+        const demo = demoDirectionFor(piece.id);
+        return {
+          id: piece.id,
+          name: piece.name,
+          category: piece.category,
+          description: piece.description,
+          licence: piece.licence,
+          source: piece.source,
+          needsScript: piece.needsScript,
+          codeAllowed: piece.codeAllowed,
+          previewHtml: piecePreview(piece, demo),
+          directionName: demo.name,
+        };
+      }),
       links: LINKS_SHELF,
-      directionName: direction?.name ?? null,
     };
   });
 

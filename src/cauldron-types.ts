@@ -101,6 +101,7 @@ export type CauldronPiece = {
   needsScript: boolean;
   codeAllowed: boolean;
   previewHtml: string;
+  directionName: string;
 };
 
 export type CauldronPageSection = {
