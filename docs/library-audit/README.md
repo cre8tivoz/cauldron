@@ -69,9 +69,13 @@ is compared with WCAG: **4.5:1**, or **3:1** for 24px+ text, or 18.66px+ bold.
   drift, a marquee). Worst frame wins.
 - **One-shot entrance animations are judged at their settled state.** A 700ms
   fade is not a contrast failure at 12% opacity; the state a person reads is.
-- **Text inside a fade or vignette is reported as unmeasurable, never as a
-  pass.** Glyph pixels must reach the page's maximum opacity, so a word ghosted
-  by a mask does not silently count.
+- **Faded text is judged, never skipped.** Text painted below the page's full
+  opacity (an opacity `0.7` back card, a word under a scrim) is measured at the
+  colour it is actually painted, and the failure says how much was painted. This
+  is what caught Coverflow's depth-dimmed cards at 3.69–4.42:1.
+- **Only text with no painted pixel at all is skipped**, and the count is
+  printed: that is text occluded by another element or scrolled out, which is
+  not visible text. It is never counted as a pass.
 - The marquee has no vignette any more: a fade washes out a pill's own
   background along with the word leaving, which drops the pair to 4:1 at the
   edge.

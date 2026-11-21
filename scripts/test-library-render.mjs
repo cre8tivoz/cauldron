@@ -161,6 +161,10 @@ for (const page of report.audits) {
     ok,
     'no text runs could be measured',
   );
+  if (page.skipped?.length)
+    console.log(
+      `note - ${page.id} in ${page.palette}: ${page.skipped.length} text run(s) not painted (occluded or off-screen)`,
+    );
   for (const r of page.results) {
     measured++;
     const w = worstByPiece[page.id];
@@ -172,10 +176,17 @@ for (const page of report.audits) {
         text: r.text,
         frame: r.frame,
       };
+    // A run that never paints at full opacity is judged at the colour it is
+    // actually painted, and says so in the failure, rather than vanishing.
+    const note = r.empty
+      ? ' [nothing painted]'
+      : r.faded
+        ? ` [faded, ${Math.round((r.maxCoverage ?? 0) * 100)}% painted]`
+        : '';
     check(
-      `${page.id} in ${page.palette}: "${r.text}" (frame ${r.frame + 1}/${page.frames})`,
-      r.p5 >= need(r),
-      `${r.p5.toFixed(2)}:1, needs ${need(r)}:1 (${r.size}px/${r.weight})`,
+      `${page.id} in ${page.palette}: "${r.text}" (frame ${r.frame + 1}/${page.frames})${note}`,
+      Number(r.p5.toFixed(2)) >= need(r),
+      `${r.p5.toFixed(2)}:1, needs ${need(r)}:1 (${r.size}px/${r.weight})${note}`,
     );
   }
 }

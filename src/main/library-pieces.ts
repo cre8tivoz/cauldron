@@ -176,7 +176,10 @@ for (const panel of document.querySelectorAll('[data-cp]')) {
   panel.querySelector('.cp-keys').hidden = false;
   let active = 0;
   const visible = () => items.filter((item) => !item.hidden);
-  const mark = () => {
+  // Scrolling the active item into view is a response to a person moving the
+  // selection. Doing it during setup yanked the page down to a palette inserted
+  // below the fold, before anyone had touched it.
+  const mark = (followActive = false) => {
     const shown = visible();
     active = Math.max(0, Math.min(active, shown.length - 1));
     items.forEach((item) => {
@@ -186,7 +189,7 @@ for (const panel of document.querySelectorAll('[data-cp]')) {
     });
     if (shown[active]) {
       input.setAttribute('aria-activedescendant', shown[active].id);
-      shown[active].scrollIntoView({ block: 'nearest' });
+      if (followActive) shown[active].scrollIntoView({ block: 'nearest' });
     } else input.removeAttribute('aria-activedescendant');
   };
   const filter = () => {
@@ -206,7 +209,7 @@ for (const panel of document.querySelectorAll('[data-cp]')) {
     }
     empty.hidden = visible().length > 0;
     active = 0;
-    mark();
+    mark(true);
   };
   input.addEventListener('input', filter);
   input.addEventListener('keydown', (event) => {
@@ -215,7 +218,7 @@ for (const panel of document.querySelectorAll('[data-cp]')) {
       event.preventDefault();
       if (!shown.length) return;
       active = (active + (event.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length;
-      mark();
+      mark(true);
     } else if (event.key === 'Enter') {
       if (shown[active]) {
         event.preventDefault();
@@ -242,7 +245,8 @@ for (const panel of document.querySelectorAll('[data-cp]')) {
       input.focus();
     }
   });
-  mark();
+  mark(); // selection and ARIA only: a palette inserted below the fold must not
+  // scroll the page before anyone has used it.
 }
 `,
   ),
@@ -498,11 +502,13 @@ for (const panel of document.querySelectorAll('[data-cp]')) {
 .cauldron-coverflow .cf-card h4 { position: relative; font-family: var(--cauldron-font-display); font-size: var(--cauldron-size-5); margin: var(--cauldron-space-2) 0 0; font-weight: 700; color: var(--cauldron-c-surface); }
 .cauldron-coverflow .cf-card p { position: relative; margin: 6px 0 0; font-size: var(--cauldron-size-2); font-weight: 600; color: color-mix(in srgb, var(--cauldron-c-surface) 86%, var(--cauldron-c-ink)); }
 .cauldron-coverflow .cf-card[data-pos="0"] { z-index: 5; transform: translateZ(60px); width: 230px; height: 290px; /* A fill small text can pass on, not the raw primary. */ background: var(--cauldron-c-primary-solid, var(--cauldron-c-primary)); border-color: transparent; box-shadow: 0 40px 90px color-mix(in srgb, var(--cauldron-c-primary) 45%, transparent), 0 30px 60px rgba(0, 0, 0, 0.5); }
+/* No opacity dimming on the back cards: it painted their text at 3.7-4.4:1. The
+   transform already reads as depth. */
 .cauldron-coverflow .cf-card[data-pos="0"] span, .cauldron-coverflow .cf-card[data-pos="0"] h4, .cauldron-coverflow .cf-card[data-pos="0"] p { color: var(--on-primary); }
-.cauldron-coverflow .cf-card[data-pos="-1"] { z-index: 4; transform: translateX(-180px) translateZ(-40px) rotateY(48deg); }
-.cauldron-coverflow .cf-card[data-pos="1"] { z-index: 4; transform: translateX(180px) translateZ(-40px) rotateY(-48deg); }
-.cauldron-coverflow .cf-card[data-pos="-2"] { z-index: 3; transform: translateX(-320px) translateZ(-140px) rotateY(58deg); opacity: 0.7; }
-.cauldron-coverflow .cf-card[data-pos="2"] { z-index: 3; transform: translateX(320px) translateZ(-140px) rotateY(-58deg); opacity: 0.7; }
+.cauldron-coverflow .cf-card[data-pos="-1"] { z-index: 4; transform: translateX(-214px) translateZ(-40px) rotateY(48deg); }
+.cauldron-coverflow .cf-card[data-pos="1"] { z-index: 4; transform: translateX(214px) translateZ(-40px) rotateY(-48deg); }
+.cauldron-coverflow .cf-card[data-pos="-2"] { z-index: 3; transform: translateX(-350px) translateZ(-140px) rotateY(58deg); }
+.cauldron-coverflow .cf-card[data-pos="2"] { z-index: 3; transform: translateX(350px) translateZ(-140px) rotateY(-58deg); }
 .cauldron-coverflow .cf-card.cf-wrapping { transition: none; opacity: 0; }
 .cauldron-coverflow .cf-controls { display: flex; align-items: center; justify-content: center; gap: var(--cauldron-space-4); margin-top: var(--cauldron-space-6); }
 .cauldron-coverflow .cf-controls[hidden] { display: none; }

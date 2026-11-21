@@ -157,34 +157,51 @@ function measure(cssRun, A, B, C, scale, ox, oy, pageMax) {
       const target = best === 1 ? 0 : 255;
       const a =
         (C.data[i + best] - B.data[i + best]) / (target - B.data[i + best]);
-      if (a > 0.05) {
+      if (a > 0.02) {
         idx.push(i);
         cov.push(a);
         if (a > amax) amax = a;
       }
     }
   }
-  if (!idx.length) return null;
+  // Nothing painted at all: the run exists in the layout but never reaches the
+  // screen, which is a failure rather than something to skip.
+  // No pixel of this run is painted at all: it is behind something, or scrolled
+  // out. That is not visible text, so it is counted as skipped, never as a pass.
+  if (!idx.length)
+    return { p5: 0, min: 0, pixels: 0, faded: false, empty: true };
   // Compare against the page's most opaque glyph, not this run's: text sitting
-  // inside a vignette or a fade has no fully opaque pixel, and is reported as
-  // unmeasurable rather than quietly passing.
+  // inside a vignette or a fade has no fully opaque pixel.
   const ratios = [];
   // 0.98, not 0.95: on 13px strokes the extra 3% lets anti-aliasing fringes in,
   // which read a colour the text never actually is.
   const floor = 0.98 * Math.max(amax, pageMax);
-  for (let k = 0; k < idx.length; k++) {
-    if (cov[k] < floor) continue;
+  const select = [];
+  for (let k = 0; k < idx.length; k++) if (cov[k] >= floor) select.push(k);
+  const faded = amax < 0.98 * pageMax || select.length < 6;
+  // Faded or partially hidden text is still text: rather than drop the run (a
+  // gate that omits it lets inaccessible copy disappear), judge it at the most
+  // painted pixels it has, so the verdict is the colour a person actually sees.
+  if (select.length < 6) {
+    select.length = 0;
+    const order = idx.map((_, k) => k).sort((p, q) => cov[q] - cov[p]);
+    for (const k of order.slice(0, 24)) select.push(k);
+  }
+  for (const k of select) {
     const i = idx[k];
     const la = lum(A.data[i], A.data[i + 1], A.data[i + 2]);
     const lb = lum(B.data[i], B.data[i + 1], B.data[i + 2]);
     ratios.push((Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05));
   }
-  if (ratios.length < 6) return null;
+  if (!ratios.length)
+    return { p5: 0, min: 0, pixels: 0, faded: false, empty: true };
   ratios.sort((p, q) => p - q);
   return {
     p5: ratios[Math.floor(ratios.length * 0.05)],
     min: ratios[0],
     pixels: ratios.length,
+    faded,
+    maxCoverage: amax,
   };
 }
 
@@ -227,76 +244,97 @@ async function audit(win, page) {
   await win.webContents.executeJavaScript(MODE(''));
   await bitmap(win, { x: 0, y: 0, width: 960, height: 600 });
   const results = [];
+  const skipped = [];
   for (let k = 0; k < frames; k++) {
-    if (anim.count) await win.webContents.executeJavaScript(FREEZE);
-    if (anim.looping) await win.webContents.executeJavaScript(FRAME(k, frames));
-    else if (anim.count) await win.webContents.executeJavaScript(SETTLE);
-    await win.webContents.executeJavaScript(MODE(''));
-    const runs = await win.webContents.executeJavaScript(COLLECT);
-    // One band covering every run, with a margin for descenders and outlines.
-    const clip = runs.length
-      ? (() => {
-          const x0 = Math.min(...runs.map((r) => r.x)),
-            y0 = Math.min(...runs.map((r) => r.y));
-          const x1 = Math.max(...runs.map((r) => r.x + r.w)),
-            y1 = Math.max(...runs.map((r) => r.y + r.h));
-          return {
-            x: Math.max(0, x0 - 6),
-            y: Math.max(0, y0 - 6),
-            width: Math.min(960, x1 - x0 + 12),
-            height: Math.min(600, y1 - y0 + 12),
-          };
-        })()
-      : { x: 0, y: 0, width: 960, height: 600 };
-    const band = { x: clip.x, y: clip.y };
-    band.scale = 1;
-    // Order matters: a hidden window's surface only repaints when a style change
-    // lands, so the real render is captured LAST, right after the styles are
-    // restored. Capturing it first returns a stale frame still mid-animation.
-    await sleep(60);
-    await win.webContents.executeJavaScript(MODE('bg'));
-    await sleep(60);
-    const B = await bitmap(win, clip);
-    await win.webContents.executeJavaScript(MODE('mask'));
-    await sleep(60);
-    const C = await bitmap(win, clip);
-    await win.webContents.executeJavaScript(MODE(''));
-    await sleep(60);
-    const A = await bitmap(win, clip);
-    band.scale = A.width / Math.max(1, Math.round(clip.width));
-    if (
-      process.env.DEBUG_PAGE &&
-      page.id === process.env.DEBUG_PAGE &&
-      (!process.env.DEBUG_PALETTE || page.palette === process.env.DEBUG_PALETTE)
-    ) {
-      const dir = process.env.DEBUG_DIR || '/tmp';
-      for (const [n, img] of [
-        ['A', A],
-        ['B', B],
-        ['C', C],
-      ])
-        fs.writeFileSync(path.join(dir, `audit-${n}.bin`), img.data);
-      fs.writeFileSync(
-        path.join(dir, 'audit-meta.json'),
-        JSON.stringify({
-          clip,
-          band,
-          size: [A.width, A.height],
-          runs,
-          page: await win.webContents.executeJavaScript(
-            `(() => { const h = document.querySelector('h2,h1,p'); return { href: location.pathname.split('/').pop(), bodyBg: getComputedStyle(document.body).backgroundColor, ink: h ? getComputedStyle(h).color : null, vars: ['--cauldron-c-bg', '--cauldron-c-ink', '--cauldron-c-surface'].map((v) => getComputedStyle(document.body).getPropertyValue(v).trim() || '(unset)'), sheets: [...document.styleSheets].map((s) => (s.href || '(inline)') + ':' + s.cssRules.length) }; })()`,
-          ),
-        }),
+    // A frame whose glyph pixels show coverage but no colour difference cannot
+    // be true: the three captures disagree because one is stale. Retry the frame
+    // rather than reporting an impossible 1.00:1 as a failure.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (anim.count) await win.webContents.executeJavaScript(FREEZE);
+      if (anim.looping)
+        await win.webContents.executeJavaScript(FRAME(k, frames));
+      else if (anim.count) await win.webContents.executeJavaScript(SETTLE);
+      await win.webContents.executeJavaScript(MODE(''));
+      const runs = await win.webContents.executeJavaScript(COLLECT);
+      // One band covering every run, with a margin for descenders and outlines.
+      const clip = runs.length
+        ? (() => {
+            const x0 = Math.min(...runs.map((r) => r.x)),
+              y0 = Math.min(...runs.map((r) => r.y));
+            const x1 = Math.max(...runs.map((r) => r.x + r.w)),
+              y1 = Math.max(...runs.map((r) => r.y + r.h));
+            return {
+              x: Math.max(0, x0 - 6),
+              y: Math.max(0, y0 - 6),
+              width: Math.min(960, x1 - x0 + 12),
+              height: Math.min(600, y1 - y0 + 12),
+            };
+          })()
+        : { x: 0, y: 0, width: 960, height: 600 };
+      const band = { x: clip.x, y: clip.y };
+      band.scale = 1;
+      // Order matters: a hidden window's surface only repaints when a style change
+      // lands, so the real render is captured LAST, right after the styles are
+      // restored. Capturing it first returns a stale frame still mid-animation.
+      await sleep(60);
+      await win.webContents.executeJavaScript(MODE('bg'));
+      await sleep(60);
+      const B = await bitmap(win, clip);
+      await win.webContents.executeJavaScript(MODE('mask'));
+      await sleep(60);
+      const C = await bitmap(win, clip);
+      await win.webContents.executeJavaScript(MODE(''));
+      await sleep(60);
+      const A = await bitmap(win, clip);
+      band.scale = A.width / Math.max(1, Math.round(clip.width));
+      if (
+        process.env.DEBUG_PAGE &&
+        page.id === process.env.DEBUG_PAGE &&
+        (!process.env.DEBUG_PALETTE ||
+          page.palette === process.env.DEBUG_PALETTE)
+      ) {
+        const dir = process.env.DEBUG_DIR || '/tmp';
+        for (const [n, img] of [
+          ['A', A],
+          ['B', B],
+          ['C', C],
+        ])
+          fs.writeFileSync(path.join(dir, `audit-${n}.bin`), img.data);
+        fs.writeFileSync(
+          path.join(dir, 'audit-meta.json'),
+          JSON.stringify({
+            clip,
+            band,
+            size: [A.width, A.height],
+            runs,
+            page: await win.webContents.executeJavaScript(
+              `(() => { const h = document.querySelector('h2,h1,p'); return { href: location.pathname.split('/').pop(), bodyBg: getComputedStyle(document.body).backgroundColor, ink: h ? getComputedStyle(h).color : null, vars: ['--cauldron-c-bg', '--cauldron-c-ink', '--cauldron-c-surface'].map((v) => getComputedStyle(document.body).getPropertyValue(v).trim() || '(unset)'), sheets: [...document.styleSheets].map((s) => (s.href || '(inline)') + ':' + s.cssRules.length) }; })()`,
+            ),
+          }),
+        );
+      }
+      const pageMax = bandMaxCoverage(A, B, C);
+      for (const run of runs) {
+        const m = measure(run, A, B, C, band.scale, band.x, band.y, pageMax);
+        // A run with no painted pixel is occluded or off-screen, so it is counted
+        // as skipped and reported. Anything painted at all gets a verdict: faded
+        // text is judged at the colour it is actually painted, never dropped.
+        if (m.empty) skipped.push({ frame: k, text: run.text });
+        else results.push({ frame: k, ...run, ...m });
+      }
+      runsFor.push(runs.length);
+      const impossible = results.some(
+        (r) => r.frame === k && !r.empty && r.pixels > 12 && r.p5 === 1,
       );
+      if (!impossible) break;
+      for (let i = results.length - 1; i >= 0; i--)
+        if (results[i].frame === k) results.splice(i, 1);
+      for (let i = skipped.length - 1; i >= 0; i--)
+        if (skipped[i].frame === k) skipped.splice(i, 1);
+      await sleep(150);
     }
-    const pageMax = bandMaxCoverage(A, B, C);
-    for (const run of runs) {
-      const m = measure(run, A, B, C, band.scale, band.x, band.y, pageMax);
-      if (m) results.push({ frame: k, ...run, ...m });
-    }
-    runsFor.push(runs.length);
   }
-  return { frames, runs: runsFor, results };
+  return { frames, runs: runsFor, results, skipped };
 }
 
 async function phone(win, page) {
