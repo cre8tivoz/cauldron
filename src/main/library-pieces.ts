@@ -475,7 +475,7 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   font-size: var(--cauldron-size-1);
   letter-spacing: 0.1em;
   font-weight: 700;
-  color: var(--cauldron-c-primary);
+  color: color-mix(in srgb, var(--cauldron-c-surface) 82%, var(--cauldron-c-accent));
   display: block;
   margin-bottom: var(--cauldron-space-3);
 }
@@ -484,17 +484,17 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   font-size: var(--cauldron-size-8);
   line-height: 1.1;
   margin: 0 0 var(--cauldron-space-4);
-  color: #ffffff;
+  color: var(--cauldron-c-surface);
 }
 .cauldron-threeui-shader-hero p {
   font-size: var(--cauldron-size-4);
-  color: #cccccc;
+  color: color-mix(in srgb, var(--cauldron-c-surface) 72%, var(--cauldron-c-ink));
   margin-bottom: var(--cauldron-space-5);
 }
 .cauldron-threeui-shader-hero .shader-btn {
   display: inline-block;
-  background: #ffffff;
-  color: #111111;
+  background: var(--cauldron-c-surface);
+  color: var(--cauldron-c-ink);
   padding: var(--cauldron-space-3) var(--cauldron-space-5);
   border-radius: var(--cauldron-radius-1);
   font-weight: 600;
@@ -1155,39 +1155,39 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
 .cauldron-studio-directory h3 {
   font-family: var(--cauldron-font-display);
   font-size: var(--cauldron-size-4);
-  color: #fff;
+  color: var(--cauldron-c-surface);
   margin-bottom: var(--cauldron-space-2);
 }
 .cauldron-studio-directory h4 {
   font-size: var(--cauldron-size-2);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--cauldron-c-primary);
+  color: color-mix(in srgb, var(--cauldron-c-surface) 82%, var(--cauldron-c-accent));
   margin-bottom: var(--cauldron-space-3);
 }
 .cauldron-studio-directory p {
-  color: #aaa;
+  color: color-mix(in srgb, var(--cauldron-c-surface) 70%, var(--cauldron-c-ink));
   font-size: var(--cauldron-size-2);
   line-height: 1.55;
   margin: 4px 0;
 }
 .cauldron-studio-directory a {
   display: block;
-  color: #ccc;
+  color: color-mix(in srgb, var(--cauldron-c-surface) 82%, var(--cauldron-c-ink));
   text-decoration: none;
   font-size: var(--cauldron-size-2);
   margin-bottom: 6px;
 }
 .cauldron-studio-directory a:hover {
-  color: #fff;
+  color: var(--cauldron-c-surface);
 }
 .cauldron-studio-directory .footer-bottom {
   max-width: 1100px;
   margin: 0 auto;
-  border-top: 1px solid #333;
+  border-top: 1px solid color-mix(in srgb, var(--cauldron-c-surface) 24%, var(--cauldron-c-ink));
   padding-top: var(--cauldron-space-4);
   font-size: var(--cauldron-size-1);
-  color: #777;
+  color: color-mix(in srgb, var(--cauldron-c-surface) 55%, var(--cauldron-c-ink));
 }
 @media (max-width: 768px) {
   .cauldron-studio-directory .footer-grid {
@@ -2125,7 +2125,7 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
 }
 .cauldron-editorial-newsletter-footer p {
   margin: 0 0 var(--cauldron-space-4);
-  color: var(--cauldron-c-line);
+  color: color-mix(in srgb, var(--cauldron-c-surface) 70%, var(--cauldron-c-ink));
   font-size: var(--cauldron-size-2);
 }
 .cauldron-editorial-newsletter-footer .nl-form {
