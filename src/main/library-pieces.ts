@@ -41,8 +41,8 @@ ${strongStyles}
     category,
     description,
     licence:
-      id === 'masonry-photo-lookbook'
-        ? 'Astro code MIT; prints CC0, Cleveland Museum of Art Open Access.'
+      id === 'masonry-photo-lookbook' || id === 'split-editorial-hero'
+        ? 'Astro code MIT; imagery CC0, Cleveland Museum of Art Open Access.'
         : 'MIT (Plain Astro). Cauldron starter set, MIT.',
     source: 'Cauldron Section Catalogue',
     needsScript: false,
@@ -268,9 +268,10 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
     </div>
   </div>
   <div class="hero-stage">
-    <div class="image-frame">
-      <span class="frame-label">[ Photography: Stone & Wood Pavilion ]</span>
-    </div>
+    <figure class="image-frame">
+      <img class="frame-photo" src="${lookbookImages.pavilion}" alt="Stone vimana tower and pillared cloister of the Perumal temple, Madurai" />
+      <figcaption class="frame-credit">Perumal Temple, Madurai · Cleveland Museum of Art (CC0)</figcaption>
+    </figure>
   </div>
 </div>`,
     `.cauldron-split-editorial-hero {
@@ -328,14 +329,30 @@ export const EXTENDED_LIBRARY: LibraryPiece[] = [
   color: var(--cauldron-c-ink);
 }
 .cauldron-split-editorial-hero .image-frame {
+  position: relative;
   height: 380px;
+  margin: 0;
+  overflow: hidden;
   background: var(--cauldron-c-surface);
   border: 1px solid var(--cauldron-c-line);
   border-radius: var(--cauldron-radius-2);
-  display: grid;
-  place-items: center;
-  color: var(--cauldron-c-muted);
-  font-size: var(--cauldron-size-2);
+}
+.cauldron-split-editorial-hero .frame-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cauldron-split-editorial-hero .frame-credit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--cauldron-space-2) var(--cauldron-space-3);
+  background: color-mix(in srgb, var(--cauldron-c-ink) 72%, transparent);
+  color: var(--cauldron-c-surface);
+  font-size: var(--cauldron-size-1);
 }
 @media (max-width: 768px) {
   .cauldron-split-editorial-hero .split-hero {

@@ -462,6 +462,9 @@ export function piecePreview(
   body { margin: 0; min-height: 100vh; display: grid; align-items: safe center;
     background: var(--cauldron-c-bg); color: var(--cauldron-c-ink);
     font-family: var(--cauldron-font-body); }
+  /* A grid item defaults to min-content width; auto-fit grids would inflate
+     past a narrow phone frame and clip. Let the section shrink to the frame. */
+  body > section { min-width: 0; }
   ${piece.styles}
 </style></head>
 <body><section class="cauldron-${piece.id}">${markup}</section></body></html>`;
