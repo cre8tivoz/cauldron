@@ -5566,6 +5566,25 @@ await (async () => {
         filterLibraryPieces(EXTENDED_LIBRARY, 'All', 'coverflow').length,
         1,
       );
+      // The outline's quick-insert menu must only name pieces the catalogue really has;
+      // a stale id is silently filtered out of the menu (Codex review, PR #35).
+      const outlineSource = fs.readFileSync(
+        path.join(process.cwd(), 'src/components/PageOutline.tsx'),
+        'utf8',
+      );
+      const quickBlock = outlineSource.match(
+        /QUICK_SECTION_PIECES[^=]*=\s*\[([\s\S]*?)\];/,
+      );
+      assert.ok(quickBlock, 'PageOutline declares its quick-insert pieces');
+      const quickIds = [...quickBlock[1].matchAll(/id:\s*'([a-z0-9-]+)'/g)].map(
+        (m) => m[1],
+      );
+      assert.ok(quickIds.length >= 3, 'outline offers several quick inserts');
+      for (const id of quickIds)
+        assert.ok(
+          combinedIds.has(id),
+          `outline quick-insert ${id} exists in the library`,
+        );
     });
 
     const vercelRes = await deployVercelAsync(cfSiteRoot, 'wdl-241-vercel', {

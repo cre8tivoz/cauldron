@@ -43,20 +43,36 @@ five entries in the file.
 
 ## Verification
 
-- **Contrast:** 131 visible text nodes were checked against the rendered pixels
-  behind them. There were **0 WCAG AA failures**. The marquee is excluded from
-  the automated check because its text animates and repeats; it was confirmed
-  readable by eye.
+- **Works in every direction:** each of the 20 pieces was rendered in all ten
+  real design directions (200 combinations), and 1,210 text nodes were checked
+  against the pixels behind them. **0 failures are caused by the components.**
+  Text on a site's primary picks black or white from the primary's lightness, so
+  no piece assumes a light surface, a light accent or a dark primary.
+- **Inherited, not caused:** Solid Ground, Silver Screen and Open House define
+  text tokens below AA on their own backgrounds:
+  - Solid Ground: muted on bg 3.06:1.
+  - Silver Screen: primary on bg 3.13:1.
+  - Open House: primary on bg 3.79:1.
+
+  Any piece using those tokens, including the starters, inherits that. The
+  directions are settled design, so this is recorded on WDL-263 for Billy's
+  decision rather than changed here.
+
+- **Showcase:** 128 visible text nodes, 0 AA failures. Holo Card was checked at
+  its worst animation frame (sheen frozen at nine positions, across all
+  palettes): body 6.09:1, title 5.19:1, chip 5.9:1.
 - **Phone width:** 0 of 25 specimens overflow or clip at 375px.
 - **Packaged app:** 50 frames captured, 0 blank.
-- **Tests:** `npm run check` and `npm run test:projects` (20/20) pass. The new
+- **Tests:** `npm run check` and `npm run test:projects` (20/20) pass. The
   `WDL-263` test holds every piece to the same bar: plain Astro, no script,
   design tokens, visible focus, multi-column layouts that collapse on phones,
-  motion that stops under reduced motion, and no placeholder imagery.
+  motion that stops under reduced motion and no placeholder imagery. It also
+  checks that the outline's quick-insert menu only names real pieces.
 
 ## History
+
+All of this sits on one issue, WDL-263. Earlier passes:
 
 - WDL-259: fixed phone-width clipping in the preview wrapper and replaced a
   placeholder photo.
 - WDL-261: varied colour and type per specimen.
-- WDL-263: rebuilt the catalogue as distinct components, the subject of these captures.

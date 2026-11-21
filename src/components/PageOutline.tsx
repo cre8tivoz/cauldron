@@ -8,9 +8,10 @@ type Props = {
 
 const QUICK_SECTION_PIECES: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'editorial-intro', label: 'Editorial intro' },
-  { id: 'split-editorial-hero', label: 'Split hero' },
-  { id: 'trade-bento-grid', label: 'Bento grid' },
-  { id: 'studio-contact-hours', label: 'Contact & hours' },
+  { id: 'editorial-hero', label: 'Editorial hero' },
+  { id: 'bento-grid', label: 'Bento grid' },
+  { id: 'stepper', label: 'Process stepper' },
+  { id: 'pricing-ticket', label: 'Pricing ticket' },
 ];
 
 export function PageOutline({
