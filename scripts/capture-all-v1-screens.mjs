@@ -131,7 +131,7 @@ const RAW_DIRECTIONS = [
       surface: '#ffffff',
       text: '#23252a',
       accent: '#a9714b',
-      muted: '#8b8681',
+      muted: '#6b6661',
       line: '#d7d2c8',
     },
     fonts: {

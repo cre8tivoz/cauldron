@@ -130,7 +130,7 @@ export const LIBRARY: LibraryPiece[] = [
 .cauldron-editorial-intro .action {
   font-family: var(--cauldron-font-body);
   font-size: var(--cauldron-size-2);
-  color: var(--cauldron-c-primary);
+  color: var(--cauldron-c-primary-text, var(--cauldron-c-primary));
   text-decoration: none;
   border-bottom: 1px solid currentColor;
   padding-bottom: var(--cauldron-space-2);

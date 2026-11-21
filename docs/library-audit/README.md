@@ -48,15 +48,27 @@ five entries in the file.
   against the pixels behind them. **0 failures are caused by the components.**
   Text on a site's primary picks black or white from the primary's lightness, so
   no piece assumes a light surface, a light accent or a dark primary.
-- **Inherited, not caused:** Solid Ground, Silver Screen and Open House define
-  text tokens below AA on their own backgrounds:
-  - Solid Ground: muted on bg 3.06:1.
-  - Silver Screen: primary on bg 3.13:1.
-  - Open House: primary on bg 3.79:1.
+- **Direction text colours (fixed):** Solid Ground, Silver Screen and Open House
+  used to define small-text colours below AA on their own backgrounds (worst:
+  Solid Ground muted 3.06:1, Silver Screen primary 3.13:1, Open House primary
+  3.79:1). Darkening primary outright turned the big fills muddy, so each
+  direction keeps its vivid primary for fills and buttons, and gains a darker
+  `primary-text` of the same hue for small text. Muted is text-only, so it was
+  darkened directly:
 
-  Any piece using those tokens, including the starters, inherits that. The
-  directions are settled design, so this is recorded on WDL-263 for Billy's
-  decision rather than changed here.
+  | Direction     | muted                  | primary (fills, unchanged) | primary-text (new) |
+  | ------------- | ---------------------- | -------------------------- | ------------------ |
+  | Solid Ground  | `#8b8681` → `#6b6661`  | `#a9714b`                  | `#905a35`          |
+  | Silver Screen | `#6e7076` → `#5c5e64`  | `#e2401b`                  | `#bd1000`          |
+  | Open House    | `#6b5744` (already AA) | `#c6621f`                  | `#b25000`          |
+
+  Every new text colour measures at least 4.8:1 on both bg and surface, leaving
+  room for pieces that lay a glow or dot field behind their copy. Rendered in all
+  20 pieces across the three directions: 347 text nodes, 0 failures. A test now
+  fails any direction whose ink, muted or primary text drops below 4.5:1.
+  Sites created before this change keep the colours saved in their own
+  `cauldron/tokens.css`; new sites get the fixed colours. Before/after sheet:
+  [`direction-text-colours.jpg`](direction-text-colours.jpg).
 
 - **Showcase:** 128 visible text nodes, 0 AA failures. Holo Card was checked at
   its worst animation frame (sheen frozen at nine positions, across all

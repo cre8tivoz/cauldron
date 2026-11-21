@@ -2192,6 +2192,7 @@ test('29 contrast use is classified on the raw ratio, not the rounded display', 
       ink: '#777777',
       muted: '#959595',
       primary: '#777777',
+      'primary-text': '#777777',
     },
   };
   const doc = directions.designDocument(direction);
@@ -2211,6 +2212,43 @@ test('29 contrast use is classified on the raw ratio, not the rounded display', 
     '4.478:1 printed as 4.5 is wrongly allowed for button labels',
   );
   assert.doesNotMatch(doc, /small text and above \|/);
+});
+
+test('WDL-263 every direction keeps its text colours readable on its own backgrounds', () => {
+  assert.ok(directions, 'directions module missing');
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  // ink, muted and the primary text colour set small text (captions, links,
+  // eyebrows) in every piece, so each must clear WCAG AA (4.5:1) on both the
+  // page and the card surface. A direction whose vivid primary fill is too
+  // light for small text supplies a darker primary-text and keeps the fill.
+  for (const direction of directions.DIRECTIONS) {
+    const c = direction.colours;
+    const primaryText = c['primary-text'] ?? c.primary;
+    for (const [token, value] of [
+      ['ink', c.ink],
+      ['muted', c.muted],
+      ['primary text', primaryText],
+    ]) {
+      for (const field of ['bg', 'surface']) {
+        const ratio = contrast.contrastRatio(value, c[field]);
+        assert.ok(
+          ratio >= contrast.TEXT_CONTRAST,
+          `${direction.id}: ${token} ${value} on ${field} ${c[field]} is ${ratio.toFixed(2)}:1, needs ${contrast.TEXT_CONTRAST}`,
+        );
+      }
+    }
+    if (c['primary-text']) {
+      assert.ok(
+        directions.tokensCss(direction).includes('--cauldron-c-primary-text:'),
+        `${direction.id}: primary-text reaches tokens.css`,
+      );
+      assert.match(
+        directions.designDocument(direction),
+        /use `primary-text` and keep `primary` for fills/,
+        `${direction.id}: DESIGN.md tells the agent when to use primary-text`,
+      );
+    }
+  }
 });
 
 // Ticket 29 enrichment: every direction is a system, not just a palette, and
