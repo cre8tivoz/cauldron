@@ -4242,7 +4242,7 @@ import '../../cauldron/tokens.css';
   .agent-callout p { font-size: var(--cauldron-size-1); margin: 0; }
   .agent-callout-link {
     display: inline-block;
-    color: var(--cauldron-c-primary);
+    color: var(--cauldron-c-primary-text, var(--cauldron-c-primary));
     font-family: var(--cauldron-font-body);
     font-size: var(--cauldron-size-1);
     padding: var(--cauldron-space-${lastIndex(measured.spacing)});

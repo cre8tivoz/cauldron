@@ -49,7 +49,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
     direction: 'Solid Ground',
     directionId: 'solid-ground',
     badge: 'Trades',
-    swatches: ['#f0ece3', '#ffffff', '#a9714b', '#23252a', '#8b8681'],
+    swatches: ['#f0ece3', '#ffffff', '#a9714b', '#23252a', '#6b6661'],
     fonts: 'Archivo + Work Sans',
     pages: ['/', '/services', '/quote'],
   },

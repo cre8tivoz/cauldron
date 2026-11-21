@@ -217,8 +217,10 @@ export const DIRECTIONS: DesignDirection[] = [
       bg: '#f0ece3',
       surface: '#ffffff',
       ink: '#23252a',
-      muted: '#8b8681',
+      muted: '#6b6661',
       primary: '#a9714b',
+      // Small text in the primary colour: the fill stays vivid, the text stays readable.
+      'primary-text': '#905a35',
       'primary-deep': '#3a2a1f',
       accent: '#2f3438',
       line: '#dad5c9',
@@ -270,8 +272,10 @@ export const DIRECTIONS: DesignDirection[] = [
       bg: '#dddee2',
       surface: '#ffffff',
       ink: '#0b0b0c',
-      muted: '#6e7076',
+      muted: '#5c5e64',
       primary: '#e2401b',
+      // Small text in the primary colour: the fill stays vivid, the text stays readable.
+      'primary-text': '#bd1000',
       'primary-soft': '#f4d9d2',
       line: '#c8c9ce',
     },
@@ -427,6 +431,8 @@ export const DIRECTIONS: DesignDirection[] = [
       ink: '#2b1d12',
       muted: '#6b5744',
       primary: '#c6621f',
+      // Small text in the primary colour: the fill stays vivid, the text stays readable.
+      'primary-text': '#b25000',
       'primary-soft': '#f7e3cd',
       accent: '#e8b23a',
       line: '#eadfcb',
@@ -737,7 +743,7 @@ export function designDocument(direction: DesignDirection): string {
   // The threshold is decided on the unrounded ratio; rounding is only for
   // display. Otherwise 4.46 prints as 4.5 and is wrongly allowed for small
   // text, and 2.99 prints as 3.0 and is wrongly offered for large text.
-  const textPairs = ['ink', 'muted', 'primary', 'danger']
+  const textPairs = ['ink', 'muted', 'primary', 'primary-text', 'danger']
     .filter((name) => direction.colours[name])
     .flatMap((name) =>
       ['bg', 'surface']
@@ -813,7 +819,7 @@ or 18.66px+ bold) may use a pair at 3:1 or better, and only at 3:1 or better.
 Button labels must be 4.5:1 or better against the colour behind them. A colour
 marked "decorative fills only, no text" measures under 3:1, so it is for
 backgrounds, borders and rules only: never use it for text at any size. Use
-\`ink\` for small labels and links, with an underline for links. If a button fill
+\`ink\` for small labels and links, with an underline for links.${direction.colours['primary-text'] ? ' For small text in the primary colour (eyebrows, links, labels), use `primary-text` and keep `primary` for fills, buttons and large type.' : ''} If a button fill
 cannot carry button text at 4.5:1, use \`ink\` as the fill or an \`ink\` border on
 \`bg\` instead.
 
