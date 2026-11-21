@@ -5483,54 +5483,89 @@ await (async () => {
     const { EXTENDED_LIBRARY } = await import('../src/main/library-pieces.ts');
     const { LIBRARY_CATEGORIES, filterLibraryPieces } =
       await import('../src/library-filter.ts');
-    test('WDL-242: EXTENDED_LIBRARY includes 25 plain-Astro tokenised pieces across Galleries, Pricing, and all categories', () => {
-      assert.equal(EXTENDED_LIBRARY.length, 25);
+    test('WDL-263: the catalogue is distinct, plain-Astro pieces held to one quality bar', () => {
       const ids = new Set(EXTENDED_LIBRARY.map((p) => p.id));
-      assert.equal(ids.size, 25);
+      assert.equal(ids.size, EXTENDED_LIBRARY.length, 'piece ids are unique');
+      assert.ok(EXTENDED_LIBRARY.length >= 20, 'at least 20 catalogue pieces');
       const combinedIds = new Set([
         ...LIBRARY.map((p) => p.id),
         ...EXTENDED_LIBRARY.map((p) => p.id),
       ]);
       assert.equal(combinedIds.size, LIBRARY.length + EXTENDED_LIBRARY.length);
-      for (const expectedId of [
-        'mobile-slide-menu',
-        'card-carousel-hero',
-        'hover-reveal-work',
-        'masonry-photo-lookbook',
-        'before-after-compare',
-        'product-showcase-grid',
-        'tiered-pricing-cards',
-        'comparison-pricing-strip',
-        'map-directions-card',
-        'editorial-newsletter-footer',
-      ]) {
-        const piece = EXTENDED_LIBRARY.find((p) => p.id === expectedId);
-        assert.ok(piece, `Missing WDL-242 piece: ${expectedId}`);
-        assert.equal(piece.plainAstro, true);
-        assert.equal(piece.needsScript, false);
-        assert.ok(piece.styles?.includes('--cauldron-'));
-        assert.ok(piece.styles?.includes('@media (max-width: 768px)'));
-        assert.ok(piece.styles?.includes(':focus-visible'));
+      // Every piece, not a sample: plain Astro, no script, tokenised, keyboard focus.
+      for (const piece of EXTENDED_LIBRARY) {
+        assert.equal(piece.plainAstro, true, `${piece.id} is plain Astro`);
+        assert.equal(piece.needsScript, false, `${piece.id} needs no script`);
+        assert.ok(
+          piece.styles.includes('--cauldron-'),
+          `${piece.id} uses design tokens`,
+        );
+        assert.ok(
+          piece.styles.includes(':focus-visible'),
+          `${piece.id} shows focus`,
+        );
+        // Any multi-column layout must collapse on phones.
+        const multiColumn =
+          /grid-template-columns:\s*(repeat\((?:[2-9]|auto)|[^;]*\s[^;]*fr)/.test(
+            piece.styles,
+          ) || /\bcolumns:\s*[2-9]/.test(piece.styles);
+        if (multiColumn)
+          assert.match(
+            piece.styles,
+            /@media \(max-width: (?:[0-9]{3})px\)/,
+            `${piece.id} collapses its columns on phones`,
+          );
+        // Motion respects reduced motion.
+        if (/animation:/.test(piece.styles))
+          assert.ok(
+            piece.styles.includes('prefers-reduced-motion: reduce'),
+            `${piece.id} stops motion under reduced motion`,
+          );
+        // No placeholder imagery or labels.
+        assert.doesNotMatch(
+          piece.markup,
+          /\[\s*(?:photo|image|photography)/i,
+          `${piece.id} has no placeholder label`,
+        );
       }
-      assert.equal(LIBRARY_CATEGORIES.includes('Galleries'), true);
-      assert.equal(LIBRARY_CATEGORIES.includes('Pricing'), true);
-      assert.equal(
-        filterLibraryPieces(EXTENDED_LIBRARY, 'Galleries', '').length,
-        4,
+      // The catalogue spans genuinely different kinds of component.
+      const categories = new Set(EXTENDED_LIBRARY.map((p) => p.category));
+      for (const expected of [
+        'Text effects',
+        'Backgrounds',
+        'Cards',
+        'Galleries',
+        'Navigation',
+        'Buttons',
+        'Sections',
+      ])
+        assert.ok(categories.has(expected), `catalogue has ${expected}`);
+      for (const category of LIBRARY_CATEGORIES.filter(
+        (c) => c !== 'Featured' && c !== 'All',
+      ))
+        assert.ok(
+          filterLibraryPieces(EXTENDED_LIBRARY, category, '').length > 0,
+          `${category} filter is not empty`,
+        );
+      // Featured leads with the strongest pieces, not the first five in the file.
+      const featured = filterLibraryPieces(
+        [...LIBRARY, ...EXTENDED_LIBRARY],
+        'Featured',
+        '',
+      );
+      assert.ok(featured.length >= 6, 'featured shows a real opening set');
+      assert.ok(
+        featured.every((p) => !LIBRARY.some((s) => s.id === p.id)),
+        'featured shows catalogue pieces, not the plain starters',
       );
       assert.equal(
-        filterLibraryPieces(EXTENDED_LIBRARY, 'Pricing', '').length,
-        2,
+        filterLibraryPieces(EXTENDED_LIBRARY, 'All', '').length,
+        EXTENDED_LIBRARY.length,
       );
       assert.equal(
-        filterLibraryPieces(EXTENDED_LIBRARY, 'Featured 5', 'pricing').length,
-        3,
-      );
-      assert.equal(
-        filterLibraryPieces(EXTENDED_LIBRARY, 'Pricing', 'dual').length,
+        filterLibraryPieces(EXTENDED_LIBRARY, 'All', 'coverflow').length,
         1,
       );
-      assert.equal(filterLibraryPieces(EXTENDED_LIBRARY, 'All', '').length, 25);
     });
 
     const vercelRes = await deployVercelAsync(cfSiteRoot, 'wdl-241-vercel', {
