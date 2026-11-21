@@ -1,0 +1,201 @@
+{
+  "revision": "6fe5929",
+  "pieces": 25,
+  "palettes": 11,
+  "renderedPages": 297,
+  "measuredTextRuns": 4527,
+  "passed": 4875,
+  "failed": 0,
+  "failures": [],
+  "worstByPiece": {
+    "editorial-intro": {
+      "ratio": 4.6,
+      "need": 4.5,
+      "palette": "showcase:Terracotta",
+      "text": "Start a conversation",
+      "frame": 0
+    },
+    "newsletter-footer": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "Join",
+      "frame": 0
+    },
+    "glow-action": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "Book a chat",
+      "frame": 0
+    },
+    "heading-reveal": {
+      "ratio": 13.01,
+      "need": 3,
+      "palette": "solid-ground",
+      "text": "so it lasts.",
+      "frame": 0
+    },
+    "woven-cloth": {
+      "ratio": 9.03,
+      "need": 4.5,
+      "palette": "solid-ground",
+      "text": "Woven from paper and thread.",
+      "frame": 0
+    },
+    "gradient-headline": {
+      "ratio": 4.75,
+      "need": 4.5,
+      "palette": "solid-ground",
+      "text": "A living gradient fill, clipped ",
+      "frame": 7
+    },
+    "shiny-sweep": {
+      "ratio": 6.35,
+      "need": 4.5,
+      "palette": "componine",
+      "text": "A moving highlight, clipped to t",
+      "frame": 7
+    },
+    "command-palette": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "⌂Home",
+      "frame": 0
+    },
+    "command-palette (running)": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "⌂Home",
+      "frame": 0
+    },
+    "stepper": {
+      "ratio": 4.81,
+      "need": 4.5,
+      "palette": "solid-ground",
+      "text": "Goals, audience, scope",
+      "frame": 0
+    },
+    "marquee-strip": {
+      "ratio": 4.04,
+      "need": 3,
+      "palette": "open-house",
+      "text": "Harbour&Co",
+      "frame": 2
+    },
+    "aurora-field": {
+      "ratio": 6.93,
+      "need": 4.5,
+      "palette": "niki-studio",
+      "text": "Layered gradients drift behind t",
+      "frame": 0
+    },
+    "dot-matrix": {
+      "ratio": 8.19,
+      "need": 4.5,
+      "palette": "showcase:Teal",
+      "text": "A radial dot field that fades to",
+      "frame": 0
+    },
+    "grain-gradient": {
+      "ratio": 4.61,
+      "need": 4.5,
+      "palette": "solid-ground",
+      "text": "A gradient wash with a tactile g",
+      "frame": 0
+    },
+    "spotlight-card": {
+      "ratio": 4.69,
+      "need": 4.5,
+      "palette": "henry-from-online",
+      "text": "A radial highlight, a fine grain",
+      "frame": 0
+    },
+    "bento-grid": {
+      "ratio": 5.09,
+      "need": 4.5,
+      "palette": "henry-from-online",
+      "text": "On-time delivery",
+      "frame": 0
+    },
+    "holo-card": {
+      "ratio": 6.7,
+      "need": 4.5,
+      "palette": "clear-ground",
+      "text": "Early access, source files, and ",
+      "frame": 6
+    },
+    "masonry-gallery": {
+      "ratio": 5.09,
+      "need": 4.5,
+      "palette": "henry-from-online",
+      "text": "South Wind, Clear Sky",
+      "frame": 0
+    },
+    "coverflow": {
+      "ratio": 4.5,
+      "need": 4.5,
+      "palette": "showcase:Gold Noir",
+      "text": "03",
+      "frame": 0
+    },
+    "coverflow (running)": {
+      "ratio": 4.5,
+      "need": 4.5,
+      "palette": "showcase:Gold Noir",
+      "text": "03",
+      "frame": 0
+    },
+    "dock-nav": {
+      "ratio": 6.88,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "✎",
+      "frame": 0
+    },
+    "pill-nav": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "Work",
+      "frame": 0
+    },
+    "specular-button": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "Start a project",
+      "frame": 0
+    },
+    "glow-cta": {
+      "ratio": 5.97,
+      "need": 4.5,
+      "palette": "componine",
+      "text": "Free 20-minute call. No obligati",
+      "frame": 4
+    },
+    "stat-band": {
+      "ratio": 6.42,
+      "need": 4.5,
+      "palette": "componine",
+      "text": "Sites shipped",
+      "frame": 0
+    },
+    "editorial-hero": {
+      "ratio": 4.6,
+      "need": 4.5,
+      "palette": "showcase:Terracotta",
+      "text": "Authentic craftsmanship",
+      "frame": 0
+    },
+    "pricing-ticket": {
+      "ratio": 4.98,
+      "need": 4.5,
+      "palette": "silver-screen",
+      "text": "Studio",
+      "frame": 0
+    }
+  }
+}

@@ -84,7 +84,8 @@ is compared with WCAG: **4.5:1**, or **3:1** for 24px+ text, or 18.66px+ bold.
 
 `npm run test:library:render` — **25 pieces × (their showcase palette + all ten
 design directions)**, plus Command Palette and Coverflow as a real site runs
-them: 297 rendered pages, 4,398 measured text runs, all passing.
+them: 297 rendered pages, 4,527 measured text runs, 4,875 assertions, all
+passing.
 
 Per page it checks every visible text run, at 375px it checks for horizontal
 overflow, and for the two interactive pieces it drives real input
