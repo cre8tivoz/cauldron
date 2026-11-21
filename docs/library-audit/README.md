@@ -31,4 +31,23 @@ All 30 render cleanly at both widths. The audit found two real defects, fixed in
 The ThreeUI Shader Hero's apparent overflow was a false positive: a decorative
 gradient mesh clipped by `overflow:hidden`.
 
+## Colour and type — WDL-261
+
+A follow-up review flagged that every specimen still rendered in one cream
+palette and one font. Fixed in [WDL-261](https://linear.app/witchdaddy/issue/WDL-261)
+(PR #33, `7330d17`): each component is now showcased in its own vibrant palette
+drawn from the researched colour families — terracotta, forest, indigo, gold,
+ember, magenta, teal, olive — with its own font pairing from a settled direction
+(Fraunces, Newsreader, Playfair Display, Cormorant Garamond, Lora, Archivo Black,
+Anton, Archivo). Inserting a component still adopts the open site's own direction.
+
+Verification:
+
+- **Contrast:** an objective WCAG audit (alpha-composited backgrounds) reports
+  **0 failures** across all 30 specimens, plus explicit Solid Ground insertion
+  probes for the dark-section pieces. Every palette is contrast-verified
+  (ink/field ≥ 9:1, muted/field ≥ 4.7:1, white/primary ≥ 4.9:1, accent/dark-ink ≥ 7.7:1).
+- **Fonts:** confirmed loading and distinct (8 pairings).
+- **Phone width:** 0 blank frames, 0 clipping/overflow.
+
 These captures are the post-fix state.
