@@ -243,23 +243,17 @@ test('Phase 2: addPiece adds an extended catalogue piece to an Astro project', (
   assert.equal(result.ok, true);
   const root = result.project.root;
 
-  const pieceId = 'centered-brand-nav';
+  const pieceId = 'bento-grid';
   const addRes = addPiece(root, { pieceId, page: '/', mode: 'add' });
   assert.equal(addRes.ok, true, 'addPiece returned ok: true');
 
-  const componentPath = path.join(
-    root,
-    'src/components/CenteredBrandNav.astro',
-  );
+  const componentPath = path.join(root, 'src/components/BentoGrid.astro');
   assert.ok(
     fs.existsSync(componentPath),
     'component file written to src/components',
   );
   const compContent = fs.readFileSync(componentPath, 'utf8');
-  assert.ok(
-    compContent.includes('Centered Brand Nav'),
-    'component markup written',
-  );
+  assert.ok(compContent.includes('Bento Grid'), 'component markup written');
 
   const pageContent = fs.readFileSync(
     path.join(root, 'src/pages/index.astro'),
@@ -267,12 +261,12 @@ test('Phase 2: addPiece adds an extended catalogue piece to an Astro project', (
   );
   assert.ok(
     pageContent.includes(
-      "import CenteredBrandNav from '../components/CenteredBrandNav.astro';",
+      "import BentoGrid from '../components/BentoGrid.astro';",
     ),
     'page includes component import',
   );
   assert.ok(
-    pageContent.includes('<CenteredBrandNav />'),
+    pageContent.includes('<BentoGrid />'),
     'page includes component tag',
   );
 });

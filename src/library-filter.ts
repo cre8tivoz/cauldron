@@ -1,14 +1,28 @@
 export const LIBRARY_CATEGORIES = [
-  'Featured 5',
+  'Featured',
   'All',
-  'Navigation',
-  'Heroes',
-  'Services',
+  'Text effects',
+  'Backgrounds',
+  'Cards',
   'Galleries',
-  'Pricing',
-  'Proof & Testimonials',
-  'Contact & FAQ',
-  'Footers',
+  'Navigation',
+  'Buttons',
+  'Sections',
+] as const;
+
+/**
+ * The opening set a person sees first: the strongest, most distinct pieces
+ * across categories, so the library leads with real visual range.
+ */
+export const FEATURED_IDS = [
+  'aurora-field',
+  'bento-grid',
+  'gradient-headline',
+  'holo-card',
+  'coverflow',
+  'masonry-gallery',
+  'dock-nav',
+  'pricing-ticket',
 ] as const;
 
 export function filterLibraryPieces<
@@ -20,11 +34,15 @@ export function filterLibraryPieces<
   },
 >(pieces: readonly T[], category: string, query: string): T[] {
   const q = query.trim().toLowerCase();
+  const featured = (): T[] =>
+    FEATURED_IDS.map((id) => pieces.find((p) => p.id === id)).filter(
+      (p): p is T => Boolean(p),
+    );
   const base =
-    category === 'All' || (q.length > 0 && category === 'Featured 5')
+    category === 'All' || (q.length > 0 && category === 'Featured')
       ? [...pieces]
-      : category === 'Featured 5'
-        ? pieces.slice(0, 5)
+      : category === 'Featured'
+        ? featured()
         : pieces.filter((p) => {
             const cat = (p.category || '').toLowerCase();
             const target = category.toLowerCase();

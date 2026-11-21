@@ -1,53 +1,62 @@
 # Library specimen audit
 
-Evidence that every component in the Cauldron library renders as a real, styled
-specimen — not a placeholder — at desktop and phone widths.
+Evidence that the Cauldron component library shows **genuinely distinct, real
+components**, not recoloured copies of one card template, and that every one
+renders correctly at desktop and phone widths.
 
-Captured 21 November 2026 from the **packaged Mac app** (`Cauldron.app`), opening a
-disposable Astro site and selecting each of the 30 components in the Components
-panel. Each specimen was screenshotted at desktop (960px) and phone (375px) width,
-then checked for blank frames pixel-by-pixel and reviewed visually.
+Captured from the **packaged Mac app** (`Cauldron.app`). The script opens a
+disposable Astro site, then selects each of the 25 components in the Components
+panel. Each specimen was captured at desktop (960px) and phone (375px) width,
+then checked by pixel sampling and by eye.
 
 ## Contents
 
-- `contact-sheet-desktop.jpg` — all 30 components at desktop width.
-- `contact-sheet-phone.jpg` — all 30 components at 375px phone width.
-- `components/NN-name-desktop.png` / `components/NN-name-phone.png` — the 60
-  individual full-resolution captures, numbered in catalogue order.
+- `contact-sheet-desktop.jpg`: all 25 components at desktop width, each labelled with its name and category.
+- `contact-sheet-phone.jpg`: all 25 components at 375px phone width.
+- `components/NN-name-desktop.png` / `components/NN-name-phone.png`: the 50 individual captures, numbered in catalogue order.
 
-## Result
+## The catalogue (WDL-263)
 
-All 30 render cleanly at both widths. The audit found two real defects, fixed in
-[WDL-259](https://linear.app/witchdaddy/issue/WDL-259) (PR #31, `f6a7aed`):
+Billy rejected the earlier library as uniform section cards in different
+colours. The catalogue was rebuilt from the original research archive
+(`cauldronresearchbackup`). That archive holds React Bits' categories
+(TextAnimations, Backgrounds, Components), OriginKit's component index
+(text, interactive, gallery, background, button), ThreeUI's effects and
+Design Bites' real-site design files. Following ADR 0001/0002, these were read
+for understanding and every piece is our own plain HTML/CSS.
 
-1. **Phone-width clipping.** The specimen preview wrapper used a grid body, which
-   let two `auto-fit minmax` grids (Capability Cards, Masonry Review Cards) inflate
-   past the 375px frame and clip. The shipped components collapse correctly in
-   normal block flow; only the preview was wrong. Fixed with `body > section { min-width: 0 }`.
-2. **Placeholder imagery.** Split Editorial Hero shipped a
-   `[ Photography: Stone & Wood Pavilion ]` label. Replaced with a real, credited
-   CC0 photograph (Perumal Temple, Madurai — Cleveland Museum of Art Open Access).
+Twenty distinct pieces across seven kinds:
 
-The ThreeUI Shader Hero's apparent overflow was a false positive: a decorative
-gradient mesh clipped by `overflow:hidden`.
+| Kind         | Pieces                                                                 |
+| ------------ | ---------------------------------------------------------------------- |
+| Text effects | Gradient Headline · Shiny Sweep · Marquee Strip                        |
+| Backgrounds  | Aurora Field · Dot Matrix · Grain Gradient                             |
+| Cards        | Spotlight Card · Bento Grid · Holo Card                                |
+| Galleries    | Masonry Gallery (CC0 Hokusai prints) · Coverflow (3D, with reflection) |
+| Navigation   | Command Palette · Dock Navigation · Pill Navigation                    |
+| Buttons      | Specular Button · Glow Call to Action                                  |
+| Sections     | Process Stepper · Stat Band · Editorial Hero · Pricing Ticket          |
 
-## Colour and type — WDL-261
+The five credited ThreeUI starters remain as recorded in the starter set. The
+library now opens on a **Featured** set of the strongest pieces, not the first
+five entries in the file.
 
-A follow-up review flagged that every specimen still rendered in one cream
-palette and one font. Fixed in [WDL-261](https://linear.app/witchdaddy/issue/WDL-261)
-(PR #33, `7330d17`): each component is now showcased in its own vibrant palette
-drawn from the researched colour families — terracotta, forest, indigo, gold,
-ember, magenta, teal, olive — with its own font pairing from a settled direction
-(Fraunces, Newsreader, Playfair Display, Cormorant Garamond, Lora, Archivo Black,
-Anton, Archivo). Inserting a component still adopts the open site's own direction.
+## Verification
 
-Verification:
+- **Contrast:** 131 visible text nodes were checked against the rendered pixels
+  behind them. There were **0 WCAG AA failures**. The marquee is excluded from
+  the automated check because its text animates and repeats; it was confirmed
+  readable by eye.
+- **Phone width:** 0 of 25 specimens overflow or clip at 375px.
+- **Packaged app:** 50 frames captured, 0 blank.
+- **Tests:** `npm run check` and `npm run test:projects` (20/20) pass. The new
+  `WDL-263` test holds every piece to the same bar: plain Astro, no script,
+  design tokens, visible focus, multi-column layouts that collapse on phones,
+  motion that stops under reduced motion, and no placeholder imagery.
 
-- **Contrast:** an objective WCAG audit (alpha-composited backgrounds) reports
-  **0 failures** across all 30 specimens, plus explicit Solid Ground insertion
-  probes for the dark-section pieces. Every palette is contrast-verified
-  (ink/field ≥ 9:1, muted/field ≥ 4.7:1, white/primary ≥ 4.9:1, accent/dark-ink ≥ 7.7:1).
-- **Fonts:** confirmed loading and distinct (8 pairings).
-- **Phone width:** 0 blank frames, 0 clipping/overflow.
+## History
 
-These captures are the post-fix state.
+- WDL-259: fixed phone-width clipping in the preview wrapper and replaced a
+  placeholder photo.
+- WDL-261: varied colour and type per specimen.
+- WDL-263: rebuilt the catalogue as distinct components, the subject of these captures.
