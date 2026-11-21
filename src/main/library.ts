@@ -459,12 +459,16 @@ export function piecePreview(
 <style>${css}</style>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; align-items: safe center;
+  html, body { height: 100%; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
     background: var(--cauldron-c-bg); color: var(--cauldron-c-ink);
     font-family: var(--cauldron-font-body); }
-  /* A grid item defaults to min-content width; auto-fit grids would inflate
-     past a narrow phone frame and clip. Let the section shrink to the frame. */
-  body > section { min-width: 0; }
+  /* The section fills the whole specimen frame, so a component's own
+     background is the canvas (no box-inside-a-box letterboxing), and its
+     content centres within it. min-width:0 stops auto-fit grids inflating
+     past a narrow phone frame. */
+  body > section { flex: 1 0 auto; min-width: 0; min-height: 100vh;
+    display: flex; flex-direction: column; justify-content: center; }
   ${piece.styles}
 </style></head>
 <body><section class="cauldron-${piece.id}">${markup}</section></body></html>`;

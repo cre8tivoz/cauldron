@@ -32,7 +32,7 @@ export function LibraryPanel({ site, onBack }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [replaceTag, setReplaceTag] = useState('');
   const [lastRun, setLastRun] = useState<string | null>(null);
-  const [category, setCategory] = useState('Featured 5');
+  const [category, setCategory] = useState('Featured');
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState('');
   const [mobile, setMobile] = useState(false);
