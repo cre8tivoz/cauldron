@@ -40,7 +40,9 @@ function piece(
   // selector here carries the class twice and the piece keeps its own colours.
   const doubled = `.cauldron-${id}.cauldron-${id}`;
   const common = `
-.cauldron-${id} { font-family: var(--cauldron-font-body); font-size: var(--cauldron-size-3); }
+.cauldron-${id} { font-family: var(--cauldron-font-body); font-size: var(--cauldron-size-3);
+  /* Text that reads on the site's own primary: exact when the tokens provide it. */
+  --on-primary: var(--cauldron-c-on-primary, oklch(from var(--cauldron-c-primary) clamp(0, (0.56 - l) * 1000, 1) 0 0)); }
 .cauldron-${id}, .cauldron-${id} * { border-radius: var(--cauldron-radius-0); }
 .cauldron-${id} p, .cauldron-${id} label, .cauldron-${id} input, .cauldron-${id} button { font-family: var(--cauldron-font-body); }
 .cauldron-${id} input:hover { border-color: var(--cauldron-c-primary); }
@@ -218,7 +220,7 @@ export const LIBRARY: LibraryPiece[] = [
 .cauldron-newsletter-footer button {
   font: inherit;
   font-weight: 600;
-  color: var(--cauldron-c-surface);
+  color: var(--on-primary, var(--cauldron-c-surface));
   background: var(--cauldron-c-primary);
   border: 1px solid var(--cauldron-c-primary);
   border-radius: var(--cauldron-radius-1);
@@ -276,7 +278,7 @@ export const LIBRARY: LibraryPiece[] = [
   font-family: var(--cauldron-font-body);
   font-size: var(--cauldron-size-3);
   font-weight: 600;
-  color: var(--cauldron-c-surface);
+  color: var(--on-primary, var(--cauldron-c-surface));
   background: var(--cauldron-c-primary);
   border: 1px solid var(--cauldron-c-primary);
   border-radius: var(--cauldron-radius-4);

@@ -1292,6 +1292,9 @@ textarea:focus-visible {
 
 .library-category-bar {
   display: flex;
+  /* overflow-x makes this flex child's minimum height 0, so without this the
+     column squeezed the bar to 2px and hid every category (WDL-263 review). */
+  flex-shrink: 0;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;

@@ -641,9 +641,54 @@ function fontFallback(font: FontChoice, fallback: string): string {
   return fallback;
 }
 
+// Which of white or black the site's own primary reads against. Computed from
+// real contrast, not from a lightness threshold: an oklch lightness can be low
+// for a bright saturated hue, so a threshold picks the weaker colour (Gold Noir
+// and Solid Ground both lost 0.3:1 that way).
+export function onPrimary(primary: string): '#000000' | '#ffffff' {
+  return contrastRatio('#ffffff', primary) >= contrastRatio('#000000', primary)
+    ? '#ffffff'
+    : '#000000';
+}
+
+const hexToRgb = (hex: string) =>
+  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** Mix `to` into `from`: fraction t of `to`. */
+export function mixHex(from: string, to: string, t: number): string {
+  const a = hexToRgb(from);
+  const b = hexToRgb(to);
+  return `#${a
+    .map((v, i) =>
+      Math.round(v * (1 - t) + b[i] * t)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+}
+
+// A primary fill that small text can sit on. Where neither black nor white
+// clears 4.5:1 against the direction's own primary, the fill moves away from
+// the text colour until one does. Without it a mid-tone primary leaves a label
+// like "03" stuck at 4.43:1 with no legal text colour.
+export function solidPrimary(primary: string): string {
+  const on = onPrimary(primary);
+  if (contrastRatio(on, primary) >= 4.6) return primary;
+  const away = on === '#ffffff' ? '#000000' : '#ffffff';
+  for (let t = 0.02; t <= 1; t += 0.02) {
+    const mixed = mixHex(primary, away, t);
+    if (contrastRatio(on, mixed) >= 4.6) return mixed;
+  }
+  return primary;
+}
+
 export function tokensCss(direction: DesignDirection): string {
   const colours = Object.entries(direction.colours)
     .map(([name, value]) => `  --cauldron-c-${name}: ${value};`)
+    .concat(
+      `  --cauldron-c-on-primary: ${onPrimary(direction.colours.primary)};`,
+      `  --cauldron-c-primary-solid: ${solidPrimary(direction.colours.primary)};`,
+    )
     .join('\n');
   const sizes = direction.typeScale
     .map((size, index) => `  --cauldron-size-${index + 1}: ${size / 16}rem;`)

@@ -1,29 +1,36 @@
 # Library specimen audit
 
-Evidence that the Cauldron component library shows **genuinely distinct, real
-components**, not recoloured copies of one card template, and that every one
-renders correctly at desktop and phone widths.
+Evidence for the Cauldron component library (WDL-263), and the two runners that
+produce it. Nothing here is a claim without a command behind it.
 
-Captured from the **packaged Mac app** (`Cauldron.app`). The script opens a
-disposable Astro site, then selects each of the 25 components in the Components
-panel. Each specimen was captured at desktop (960px) and phone (375px) width,
-then checked by pixel sampling and by eye.
+```bash
+npm run test:library:render                  # every piece, every palette, measured pixels
+npm run package && npm run test:library:ui   # the real packaged app
+```
+
+Both runners exit non-zero on any failure. The render runner also writes
+[`render-audit.json`](render-audit.json): the revision it ran against, page and
+run counts, and the worst pair per piece.
 
 ## Contents
 
-- `contact-sheet-desktop.jpg`: all 25 components at desktop width, each labelled with its name and category.
+- `contact-sheet-desktop.jpg`: all 25 components at desktop width.
 - `contact-sheet-phone.jpg`: all 25 components at 375px phone width.
-- `components/NN-name-desktop.png` / `components/NN-name-phone.png`: the 50 individual captures, numbered in catalogue order.
+- `components/NN-name-desktop.png` / `components/NN-name-phone.png`: the 50
+  individual captures, numbered in catalogue order, refreshed by
+  `npm run test:library:ui -- --capture`.
+- `render-audit.json`: the render runner's summary for a revision.
+- `direction-text-colours.jpg`: before/after of the three direction fixes.
 
-## The catalogue (WDL-263)
+## The catalogue
 
 Billy rejected the earlier library as uniform section cards in different
 colours. The catalogue was rebuilt from the original research archive
-(`cauldronresearchbackup`). That archive holds React Bits' categories
-(TextAnimations, Backgrounds, Components), OriginKit's component index
-(text, interactive, gallery, background, button), ThreeUI's effects and
-Design Bites' real-site design files. Following ADR 0001/0002, these were read
-for understanding and every piece is our own plain HTML/CSS.
+(`cauldronresearchbackup`), which holds React Bits' categories
+(TextAnimations, Backgrounds, Components), OriginKit's component index (text,
+interactive, gallery, background, button), ThreeUI's effects and Design Bites'
+real-site design files. Following ADR 0001/0002 those were read for
+understanding; every piece is our own plain HTML/CSS.
 
 Twenty distinct pieces across seven kinds:
 
@@ -37,59 +44,148 @@ Twenty distinct pieces across seven kinds:
 | Buttons      | Specular Button · Glow Call to Action                                  |
 | Sections     | Process Stepper · Stat Band · Editorial Hero · Pricing Ticket          |
 
-The five credited ThreeUI starters remain as recorded in the starter set. The
-library now opens on a **Featured** set of the strongest pieces, not the first
-five entries in the file.
+The five credited ThreeUI starters remain. The library opens on a **Featured**
+set of the strongest pieces.
 
-## Verification
+## How contrast is measured
 
-- **Works in every direction:** each of the 20 pieces was rendered in all ten
-  real design directions (200 combinations), and 1,210 text nodes were checked
-  against the pixels behind them. **0 failures are caused by the components.**
-  Text on a site's primary picks black or white from the primary's lightness, so
-  no piece assumes a light surface, a light accent or a dark primary.
-- **Direction text colours (fixed):** Solid Ground, Silver Screen and Open House
-  used to define small-text colours below AA on their own backgrounds (worst:
-  Solid Ground muted 3.06:1, Silver Screen primary 3.13:1, Open House primary
-  3.79:1). Darkening primary outright turned the big fills muddy, so each
-  direction keeps its vivid primary for fills and buttons, and gains a darker
-  `primary-text` of the same hue for small text. Muted is text-only, so it was
-  darkened directly:
+Not by reading CSS. For every page and every frozen animation frame the runner
+takes three real captures of the same frame:
 
-  | Direction     | muted                  | primary (fills, unchanged) | primary-text (new) |
-  | ------------- | ---------------------- | -------------------------- | ------------------ |
-  | Solid Ground  | `#8b8681` → `#6b6661`  | `#a9714b`                  | `#905a35`          |
-  | Silver Screen | `#6e7076` → `#5c5e64`  | `#e2401b`                  | `#bd1000`          |
-  | Open House    | `#6b5744` (already AA) | `#c6621f`                  | `#b25000`          |
+1. the page as it renders;
+2. the same frame with all text made transparent — what is actually behind it;
+3. the same frame with all text replaced by opaque magenta — a glyph mask.
 
-  Every new text colour measures at least 4.8:1 on both bg and surface, leaving
-  room for pieces that lay a glow or dot field behind their copy. Rendered in all
-  20 pieces across the three directions: 347 text nodes, 0 failures. A test now
-  fails any direction whose ink, muted or primary text drops below 4.5:1.
-  Sites created before this change keep the colours saved in their own
-  `cauldron/tokens.css`; new sites get the fixed colours. Before/after sheet:
-  [`direction-text-colours.jpg`](direction-text-colours.jpg).
+A pixel counts as glyph only where capture 3 is at least 98% of the page's
+maximum coverage, so anti-aliasing fringes are not scored as text (a 13px stroke
+read 4.43:1 at a 95% floor and 4.80:1 at its actual colour). Contrast is then
+computed per glyph pixel between capture 1 and capture 2, and the 5th percentile
+is compared with WCAG: **4.5:1**, or **3:1** for 24px+ text, or 18.66px+ bold.
 
-- **Showcase:** 128 visible text nodes, 0 AA failures. Holo Card was checked at
-  its worst animation frame (sheen frozen at nine positions, across all
-  palettes): body 6.09:1, title 5.19:1, chip 5.9:1.
-- **Text-clipped headlines:** Shiny Sweep's sheen is visible in all 11 palettes,
-  and its worst frame measures 3.86:1 against the field (large text needs 3).
-  Gradient Headline and Shiny Sweep both pad their descenders. A hole test
-  renders each glyph clipped and solid and compares the two: 0 missing pixels in
-  every palette, against 19 missing (a severed "y") with the padding removed.
-- **Phone width:** 0 of 25 specimens overflow or clip at 375px.
-- **Packaged app:** 50 frames captured, 0 blank.
-- **Tests:** `npm run check` and `npm run test:projects` (20/20) pass. The
-  `WDL-263` test holds every piece to the same bar: plain Astro, no script,
-  design tokens, visible focus, multi-column layouts that collapse on phones,
-  motion that stops under reduced motion and no placeholder imagery. It also
-  checks that the outline's quick-insert menu only names real pieces.
+- **Text-clipped gradients are included.** Their painted background is removed
+  before capture 2, so a gradient headline is measured against the page, not
+  against itself.
+- **Looping animations are sampled at eight evenly spaced frames** (a sheen, a
+  drift, a marquee). Worst frame wins.
+- **One-shot entrance animations are judged at their settled state.** A 700ms
+  fade is not a contrast failure at 12% opacity; the state a person reads is.
+- **Text inside a fade or vignette is reported as unmeasurable, never as a
+  pass.** Glyph pixels must reach the page's maximum opacity, so a word ghosted
+  by a mask does not silently count.
+- The marquee has no vignette any more: a fade washes out a pill's own
+  background along with the word leaving, which drops the pair to 4:1 at the
+  edge.
+
+## What the render runner covers
+
+`npm run test:library:render` — **25 pieces × (their showcase palette + all ten
+design directions)**, plus Command Palette and Coverflow as a real site runs
+them: 297 rendered pages, 4,398 measured text runs, all passing.
+
+Per page it checks every visible text run, at 375px it checks for horizontal
+overflow, and for the two interactive pieces it drives real input
+(`sendInputEvent`) and reads the result:
+
+- palette: a click focuses the combobox, typing "pri" leaves only Pricing and
+  hides empty groups, Escape clears and restores all six, "zzz" shows the empty
+  message, keywords match ("book" finds Book a call), arrows move
+  `aria-selected` and `aria-activedescendant` and wrap, Enter follows the
+  active link, `/` focuses from the page;
+- coverflow: controls appear, next / left arrow / wrap, a side card comes
+  forward without navigating, the centre card follows its link, and a drag with
+  the button held advances one project without firing a link;
+- both with **JavaScript disabled**: every destination is still a real `href`,
+  and no dead control is visible.
+
+It also fails if any piece other than those two ships a script (ADR 0008), or if
+one of them ships a fake input or a `href="#"`.
+
+## What the packaged-app runner covers
+
+`npm run test:library:ui` drives the **packaged `Cauldron.app`** over CDP with a
+disposable Astro site:
+
+- the category bar is fully visible — `clientHeight >= scrollHeight`, and every
+  pill fully inside it — at the supported **1280×800** minimum and at
+  **1440×900**;
+- every category answers a real mouse click at a point verified with
+  `elementFromPoint`, selects, and lists its components;
+- Enter on a focused pill selects it, and Tab moves between pills;
+- all 25 components open at desktop (960px) and phone (375px).
+
+## Direction colours
+
+Solid Ground, Silver Screen and Open House defined small-text colours below AA
+on their own backgrounds (worst: Solid Ground muted 3.06:1, Silver Screen
+primary 3.13:1, Open House primary 3.79:1). Darkening primary outright turned
+the big fills muddy, so each keeps its vivid primary for fills and gains a
+darker `primary-text` of the same hue for small text:
+
+| Direction     | muted                  | primary (fills, unchanged) | primary-text (new) |
+| ------------- | ---------------------- | -------------------------- | ------------------ |
+| Solid Ground  | `#8b8681` → `#6b6661`  | `#a9714b`                  | `#905a35`          |
+| Silver Screen | `#6e7076` → `#5c5e64`  | `#e2401b`                  | `#bd1000`          |
+| Open House    | `#6b5744` (already AA) | `#c6621f`                  | `#b25000`          |
+
+Two tokens make text on a primary fill exact rather than approximate:
+
+- `--cauldron-c-on-primary` — black or white, chosen by real contrast ratio. An
+  oklch lightness threshold picked the weaker colour, because a saturated hue
+  can be bright at a low lightness (Gold Noir and Solid Ground both lost about
+  0.3:1 that way).
+- `--cauldron-c-primary-solid` — the same fill, moved away from the text colour
+  only where _neither_ black nor white clears 4.5:1. Gold Noir's "03" label sat
+  at 4.43:1 with no legal text colour; it now sits on a fill that passes.
+
+Sites created before this change keep the colours in their own
+`cauldron/tokens.css`; new sites get the fixed ones.
+
+## Defects this audit found in the components
+
+Fixing the measurement surfaced real problems, all fixed:
+
+| Piece                          | Defect                                                       | Measured    |
+| ------------------------------ | ------------------------------------------------------------ | ----------- |
+| Newsletter footer, Glow action | `surface` on `primary` button labels                         | 4.06–4.21:1 |
+| Specular Button                | soft-light sheen swept _through_ the label, lifting the fill | 2.83:1      |
+| Aurora Field                   | white type over an unscrimmed bright drift phase             | 1.00:1      |
+| Dot Matrix                     | muted subtitle over the dot field                            | 4.00:1      |
+| Command Palette                | muted group labels; tinted icon square under the active row  | 3.43:1      |
+| Marquee Strip                  | vignette washing out whole pills at the row edge             | 4.00:1      |
+| Pricing Ticket                 | gradient lightened the fill under small text                 | 4.48:1      |
+| Coverflow                      | centre-card index label on an impossible primary pair        | 4.43:1      |
+| Gradient Headline              | light gradient stops on a pale field, worst frame            | 1.30:1      |
+
+## Known cosmetic items
+
+- The packaged-app capture of **Coverflow** crops at the specimen frame's edge.
+  The piece's own geometry is verified in the render audit (cards sit at
+  106–414px in a 520px frame, nothing outside), so this is a capture-path
+  quirk, not a layout defect: the sandboxed specimen iframe paints taller than
+  the frame the screenshot is clipped to for that one piece.
+- Bento Grid is 2px taller than the 520px frame (padding only).
+
+## Older checks still standing
+
+- **Shiny Sweep** keeps its sheen visible in all 11 palettes (worst frame
+  3.86:1, large text needs 3), and both text-clipped headlines pad their
+  descenders: a hole test finds 0 missing glyph pixels in every palette, against
+  19 with the padding removed.
+- **Holo Card** at its worst sheen position across all palettes: body 6.09:1,
+  title 5.19:1, chip 5.9:1.
+- **`WDL-263` structural test** holds every piece to one bar: plain Astro, design
+  tokens, visible focus, multi-column layouts that collapse on phones, motion
+  that stops under reduced motion, no placeholder imagery, and an outline
+  quick-insert menu that only names real pieces.
 
 ## History
 
-All of this sits on one issue, WDL-263. Earlier passes:
+All of this sits on one issue, WDL-263.
 
-- WDL-259: fixed phone-width clipping in the preview wrapper and replaced a
+- WDL-259: fixed phone-width clipping in the preview wrapper, replaced a
   placeholder photo.
 - WDL-261: varied colour and type per specimen.
+- This pass: the three defects an independent review reproduced on `main` — the
+  category bar clipped to 2px, Command Palette and Coverflow static despite
+  promising interaction, and Gradient Headline at 1.26:1 on its showcase. The
+  old "0 failures" claim did not cover text-clipped gradients; this one does.

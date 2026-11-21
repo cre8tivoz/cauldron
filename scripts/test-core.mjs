@@ -5530,10 +5530,48 @@ await (async () => {
         ...EXTENDED_LIBRARY.map((p) => p.id),
       ]);
       assert.equal(combinedIds.size, LIBRARY.length + EXTENDED_LIBRARY.length);
-      // Every piece, not a sample: plain Astro, no script, tokenised, keyboard focus.
+      // Every piece, not a sample: plain Astro, tokenised, keyboard focus.
+      // Script only where the piece's promise IS interaction (ADR 0008), and
+      // then only small plain DOM code behind markup that works without it.
+      const INTERACTIVE = ['command-palette', 'coverflow'];
       for (const piece of EXTENDED_LIBRARY) {
         assert.equal(piece.plainAstro, true, `${piece.id} is plain Astro`);
-        assert.equal(piece.needsScript, false, `${piece.id} needs no script`);
+        const script = /<script>([\s\S]*?)<\/script>/.exec(piece.astro)?.[1];
+        if (INTERACTIVE.includes(piece.id)) {
+          assert.equal(
+            piece.needsScript,
+            true,
+            `${piece.id} says it needs a script`,
+          );
+          assert.ok(script, `${piece.id} ships the script for its interaction`);
+          assert.doesNotMatch(
+            script,
+            /\bimport\b|fetch\(|XMLHttpRequest|eval\(|innerHTML/,
+            `${piece.id}: plain DOM code only`,
+          );
+          assert.ok(
+            script.length < 5000,
+            `${piece.id}: the script stays small`,
+          );
+          assert.ok(
+            script.includes('querySelectorAll(') &&
+              /for \(const \w+ of document\.querySelectorAll/.test(script),
+            `${piece.id}: the script sets up every copy on the page`,
+          );
+          assert.match(
+            piece.markup,
+            / hidden[ >]/,
+            `${piece.id}: controls that need the script start hidden`,
+          );
+          assert.doesNotMatch(
+            piece.markup,
+            /readonly|href="#"/,
+            `${piece.id}: no fake inputs or dead links`,
+          );
+        } else {
+          assert.equal(piece.needsScript, false, `${piece.id} needs no script`);
+          assert.equal(script, undefined, `${piece.id} ships no script`);
+        }
         assert.ok(
           piece.styles.includes('--cauldron-'),
           `${piece.id} uses design tokens`,
