@@ -61,6 +61,11 @@ five entries in the file.
 - **Showcase:** 128 visible text nodes, 0 AA failures. Holo Card was checked at
   its worst animation frame (sheen frozen at nine positions, across all
   palettes): body 6.09:1, title 5.19:1, chip 5.9:1.
+- **Text-clipped headlines:** Shiny Sweep's sheen is visible in all 11 palettes,
+  and its worst frame measures 3.86:1 against the field (large text needs 3).
+  Gradient Headline and Shiny Sweep both pad their descenders. A hole test
+  renders each glyph clipped and solid and compares the two: 0 missing pixels in
+  every palette, against 19 missing (a severed "y") with the padding removed.
 - **Phone width:** 0 of 25 specimens overflow or clip at 375px.
 - **Packaged app:** 50 frames captured, 0 blank.
 - **Tests:** `npm run check` and `npm run test:projects` (20/20) pass. The

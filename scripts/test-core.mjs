@@ -5585,6 +5585,24 @@ await (async () => {
           combinedIds.has(id),
           `outline quick-insert ${id} exists in the library`,
         );
+      // Text-clipped effects need a transparent glyph fill, or the opaque colour paints
+      // over the clipped gradient and the effect never shows (Codex review, PR #35).
+      for (const piece of [...LIBRARY, ...EXTENDED_LIBRARY]) {
+        for (const rule of piece.styles.matchAll(/\{([^{}]*)\}/g)) {
+          if (!/background-clip:\s*text/.test(rule[1])) continue;
+          assert.match(
+            rule[1],
+            /(?<![-\w])color:\s*transparent|-webkit-text-fill-color:\s*transparent/,
+            `${piece.id}: a text-clipped background has a transparent glyph fill`,
+          );
+          // The gradient only paints inside the box, so descenders (g, y) need room below.
+          assert.match(
+            rule[1],
+            /padding(-bottom|-block)?:[^;]*em/,
+            `${piece.id}: a text-clipped headline pads its descenders`,
+          );
+        }
+      }
     });
 
     const vercelRes = await deployVercelAsync(cfSiteRoot, 'wdl-241-vercel', {
