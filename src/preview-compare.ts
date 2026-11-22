@@ -26,6 +26,25 @@ export const COMPARE_WIDTHS = [
   { id: 'desktop', label: 'Desktop', width: 1280 },
 ] as const;
 
+/** Gap between columns; matches `.stage-compare` in the stylesheet. */
+export const COMPARE_GAP = 12;
+
+/**
+ * The narrowest stage that can show all three widths truthfully.
+ *
+ * Chromium will not scale a page below `MIN_ZOOM`, so this is a hard floor, not
+ * a target: below it the native views would be wider than their columns and
+ * would spill over the editor panels, because CSS cannot clip a child
+ * `WebContentsView`. The stage says there is not enough room instead of drawing
+ * a comparison that isn't one.
+ */
+export function minimumStageWidth(): number {
+  return (
+    COMPARE_WIDTHS.reduce((sum, width) => sum + width.width * MIN_ZOOM, 0) +
+    COMPARE_GAP * (COMPARE_WIDTHS.length - 1)
+  );
+}
+
 export type CompareWidth = (typeof COMPARE_WIDTHS)[number];
 export type CompareFrameId = CompareWidth['id'];
 

@@ -1705,6 +1705,7 @@ function registerIpc(): void {
           ...state.previewCompare.introspect(),
           detail: await state.previewCompare.inspectFrames(),
           applied: state.previewCompare.appliedLog.slice(-12),
+          failures: state.previewCompare.failures,
         },
         childPng: child,
         parentPng: parent,
@@ -2436,6 +2437,9 @@ async function createPage(page: { path: string; title: string }) {
     };
   }
   try {
+    // The compare columns show whatever the single preview is showing, so a
+    // page change reaches both.
+    void state.previewCompare.load(url).catch(() => undefined);
     await state.preview.load(url);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -2593,8 +2597,13 @@ function registerPreviewIpc(): void {
       state.previewCompare.clear();
       return true;
     }
+    // A geometry update must not navigate: dragging a splitter fires this many
+    // times a second, and reloading all three pages resets their scroll and
+    // page state each time. New views load the current URL themselves.
+    if (state.server) {
+      state.previewCompare.setUrl(state.preview.currentUrl ?? state.server.url);
+    }
     state.previewCompare.setFrames(frames);
-    if (state.server) await state.previewCompare.load(state.server.url);
     return true;
   });
 

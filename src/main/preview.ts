@@ -16,7 +16,7 @@ export function configurePreviewSecurity(contents: WebContents): void {
   });
 }
 
-function isNavigationAborted(error: unknown): boolean {
+export function isNavigationAborted(error: unknown): boolean {
   const err = error as { code?: string; errno?: number; message?: string };
   return (
     err?.errno === -3 ||
@@ -33,6 +33,8 @@ function isNavigationAborted(error: unknown): boolean {
  */
 export class Preview {
   private view: WebContentsView | null = null;
+  private lastUrl: string | null = null;
+
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
   private window: BrowserWindow | null = null;
   private visible = false;
@@ -91,7 +93,16 @@ export class Preview {
     return this.bounds;
   }
 
+  /**
+   * The last URL this preview was asked to show. Compare mode starts from here
+   * so the three columns show the page being looked at, not the site root.
+   */
+  get currentUrl(): string | null {
+    return this.lastUrl;
+  }
+
   async load(url: string): Promise<void> {
+    this.lastUrl = url;
     const contents = this.webContents;
     if (!contents) return;
     try {

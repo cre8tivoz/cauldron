@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { PREVIEW_VIEWPORTS, type PreviewViewport } from '../preview-viewport';
-import { COMPARE_WIDTHS, computeCompareFrames } from '../preview-compare';
+import {
+  COMPARE_WIDTHS,
+  computeCompareFrames,
+  minimumStageWidth,
+} from '../preview-compare';
 
 type Props = {
   stageRef: RefObject<HTMLDivElement | null>;
@@ -33,8 +37,20 @@ export function PreviewStage({
   onOpen,
 }: Props) {
   const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Three true widths need about 630px of stage because Chromium will not scale
+  // below a quarter. Under that the native frames would be wider than their
+  // columns and could not be clipped by CSS, so the stage asks for room instead.
+  const [tooNarrow, setTooNarrow] = useState(false);
 
   const reportFrames = useCallback(() => {
+    const stage = stageRef.current;
+    const fits = !stage || stage.clientWidth >= minimumStageWidth();
+    setTooNarrow(!fits);
+    if (!fits) {
+      // No frames at all: leaving stale views up would overlap the panels.
+      void window.cauldron.setCompareFrames([]).catch(() => undefined);
+      return;
+    }
     const slots = slotRefs.current.map((slot) =>
       slot ? slot.getBoundingClientRect() : null,
     );
@@ -132,7 +148,16 @@ export function PreviewStage({
             ) : null}
           </div>
         ) : null}
-        {compare && running ? (
+        {compare && running && tooNarrow ? (
+          <div className="stage-empty">
+            <h2>Not enough room to compare</h2>
+            <p className="hint">
+              Three true widths need about {Math.round(minimumStageWidth())}px
+              of preview. Widen the window or close a side panel.
+            </p>
+          </div>
+        ) : null}
+        {compare && running && !tooNarrow ? (
           <div className="stage-compare">
             {COMPARE_WIDTHS.map((preset, index) => (
               <div className="stage-compare-col" key={preset.id}>

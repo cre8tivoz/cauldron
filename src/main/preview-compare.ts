@@ -1,5 +1,5 @@
 import { WebContentsView, type BrowserWindow, type Rectangle } from 'electron';
-import { configurePreviewSecurity } from './preview';
+import { configurePreviewSecurity, isNavigationAborted } from './preview';
 import type { CompareFrame, CompareFrameId } from '../preview-compare';
 
 /**
@@ -26,6 +26,8 @@ export class PreviewCompare {
   private window: BrowserWindow | null = null;
   private preloadPath = '';
   private url: string | null = null;
+  /** Genuine load failures, per frame, for the interface and for tests. */
+  private errors = new Map<CompareFrameId, string>();
 
   attach(window: BrowserWindow, preloadPath: string): void {
     this.window = window;
@@ -36,21 +38,62 @@ export class PreviewCompare {
     return this.frames.length > 0;
   }
 
+  /** Point any not-yet-loaded frames at a URL without disturbing the rest. */
+  setUrl(url: string): void {
+    this.url = url;
+  }
+
   /** Same URL as the single preview; a compare frame never navigates itself. */
   async load(url: string): Promise<void> {
     this.url = url;
     if (!this.enabled) return;
     await Promise.all(
-      [...this.views.entries()].map(async ([id, view]) => {
-        if (view.webContents.isDestroyed()) return;
+      [...this.views.entries()].map(([id, view]) =>
+        this.loadInto(id, view, url),
+      ),
+    );
+  }
+
+  /**
+   * Astro reloads routes while a load is in flight, so an abort is routine and
+   * retried once. Anything else — a refused connection, a dead dev server —
+   * leaves an empty column, so it is recorded and logged rather than swallowed
+   * as if the page had rendered.
+   */
+  private async loadInto(
+    id: CompareFrameId,
+    view: WebContentsView,
+    url: string,
+  ): Promise<void> {
+    if (view.webContents.isDestroyed()) return;
+    try {
+      await view.webContents.loadURL(url);
+      this.errors.delete(id);
+    } catch (error) {
+      if (!isNavigationAborted(error)) {
+        this.recordError(id, error);
+      } else {
         try {
           await view.webContents.loadURL(url);
-        } catch {
-          // A dev-server reload mid-load is not a failure worth surfacing.
+          this.errors.delete(id);
+        } catch (retryError) {
+          if (!isNavigationAborted(retryError))
+            this.recordError(id, retryError);
         }
-        this.applyZoom(id, view);
-      }),
-    );
+      }
+    }
+    this.applyZoom(id, view);
+  }
+
+  private recordError(id: CompareFrameId, error: unknown): void {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.errors.set(id, detail);
+    console.error(`compare frame ${id} failed to load: ${detail}`);
+  }
+
+  /** The failure each frame is currently showing, if any. */
+  get failures(): Record<string, string> {
+    return Object.fromEntries(this.errors);
   }
 
   reload(): void {
@@ -102,8 +145,7 @@ export class PreviewCompare {
         frameView.webContents.on('did-finish-load', () =>
           this.applyZoom(frame.id, frameView),
         );
-        if (this.url)
-          void view.webContents.loadURL(this.url).catch(() => undefined);
+        if (this.url) void this.loadInto(frame.id, frameView, this.url);
       }
       if (view.webContents.isDestroyed()) continue;
       // Zoom keeps the layout width at the breakpoint while the view is sized
@@ -126,6 +168,7 @@ export class PreviewCompare {
 
   /** Drop the frames and their processes; called when compare is turned off. */
   clear(): void {
+    this.errors.clear();
     const window = this.window;
     for (const view of this.views.values()) {
       if (window && !window.isDestroyed()) this.removeView(window, view);
