@@ -20,6 +20,7 @@ import {
   type Site,
 } from './site';
 import { Preview } from './preview';
+import { PreviewCompare } from './preview-compare';
 import { History } from './history';
 import { Runs, type Run } from './runs';
 import {
@@ -163,6 +164,7 @@ type Controller = {
   window: BrowserWindow | null;
   site: Site | null;
   preview: Preview;
+  previewCompare: PreviewCompare;
   server: DevServer | null;
   selection: SelectionState | null;
   history: History;
@@ -185,6 +187,7 @@ const state: Controller = {
   window: null,
   site: null,
   preview: new Preview(),
+  previewCompare: new PreviewCompare(),
   server: null,
   selection: null,
   history: new History(),
@@ -508,6 +511,7 @@ async function stopPreview(): Promise<void> {
   state.mcp?.close();
   state.mcp = null;
   state.preview.hide();
+  state.previewCompare.clear();
   send('cauldron:preview', { running: false, url: null });
 }
 
@@ -554,6 +558,7 @@ async function startPreview(): Promise<
     status(problem);
     return { problem, detail: server.url };
   }
+  await state.previewCompare.load(server.url);
   await startMcp(site);
   send('cauldron:preview', { running: true, url: server.url });
   scheduleThumbnailCapture(site.root, server.url);
@@ -902,6 +907,7 @@ async function reloadPreview(): Promise<void> {
     contents.once('did-finish-load', done);
   });
   state.preview.reload();
+  state.previewCompare.reload();
   await loaded;
   await refreshSiteHealth();
 }
@@ -1695,6 +1701,12 @@ function registerIpc(): void {
       const parent = await state.preview.captureWindow();
       return {
         ...state.preview.introspect(),
+        compare: {
+          ...state.previewCompare.introspect(),
+          detail: await state.previewCompare.inspectFrames(),
+          applied: state.previewCompare.appliedLog.slice(-12),
+          failures: state.previewCompare.failures,
+        },
         childPng: child,
         parentPng: parent,
       };
@@ -2425,6 +2437,9 @@ async function createPage(page: { path: string; title: string }) {
     };
   }
   try {
+    // The compare columns show whatever the single preview is showing, so a
+    // page change reaches both.
+    void state.previewCompare.load(url).catch(() => undefined);
     await state.preview.load(url);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -2570,6 +2585,25 @@ function restoreAllDrafts(): {
 function registerPreviewIpc(): void {
   handle('cauldron:preview-bounds', (_event, bounds) => {
     state.preview.setBounds(bounds);
+    return true;
+  });
+
+  // Side-by-side frames. The renderer measures its own columns and sends the
+  // rectangles; main only places native views, so a resize never round-trips
+  // through React state.
+  handle('cauldron:preview-compare', async (_event, frames) => {
+    if (!Array.isArray(frames)) return false;
+    if (frames.length === 0) {
+      state.previewCompare.clear();
+      return true;
+    }
+    // A geometry update must not navigate: dragging a splitter fires this many
+    // times a second, and reloading all three pages resets their scroll and
+    // page state each time. New views load the current URL themselves.
+    if (state.server) {
+      state.previewCompare.setUrl(state.preview.currentUrl ?? state.server.url);
+    }
+    state.previewCompare.setFrames(frames);
     return true;
   });
 
@@ -3052,6 +3086,10 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
   editorRendererGone = false;
   state.window = window;
   state.preview.attach(window, path.join(__dirname, 'preview-preload.js'));
+  state.previewCompare.attach(
+    window,
+    path.join(__dirname, 'preview-preload.js'),
+  );
   state.preview.webContents?.on('did-finish-load', () => {
     if (state.site && state.server) {
       scheduleThumbnailCapture(state.site.root, state.server.url);

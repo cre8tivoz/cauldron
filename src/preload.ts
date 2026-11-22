@@ -80,6 +80,8 @@ const api = {
     height: number;
   }) => invoke<boolean>('cauldron:preview-bounds', bounds),
   pickMode: (on: boolean) => invoke<boolean>('cauldron:pick-mode', on),
+  setCompareFrames: (frames: unknown) =>
+    invoke<boolean>('cauldron:preview-compare', frames),
 
   applyText: (value: string) =>
     invoke<WriteOutcome>('cauldron:apply-text', value),

@@ -6004,4 +6004,100 @@ await (async () => {
   }
 })();
 
+test('WDL-244 compare frames keep the breakpoint width and scale to fit the column', async () => {
+  const { frameForSlot, computeCompareFrames, COMPARE_WIDTHS } =
+    await import('../src/preview-compare.ts');
+  assert.deepEqual(
+    COMPARE_WIDTHS.map((preset) => preset.width),
+    [375, 768, 1280],
+    'the three widths are the ones the button advertises',
+  );
+
+  // A column narrower than the breakpoint: the page is scaled down, so its CSS
+  // width (and therefore every media query) stays at the breakpoint.
+  const narrow = frameForSlot(
+    { left: 100, top: 200, width: 300, height: 600 },
+    'phone',
+    375,
+  );
+  assert.equal(narrow.cssWidth, 375);
+  assert.equal(narrow.zoom, 0.8);
+  assert.equal(narrow.width, 300);
+  assert.equal(narrow.height, 600);
+  assert.equal(
+    narrow.x,
+    100,
+    'a page that fills its column starts at the column edge',
+  );
+
+  // A column wider than the breakpoint: no upscaling — a 375px phone blown up to
+  // 900px would misrepresent type size.
+  const wide = frameForSlot(
+    { left: 40, top: 60, width: 900, height: 700 },
+    'phone',
+    375,
+  );
+  assert.equal(wide.zoom, 1);
+  assert.equal(wide.width, 375);
+  assert.equal(wide.x, 303, 'centred: 40 + (900 - 375) / 2');
+
+  // Chromium will not scale below a quarter; the geometry must not claim it can.
+  const tiny = frameForSlot(
+    { left: 0, top: 0, width: 60, height: 500 },
+    'desktop',
+    1280,
+  );
+  assert.equal(tiny.zoom, 0.25, 'zoom floor matches the browser floor');
+  assert.equal(tiny.width, 320, 'so the view is 1280 x 0.25');
+
+  // Nothing measured yet (first paint) is not an error.
+  assert.deepEqual(computeCompareFrames([null, null, null]), []);
+
+  // All three slots measured: three frames, in screen order, ascending widths.
+  const frames = computeCompareFrames([
+    { left: 0, top: 50, width: 380, height: 500 },
+    { left: 400, top: 50, width: 380, height: 500 },
+    { left: 800, top: 50, width: 380, height: 500 },
+  ]);
+  assert.equal(frames.length, 3);
+  assert.deepEqual(
+    frames.map((frame) => frame.id),
+    ['phone', 'tablet', 'desktop'],
+  );
+  assert.ok(
+    frames[0].zoom >= frames[1].zoom && frames[1].zoom >= frames[2].zoom,
+    'a narrower breakpoint needs less scaling in the same column',
+  );
+  for (const frame of frames) {
+    assert.equal(frame.y, 50);
+    assert.ok(frame.width <= 380, `${frame.id} fits inside its column`);
+    assert.equal(
+      frame.cssWidth,
+      COMPARE_WIDTHS.find((p) => p.id === frame.id).width,
+    );
+  }
+});
+
+test('WDL-244 the compare frames cannot be mistaken for the editable preview', () => {
+  const source = fs.readFileSync(
+    path.join(repoRoot, 'src/main/preview-compare.ts'),
+    'utf8',
+  );
+  // Read-only by construction: they take the same locked-down session, and they
+  // never register a pick handler or send anything back to the app.
+  assert.match(source, /partition: 'cauldron-preview-compare'/);
+  assert.match(source, /configurePreviewSecurity/);
+  assert.equal(/pickMode|cauldron:pick|send\(/.test(source), false);
+  // ...and they cannot survive a preview restart.
+  const main = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.match(
+    main,
+    /state\.previewCompare\.clear\(\)/,
+    'stopPreview drops the frames',
+  );
+});
+
 process.exitCode = failures ? 1 : 0;
