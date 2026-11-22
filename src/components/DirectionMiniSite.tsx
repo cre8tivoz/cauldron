@@ -15,6 +15,7 @@
  */
 import type { CSSProperties } from 'react';
 import { directionImages } from '../assets/directions';
+import { contrastRatio, parseColour } from '../main/contrast';
 import type { CauldronDirectionSummary } from '../cauldron-types';
 
 type Sample = {
@@ -256,6 +257,20 @@ const FALLBACK: Sample = {
   meta: 'Your suburb · Open today',
 };
 
+/**
+ * The label colour a filled control needs. The renderer summary carries the
+ * catalogue colours but not the computed `on-primary`, so a direction whose
+ * primary is white (Niki Studio) would otherwise get white text on a white
+ * button. Same rule as `onPrimary()` in src/main/directions.ts, which writes
+ * the tokens a generated site uses.
+ */
+function labelOn(fill: string, fallback: string): string {
+  if (!parseColour(fill)) return fallback;
+  return contrastRatio('#ffffff', fill) >= contrastRatio('#000000', fill)
+    ? '#ffffff'
+    : '#000000';
+}
+
 export function DirectionMiniSite({
   direction,
 }: {
@@ -274,7 +289,7 @@ export function DirectionMiniSite({
   const accent = colours.accent ?? colours.primary ?? ink;
   const primary = colours.primary ?? ink;
   const accentText = colours['primary-text'] ?? primary;
-  const onPrimary = colours['on-primary'] ?? '#ffffff';
+  const onPrimary = colours['on-primary'] ?? labelOn(primary, ink);
   const radius =
     shape.control === 'pill'
       ? '999px'
