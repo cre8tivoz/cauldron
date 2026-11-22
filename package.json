@@ -22,6 +22,7 @@
     "test": "node scripts/test-core.mjs && node scripts/test-agent.mjs && node scripts/test-gemini-upgrades.mjs",
     "test:upgrades": "node scripts/test-gemini-upgrades.mjs",
     "test:projects": "node scripts/test-projects.mjs",
+    "test:app:shell": "node scripts/test-app-shell.mjs",
     "test:projects:ui": "node scripts/test-projects-ui.mjs",
     "test:library:render": "node scripts/test-library-render.mjs",
     "test:library:ui": "node scripts/test-library-ui.mjs",

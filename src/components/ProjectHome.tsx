@@ -307,7 +307,9 @@ export function ProjectHome({
           done: false,
           ok: false,
           problem: null,
-          thenOpen: false,
+          // A person who just pressed "Create and prepare" expects to end up in
+          // their new site, not back on the form wondering what happened.
+          thenOpen: true,
         });
         const started = await window.cauldron.prepareDependencies(
           result.project.root,

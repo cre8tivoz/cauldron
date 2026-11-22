@@ -28,6 +28,14 @@ npm run check       # type check, lint, formatting, and unit tests
 npm run verify:mac  # runs check + packages and smoke-launches the Mac app locally
 ```
 
+Once the app is packaged, these drive the **real `Cauldron.app`** over CDP, so they catch what unit tests cannot:
+
+```bash
+npm run test:app:shell     # every site screen explains itself with no site open; creating a project opens it
+npm run test:projects      # real Astro installs through the shared store
+npm run test:library:ui    # the component browser in the packaged app
+```
+
 If you'd like Git to run `npm run check` automatically before every commit, you can opt in to the repo's pre-commit hook:
 
 ```bash
