@@ -1083,10 +1083,24 @@ textarea:focus-visible {
 }
 
 /* 4-Column Hero Specimen Grid */
+/* Ten directions: five across on a wide pane so they read as two even rows,
+   four or fewer when the pane is narrower. */
 .directions-hero-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
   gap: 16px;
+}
+
+@media (min-width: 1320px) {
+  .directions-hero-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1060px) and (max-width: 1319px) {
+  .directions-hero-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .direction-hero-card {
@@ -1108,33 +1122,395 @@ textarea:focus-visible {
   box-shadow: 0 0 0 1.5px var(--accent-coral, #c84b31);
 }
 
-.direction-type-specimen {
-  min-height: 158px;
-  display: grid;
-  align-content: center;
-  gap: 6px;
-  padding: 16px 18px;
+/* The direction card shows a small browser window onto a real page: chrome,
+   nav, hero and the start of the next section, cut off by the card edge.
+   Sizes are container-relative, so 1cqw = 1% of the card width. */
+.dm {
+  container-type: inline-size;
+  position: relative;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--dm-bg);
+  color: var(--dm-ink);
+  font-family: var(--dm-body);
+  line-height: 1.35;
+  border-bottom: 1px solid var(--hairline);
 }
-.direction-type-specimen p {
+
+.dm-chrome {
+  display: flex;
+  align-items: center;
+  gap: 1.4cqw;
+  padding: 0.9cqw 2.4cqw;
+  background: color-mix(in srgb, var(--dm-ink) 8%, var(--dm-bg));
+  border-bottom: 1px solid var(--dm-line);
+  flex: none;
+}
+
+.dm-dots {
+  display: flex;
+  gap: 0.55cqw;
+}
+
+.dm-dots span {
+  width: 0.85cqw;
+  height: 0.85cqw;
+  border-radius: 50%;
+  background: var(--dm-ink);
+  opacity: 0.35;
+}
+
+.dm-back {
+  width: 0;
+  height: 0;
+  border-top: 0.55cqw solid transparent;
+  border-bottom: 0.55cqw solid transparent;
+  border-right: 0.8cqw solid var(--dm-muted);
+  opacity: 0.5;
+  flex: none;
+}
+
+.dm-back-fwd {
+  border-right: 0;
+  border-left: 0.8cqw solid var(--dm-muted);
+}
+
+.dm-url {
+  max-width: 60cqw;
+  margin: 0 auto;
+  padding: 0.35cqw 2cqw;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dm-ink) 6%, var(--dm-bg));
+  color: var(--dm-muted);
+  font-size: 1cqw;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7cqw;
+}
+
+.dm-lock {
+  width: 0.8cqw;
+  height: 0.65cqw;
+  border-radius: 0.12cqw;
+  background: var(--dm-muted);
+  opacity: 0.7;
+  flex: none;
+}
+
+.dm-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dm-nav {
+  display: flex;
+  align-items: center;
+  gap: 2cqw;
+  padding: 1.9cqw 2.8cqw;
+  border-bottom: 1px solid var(--dm-line);
+  flex: none;
+}
+
+.dm-brand {
+  font-family: var(--dm-display);
+  font-size: 1.7cqw;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.dm-meta {
+  font-size: 1.02cqw;
+  color: var(--dm-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dm-links {
+  display: flex;
+  gap: 1.9cqw;
+  margin-left: auto;
+  font-size: 1.1cqw;
+  letter-spacing: 0.02em;
+  color: var(--dm-muted);
+  white-space: nowrap;
+}
+
+.dm-util {
+  width: 1.05cqw;
+  height: 1.05cqw;
+  border-radius: 50%;
+  border: 1px solid var(--dm-muted);
+  opacity: 0.6;
+  flex: none;
+}
+
+.dm-hero {
+  display: flex;
+  flex: none;
+  min-height: 0;
+  gap: 2.4cqw;
+  padding: 2.6cqw 2.8cqw 2.2cqw;
+}
+
+.dm-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9cqw;
+  min-width: 0;
+  justify-content: center;
+}
+
+.dm-eyebrow {
+  font-size: 0.95cqw;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dm-accent-text);
+}
+
+.dm-headline {
   margin: 0;
-  line-height: 1.04;
+  font-family: var(--dm-display);
+  font-size: 4.3cqw;
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  white-space: pre-line;
 }
-.direction-type-specimen > span {
-  font-size: 13px;
+
+.dm-caps {
+  text-transform: uppercase;
 }
+
+.dm-headline.dm-loud {
+  font-size: 5.2cqw;
+  line-height: 0.86;
+  letter-spacing: -0.045em;
+}
+
+.dm-para {
+  margin: 0;
+  font-size: 1.2cqw;
+  color: var(--dm-muted);
+  max-width: 40ch;
+}
+
+.dm-cta {
+  align-self: flex-start;
+  margin-top: 0.9cqw;
+  padding: 1.05cqw 2.3cqw;
+  border-radius: var(--dm-radius);
+  background: var(--dm-primary);
+  color: var(--dm-on-primary);
+  font-size: 1.1cqw;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 0.2cqw 0.7cqw rgb(0 0 0 / 0.16);
+}
+
+.dm-photo {
+  display: block;
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+
+.dm-photo-empty {
+  background: var(--dm-surface);
+}
+
+/* Photo beside the copy — text-led directions. */
+.dm-side .dm-hero-copy {
+  flex: 1.1;
+}
+
+.dm-side .dm-photo {
+  flex: 0.9;
+  min-width: 0;
+  height: 31cqw;
+  border-radius: calc(var(--dm-radius) / 2);
+}
+
+/* Mirror the split, so two side-by-side cards do not read as one template. */
+.dm-flip .dm-hero {
+  flex-direction: row-reverse;
+}
+
+/* Full-bleed photograph with the copy over it — image-led directions. */
+.dm-overlay .dm-hero {
+  position: relative;
+  padding: 0;
+  height: 34cqw;
+  overflow: hidden;
+}
+
+.dm-overlay .dm-photo {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.dm-overlay .dm-hero-copy {
+  position: relative;
+  z-index: 1;
+  justify-content: flex-end;
+  padding: 2.6cqw 2.8cqw;
+  color: #fff;
+}
+
+.dm-overlay .dm-headline {
+  text-shadow: 0 0.1cqw 0.8cqw rgb(0 0 0 / 0.35);
+}
+
+.dm-overlay .dm-para {
+  color: #fff;
+  opacity: 0.92;
+  text-shadow: 0 0.1cqw 0.6cqw rgb(0 0 0 / 0.55);
+}
+
+.dm-overlay .dm-eyebrow {
+  color: #fff;
+  opacity: 0.95;
+  text-shadow: 0 0.1cqw 0.6cqw rgb(0 0 0 / 0.55);
+}
+
+.dm-scrim {
+  display: none;
+}
+
+.dm-overlay .dm-scrim {
+  display: block;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgb(0 0 0 / 0.88) 0%,
+    rgb(0 0 0 / 0.62) 38%,
+    rgb(0 0 0 / 0.22) 72%,
+    rgb(0 0 0 / 0.04) 100%
+  );
+}
+
+/* The beginning of the next section, clipped by the card. */
+.dm-next {
+  flex: none;
+  padding: 2cqw 2.8cqw 0;
+}
+
+.dm-next-kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2cqw;
+  font-size: 0.95cqw;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dm-muted);
+  margin-bottom: 1cqw;
+}
+
+.dm-next-more {
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-weight: 600;
+  color: var(--dm-accent-text);
+}
+
+.dm-next-body {
+  margin: 0 0 1.4cqw;
+  font-size: 1.15cqw;
+  color: var(--dm-muted);
+  max-width: 46ch;
+}
+
+.dm-list {
+  display: flex;
+  border-top: 1px solid var(--dm-line);
+}
+
+.dm-item {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1cqw;
+  padding: 1.4cqw 1.6cqw;
+  border-left: 1px solid var(--dm-line);
+  font-size: 1.15cqw;
+  min-width: 0;
+}
+
+.dm-item:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+/* Rows instead of columns for the clipped next section. */
+.dm-rows .dm-list {
+  flex-direction: column;
+}
+
+.dm-rows .dm-item {
+  border-left: 0;
+  border-top: 1px solid var(--dm-line);
+  padding-left: 0;
+}
+
+.dm-rows .dm-item:first-child {
+  border-top: 0;
+}
+
+.dm-item-left {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dm-item-right {
+  color: var(--dm-muted);
+  white-space: nowrap;
+}
+
+/* Palette row under the card copy: the roles, small. */
 .direction-token-strip {
   display: flex;
+  align-items: center;
   gap: 3px;
-  margin-top: 9px;
 }
 .direction-token-strip span {
-  width: 25px;
-  height: 8px;
+  width: 18px;
+  height: 6px;
   box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.32);
+}
+.direction-token-strip-fonts {
+  margin-left: 6px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  width: auto !important;
+  height: auto !important;
+  box-shadow: none !important;
 }
 
 .direction-card-body {
-  padding: 14px;
+  flex: 1;
+  padding: 13px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1188,7 +1564,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--hairline);
 }
