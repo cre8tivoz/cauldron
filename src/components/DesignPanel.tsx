@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DirectionMiniSite } from './DirectionMiniSite';
 
 export const SPECIMEN_GOOGLE_FONTS_URL =
   'https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Bitter:wght@400;600&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Cormorant+Garamond:wght@400;600;700&family=EB+Garamond:wght@400;600;700&family=Figtree:wght@400;600&family=Fraunces:opsz,wght@9..144,400..700&family=Geist:wght@400;600;700&family=Instrument+Serif:ital@0;1&family=Jost:wght@400;500;600&family=Karla:wght@400;500;600&family=Libre+Franklin:wght@400;600&family=Lora:ital,wght@0,400..700;1,400..700&family=Manrope:wght@400;600;700&family=Newsreader:opsz,wght@6..72,400..700&family=Nunito:wght@400;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Public+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;600;700&family=Syne:wght@400;700;800&family=Work+Sans:wght@400;500;600&family=Young+Serif&display=swap';
@@ -9,48 +10,6 @@ type Props = {
   onChosen: (direction: CauldronDirectionSummary) => void;
   onBack: () => void;
 };
-
-function DirectionSpecimen({
-  direction,
-}: {
-  direction: CauldronDirectionSummary;
-}) {
-  const { colours, fonts, typeScale } = direction;
-  return (
-    <div
-      className="direction-type-specimen"
-      style={{
-        background: colours.bg,
-        color: colours.ink,
-        fontFamily: `${fonts.body}, sans-serif`,
-      }}
-    >
-      <p
-        style={{
-          fontFamily: `${fonts.display}, ${fonts.display === fonts.body ? 'sans-serif' : 'serif'}`,
-          fontSize: `clamp(26px, 3.1vw, ${typeScale.at(-1) ?? 48}px)`,
-        }}
-      >
-        {direction.name}
-      </p>
-      <span>
-        {fonts.display} / {fonts.body}
-      </span>
-      <div className="direction-token-strip" aria-label="Primary palette">
-        {['ink', 'surface', 'primary', 'accent'].map(
-          (role) =>
-            colours[role] && (
-              <span
-                key={role}
-                title={`${role}: ${colours[role]}`}
-                style={{ background: colours[role] }}
-              />
-            ),
-        )}
-      </div>
-    </div>
-  );
-}
 
 export function DesignPanel({ site, current, onChosen, onBack }: Props) {
   const [directions, setDirections] = useState<CauldronDirectionSummary[]>([]);
@@ -163,7 +122,7 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
               key={direction.id}
               className={`direction-hero-card ${active ? 'active-direction-card' : ''}`}
             >
-              <DirectionSpecimen direction={direction} />
+              <DirectionMiniSite direction={direction} />
 
               {/* Card Body */}
               <div className="direction-card-body">
@@ -175,6 +134,25 @@ export function DesignPanel({ site, current, onChosen, onBack }: Props) {
                 </div>
 
                 <div className="direction-audience">{direction.forWhom}</div>
+
+                <div
+                  className="direction-token-strip"
+                  aria-label="Direction palette"
+                >
+                  {['bg', 'surface', 'ink', 'muted', 'primary', 'accent'].map(
+                    (role) =>
+                      direction.colours[role] && (
+                        <span
+                          key={role}
+                          title={`${role}: ${direction.colours[role]}`}
+                          style={{ background: direction.colours[role] }}
+                        />
+                      ),
+                  )}
+                  <span className="direction-token-strip-fonts">
+                    {direction.fonts.display} / {direction.fonts.body}
+                  </span>
+                </div>
 
                 {/* One-Line Editorial Note */}
                 <p className="direction-character-note">
