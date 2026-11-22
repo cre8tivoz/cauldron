@@ -138,6 +138,7 @@ export function App() {
   });
   const [previewViewport, setPreviewViewport] =
     useState<PreviewViewport>('desktop');
+  const [compareWidths, setCompareWidths] = useState(false);
   const [selection, setSelection] = useState<CauldronSelection | null>(null);
   const [drafts, setDrafts] = useState<CauldronDraft[]>([]);
   const [status, setStatus] = useState('Ready');
@@ -493,8 +494,12 @@ export function App() {
 
     const measure = () => {
       const rect = stage.getBoundingClientRect();
+      // Compare mode puts three of its own views over this stage; the single
+      // preview must get out of the way rather than sit on top of them.
       void window.cauldron.setPreviewBounds(
-        computePreviewBounds(rect, previewViewport),
+        compareWidths
+          ? { x: 0, y: 0, width: 0, height: 0 }
+          : computePreviewBounds(rect, previewViewport),
       );
     };
 
@@ -513,6 +518,7 @@ export function App() {
     inspectorCollapsed,
     view,
     previewViewport,
+    compareWidths,
   ]);
 
   useEffect(() => {
@@ -1162,6 +1168,8 @@ export function App() {
                   running={preview.running}
                   viewport={previewViewport}
                   onViewportChange={setPreviewViewport}
+                  compare={compareWidths}
+                  onCompareChange={setCompareWidths}
                   onOpen={openSite}
                 />
 

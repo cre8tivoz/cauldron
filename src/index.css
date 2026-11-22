@@ -484,6 +484,86 @@ textarea:focus-visible {
   min-height: 0;
 }
 
+.stage-compare-btn {
+  margin-left: 10px;
+  border: 1px solid var(--border);
+  background: var(--canvas);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.stage-compare-btn:hover {
+  color: var(--text);
+}
+
+.stage-compare-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.stage-viewport-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/*
+ * Three columns the native preview views are placed over. The slot itself is
+ * empty on purpose: it only reserves space and gives the renderer something to
+ * measure. Labels sit above it so a native view never covers its own name.
+ */
+.stage-compare {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  /* Proportional to the breakpoints (375 : 768 : 1280) so every frame renders at
+     the same zoom instead of the widest one being squashed. */
+  grid-template-columns: 375fr 768fr 1280fr;
+  gap: 10px;
+  padding: 10px;
+}
+
+.stage-compare-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.stage-compare-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.stage-compare-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.stage-compare-width {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-compare-slot {
+  flex: 1;
+  min-height: 0;
+}
+
 .stage-empty {
   position: absolute;
   inset: 0;
