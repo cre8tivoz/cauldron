@@ -258,26 +258,29 @@ check(
   'Create and prepare is clickable',
   await clickUntilReady(cdp, 'Create and prepare'),
 );
-check(
-  'install progress appears and finishes',
-  await waitUi(cdp, 'Dependencies ready.', 300000),
-);
-await cdp.screenshot(path.join(proofDir, '2-install-complete.png'));
-
-// --- 3. Open the created project; real preview ------------------------------
-check(
-  'Open project button appears after install',
-  await clickButton(cdp, 'Open project'),
-);
-const state = await (async () => {
-  const deadline = Date.now() + 90000;
+// Creation now opens the project by itself once the packages are in, so there
+// is no "Open project" button to press: the install finishing and the site
+// arriving are one step. Waiting on the end state also survives the progress
+// panel being cleared the moment the site opens.
+const openedItself = await (async () => {
+  const deadline = Date.now() + 300000;
   while (Date.now() < deadline) {
     const current = await siteState(cdp);
-    if (current.site && current.running && current.url) return current;
-    await sleep(500);
+    if (current.site?.name === projectName && current.running && current.url)
+      return current;
+    await sleep(1000);
   }
   return null;
 })();
+check(
+  'the created project installs and opens itself',
+  Boolean(openedItself?.site),
+  JSON.stringify(openedItself),
+);
+await cdp.screenshot(path.join(proofDir, '2-created-and-opened.png'));
+
+// --- 3. Real preview on the project that just opened ------------------------
+const state = openedItself;
 check('the created project opened into the build view', Boolean(state?.site));
 check(
   'the site name shown is the display name, not the slug',
@@ -776,20 +779,22 @@ check(
   'Try again is offered after the failure',
   await clickButton(cdp, 'Try again'),
 );
-check(
-  'the retried install completes',
-  await waitUi(cdp, 'Dependencies ready.', 300000),
-);
-check('the retried project opens', await clickButton(cdp, 'Open project'));
+// A retried install opens the project the same way the first one does. Wait
+// for THIS project by name: a project from an earlier step may still be open,
+// and its state would otherwise satisfy the check immediately.
 const retryState = await (async () => {
-  const deadline = Date.now() + 90000;
+  const deadline = Date.now() + 300000;
   while (Date.now() < deadline) {
     const current = await siteState(cdp);
-    if (current.site && current.running) return current;
-    await sleep(500);
+    if (current.site?.name === retryName && current.running) return current;
+    await sleep(1000);
   }
   return null;
 })();
+check(
+  'the retried install completes and opens the project',
+  Boolean(retryState?.site),
+);
 check(
   'the retried project really opened and previews',
   retryState?.site?.name === retryName,
