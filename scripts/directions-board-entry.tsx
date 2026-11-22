@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DIRECTIONS } from '../src/main/directions';
+import { directionFontsHref } from '../src/main/fonts';
 import { DirectionMiniSite } from '../src/components/DirectionMiniSite';
 
 // Set by scripts/directions-board.mjs: the bundle runs from node_modules/.cache,
@@ -96,7 +97,7 @@ const html = `<!doctype html>
 <title>Cauldron — design directions board</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Bodoni+Moda:opsz,wght@6..96,400..700&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=EB+Garamond:wght@400;600;700&family=Figtree:wght@400;600&family=Geist:wght@400;600;700&family=Instrument+Serif&family=Jost:wght@400;500;600&family=Manrope:wght@400;600;700&family=Nunito:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&family=Syne:wght@400;700;800&family=Young+Serif&display=swap" rel="stylesheet">
+<link href="${directionFontsHref('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Black&display=swap')}" rel="stylesheet">
 <style>${css}</style>
 </head><body class="app">${renderToStaticMarkup(<Board />)}</body></html>`;
 

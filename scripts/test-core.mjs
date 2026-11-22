@@ -2251,6 +2251,120 @@ test('WDL-263 every direction keeps its text colours readable on its own backgro
   }
 });
 
+const repoRoot = path.resolve(new URL('..', import.meta.url).pathname);
+
+test('WDL-265 every direction’s fonts are requested by the card stylesheet', async () => {
+  const fonts = await import('../src/main/fonts.ts');
+  const panel = fs.readFileSync(
+    path.join(repoRoot, 'src/components/DesignPanel.tsx'),
+    'utf8',
+  );
+  // The cards render real type in each direction's own faces, so a family the
+  // catalogue names but the page never loads is a card that lies. Two
+  // hand-written font lists drifted from the catalogue and dropped DM Sans,
+  // Hanken Grotesk, Instrument Sans and IBM Plex Mono.
+  assert.ok(fonts.directionFontUses().length > 0, 'no direction fonts found');
+  const shorthand = fonts.directionFontsHref(
+    'https://x/css2?family=Archivo&display=swap',
+  );
+  assert.deepEqual(
+    fonts.missingDirectionFamilies(shorthand),
+    [],
+    'the shared stylesheet helper drops catalogue families',
+  );
+  // The app's own stylesheet string must be built through that helper, not by
+  // hand: assert DesignPanel no longer inlines a literal font URL.
+  assert.match(
+    panel,
+    /SPECIMEN_GOOGLE_FONTS_URL = directionFontsHref\(/,
+    'DesignPanel must build its font stylesheet from the catalogue',
+  );
+  assert.doesNotMatch(
+    panel,
+    /export const SPECIMEN_GOOGLE_FONTS_URL =\s*'https:/,
+    'DesignPanel still inlines a hand-written font list',
+  );
+  const app = fonts.directionFontsHref(
+    'https://fonts.googleapis.com/css2?family=Archivo&display=swap',
+  );
+  // Every family the catalogue names in any role, including the optional
+  // `detail` face, has to be on the page.
+  const named = new Set();
+  for (const direction of directions.DIRECTIONS) {
+    for (const role of [
+      direction.fonts.display,
+      direction.fonts.body,
+      direction.fonts.detail,
+    ])
+      if (role) named.add(role.family);
+  }
+  for (const family of fonts.directionFontUses()) {
+    assert.ok(
+      named.has(family.family),
+      `${family.family} is not a catalogue role`,
+    );
+    assert.ok(
+      app.includes(family.family.replace(/ /g, '+')),
+      `${family.family} is missing from the card stylesheet`,
+    );
+  }
+  assert.equal(
+    named.size,
+    fonts.directionFontUses().length,
+    'a catalogue font role is missing from the stylesheet helper',
+  );
+});
+
+test('WDL-265 a card button label is always readable on its fill', async () => {
+  const { onPrimary } = await import('../src/main/directions.ts');
+  // Codex found this on Niki Studio: a white primary with the fallback white
+  // label. The preview uses the same foreground the app writes into a site's
+  // tokens, so the card and the generated site cannot disagree.
+  for (const direction of directions.DIRECTIONS) {
+    const fill = direction.colours.primary;
+    const label = direction.colours['on-primary'] ?? onPrimary(fill);
+    const ratio = contrast.contrastRatio(label, fill);
+    assert.ok(
+      ratio >= contrast.BUTTON_CONTRAST,
+      `${direction.id}: label ${label} on ${fill} is ${ratio.toFixed(2)}:1, needs ${contrast.BUTTON_CONTRAST}`,
+    );
+  }
+});
+
+test('WDL-265 the card’s font caption meets text contrast in both themes', () => {
+  assert.ok(contrast, 'the contrast measurement module is missing');
+  const css = fs.readFileSync(path.join(repoRoot, 'src/index.css'), 'utf8');
+  const rule = css.match(
+    /\.direction-token-strip-fonts\s*\{[^}]*color:\s*var\((--[\w-]+)\)/,
+  );
+  assert.ok(rule, 'the caption rule lost its colour token');
+  const token = rule[1];
+  const value = (theme) => {
+    const block = css.match(
+      new RegExp(`${theme}[^{]*\\{[^}]*${token}:\\s*(#[0-9a-fA-F]{6})`, 's'),
+    );
+    return block?.[1];
+  };
+  const light = value(':root');
+  const dark =
+    value('@media \\(prefers-color-scheme: dark\\)') ??
+    value('prefers-color-scheme: dark');
+  assert.ok(light, `no light value for ${token}`);
+  assert.ok(dark, `no dark value for ${token}`);
+  // The card surface sits on the page background in both themes; 11px metadata
+  // is body text, so it is held to 4.5:1, not the 3:1 large-text allowance.
+  for (const [name, ink, surface] of [
+    ['light', light, '#ffffff'],
+    ['dark', dark, '#0f1011'],
+  ]) {
+    const ratio = contrast.contrastRatio(ink, surface);
+    assert.ok(
+      ratio >= contrast.TEXT_CONTRAST,
+      `${name} theme caption ${ink} on ${surface} is ${ratio.toFixed(2)}:1, needs ${contrast.TEXT_CONTRAST}`,
+    );
+  }
+});
+
 // Ticket 29 enrichment: every direction is a system, not just a palette, and
 // the three approved artist/designer sources are selectable beside the seven.
 test('29 all ten directions carry source-led structure and render it', async () => {
