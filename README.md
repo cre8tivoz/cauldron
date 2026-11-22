@@ -49,7 +49,7 @@ Commit and push through the site's own Git repository, deploy in one click to **
 <table>
   <tr>
     <td width="50%"><img src=".github/readme/cauldron-projects.jpg" alt="Projects home screen with five starter templates and project cards"><br><b>Projects &amp; starters.</b> Five ready-to-go Astro starters and project cards with live snapshots.</td>
-    <td width="50%"><img src=".github/readme/cauldron-library.jpg" alt="Section library showing plain-Astro tokenised components and search"><br><b>Section library.</b> 30 plain-Astro, tokenised sections with live previews and search.</td>
+    <td width="50%"><img src=".github/readme/cauldron-library.jpg" alt="Section library showing plain-Astro tokenised components and search"><br><b>Section library.</b> A plain-Astro, tokenised library across seven categories, with live previews and search.</td>
   </tr>
   <tr>
     <td><img src=".github/readme/cauldron-quality.jpg" alt="Quality checks report measuring load speed, tokens, headings, and responsive layout"><br><b>Quality &amp; accessibility.</b> Real build checks across 375px, 768px, and 1280px widths, with agent follow-up.</td>
