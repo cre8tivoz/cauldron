@@ -11,6 +11,7 @@ import { LibraryPanel } from './components/LibraryPanel';
 import { QualityPanel } from './components/QualityPanel';
 import { PublishPanel } from './components/PublishPanel';
 import { ProjectHome } from './components/ProjectHome';
+import { NoSiteGate } from './components/NoSiteGate';
 import {
   CauldronMark,
   ComponentsIcon,
@@ -863,11 +864,7 @@ export function App() {
           onClick={() => setView('design')}
         >
           <DesignIcon size={20} />
-          <span className="rail-label">
-            Design
-            <br />
-            directions
-          </span>
+          <span className="rail-label">Design</span>
         </button>
 
         <button
@@ -1080,6 +1077,29 @@ export function App() {
               pendingExisting={pendingExisting}
               onDismissExisting={() => setPendingExisting(null)}
               focusNewForm={newFormSignal}
+            />
+          </div>
+        ) : (view === 'publish' ||
+            view === 'quality' ||
+            view === 'content' ||
+            view === 'design') &&
+          !site?.root ? (
+          // These screens are built out of the open site's own files. With no
+          // site they used to render live controls that silently failed, which
+          // reads exactly like a broken app. Say what is missing instead.
+          <div className="panes">
+            <NoSiteGate
+              feature={
+                view === 'publish'
+                  ? 'Publishing'
+                  : view === 'quality'
+                    ? 'Quality checks'
+                    : view === 'content'
+                      ? 'Content'
+                      : 'Design directions'
+              }
+              onOpenSite={openSite}
+              onNewProject={() => setView('projects')}
             />
           </div>
         ) : view === 'publish' ? (

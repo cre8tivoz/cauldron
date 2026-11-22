@@ -73,9 +73,7 @@ export function TopBar({
           <span className="site-meta-badge">
             Astro {site.astroVersion} · {site.packageManager}
           </span>
-        ) : (
-          <span className="site-meta-badge">No site open</span>
-        )}
+        ) : null}
 
         <button
           className="button quiet topbar-projects-link"
