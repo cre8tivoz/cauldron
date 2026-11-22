@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { directionFontsHref } from '../main/fonts';
 import { DirectionMiniSite } from './DirectionMiniSite';
 
-export const SPECIMEN_GOOGLE_FONTS_URL =
+const APP_FONTS_URL =
   'https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Bitter:wght@400;600&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Cormorant+Garamond:wght@400;600;700&family=EB+Garamond:wght@400;600;700&family=Figtree:wght@400;600&family=Fraunces:opsz,wght@9..144,400..700&family=Geist:wght@400;600;700&family=Instrument+Serif:ital@0;1&family=Jost:wght@400;500;600&family=Karla:wght@400;500;600&family=Libre+Franklin:wght@400;600&family=Lora:ital,wght@0,400..700;1,400..700&family=Manrope:wght@400;600;700&family=Newsreader:opsz,wght@6..72,400..700&family=Nunito:wght@400;600;700&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Public+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;600;700&family=Syne:wght@400;700;800&family=Work+Sans:wght@400;500;600&family=Young+Serif&display=swap';
+
+export const SPECIMEN_GOOGLE_FONTS_URL = directionFontsHref(APP_FONTS_URL);
 
 type Props = {
   site: CauldronSite | null;

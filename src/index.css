@@ -1340,7 +1340,9 @@ textarea:focus-visible {
 .dm-side .dm-photo {
   flex: 0.9;
   min-width: 0;
-  height: 31cqw;
+  /* Sized with the next section below so the page runs a comfortable way past
+     the 16:10 frame instead of ending flush inside it. */
+  height: 30cqw;
   border-radius: calc(var(--dm-radius) / 2);
 }
 
@@ -1353,7 +1355,7 @@ textarea:focus-visible {
 .dm-overlay .dm-hero {
   position: relative;
   padding: 0;
-  height: 34cqw;
+  height: 36cqw;
   overflow: hidden;
 }
 
@@ -1406,7 +1408,11 @@ textarea:focus-visible {
 
 /* The beginning of the next section, clipped by the card. */
 .dm-next {
+  /* Guarantees the section continues past the frame on every card, whatever
+     its content: the whole point of the card is a page running past the fold,
+     and content-sized sections used to end flush inside the card. */
   flex: none;
+  min-height: 21cqw;
   padding: 2cqw 2.8cqw 0;
 }
 
@@ -1499,7 +1505,10 @@ textarea:focus-visible {
 }
 .direction-token-strip-fonts {
   margin-left: 6px;
-  color: var(--faint);
+  /* Gallery metadata, not decoration: --faint measures 3.42:1 on the light
+     card, so it uses the secondary-text token, which clears 4.5:1 in both
+     themes. */
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
   white-space: normal;
