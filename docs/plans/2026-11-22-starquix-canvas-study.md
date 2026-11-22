@@ -1,5 +1,15 @@
 # Starquix canvas study and Cauldron's first step (WDL-244)
 
+**Status, 22 Nov 2026:** the first step is built and merged — PR #42, squash
+`b714c2e`, shipped in the installed 0.10.0 build. Compare widths renders the open
+page at 375 / 768 / 1280 at once, read-only, verified at 373 / 765 / 1277 CSS px.
+Four review findings were fixed before merge: frames are refused on a stage under
+~630px, a resize repositions without reloading, comparison starts from the page
+being viewed rather than the site root, and genuine load failures are recorded
+instead of being mistaken for dev-server aborts. Still open on the ticket:
+drag-to-reorder, inline text editing, click-to-select inside a compare frame, and
+breakpoint-specific edits.
+
 Studied 22 Nov 2026 from `https://github.com/Mayhopar/Starquix` at commit `5a6240e`
 (MIT, v0.0.2, 2,695 files). The clone lives in the research folder at
 `~/hermes/cauldronresearchbackup/references/source/starquix` and is not a

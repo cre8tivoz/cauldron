@@ -30,7 +30,7 @@ Drive **Claude Code**, **Codex**, or **Hermes** directly from the built-in Agent
 
 ## Design taste built in
 
-Pick from **10 curated design directions** (including Long Lunch, Clear Ground, Solid Ground, Silver Screen, Componine, Niki Studio, and Henry From Online) or measure a reference URL to generate tokens for colour, typography, spacing, and radii. Preview your site at **Desktop**, **Tablet (768px)**, and **Phone (375px)** widths without leaving the app.
+Pick from **10 curated design directions** (including Long Lunch, Clear Ground, Solid Ground, Silver Screen, Componine, Niki Studio, and Henry From Online) or measure a reference URL to generate tokens for colour, typography, spacing, and radii. Preview your site at **Desktop**, **Tablet (768px)**, and **Phone (375px)** widths — one at a time, or all three side by side with **Compare widths**, each rendered at its real width so the layout reacts exactly as it will on a phone.
 
 <p align="center">
   <img src=".github/readme/cauldron-design.jpg" alt="Design directions screen showing curated palettes, typography pairings, and reference URL matcher" width="840">

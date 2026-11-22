@@ -24,3 +24,7 @@ _Avoid_: Guardrails, mandates
 
 **Agent run**:
 One built-in agent job (Claude Code, Codex, or Hermes) and every change it made, which can be reviewed and undone as a whole.
+
+**Compare widths**:
+The preview mode that shows the site at phone, tablet and desktop widths at the same time, each at its true width, for checking a layout without switching between them.
+_Avoid_: Responsive view, multi-view

@@ -24,11 +24,13 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 
 **Done means it works through the delivered app.** Passing tests, a tidy document or a good-looking demo is not that.
 
-## Where things honestly stand (16 November 2026)
+## Where things honestly stand (22 November 2026)
 
 - Repository is public under MIT (`v0.10.0`), with `originalresearch/` and third-party study codebases removed and purged from Git history (`WDL-153`).
 - The foundations are real: project creation and opening (with `pnpm` shared store or automatic `npm` fallback), safe versioned saves, crash recovery, agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
-- Type check, lint, unit suites, and smoke packaging pass. CI runs Linux checks on pull requests; Apple Silicon build & launch verification (`mac-build`) runs on release tags (`v*`) or manual `workflow_dispatch` with zero artifact uploads, while routine Mac verification runs locally via `npm run verify:mac`.
+- Type check, lint, unit suites, and smoke packaging pass (204 checks in `npm run check`). CI runs Linux checks on pull requests; Apple Silicon build & launch verification (`mac-build`) runs on release tags (`v*`) or manual `workflow_dispatch` with zero artifact uploads, while routine Mac verification runs locally via `npm run verify:mac`.
+- **Driven and verified in the packaged app over CDP**, not just in tests: creating a project, opening one from the library, Design directions "Use this direction" rewriting `cauldron/tokens.css`, the ten direction cards rendering as miniature real pages in their own tokens, and Compare widths showing 375 / 768 / 1280 side by side (frames report 373 / 765 / 1277 CSS px at zoom 0.252).
+- Every rail panel now shows a real empty state with no site open instead of live-looking controls that silently do nothing (`WDL-265` follow-up in PR #38).
 - **Not proven:** opening a downloaded copy by hand on a separate Mac (`Open Anyway` Gatekeeper flow), publishing to a real hosted Git account, and live-API Unsplash/Pexels stock search (disabled with a "COMING SOON" overlay under `WDL-189` / `WDL-171`). Do not claim these without fresh evidence.
 
 ## What is settled — do not reopen
@@ -48,7 +50,7 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 3. **Never install anything silently.** Anything that needs installing, say so and ask first.
 4. **Surface every failure.** Errors reach the person using the app as a visible message, and go to the console. A silent failure is a bug.
 5. **Plain Astro in the sites Cauldron makes.** React only where real interaction needs it (`docs/adr/0008`).
-6. **Nothing copied from studied products.** Read for understanding, write our own code (`docs/adr/0001`, `docs/adr/0002`).
+6. **Reuse permissively licensed code, with attribution.** MIT (or equally permissive) code may be taken into Cauldron when it fits, recorded in `THIRD_PARTY_NOTICES.md` (`docs/adr/0002`). Read the licence first; never take code whose licence forbids it, and never take names, logos or assets. Prefer our own version only where it is genuinely better.
 7. **Current versions only.** Before adding a package, check its latest release.
 8. **The website preview can never reach the editor.** A site, or a script in one, gets no editing powers.
 9. **Tell the truth in the app and in the documents.** No placeholder text presented as real state. No "verified" without saying what was actually run, on which revision. If something was not checked, say so.
@@ -56,7 +58,8 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 ## How work is tracked
 
 - **Linear is the single source of truth for work.** The project is [Cauldron](https://linear.app/witchdaddy/project/cauldron-cb61ac6bc02b) on the Witchdaddy Labs (WDL) team. Agents pick up tickets there. Do not start work that is not on a Linear issue.
-- **Work through pull requests, not direct commits to `main`.**
+- **Work through pull requests, not direct commits to `main`.** The exception is a documentation-only correction Billy has asked for by name, which may go straight to `main`.
+- **The agent merges.** Once CI is green, the PR is `MERGEABLE`/`CLEAN` and every review thread is resolved, the agent squash-merges, deletes the branch and verifies `main`. Do not leave a finished PR open for Billy, and do not ask him to merge it.
 - **Every branch name or pull-request title must include the WDL issue ID** (for example `wdl-170-linear-source-of-truth` or `WDL-170: …`). Linear then moves the issue to In Review when the PR opens, and to Done when it merges.
 - **Never assign Linear issues to agents.** Assign only to Billy (and later Claudia).
 - **All commits must be authored and committed as** `Billy <119015637+cre8tivoz@users.noreply.github.com>`. Never Claude, `noreply@anthropic.com`, or any other identity.
@@ -87,6 +90,8 @@ npm run check        # type check, lint and unit tests — must pass
 npm run smoke        # package the app, open it hidden, confirm the interface renders
 npm run verify:mac   # run check + local Mac smoke verification before opening a PR
 ```
+
+**`npm run package` does not type-check.** electron-vite strips types without checking them, so a build can exit 0 with `tsc` errors in it and produce an app that misbehaves at runtime. Run `npm run typecheck` (or `npm run check`) before every package, and never read `PACKAGE=0` as proof the code compiles.
 
 Run `npm run check` before every commit (`npm run hooks:install` once per checkout makes the pre-commit hook do it) and run `npm run verify:mac` (or `npm run smoke`) locally on your Mac before opening or merging a PR that touches app code. CI runs `check` (including Linux `smoke`) on pull requests and must be green. The `mac-build` job (packaging and unzipping/launching the `.zip` in one macOS job with zero Actions artifact storage) runs on `v*` release tags or by hand from the Actions tab (Run workflow) — run it before cutting a release. If you cannot run local Mac verification (for example, no Mac), say so plainly in your report.
 
