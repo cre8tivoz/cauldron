@@ -61,6 +61,23 @@ const child = spawn(exe, [`--remote-debugging-port=${port}`], {
   stdio: ['ignore', 'ignore', 'ignore'],
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A hidden test app that outlives its run sits in the person's Dock forever and
+// holds the single-instance lock, so every later launch just quits. Stop it
+// hard, and do it even when this script is interrupted.
+async function stopApp() {
+  if (child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  const exited = await Promise.race([once(child, 'exit'), sleep(3000)]);
+  if (exited !== undefined && child.exitCode !== null) return;
+  child.kill('SIGKILL');
+  await Promise.race([once(child, 'exit'), sleep(2000)]);
+}
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+  process.on(signal, () => {
+    child.kill('SIGKILL');
+    process.exit(130);
+  });
+process.on('exit', () => child.kill('SIGKILL'));
 let passed = 0;
 const failures = [];
 const check = (name, ok, detail = '') => {
@@ -356,10 +373,7 @@ try {
   console.error(`FAIL - ${error.message}`);
 } finally {
   ws?.close();
-  if (child.exitCode === null) {
-    child.kill('SIGTERM');
-    await Promise.race([once(child, 'exit'), sleep(3000)]);
-  }
+  await stopApp();
   fs.rmSync(work, { recursive: true, force: true });
 }
 console.log(`${passed} passed, ${failures.length} failed`);

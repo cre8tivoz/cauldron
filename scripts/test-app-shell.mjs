@@ -55,6 +55,14 @@ const child = spawn(exe, [`--remote-debugging-port=${port}`], {
   stdio: ['ignore', 'ignore', 'ignore'],
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Never leave a hidden test app behind: it holds the single-instance lock and
+// makes every later launch quit at once.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+  process.on(signal, () => {
+    child.kill('SIGKILL');
+    process.exit(130);
+  });
+process.on('exit', () => child.kill('SIGKILL'));
 const failures = [];
 let passed = 0;
 const check = (name, ok, detail = '') => {

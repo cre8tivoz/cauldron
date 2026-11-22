@@ -58,6 +58,19 @@ const check = (name, ok, detail = '') => {
   }
 };
 
+// Every hidden app this run starts, so an interrupt cannot leave one behind.
+// An orphaned test app holds the single-instance lock: every later launch
+// quits immediately and looks broken.
+const running = new Set();
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+  process.on(signal, () => {
+    for (const c of running) c.kill('SIGKILL');
+    process.exit(130);
+  });
+process.on('exit', () => {
+  for (const c of running) c.kill('SIGKILL');
+});
+
 function launchApp() {
   const child = spawn(exe, [`--remote-debugging-port=${PORT}`], {
     env: GUI_ENV,
@@ -65,6 +78,8 @@ function launchApp() {
   });
   child.stdout.on('data', (d) => process.stdout.write(`[app] ${d}`));
   child.stderr.on('data', (d) => process.stdout.write(`[app:err] ${d}`));
+  running.add(child);
+  child.once('exit', () => running.delete(child));
   return child;
 }
 
