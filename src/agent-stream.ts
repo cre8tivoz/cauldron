@@ -1,9 +1,10 @@
-export type AgentTool = 'claude' | 'codex' | 'hermes';
+export type AgentTool = 'claude' | 'codex' | 'hermes' | 'key';
 
 export const AGENT_TOOL_LABELS: Record<AgentTool, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   hermes: 'Hermes',
+  key: 'Your AI key',
 };
 
 export type AgentStreamLine = {

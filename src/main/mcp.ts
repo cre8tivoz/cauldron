@@ -256,7 +256,7 @@ export function toolsFor(siteName: string): ToolDefinition[] {
   ];
 }
 
-function toRequest(
+export function toRequest(
   name: string,
   args: Record<string, unknown>,
 ): ActionRequest | null {

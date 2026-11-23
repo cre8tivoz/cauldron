@@ -4,6 +4,7 @@ import {
   app,
   dialog,
   ipcMain,
+  safeStorage,
   shell,
   webContents,
   type WebContents,
@@ -63,8 +64,20 @@ import {
   clearMcpCallsLog,
   mcpCalls,
   startMcpServer,
+  toolsFor,
+  toRequest,
   type McpHandle,
 } from './mcp';
+import {
+  AI_PROVIDER_LABELS,
+  KeyStore,
+  KeyStoreError,
+  isAiProvider,
+  needsKey,
+  type AiProvider,
+} from './ai-keys';
+import { createModel, runKeyAgent, testModel } from './ai-agent';
+import type { ModelMessage } from 'ai';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
 import { demoDirectionFor } from './library-demo-directions';
@@ -149,8 +162,13 @@ const ASTRO_VERSION_TESTED = '7.4.7';
 // Test runs can keep their app data in their own folder, so parallel or
 // repeated harness runs never share recovery, conflict or run records. The
 // variable is only ever set by a test run.
-if (process.env.CAULDRON_TEST_USER_DATA)
+if (process.env.CAULDRON_TEST_USER_DATA) {
   app.setPath('userData', process.env.CAULDRON_TEST_USER_DATA);
+  // Harness runs use Chromium's fake keychain, never the person's own. This
+  // MUST stay inside the test-only branch: the fake uses a fixed, public
+  // password, so outside a test it would make saved AI keys decryptable.
+  app.commandLine?.appendSwitch('use-mock-keychain');
+}
 
 type SelectionState = {
   id: string;
@@ -566,6 +584,92 @@ async function startPreview(): Promise<
   return { url: server.url };
 }
 
+function designView() {
+  if (!state.site) return { direction: null };
+  const read = readDirection(state.site.root);
+  return {
+    ...read,
+    tokensCss: read.direction ? tokensCss(read.direction) : null,
+    designMarkdown: read.direction ? designDocument(read.direction) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Bring your own AI key (WDL-243). The key store lives here, in main; the
+// renderer only ever learns whether a key is saved.
+let keyStoreInstance: KeyStore | null = null;
+/** The key agent's conversation per open site, kept for this app session. */
+const keyHistory = new Map<string, ModelMessage[]>();
+function keyStore(): KeyStore {
+  keyStoreInstance ??= new KeyStore(path.join(app.getPath('userData'), 'ai'), {
+    isAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptStringAsync(plain),
+    decrypt: async (cipher) =>
+      (await safeStorage.decryptStringAsync(cipher)).result,
+  });
+  return keyStoreInstance;
+}
+
+/** Harness only: a local stand-in provider, so acceptance never spends money. */
+function testAiBaseUrl(): string | undefined {
+  return process.env.CAULDRON_TEST_USER_DATA
+    ? process.env.CAULDRON_TEST_AI_BASE_URL || undefined
+    : undefined;
+}
+
+type KeyModel =
+  | { ok: true; model: ReturnType<typeof createModel>; label: string }
+  | { ok: false; problem: string };
+
+async function keyModel(): Promise<KeyModel> {
+  const store = keyStore();
+  const settings = store.settings();
+  const label = AI_PROVIDER_LABELS[settings.provider];
+  const key = await store.readKey(settings.provider);
+  if (needsKey(settings.provider) && !key)
+    return {
+      ok: false,
+      problem: `Add your ${label} key in the agent settings first.`,
+    };
+  return {
+    ok: true,
+    model: createModel(settings, key, { baseURL: testAiBaseUrl() }),
+    label,
+  };
+}
+
+/** The key agent's tools are exactly the MCP connection's checked actions. */
+async function callKeyTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ ok: boolean; text: string }> {
+  if (name === 'read_selection')
+    return { ok: true, text: JSON.stringify(selectionView(), null, 2) };
+  if (name === 'read_design')
+    return { ok: true, text: JSON.stringify(designView(), null, 2) };
+  const request = toRequest(name, args);
+  if (!request) return { ok: false, text: `Unknown tool: ${name}` };
+  try {
+    const result = sharedAction(request, true);
+    return { ok: Boolean(result.ok), text: JSON.stringify(result, null, 2) };
+  } catch (error) {
+    return {
+      ok: false,
+      text: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function keyProblem(error: unknown): { ok: false; problem: string } {
+  return {
+    ok: false,
+    problem:
+      error instanceof KeyStoreError
+        ? error.message
+        : 'The AI settings could not be saved.',
+  };
+}
+
 /** The local connection for outside agents, one per open site (plan 3.3). */
 async function startMcp(site: Site): Promise<void> {
   state.mcp?.close();
@@ -577,17 +681,7 @@ async function startMcp(site: Site): Promise<void> {
       siteName: site.name,
       run: (request) => sharedAction(request, true),
       readSelection: () => selectionView(),
-      readDesign: () => {
-        if (!state.site) return { direction: null };
-        const read = readDirection(state.site.root);
-        return {
-          ...read,
-          tokensCss: read.direction ? tokensCss(read.direction) : null,
-          designMarkdown: read.direction
-            ? designDocument(read.direction)
-            : null,
-        };
-      },
+      readDesign: () => designView(),
       record: (call) => recordMcpToolCall(call),
     });
     status(`Outside agents can connect on ${state.mcp.url}`);
@@ -1336,7 +1430,14 @@ function promptSelection() {
     : null;
 }
 
-function sendAgent(payload: { tool: AgentTool; request: string }): {
+/**
+ * `keyed` is resolved by the IPC handler (decrypting the key is async), so this
+ * stays synchronous for every existing caller.
+ */
+function sendAgent(
+  payload: { tool: AgentTool; request: string },
+  keyed: KeyModel | null = null,
+): {
   ok: boolean;
   runId?: string;
   problem?: string;
@@ -1353,6 +1454,14 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
   }
   if (state.agent)
     return { ok: false, problem: 'An agent job is already running.' };
+  if (payload.tool === 'key' && !keyed?.ok)
+    return {
+      ok: false,
+      problem:
+        keyed && !keyed.ok
+          ? keyed.problem
+          : 'Add your AI key in the agent settings first.',
+    };
 
   const selection = promptSelection();
 
@@ -1377,7 +1486,7 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
   const sessions = state.sessions.get(site.root) ?? {};
   send('cauldron:agent-event', {
     type: 'status',
-    text: `Starting ${payload.tool}…`,
+    text: `Starting ${keyed?.ok ? keyed.label : payload.tool}…`,
   });
 
   const onEvent = (
@@ -1403,14 +1512,25 @@ function sendAgent(payload: { tool: AgentTool; request: string }): {
     }
   };
   const start = () =>
-    runAgent({
-      tool: payload.tool,
-      root: site.root,
-      prompt,
-      sessionId: sessions[payload.tool],
-      mcp: state.mcp ?? undefined,
-      onEvent,
-    });
+    keyed?.ok
+      ? runKeyAgent({
+          model: keyed.model,
+          providerLabel: keyed.label,
+          prompt,
+          tools: toolsFor(site.name),
+          call: callKeyTool,
+          history: keyHistory.get(site.root) ?? [],
+          onComplete: (messages) => keyHistory.set(site.root, messages),
+          onEvent,
+        })
+      : runAgent({
+          tool: payload.tool,
+          root: site.root,
+          prompt,
+          sessionId: sessions[payload.tool],
+          mcp: state.mcp ?? undefined,
+          onEvent,
+        });
 
   // Ticket 20: Hermes's gateway picks up a changed connection on a timer, so
   // a job sent just after the site opened waits for it instead of starting
@@ -2352,9 +2472,41 @@ function registerIpc(): void {
 
   handle(
     'cauldron:agent-send',
-    (_event, payload: { tool: AgentTool; request: string }) =>
-      sendAgent(payload),
+    async (_event, payload: { tool: AgentTool; request: string }) =>
+      sendAgent(payload, payload?.tool === 'key' ? await keyModel() : null),
   );
+
+  handle('cauldron:ai-status', () => keyStore().status());
+  handle('cauldron:ai-settings', async (_event, next: unknown) => {
+    try {
+      const value = (next ?? {}) as { provider?: unknown; model?: unknown };
+      keyStore().setSettings({ provider: value.provider, model: value.model });
+      return { ok: true, status: await keyStore().status() };
+    } catch (error) {
+      return keyProblem(error);
+    }
+  });
+  handle(
+    'cauldron:ai-key-save',
+    async (_event, provider: unknown, key: unknown) => {
+      try {
+        await keyStore().saveKey(provider, key);
+        return { ok: true, status: await keyStore().status() };
+      } catch (error) {
+        return keyProblem(error);
+      }
+    },
+  );
+  handle('cauldron:ai-key-remove', async (_event, provider: unknown) => {
+    if (isAiProvider(provider)) keyStore().removeKey(provider as AiProvider);
+    return { ok: true, status: await keyStore().status() };
+  });
+  handle('cauldron:ai-test', async () => {
+    const keyed = await keyModel();
+    if (!keyed.ok) return keyed;
+    const result = await testModel(keyed.model, keyed.label);
+    return result.ok ? { ok: true } : { ok: false, problem: result.problem };
+  });
 
   handle('cauldron:agent-cancel', () => {
     state.agent?.cancel();

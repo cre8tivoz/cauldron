@@ -55,7 +55,8 @@ export function writeHermesConnection(url: string, code: string): boolean {
   return true;
 }
 
-export type AgentTool = 'claude' | 'codex' | 'hermes';
+/** `key` is the built-in chat on the person's own AI key (WDL-243, ai-agent.ts). */
+export type AgentTool = 'claude' | 'codex' | 'hermes' | 'key';
 
 export type AgentEvent =
   | { type: 'session'; sessionId: string }
@@ -409,6 +410,9 @@ export function runAgent(options: {
 }): AgentHandle {
   const { tool, root, prompt, sessionId, onEvent } = options;
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
+
+  if (tool === 'key')
+    throw new Error('The key agent runs through runKeyAgent, not a command.');
 
   let command: string;
   let args: string[];
