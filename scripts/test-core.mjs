@@ -6100,4 +6100,47 @@ test('WDL-244 the compare frames cannot be mistaken for the editable preview', (
   );
 });
 
+test('WDL-265 the rail says where you are and which site its tools act on', () => {
+  const app = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  const rail = app.slice(
+    app.indexOf('<nav className="rail"'),
+    app.indexOf('</nav>'),
+  );
+  // The home screen has its own labelled rail item, current while you are on it.
+  assert.match(
+    rail,
+    /aria-current=\{view === 'projects' \? 'page' : undefined\}/,
+  );
+  assert.match(rail, /<span className="rail-label">Projects<\/span>/);
+  // The site tools sit in one group labelled by the open site, or by its absence.
+  const group = rail.slice(rail.indexOf('className="rail-site-tools"'));
+  assert.match(group, /role="group"/);
+  assert.match(group, /aria-labelledby="rail-site-name"/);
+  assert.match(group, /\{site \? site\.name : 'No site open'\}/);
+  for (const label of [
+    'Sites',
+    'Content',
+    'Components',
+    'Design',
+    'Quality',
+    'Publishing',
+  ]) {
+    assert.ok(
+      group.includes(`<span className="rail-label">${label}</span>`),
+      `${label} is a site tool`,
+    );
+  }
+  assert.equal(
+    rail.indexOf('Projects</span>') < rail.indexOf('rail-site-tools'),
+    true,
+  );
+  // The caption is text, so it must use the text token that holds 4.5:1, not --faint.
+  const css = fs.readFileSync(path.join(repoRoot, 'src/index.css'), 'utf8');
+  const rule = css.slice(
+    css.indexOf('.rail-site-name {'),
+    css.indexOf('}', css.indexOf('.rail-site-name {')),
+  );
+  assert.match(rule, /color: var\(--muted\)/);
+});
+
 process.exitCode = failures ? 1 : 0;

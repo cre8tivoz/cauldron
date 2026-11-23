@@ -19,6 +19,7 @@ import {
   DesignIcon,
   PublishingIcon,
   QualityIcon,
+  ProjectsIcon,
   SitesIcon,
 } from './components/Icons';
 import {
@@ -829,71 +830,101 @@ export function App() {
           <CauldronMark size={32} />
         </button>
 
+        {/* The home screen is a place too: say so, and show when you are on it. */}
         <button
           className="rail-button"
           type="button"
-          aria-current={view === 'build' ? 'page' : undefined}
-          title="Sites"
-          onClick={() => setView('build')}
+          aria-current={view === 'projects' ? 'page' : undefined}
+          title="Projects"
+          onClick={() => setView('projects')}
         >
-          <SitesIcon size={20} />
-          <span className="rail-label">Sites</span>
+          <ProjectsIcon size={20} />
+          <span className="rail-label">Projects</span>
         </button>
 
-        <button
-          className="rail-button"
-          type="button"
-          aria-current={view === 'content' ? 'page' : undefined}
-          title="Content"
-          onClick={() => setView('content')}
-        >
-          <ContentIcon size={20} />
-          <span className="rail-label">Content</span>
-        </button>
+        <span className="rail-divider" aria-hidden="true" />
 
-        <button
-          className="rail-button"
-          type="button"
-          aria-current={view === 'library' ? 'page' : undefined}
-          title="Components"
-          onClick={() => setView('library')}
+        {/* Everything below works on one site: name it, so the rail reads as
+            "these are the tools for Sunrise Bakery", or admits none is open. */}
+        <div
+          className="rail-site-tools"
+          role="group"
+          aria-labelledby="rail-site-name"
         >
-          <ComponentsIcon size={20} />
-          <span className="rail-label">Components</span>
-        </button>
+          <span
+            id="rail-site-name"
+            className="rail-site-name"
+            title={site ? site.name : 'No site open'}
+          >
+            {site ? site.name : 'No site open'}
+          </span>
 
-        <button
-          className="rail-button"
-          type="button"
-          aria-current={view === 'design' ? 'page' : undefined}
-          title="Design directions"
-          onClick={() => setView('design')}
-        >
-          <DesignIcon size={20} />
-          <span className="rail-label">Design</span>
-        </button>
+          <button
+            className="rail-button"
+            type="button"
+            aria-current={view === 'build' ? 'page' : undefined}
+            title="Sites"
+            onClick={() => setView('build')}
+          >
+            <SitesIcon size={20} />
+            <span className="rail-label">Sites</span>
+          </button>
 
-        <button
-          className="rail-button"
-          type="button"
-          aria-current={view === 'quality' ? 'page' : undefined}
-          title="Quality checks"
-          onClick={() => setView('quality')}
-        >
-          <QualityIcon size={20} />
-          <span className="rail-label">Quality</span>
-        </button>
+          <button
+            className="rail-button"
+            type="button"
+            aria-current={view === 'content' ? 'page' : undefined}
+            title="Content"
+            onClick={() => setView('content')}
+          >
+            <ContentIcon size={20} />
+            <span className="rail-label">Content</span>
+          </button>
 
-        <button
-          className="rail-button"
-          type="button"
-          aria-current={view === 'publish' ? 'page' : undefined}
-          title="Publishing"
-          onClick={() => setView('publish')}
-        >
-          <PublishingIcon size={20} />
-          <span className="rail-label">Publishing</span>
-        </button>
+          <button
+            className="rail-button"
+            type="button"
+            aria-current={view === 'library' ? 'page' : undefined}
+            title="Components"
+            onClick={() => setView('library')}
+          >
+            <ComponentsIcon size={20} />
+            <span className="rail-label">Components</span>
+          </button>
+
+          <button
+            className="rail-button"
+            type="button"
+            aria-current={view === 'design' ? 'page' : undefined}
+            title="Design directions"
+            onClick={() => setView('design')}
+          >
+            <DesignIcon size={20} />
+            <span className="rail-label">Design</span>
+          </button>
+
+          <button
+            className="rail-button"
+            type="button"
+            aria-current={view === 'quality' ? 'page' : undefined}
+            title="Quality checks"
+            onClick={() => setView('quality')}
+          >
+            <QualityIcon size={20} />
+            <span className="rail-label">Quality</span>
+          </button>
+
+          <button
+            className="rail-button"
+            type="button"
+            aria-current={view === 'publish' ? 'page' : undefined}
+            title="Publishing"
+            onClick={() => setView('publish')}
+          >
+            <PublishingIcon size={20} />
+            <span className="rail-label">Publishing</span>
+          </button>
+        </div>
       </nav>
 
       {/* Main Workspace Area */}

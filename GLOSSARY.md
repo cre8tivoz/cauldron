@@ -5,7 +5,7 @@ A free, open-source desktop app for designing and building real Astro websites w
 ## Language
 
 **Site / Project**:
-The Astro website folder being designed and built in Cauldron. The home screen and File menu use **Project** when creating, opening, or managing folders on disk; the workspace, navigation rail, and inspector use **Site** for the website being edited.
+The Astro website folder being designed and built in Cauldron. The home screen (and the rail's **Projects** item that opens it) and the File menu use **Project** when creating, opening, or managing folders on disk; the workspace, the rail's site tools, and the inspector use **Site** for the website being edited. The rail captions its site tools with the open site's name.
 
 **Starter template**:
 One of the built-in Astro site starters used when creating a new project.

@@ -160,6 +160,50 @@ try {
     'project home',
   );
 
+  // 0. The rail says where you are, and which site its tools act on (WDL-265).
+  const rail = () =>
+    js(`(() => {
+      const current = document.querySelector('.rail [aria-current="page"]');
+      const group = document.querySelector('.rail [role="group"]');
+      const labelId = group && group.getAttribute('aria-labelledby');
+      const nav = document.querySelector('.rail');
+      return {
+        current: current ? current.innerText.trim() : null,
+        caption: labelId ? document.getElementById(labelId).innerText.trim() : null,
+        tools: group ? [...group.querySelectorAll('.rail-label')].map(l => l.innerText.trim()) : [],
+        fits: nav.scrollHeight <= nav.clientHeight,
+      };
+    })()`);
+  const home = await rail();
+  check(
+    'the rail marks Projects as where you are on launch',
+    home.current === 'Projects',
+    JSON.stringify(home),
+  );
+  check(
+    'the rail admits no site is open',
+    home.caption === 'No site open',
+    JSON.stringify(home),
+  );
+  check(
+    'the site tools are grouped under that caption',
+    JSON.stringify(home.tools) ===
+      JSON.stringify([
+        'Sites',
+        'Content',
+        'Components',
+        'Design',
+        'Quality',
+        'Publishing',
+      ]),
+    JSON.stringify(home.tools),
+  );
+  check(
+    'the rail fits the window without scrolling',
+    home.fits === true,
+    JSON.stringify(home),
+  );
+
   // 1. Every site screen explains itself with no site open, and offers both
   // real actions.
   for (const [nav, copy] of [
@@ -191,6 +235,7 @@ try {
       `document.querySelectorAll('.no-site-gate').length`,
     );
     check(`${nav} shows one empty state`, leftovers === 1, String(leftovers));
+    check(`the rail marks ${nav} as current`, (await rail()).current === nav);
   }
 
   // 2. Creating a project lands the person in it.
@@ -219,6 +264,12 @@ try {
   );
   const text = (await bodyText()).replace(/\s+/g, ' ');
   check('creating a project opens it', text.includes('Shell Check'));
+  const opened = await rail();
+  check(
+    'the rail names the open site above its tools',
+    opened.caption === 'Shell Check',
+    JSON.stringify(opened),
+  );
   check(
     'the new project is a real Astro site',
     fs.existsSync(
