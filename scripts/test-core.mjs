@@ -41,7 +41,8 @@ fs.writeFileSync(
   export const ipcMain = { handle: () => {}, on: () => {} };
   export const shell = { openExternal: async () => {} };
   export const webContents = {};
-  export default { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, webContents };\n`,
+  export const safeStorage = { isEncryptionAvailable: () => false, encryptString: () => { throw new Error('no keychain in tests'); }, decryptString: () => '' };
+  export default { app, BrowserWindow, WebContentsView, Menu, dialog, ipcMain, shell, webContents, safeStorage };\n`,
 );
 
 registerHooks({
@@ -6141,6 +6142,407 @@ test('WDL-265 the rail says where you are and which site its tools act on', () =
     css.indexOf('}', css.indexOf('.rail-site-name {')),
   );
   assert.match(rule, /color: var\(--muted\)/);
+});
+
+// ---------------------------------------------------------------------------
+// WDL-243: bring your own AI key.
+const aiKeys = await import('../src/main/ai-keys.ts');
+const aiAgent = await import('../src/main/ai-agent.ts');
+const { MockLanguageModelV4, convertArrayToReadableStream } =
+  await import('ai/test');
+const fakeKeychain = (available = true) => ({
+  isAvailable: async () => available,
+  encrypt: async (plain) =>
+    Buffer.from(`enc:${Buffer.from(plain).reverse().toString('base64')}`),
+  decrypt: async (cipher) =>
+    Buffer.from(String(cipher).slice(4), 'base64').reverse().toString(),
+});
+const aiDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-ai-'));
+const SECRET = 'sk-or-v1-TESTSECRET0123456789';
+
+// Key store behaviour, gathered up front (its keychain calls are async).
+const aiStore = await (async () => {
+  const out = {};
+  const dir = aiDir();
+  const store = new aiKeys.KeyStore(dir, fakeKeychain());
+  await store.saveKey('openrouter', `  ${SECRET}  `);
+  out.onDisk = fs.readFileSync(
+    path.join(dir, 'keys', 'openrouter.bin'),
+    'utf8',
+  );
+  out.read = await store.readKey('openrouter');
+  out.status = await store.status();
+  store.removeKey('openrouter');
+  out.hasAfterRemove = await store.hasKey('openrouter');
+  out.readAfterRemove = await store.readKey('openrouter');
+  // A key that no longer decrypts (a reset keychain) reads as no key.
+  await store.saveKey('anthropic', SECRET);
+  const broken = new aiKeys.KeyStore(dir, {
+    ...fakeKeychain(),
+    decrypt: async () => {
+      throw new Error('reset');
+    },
+  });
+  out.brokenHas = await broken.hasKey('anthropic');
+  const lockedDir = aiDir();
+  const locked = new aiKeys.KeyStore(lockedDir, fakeKeychain(false));
+  const code = (promise) =>
+    promise.then(
+      () => null,
+      (error) => error.code,
+    );
+  out.noKeychain = await code(locked.saveKey('anthropic', SECRET));
+  out.noKeychainFile = fs.existsSync(
+    path.join(lockedDir, 'keys', 'anthropic.bin'),
+  );
+  out.ollama = await code(locked.saveKey('ollama', SECRET));
+  out.badKey = await code(
+    new aiKeys.KeyStore(aiDir(), fakeKeychain()).saveKey('openai', 'two words'),
+  );
+  return out;
+})();
+
+// Each provider goes to its own endpoint with the key it was given. The fake
+// fetch answers OpenRouter/Ollama like a chat completion and refuses the
+// others with 401, which also exercises the failure copy.
+const aiRoutes = await (async () => {
+  const seen = [];
+  const fakeFetch = async (url, init) => {
+    const headers = new Headers(init?.headers);
+    seen.push({
+      url: String(url),
+      auth: headers.get('authorization'),
+      xApiKey: headers.get('x-api-key'),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    if (/openrouter|11434/.test(String(url)))
+      return new Response(
+        JSON.stringify({
+          id: 'c1',
+          object: 'chat.completion',
+          created: 0,
+          model: 'm',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'ready' },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    return new Response(
+      JSON.stringify({
+        error: { message: 'bad key', type: 'authentication_error' },
+      }),
+      {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  };
+  const results = {};
+  for (const [provider, model] of [
+    ['openrouter', 'anthropic/claude-sonnet-5.5'],
+    ['ollama', 'llama3.2'],
+    ['anthropic', 'claude-sonnet-5-5'],
+    ['openai', 'gpt-6.2-sol'],
+  ]) {
+    const m = aiAgent.createModel(
+      { provider, model },
+      provider === 'ollama' ? null : SECRET,
+      { fetch: fakeFetch },
+    );
+    results[provider] = await aiAgent.testModel(
+      m,
+      aiKeys.AI_PROVIDER_LABELS[provider],
+    );
+  }
+  return { seen, results };
+})();
+
+// The agent loop, driven by a scripted model: one tool call, then a reply.
+const aiRun = await (async () => {
+  let step = 0;
+  const usage = {
+    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 1, text: 1, reasoning: 0 },
+  };
+  const model = new MockLanguageModelV4({
+    doStream: async () => {
+      step++;
+      const parts =
+        step === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'tool-call',
+                toolCallId: 't1',
+                toolName: 'write_source',
+                input: JSON.stringify({
+                  file: 'src/pages/index.astro',
+                  content: '<h1>Hi</h1>',
+                  baseHash: null,
+                }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage,
+              },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 'x' },
+              { type: 'text-delta', id: 'x', delta: 'Changed ' },
+              { type: 'text-delta', id: 'x', delta: 'the heading.' },
+              { type: 'text-end', id: 'x' },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage,
+              },
+            ];
+      return { stream: convertArrayToReadableStream(parts) };
+    },
+  });
+  const calls = [];
+  const events = [];
+  await new Promise((resolve) => {
+    aiAgent.runKeyAgent({
+      model,
+      providerLabel: 'OpenRouter',
+      prompt: 'Change the heading',
+      tools: [
+        {
+          name: 'write_source',
+          description: 'Write a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file: { type: 'string' },
+              content: { type: 'string' },
+            },
+          },
+        },
+      ],
+      call: async (name, args) => {
+        calls.push({ name, args });
+        return { ok: true, text: '{"ok":true}' };
+      },
+      onEvent: (event) => {
+        events.push(event);
+        if (event.type === 'done' || event.type === 'error') resolve();
+      },
+    });
+  });
+  // A run cancelled mid-stream ends as an error, never as done.
+  const cancelled = [];
+  await new Promise((resolve) => {
+    const slow = new MockLanguageModelV4({
+      doStream: async ({ abortSignal }) => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            abortSignal?.addEventListener('abort', () =>
+              controller.error(
+                Object.assign(new Error('aborted'), { name: 'AbortError' }),
+              ),
+            );
+          },
+        }),
+      }),
+    });
+    const handle = aiAgent.runKeyAgent({
+      model: slow,
+      providerLabel: 'OpenRouter',
+      prompt: 'x',
+      tools: [],
+      call: async () => ({ ok: true, text: '' }),
+      onEvent: (event) => {
+        cancelled.push(event);
+        if (event.type === 'done' || event.type === 'error') resolve();
+      },
+    });
+    setTimeout(() => handle.cancel(), 50);
+  });
+  return { calls, events, cancelled };
+})();
+
+test('WDL-243 a saved key is encrypted on disk and the renderer status never carries it', () => {
+  assert.equal(
+    aiStore.onDisk.includes(SECRET),
+    false,
+    'the key is not written in plain text',
+  );
+  assert.equal(aiStore.read, SECRET, 'trimmed, and readable in main');
+  assert.equal(
+    JSON.stringify(aiStore.status).includes(SECRET),
+    false,
+    'status carries no key',
+  );
+  assert.deepEqual(aiStore.status.keys, {
+    openrouter: true,
+    anthropic: false,
+    openai: false,
+    ollama: true,
+  });
+  assert.equal(aiStore.hasAfterRemove, false);
+  assert.equal(aiStore.readAfterRemove, null);
+  assert.equal(
+    aiStore.brokenHas,
+    false,
+    'a key that no longer decrypts is no key',
+  );
+});
+
+test('WDL-243 with no keychain the key is refused, never written', () => {
+  assert.equal(aiStore.noKeychain, 'no-keychain');
+  assert.equal(aiStore.noKeychainFile, false);
+  assert.equal(aiStore.ollama, 'bad-provider');
+  assert.equal(aiStore.badKey, 'bad-key');
+});
+
+test('WDL-243 settings hold a provider and a model, and nothing secret', () => {
+  const dir = aiDir();
+  const store = new aiKeys.KeyStore(dir, fakeKeychain());
+  assert.deepEqual(store.settings(), {
+    provider: 'openrouter',
+    model: aiKeys.DEFAULT_MODELS.openrouter,
+  });
+  assert.throws(() => store.setSettings({ provider: 'bogus' }));
+  assert.throws(() =>
+    store.setSettings({ provider: 'openai', model: 'has space' }),
+  );
+  assert.deepEqual(store.setSettings({ provider: 'anthropic', model: '' }), {
+    provider: 'anthropic',
+    model: aiKeys.DEFAULT_MODELS.anthropic,
+  });
+  store.setSettings({
+    provider: 'openrouter',
+    model: 'google/gemini-4-hydrogen',
+  });
+  assert.deepEqual(new aiKeys.KeyStore(dir, fakeKeychain()).settings(), {
+    provider: 'openrouter',
+    model: 'google/gemini-4-hydrogen',
+  });
+  fs.writeFileSync(path.join(dir, 'settings.json'), '{not json');
+  assert.equal(
+    store.settings().provider,
+    'openrouter',
+    'a damaged file falls back to defaults',
+  );
+});
+
+test('WDL-243 each provider goes to its own endpoint with the key it was given', () => {
+  const [openrouter, ollama, anthropic, openai] = aiRoutes.seen;
+  assert.equal(openrouter.url, 'https://openrouter.ai/api/v1/chat/completions');
+  assert.equal(openrouter.auth, `Bearer ${SECRET}`);
+  assert.equal(openrouter.body.model, 'anthropic/claude-sonnet-5.5');
+  assert.equal(ollama.url, 'http://localhost:11434/v1/chat/completions');
+  assert.equal(
+    ollama.auth?.includes(SECRET) ?? false,
+    false,
+    'Ollama never receives a key',
+  );
+  assert.match(anthropic.url, /^https:\/\/api\.anthropic\.com\/v1\/messages/);
+  assert.equal(anthropic.xApiKey, SECRET);
+  assert.match(openai.url, /^https:\/\/api\.openai\.com\/v1\//);
+  assert.equal(openai.auth, `Bearer ${SECRET}`);
+  assert.deepEqual(aiRoutes.results.openrouter, { ok: true });
+  assert.deepEqual(aiRoutes.results.ollama, { ok: true });
+  assert.equal(aiRoutes.results.anthropic.failure, 'authorization');
+  assert.match(
+    aiRoutes.results.anthropic.problem,
+    /Anthropic did not accept the key/,
+  );
+  assert.equal(aiRoutes.results.openai.failure, 'authorization');
+});
+
+test('WDL-243 failures are classified from the provider status, never from message text', () => {
+  assert.equal(aiAgent.classifyAiFailure({ statusCode: 402 }), 'credits');
+  assert.equal(
+    aiAgent.classifyAiFailure({ cause: { status: 429 } }),
+    'rate-limit',
+  );
+  assert.equal(
+    aiAgent.classifyAiFailure({ lastError: { statusCode: 404 } }),
+    'model',
+  );
+  assert.equal(
+    aiAgent.classifyAiFailure({ code: 'ECONNREFUSED' }),
+    'connection',
+  );
+  assert.equal(
+    aiAgent.classifyAiFailure({ errors: [{ statusCode: 503 }] }),
+    'connection',
+  );
+  assert.equal(
+    aiAgent.classifyAiFailure(new Error('401 Unauthorized')),
+    'unknown',
+  );
+  assert.match(
+    aiAgent.aiFailureCopy('connection', 'Ollama (on this computer)'),
+    /Ollama is running/,
+  );
+});
+
+test('WDL-243 the key agent changes the site only through the tools it is given', () => {
+  assert.deepEqual(aiRun.calls, [
+    {
+      name: 'write_source',
+      args: {
+        file: 'src/pages/index.astro',
+        content: '<h1>Hi</h1>',
+        baseHash: null,
+      },
+    },
+  ]);
+  const tool = aiRun.events.find((event) => event.type === 'tool');
+  assert.deepEqual(tool, {
+    type: 'tool',
+    name: 'write_source',
+    paths: ['src/pages/index.astro'],
+  });
+  const text = aiRun.events
+    .filter((event) => event.type === 'text')
+    .map((event) => event.text)
+    .join('');
+  assert.equal(text, 'Changed the heading.');
+  assert.deepEqual(aiRun.events.at(-1), {
+    type: 'done',
+    text: 'Changed the heading.',
+  });
+  assert.deepEqual(aiRun.cancelled.at(-1), {
+    type: 'error',
+    text: 'Cancelled.',
+  });
+  assert.equal(
+    aiRun.cancelled.some((event) => event.type === 'done'),
+    false,
+  );
+});
+
+test('WDL-243 nothing hands a saved key back to the renderer', () => {
+  const preload = fs.readFileSync(
+    path.join(repoRoot, 'src/preload.ts'),
+    'utf8',
+  );
+  assert.equal(/readKey|ai-key-read|ai-key-get/.test(preload), false);
+  const main = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  const ipc = main.slice(
+    main.indexOf("handle('cauldron:ai-status'"),
+    main.indexOf("handle('cauldron:agent-cancel'"),
+  );
+  assert.ok(ipc.length > 0);
+  assert.equal(ipc.includes('readKey'), false, 'no AI handler returns a key');
+  // Test harnesses never touch the person's real keychain.
+  assert.match(main, /appendSwitch\('use-mock-keychain'\)/);
 });
 
 process.exitCode = failures ? 1 : 0;

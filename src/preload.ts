@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
+  CauldronAiResult,
+  CauldronAiStatus,
   CauldronCollection,
   CauldronCreatedProject,
   CauldronDependencySetup,
@@ -135,6 +137,15 @@ const api = {
       payload,
     ),
   agentCancel: () => invoke<boolean>('cauldron:agent-cancel'),
+  // Bring your own AI key (WDL-243): the key goes in and is never handed back.
+  aiStatus: () => invoke<CauldronAiStatus>('cauldron:ai-status'),
+  aiSettings: (next: { provider: string; model: string }) =>
+    invoke<CauldronAiResult>('cauldron:ai-settings', next),
+  aiSaveKey: (provider: string, key: string) =>
+    invoke<CauldronAiResult>('cauldron:ai-key-save', provider, key),
+  aiRemoveKey: (provider: string) =>
+    invoke<CauldronAiResult>('cauldron:ai-key-remove', provider),
+  aiTest: () => invoke<{ ok: boolean; problem?: string }>('cauldron:ai-test'),
   collections: () =>
     invoke<{ collections: CauldronCollection[] }>('cauldron:collections'),
   entry: (file: string) =>

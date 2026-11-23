@@ -11,6 +11,7 @@ import {
   SparkleIcon,
   WarningTriangleIcon,
 } from './Icons';
+import { AiKeySettings } from './AiKeySettings';
 
 type Props = {
   site: CauldronSite | null;
@@ -111,6 +112,7 @@ export function AgentPanel({
               <option value="claude">Claude Code</option>
               <option value="codex">Codex</option>
               <option value="hermes">Hermes</option>
+              <option value="key">Your AI key</option>
             </select>
             <ChevronDownIcon size={12} />
           </div>
@@ -141,6 +143,7 @@ export function AgentPanel({
             </button>
           </div>
         )}
+        {tool === 'key' ? <AiKeySettings disabled={running} /> : null}
       </div>
 
       {/* 2. Unified Conversation & Run Stream */}

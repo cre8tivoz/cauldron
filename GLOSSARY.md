@@ -23,7 +23,11 @@ The always-on rules for good design that every agent run follows, beneath a site
 _Avoid_: Guardrails, mandates
 
 **Agent run**:
-One built-in agent job (Claude Code, Codex, or Hermes) and every change it made, which can be reviewed and undone as a whole.
+One built-in agent job (Claude Code, Codex, Hermes, or Your AI key) and every change it made, which can be reviewed and undone as a whole.
+
+**Your AI key**:
+The built-in chat running on the person's own provider account (OpenRouter, Anthropic, OpenAI, or a local Ollama) instead of an installed agent. The key stays in the Mac's keychain.
+_Avoid_: BYOK (in the interface), API mode
 
 **Compare widths**:
 The preview mode that shows the site at phone, tablet and desktop widths at the same time, each at its true width, for checking a layout without switching between them.

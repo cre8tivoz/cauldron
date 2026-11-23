@@ -268,3 +268,20 @@ export type CauldronCreatedProject = {
   astroVersion: string;
   slug: string;
 };
+
+/** Bring your own AI key (WDL-243). The renderer never sees a key. */
+export type CauldronAiProvider =
+  | 'anthropic'
+  | 'openai'
+  | 'openrouter'
+  | 'ollama';
+
+export type CauldronAiStatus = {
+  settings: { provider: CauldronAiProvider; model: string };
+  keychain: boolean;
+  keys: Record<CauldronAiProvider, boolean>;
+};
+
+export type CauldronAiResult =
+  | { ok: true; status: CauldronAiStatus }
+  | { ok: false; problem: string };

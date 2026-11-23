@@ -28,6 +28,8 @@ Cauldron opens or creates an [Astro](https://astro.build) site folder on your Ma
 
 Drive **Claude Code**, **Codex**, or **Hermes** directly from the built-in Agent panel using the CLIs already installed on your Mac. Agents receive your site's active design direction and tokens, work through Cauldron's checked actions, and every run comes with live progress and per-run undo.
 
+No agent installed? Choose **Your AI key** in the Agent panel and paste a key from **OpenRouter**, **Anthropic** or **OpenAI**, or point it at a model running locally in **Ollama**. The chat then runs inside Cauldron with the same checked actions and undo. Your key is encrypted by your Mac's keychain and is only ever sent to the provider you chose.
+
 ## Design taste built in
 
 Pick from **10 curated design directions** (including Long Lunch, Clear Ground, Solid Ground, Silver Screen, Componine, Niki Studio, and Henry From Online) or measure a reference URL to generate tokens for colour, typography, spacing, and radii. Preview your site at **Desktop**, **Tablet (768px)**, and **Phone (375px)** widths — one at a time, or all three side by side with **Compare widths**, each rendered at its real width so the layout reacts exactly as it will on a phone.
@@ -111,6 +113,7 @@ The app only goes online when you ask it to:
 
 - load Google Fonts in site previews or the Design directions view;
 - download npm/pnpm packages when you create or prepare an Astro project;
+- send your requests to the AI provider you chose, with your own key, when you use **Your AI key**;
 - run your installed CLI agents (`claude`, `codex`, `hermes`) or deploy to a host you choose (Git, Cloudflare Pages, Vercel, or GitHub Pages) using your own local credentials.
 
 ## Licence
