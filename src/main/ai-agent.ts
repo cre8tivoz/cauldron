@@ -7,6 +7,7 @@ import {
   streamText,
   tool,
   type LanguageModel,
+  type ModelMessage,
   type ToolSet,
 } from 'ai';
 import type { AgentEvent, AgentHandle } from './agent';
@@ -152,6 +153,22 @@ export type ToolResult = { ok: boolean; text: string };
 
 export const KEY_AGENT_MAX_STEPS = 24;
 
+/** Turns kept per site: enough for follow-ups, bounded for cost. */
+export const KEY_HISTORY_LIMIT = 40;
+
+/**
+ * Keep the last `limit` messages, starting at a person's message so a tool
+ * result is never sent without the tool call that asked for it.
+ */
+export function trimHistory(
+  messages: ModelMessage[],
+  limit = KEY_HISTORY_LIMIT,
+): ModelMessage[] {
+  const kept = messages.slice(-limit);
+  const start = kept.findIndex((message) => message.role === 'user');
+  return start < 0 ? [] : kept.slice(start);
+}
+
 export function runKeyAgent(options: {
   model: LanguageModel;
   providerLabel: string;
@@ -160,6 +177,10 @@ export function runKeyAgent(options: {
   call: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   onEvent: (event: AgentEvent) => void;
   maxSteps?: number;
+  /** Earlier turns with this site, so follow-ups make sense (like --resume). */
+  history?: ModelMessage[];
+  /** Called once a turn completes, with the conversation to keep. */
+  onComplete?: (messages: ModelMessage[]) => void;
 }): AgentHandle {
   const controller = new AbortController();
   let settled = false;
@@ -184,12 +205,14 @@ export function runKeyAgent(options: {
     });
   }
 
+  const userTurn: ModelMessage = { role: 'user', content: options.prompt };
+
   void (async () => {
     let reply = '';
     try {
       const result = streamText({
         model: options.model,
-        messages: [{ role: 'user', content: options.prompt }],
+        messages: [...(options.history ?? []), userTurn],
         tools,
         stopWhen: stepCountIs(options.maxSteps ?? KEY_AGENT_MAX_STEPS),
         abortSignal: controller.signal,
@@ -220,6 +243,14 @@ export function runKeyAgent(options: {
             return;
         }
       }
+      const response = await result.response;
+      options.onComplete?.(
+        trimHistory([
+          ...(options.history ?? []),
+          userTurn,
+          ...response.messages,
+        ]),
+      );
       finish({ type: 'done', text: reply });
     } catch (error) {
       if (controller.signal.aborted) {

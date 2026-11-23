@@ -77,6 +77,7 @@ import {
   type AiProvider,
 } from './ai-keys';
 import { createModel, runKeyAgent, testModel } from './ai-agent';
+import type { ModelMessage } from 'ai';
 import { readCollections, readEntry, saveEntry } from './content';
 import { LIBRARY, LINKS_SHELF, addPiece, piecePreview } from './library';
 import { demoDirectionFor } from './library-demo-directions';
@@ -161,10 +162,13 @@ const ASTRO_VERSION_TESTED = '7.4.7';
 // Test runs can keep their app data in their own folder, so parallel or
 // repeated harness runs never share recovery, conflict or run records. The
 // variable is only ever set by a test run.
-if (process.env.CAULDRON_TEST_USER_DATA)
+if (process.env.CAULDRON_TEST_USER_DATA) {
   app.setPath('userData', process.env.CAULDRON_TEST_USER_DATA);
-// Harness runs use Chromium's in-memory keychain, never the person's own.
-app.commandLine?.appendSwitch('use-mock-keychain');
+  // Harness runs use Chromium's fake keychain, never the person's own. This
+  // MUST stay inside the test-only branch: the fake uses a fixed, public
+  // password, so outside a test it would make saved AI keys decryptable.
+  app.commandLine?.appendSwitch('use-mock-keychain');
+}
 
 type SelectionState = {
   id: string;
@@ -594,6 +598,8 @@ function designView() {
 // Bring your own AI key (WDL-243). The key store lives here, in main; the
 // renderer only ever learns whether a key is saved.
 let keyStoreInstance: KeyStore | null = null;
+/** The key agent's conversation per open site, kept for this app session. */
+const keyHistory = new Map<string, ModelMessage[]>();
 function keyStore(): KeyStore {
   keyStoreInstance ??= new KeyStore(path.join(app.getPath('userData'), 'ai'), {
     isAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
@@ -1513,6 +1519,8 @@ function sendAgent(
           prompt,
           tools: toolsFor(site.name),
           call: callKeyTool,
+          history: keyHistory.get(site.root) ?? [],
+          onComplete: (messages) => keyHistory.set(site.root, messages),
           onEvent,
         })
       : runAgent({

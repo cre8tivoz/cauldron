@@ -6338,6 +6338,43 @@ const aiRun = await (async () => {
       },
     });
   });
+  // A follow-up turn carries the first turn, as Claude's --resume would.
+  let kept = [];
+  const followModel = new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: convertArrayToReadableStream([
+        { type: 'stream-start', warnings: [] },
+        { type: 'text-start', id: 'y' },
+        { type: 'text-delta', id: 'y', delta: 'Noted.' },
+        { type: 'text-end', id: 'y' },
+        {
+          type: 'finish',
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage,
+        },
+      ]),
+    }),
+  });
+  for (const prompt of ['Make the hero blue', 'Now make it darker']) {
+    await new Promise((resolve) => {
+      aiAgent.runKeyAgent({
+        model: followModel,
+        providerLabel: 'OpenRouter',
+        prompt,
+        tools: [],
+        call: async () => ({ ok: true, text: '' }),
+        history: kept,
+        onComplete: (messages) => (kept = messages),
+        onEvent: (event) => {
+          if (event.type === 'done' || event.type === 'error') resolve();
+        },
+      });
+    });
+  }
+  const secondPrompt = JSON.stringify(
+    followModel.doStreamCalls[1]?.prompt ?? [],
+  );
+  const followUp = { secondPrompt, kept };
   // A run cancelled mid-stream ends as an error, never as done.
   const cancelled = [];
   await new Promise((resolve) => {
@@ -6368,7 +6405,7 @@ const aiRun = await (async () => {
     });
     setTimeout(() => handle.cancel(), 50);
   });
-  return { calls, events, cancelled };
+  return { calls, events, cancelled, followUp };
 })();
 
 test('WDL-243 a saved key is encrypted on disk and the renderer status never carries it', () => {
@@ -6525,6 +6562,47 @@ test('WDL-243 the key agent changes the site only through the tools it is given'
   );
 });
 
+test('WDL-243 a follow-up to the key agent carries the earlier turn', () => {
+  const { secondPrompt, kept } = aiRun.followUp;
+  assert.ok(
+    secondPrompt.includes('Make the hero blue'),
+    'the first request is resent',
+  );
+  assert.ok(secondPrompt.includes('Noted.'), 'the first reply is resent');
+  assert.ok(secondPrompt.includes('Now make it darker'));
+  assert.equal(kept.filter((message) => message.role === 'user').length, 2);
+  // Trimming never starts on a tool result whose tool call was dropped.
+  const trimmed = aiAgent.trimHistory(
+    [
+      { role: 'user', content: 'a' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: 't', toolName: 'x', input: {} },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 't',
+            toolName: 'x',
+            output: { type: 'text', value: '' },
+          },
+        ],
+      },
+      { role: 'user', content: 'b' },
+      { role: 'assistant', content: 'ok' },
+    ],
+    3,
+  );
+  assert.deepEqual(
+    trimmed.map((message) => message.role),
+    ['user', 'assistant'],
+  );
+});
+
 test('WDL-243 nothing hands a saved key back to the renderer', () => {
   const preload = fs.readFileSync(
     path.join(repoRoot, 'src/preload.ts'),
@@ -6542,7 +6620,19 @@ test('WDL-243 nothing hands a saved key back to the renderer', () => {
   assert.ok(ipc.length > 0);
   assert.equal(ipc.includes('readKey'), false, 'no AI handler returns a key');
   // Test harnesses never touch the person's real keychain.
-  assert.match(main, /appendSwitch\('use-mock-keychain'\)/);
+  assert.equal(main.split("appendSwitch('use-mock-keychain')").length - 1, 1);
+  const testOnly = main.slice(
+    main.indexOf('if (process.env.CAULDRON_TEST_USER_DATA) {'),
+    main.indexOf(
+      '}',
+      main.indexOf('if (process.env.CAULDRON_TEST_USER_DATA) {'),
+    ),
+  );
+  assert.match(
+    testOnly,
+    /appendSwitch\('use-mock-keychain'\)/,
+    'the fake keychain is switched on only for test runs',
+  );
 });
 
 process.exitCode = failures ? 1 : 0;

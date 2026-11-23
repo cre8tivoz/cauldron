@@ -50,6 +50,9 @@ const provider = http.createServer((req, res) => {
       model: body.model,
       tools: (body.tools ?? []).map((t) => t.function?.name),
       hasToolResult: (body.messages ?? []).some((m) => m.role === 'tool'),
+      carriesFirstJob: JSON.stringify(body.messages ?? []).includes(
+        'Add a proof page',
+      ),
     });
     if (!body.stream) {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -415,7 +418,29 @@ try {
     after.includes('Undo this run'),
   );
 
-  // 5. Remove the key: the next job is refused with a plain reason.
+  // 5. A follow-up job carries the first one, so "do that again" makes sense.
+  const beforeFollowUp = requests.length;
+  await setValue(
+    '.agent-docked-composer textarea',
+    'Do the same for the about page',
+  );
+  await js(`document.querySelector('.agent-send-btn').click()`);
+  // The panel clears its transcript per job, so wait on the provider having
+  // been asked, then on the run settling.
+  for (let i = 0; i < 240; i++) {
+    const working = await js(
+      `Boolean(document.querySelector('.agent-send-btn')?.innerText.includes('Working'))`,
+    );
+    if (requests.length > beforeFollowUp && !working) break;
+    await sleep(500);
+  }
+  check(
+    'a follow-up sends the earlier job to the provider',
+    requests.slice(beforeFollowUp).some((r) => r.carriesFirstJob),
+    JSON.stringify(requests.slice(beforeFollowUp)),
+  );
+
+  // 6. Remove the key: the next job is refused with a plain reason.
   check(
     'the settings stay open after saving, so the confirmation is visible',
     await js(`document.querySelector('.ai-key-settings').open`),
