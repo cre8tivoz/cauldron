@@ -1,9 +1,38 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { listPages } from './actions';
 import { readCollections } from './content';
 import { decodeEntities, parseTag } from './edit';
 import { hashOf, isInside, readFile, writeFileAtomic } from './files';
+
+function listSitePages(root: string): Array<{ page: string; file: string }> {
+  const pagesDir = path.join(root, 'src', 'pages');
+  const found: Array<{ page: string; file: string }> = [];
+  if (!isInside(root, pagesDir) || !fs.existsSync(pagesDir)) return found;
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.isFile() || !/\.(astro|md|mdx|html)$/i.test(entry.name)) {
+        continue;
+      }
+      const rel = path.relative(pagesDir, full).split(path.sep).join('/');
+      const route = rel
+        .replace(/\/index\.(astro|md|mdx|html)$/i, '/')
+        .replace(/^index\.(astro|md|mdx|html)$/i, '/')
+        .replace(/\.(astro|md|mdx|html)$/i, '/');
+      found.push({
+        page: route.startsWith('/') ? route : `/${route}`,
+        file: path.relative(root, full).split(path.sep).join('/'),
+      });
+    }
+  };
+  walk(pagesDir);
+  return found.sort((a, b) => a.page.localeCompare(b.page));
+}
 
 function escapeAttribute(value: string): string {
   return value
@@ -180,14 +209,63 @@ function parseYamlScalar(raw: string): string {
   return trimmed;
 }
 
+/**
+ * Returns the `[start, end)` line range of a top-level YAML frontmatter key
+ * including any indented multiline continuation lines (such as `>-`, `|`, or
+ * wrapped plain scalars).
+ */
+function findYamlKeySpan(
+  lines: string[],
+  startIdx: number,
+): { start: number; end: number } {
+  let end = startIdx + 1;
+  while (end < lines.length) {
+    const line = lines[end];
+    if (/^[ \t]+\S/.test(line)) {
+      end += 1;
+      continue;
+    }
+    if (line.trim() === '') {
+      let lookahead = end + 1;
+      while (lookahead < lines.length && lines[lookahead].trim() === '') {
+        lookahead += 1;
+      }
+      if (lookahead < lines.length && /^[ \t]+\S/.test(lines[lookahead])) {
+        end = lookahead + 1;
+        continue;
+      }
+    }
+    break;
+  }
+  return { start: startIdx, end };
+}
+
 function parseMarkdownFrontmatter(text: string): Record<string, string> {
   const bounds = astroFrontmatterBounds(text);
   if (!bounds) return {};
   const values: Record<string, string> = {};
-  for (const line of bounds.content.split(/\r?\n/)) {
-    const item = /^([A-Za-z_][\w]*)\s*:\s*(.*)$/.exec(line);
+  const lines = bounds.content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const item = /^([A-Za-z_][\w]*)\s*:\s*(.*)$/.exec(lines[i]);
     if (!item) continue;
-    values[item[1]] = parseYamlScalar(item[2]);
+    const key = item[1];
+    const raw = item[2].trim();
+    const span = findYamlKeySpan(lines, i);
+    if (span.end > i + 1) {
+      const continuations = lines
+        .slice(i + 1, span.end)
+        .map((line) => line.trim())
+        .filter((line) => line !== '');
+      if (/^[>|][+-]?\d*$/.test(raw) || raw === '') {
+        values[key] = continuations.join(' ').trim();
+      } else {
+        values[key] =
+          `${parseYamlScalar(raw)} ${continuations.join(' ')}`.trim();
+      }
+      i = span.end - 1;
+      continue;
+    }
+    values[key] = parseYamlScalar(raw);
   }
   return values;
 }
@@ -219,14 +297,16 @@ function updateMarkdownFrontmatter(
       existingIdx !== -1
         ? (lines[existingIdx].match(/^([A-Za-z_][\w]*)\s*:/)?.[1] ?? aliases[0])
         : aliases[0];
+    const span =
+      existingIdx !== -1 ? findYamlKeySpan(lines, existingIdx) : null;
 
     if (field === 'noindex') {
       const boolVal = Boolean(rawVal);
       if (!boolVal) {
-        if (existingIdx !== -1) lines.splice(existingIdx, 1);
+        if (span) lines.splice(span.start, span.end - span.start);
       } else {
         const nextLine = `${chosenKey}: true`;
-        if (existingIdx !== -1) lines[existingIdx] = nextLine;
+        if (span) lines.splice(span.start, span.end - span.start, nextLine);
         else lines.push(nextLine);
       }
       return;
@@ -234,11 +314,11 @@ function updateMarkdownFrontmatter(
 
     const strVal = sanitiseSingleLine(String(rawVal));
     if (strVal === '') {
-      if (existingIdx !== -1) lines.splice(existingIdx, 1);
+      if (span) lines.splice(span.start, span.end - span.start);
       return;
     }
     const nextLine = `${chosenKey}: ${JSON.stringify(strVal)}`;
-    if (existingIdx !== -1) lines[existingIdx] = nextLine;
+    if (span) lines.splice(span.start, span.end - span.start, nextLine);
     else lines.push(nextLine);
   };
 
@@ -664,6 +744,13 @@ function ensureLayoutSupportsSeoProps(
     }
 
     next = `---\n${fmText.trim()}\n---\n${next.slice(fm.bodyStart)}`;
+  } else {
+    // Layout has no Astro frontmatter yet: initialize `interface Props` and
+    // `Astro.props` destructuring before inserting prop expressions in `<head>`.
+    const allFields = [...new Set<SeoField>(neededFields)];
+    const defs = allFields.map((field) => `  ${propDefs[field]}`).join('\n');
+    const names = allFields.join(', ');
+    next = `---\ninterface Props {\n${defs}\n}\nconst { ${names} } = Astro.props;\n---\n${next}`;
   }
 
   // 3. Ensure matching `<head>` tags exist once.
@@ -889,7 +976,7 @@ export function readPageSeo(
     meta?.route !== undefined
       ? meta.route
       : kind === 'page'
-        ? (listPages(siteRoot).find(
+        ? (listSitePages(siteRoot).find(
             (p) => p.file.replace(/\\/g, '/') === normalizedRel,
           )?.page ?? null)
         : null;
@@ -1027,7 +1114,7 @@ export function listSeoEntries(siteRoot: string): SeoEntrySummary[] {
   const entries: SeoEntrySummary[] = [];
   const seenFiles = new Set<string>();
 
-  for (const page of listPages(siteRoot)) {
+  for (const page of listSitePages(siteRoot)) {
     if (page.page.includes('[')) continue;
     const rel = page.file.replace(/\\/g, '/');
     seenFiles.add(rel);

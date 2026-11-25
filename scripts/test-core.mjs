@@ -7486,14 +7486,30 @@ test('WDL-266 standalone <head>, Markdown frontmatter, hash conflict, and shared
   );
   assert.equal(badUrl.ok, false);
 
-  // 2. Markdown content frontmatter round-trip preserves body and unrelated keys.
+  // 2. Markdown content frontmatter round-trip preserves body and unrelated keys,
+  // and cleanly replaces multiline YAML block scalars without leaving orphaned lines.
   const postFile = path.join(dir, 'src/content/posts/hello.md');
   fs.writeFileSync(
     postFile,
-    '---\ntitle: "Hello"\nauthor: "Billy"\n---\n\nBody paragraph stays intact.\n',
+    [
+      '---',
+      'title: "Hello"',
+      'description: >-',
+      '  First line of old multiline',
+      '  YAML description.',
+      'author: "Billy"',
+      '---',
+      '',
+      'Body paragraph stays intact.',
+      '',
+    ].join('\n'),
   );
   const postRead = seo.readPageSeo(dir, 'src/content/posts/hello.md');
   assert.equal(postRead.storage, 'frontmatter');
+  assert.equal(
+    postRead.fields.description.value,
+    'First line of old multiline YAML description.',
+  );
   const postSave = seo.writePageSeo(
     dir,
     'src/content/posts/hello.md',
@@ -7509,8 +7525,48 @@ test('WDL-266 standalone <head>, Markdown frontmatter, hash conflict, and shared
   const postAfter = fs.readFileSync(postFile, 'utf8');
   assert.match(postAfter, /author: "Billy"/);
   assert.match(postAfter, /description: "First post summary\."/);
+  assert.equal(
+    postAfter.includes('First line of old multiline'),
+    false,
+    'multiline YAML continuation lines are removed cleanly',
+  );
   assert.match(postAfter, /noindex: true/);
   assert.match(postAfter, /Body paragraph stays intact\./);
+
+  // 2b. Imported layout without frontmatter initializes Props + Astro.props before adding <head> expressions.
+  const bareLayout = path.join(dir, 'src/layouts/Bare.astro');
+  const barePage = path.join(dir, 'src/pages/bare.astro');
+  fs.writeFileSync(
+    bareLayout,
+    '<!doctype html><html><head><meta charset="utf-8" /></head><body><slot /></body></html>\n',
+  );
+  fs.writeFileSync(
+    barePage,
+    "---\nimport Bare from '../layouts/Bare.astro';\n---\n<Bare><main>Bare</main></Bare>\n",
+  );
+  const bareRead = seo.readPageSeo(dir, 'src/pages/bare.astro');
+  assert.equal(bareRead.storage, 'layout-props');
+  const bareSave = seo.writePageSeo(
+    dir,
+    'src/pages/bare.astro',
+    bareRead.hash,
+    {
+      title: 'Bare Page',
+      description: 'Now has frontmatter props.',
+    },
+  );
+  assert.equal(bareSave.ok, true);
+  const bareLayoutAfter = fs.readFileSync(bareLayout, 'utf8');
+  assert.match(bareLayoutAfter, /^---\ninterface Props \{/);
+  assert.match(
+    bareLayoutAfter,
+    /const \{ title, description \} = Astro\.props;/,
+  );
+  assert.match(bareLayoutAfter, /<title>\{title\}<\/title>/);
+  assert.match(
+    bareLayoutAfter,
+    /\{description && <meta name="description" content=\{description\} \/>\}/,
+  );
 
   // 3. Shared layout hardcoded literal is refused with "set by code in <file>:<line>".
   const sharedLayout = path.join(dir, 'src/layouts/Fixed.astro');
