@@ -2593,6 +2593,7 @@ async function createPage(page: { path: string; title: string }) {
     // page change reaches both.
     void state.previewCompare.load(url).catch(() => undefined);
     await state.preview.load(url);
+    send('cauldron:preview', { running: true, url });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`createPage preview load failed for ${url}:`, error);
@@ -2779,9 +2780,11 @@ function registerPreviewIpc(): void {
       return { ok: false, problem: 'Refusing to leave the local preview.' };
     }
     try {
+      void state.previewCompare.load(target.href).catch(() => undefined);
       await state.preview.load(target.href);
       state.selection = null;
       send('cauldron:selection', null);
+      send('cauldron:preview', { running: true, url: target.href });
       await refreshSiteHealth();
       status(`Opened ${cleanRoute}`);
       return { ok: true, url: target.href };
@@ -3247,6 +3250,19 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
       scheduleThumbnailCapture(state.site.root, state.server.url);
     }
   });
+  const syncPreviewNavigation = (_event: Electron.Event, url: string) => {
+    if (!state.server) return;
+    try {
+      if (new URL(url).origin !== new URL(state.server.url).origin) return;
+    } catch {
+      return;
+    }
+    state.preview.noteNavigation(url);
+    state.previewCompare.setUrl(url);
+    send('cauldron:preview', { running: true, url });
+  };
+  state.preview.webContents?.on('did-navigate', syncPreviewNavigation);
+  state.preview.webContents?.on('did-navigate-in-page', syncPreviewNavigation);
 
   window.webContents.on('did-start-loading', () => {
     editorRendererGone = false;

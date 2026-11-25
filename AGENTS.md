@@ -24,20 +24,20 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 
 **Done means it works through the delivered app.** Passing tests, a tidy document or a good-looking demo is not that.
 
-## Where things honestly stand (22 November 2026)
+## Where things honestly stand (26 November 2026)
 
 - Repository is public under MIT (`v0.10.0`), with `originalresearch/` and third-party study codebases removed and purged from Git history (`WDL-153`).
-- The foundations are real: project creation and opening (with `pnpm` shared store or automatic `npm` fallback), safe versioned saves, crash recovery, agent wiring for Claude Code, Codex and Hermes, quality checks, and Git publishing.
+- The foundations are real: project creation and opening (with `pnpm` shared store or automatic `npm` fallback), safe versioned saves, crash recovery, agent wiring for Claude Code, Codex, Hermes, and Your AI key (OpenRouter, Anthropic, OpenAI, or local Ollama, encrypted in the Mac keychain under `WDL-243`), quality checks, and Git / one-click static publishing (`WDL-241`).
 - Type check, lint, unit suites, and smoke packaging pass (`npm run check`). CI runs Linux checks on pull requests; Apple Silicon build & launch verification (`mac-build`) runs on release tags (`v*`) or manual `workflow_dispatch` with zero artifact uploads, while routine Mac verification runs locally via `npm run verify:mac`.
-- **Driven and verified in the packaged app over CDP**, not just in tests: creating a project, opening one from the library, Design directions "Use this direction" rewriting `cauldron/tokens.css`, the ten direction cards rendering as miniature real pages in their own tokens, and Compare widths showing 375 / 768 / 1280 side by side (frames report 373 / 765 / 1277 CSS px at zoom 0.252).
-- Every rail panel now shows a real empty state with no site open instead of live-looking controls that silently do nothing (`WDL-265` follow-up in PR #38).
-- **Not proven:** opening a downloaded copy by hand on a separate Mac (`Open Anyway` Gatekeeper flow), publishing to a real hosted Git account, and live-API Unsplash/Pexels stock search (disabled with a "COMING SOON" overlay under `WDL-189` / `WDL-171`). Do not claim these without fresh evidence.
+- **Driven and verified in the packaged app over CDP**, not just in tests: creating a project, opening one from the library, Design directions "Use this direction" rewriting `cauldron/tokens.css`, the ten direction cards rendering as miniature real pages in their own tokens, Compare widths showing 375 / 768 / 1280 side by side (frames report 373 / 765 / 1277 CSS px at zoom 0.252), and rail location/site context with honest no-site empty states (`WDL-265`).
+- Workspace chrome and flow polish (`WDL-267`): `Publish` primary top-right action when a site is open, preview-stage page switcher and reload, visual token pickers in the Inspector, `ProjectHome` showing existing projects first with a native modal for new projects, and starter prompt chips in the Agent panel.
+- **Not yet built:** live-API Unsplash/Pexels stock search (disabled with a "COMING SOON" overlay under `WDL-189` / `WDL-171`). Remaining active v1/post-v1 items live in Linear (`WDL-266` SEO panel, `WDL-244` interactive canvas follow-ups).
 
 ## What is settled — do not reopen
 
 - **In v1:** new site, open existing, a persistent recent list with project-card thumbnails (`WDL-174`), shared dependency storage (`pnpm` when installed, seamless `npm` fallback otherwise), built-in chat driving installed Claude Code, Codex and Hermes — or running on the person's own AI key (OpenRouter, Anthropic, OpenAI, or a local Ollama), encrypted by the Mac's keychain (`WDL-243`) — and one-click publishing to Cloudflare Pages, Vercel, and GitHub Pages (`WDL-241`, live-verified).
 - **Outside v1:** other agent apps controlling Cauldron from outside, Windows and Linux, a cloud platform, and one-click Netlify deploy (moved to Backlog under `WDL-255`).
-- **macOS distribution & signing (closed):** Cauldron distributes through **GitHub Releases** as an **unsigned** Apple Silicon build (`Cauldron-darwin-arm64-<version>.zip`) with **"Open Anyway"** instructions in [`README.md`](README.md). Do not reopen Apple Developer code signing/notarisation (Billy has no Apple Developer account) or a `witchdaddylabs.com` download page (`WDL-178` canceled).
+- **macOS distribution & signing (closed):** Cauldron distributes through **GitHub Releases** as an **unsigned** Apple Silicon build (`Cauldron-darwin-arm64-<version>.zip`) with **"Open Anyway"** instructions in [`README.md`](README.md). Do not reopen Apple Developer code signing/notarisation (Billy has no Apple Developer account), a `witchdaddylabs.com` download page (`WDL-178` canceled), or manual Gatekeeper testing on a second Mac (no second Mac is available; ruled out permanently and must not be added to any backlog or "not proven" list).
 - **Design judgement is closed.** Billy accepted the reviewed PeNtA iteration. No further blind comparisons or regeneration are required.
 - **Ten design directions**, including Componine, Niki Studio and Henry From Online. Keep them.
 - **App look:** Source Sans 3, Coral, system light/dark. Agent on the left, preview in the centre, inspector on the right. Minimum window 1280 × 800. The websites it makes must still work at phone, tablet and desktop widths.

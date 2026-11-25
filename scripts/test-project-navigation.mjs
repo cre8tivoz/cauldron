@@ -245,12 +245,12 @@ try {
         );
       } else {
         const sitesClicked = await cdp.evaluate(`(() => {
-          const btn = document.querySelector('button[title="Sites"]');
+          const btn = document.querySelector('button[title="Editor"]');
           if (!btn) return false;
           btn.click();
           return true;
         })()`);
-        assert.ok(sitesClicked, 'Sites button found');
+        assert.ok(sitesClicked, 'Editor button found');
         await waitFor(async () =>
           cdp.evaluate(
             `Boolean(document.querySelector('.inspector-pane textarea'))`,

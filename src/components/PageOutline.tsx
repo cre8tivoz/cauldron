@@ -40,6 +40,10 @@ export function PageOutline({
   pageRef.current = page;
 
   useEffect(() => {
+    setPage(currentPage);
+  }, [currentPage]);
+
+  useEffect(() => {
     void window.cauldron
       .library()
       .then((res) => {

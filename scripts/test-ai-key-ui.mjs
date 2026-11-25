@@ -277,7 +277,7 @@ try {
   );
   await clickLabel('Use this direction');
   await sleep(1500);
-  await clickLabel('Sites');
+  await clickLabel('Editor');
   await until(
     `document.querySelector('select[aria-label="Agent tool"]')`,
     'agent panel',

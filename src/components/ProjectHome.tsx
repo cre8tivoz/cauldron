@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LibrarySpecimen } from './LibrarySpecimen';
+import { CloseIcon, PlusIcon } from './Icons';
 
 type Props = {
   busy: boolean;
@@ -189,7 +190,9 @@ export function ProjectHome({
     useState<string>('sunday-table');
   const [templates, setTemplates] = useState<CauldronStarterTemplate[]>([]);
   const [templatesProblem, setTemplatesProblem] = useState<string | null>(null);
+  const [newDialogOpen, setNewDialogOpen] = useState(false);
   const nameInput = useRef<HTMLInputElement | null>(null);
+  const newDialogRef = useRef<HTMLDialogElement | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -197,11 +200,63 @@ export function ProjectHome({
       alive.current = false;
     };
   }, []);
-  // The File > New Project item (⌘N) lands here with the form already on
-  // screen: focus it instead of leaving the keyboard aimless.
+
+  const hasRecents = recents.length > 0;
+
+  // Sync the native modal <dialog> open state via showModal() / close().
   useEffect(() => {
-    if (focusNewForm > 0) nameInput.current?.focus();
-  }, [focusNewForm]);
+    const dialog = newDialogRef.current;
+    if (!dialog) return;
+    if (newDialogOpen && hasRecents) {
+      if (!dialog.open) dialog.showModal();
+      nameInput.current?.focus();
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [newDialogOpen, hasRecents]);
+
+  // Fallback for engines without native <dialog closedby="any"> light-dismiss.
+  useEffect(() => {
+    const dialog = newDialogRef.current;
+    if (!dialog || 'closedBy' in HTMLDialogElement.prototype) return;
+    let pressedOutside = false;
+    const isOutside = (event: PointerEvent) => {
+      const rect = dialog.getBoundingClientRect();
+      return (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      );
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      pressedOutside = isOutside(event);
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (pressedOutside && isOutside(event) && dialog.open) {
+        dialog.close();
+      }
+      pressedOutside = false;
+    };
+    dialog.addEventListener('pointerdown', onPointerDown);
+    dialog.addEventListener('pointerup', onPointerUp);
+    return () => {
+      dialog.removeEventListener('pointerdown', onPointerDown);
+      dialog.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [hasRecents]);
+
+  // The File > New Project item (⌘N) opens the creation modal when projects
+  // already exist, or focuses the inline form on first launch.
+  useEffect(() => {
+    if (focusNewForm > 0) {
+      if (hasRecents) {
+        setNewDialogOpen(true);
+      } else {
+        nameInput.current?.focus();
+      }
+    }
+  }, [focusNewForm, hasRecents]);
 
   const refresh = useCallback(() => {
     window.cauldron
@@ -296,6 +351,7 @@ export function ProjectHome({
         template: selectedTemplate,
       });
       if ('ok' in result) {
+        setNewDialogOpen(false);
         refresh();
         // Consent was given by pressing "Create and prepare": packages are
         // downloaded and shared through Cauldron's own store. The pending
@@ -440,153 +496,320 @@ export function ProjectHome({
     !prepare;
   const canFormEdit = !creating && !busy && !prepare;
 
+  const newProjectFormBody = (
+    <>
+      {newDialogOpen && formProblem ? (
+        <div className="notice" role="alert" style={{ marginBottom: 4 }}>
+          {formProblem}
+        </div>
+      ) : null}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input
+          className="field"
+          ref={nameInput}
+          style={{ height: 28, width: 220 }}
+          placeholder="Project name, e.g. Sunrise Bakery"
+          value={name}
+          disabled={!canFormEdit}
+          aria-label="Project name"
+          onChange={(event) => setName(event.target.value)}
+        />
+        <input
+          className="field"
+          style={{ height: 28, width: 320 }}
+          placeholder="Folder to create it in, e.g. /Users/you/Documents"
+          value={parent}
+          disabled={!canFormEdit}
+          aria-label="Location for the new project folder"
+          onChange={(event) => setParent(event.target.value)}
+        />
+        <button
+          className="button"
+          type="button"
+          disabled={!canFormEdit}
+          onClick={() => void browseParent()}
+        >
+          Browse…
+        </button>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          marginTop: 4,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: 'var(--text)',
+          }}
+        >
+          Starter Template
+        </span>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {templatesProblem ? (
+            <div className="notice" role="alert">
+              {templatesProblem}
+            </div>
+          ) : null}
+          {templates.map((tpl) => {
+            const active = selectedTemplate === tpl.id;
+            return (
+              <button
+                key={tpl.id}
+                type="button"
+                className={`starter-card${active ? ' starter-card-active' : ''}`}
+                onClick={() => setSelectedTemplate(tpl.id)}
+                disabled={!canFormEdit}
+              >
+                <StarterThumbnail tpl={tpl} />
+                <div className="starter-card-meta">
+                  <div className="starter-card-top">
+                    <span
+                      className={`starter-card-badge${active ? ' starter-card-badge-active' : ''}`}
+                    >
+                      {tpl.badge}
+                    </span>
+                    {active ? (
+                      <span className="starter-card-check">✓</span>
+                    ) : null}
+                  </div>
+                  <div className="starter-card-name">{tpl.name}</div>
+                  <div className="starter-card-cat">{tpl.category}</div>
+                  <div className="starter-card-swatches">
+                    {tpl.swatches.map((color, idx) => (
+                      <span
+                        key={idx}
+                        className="starter-card-swatch"
+                        style={{ background: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p className="hint" style={{ margin: 0 }}>
+        The folder is created fresh at the chosen location — an existing folder
+        or file there is never overwritten. “Create and prepare” downloads
+        packages into the project (reusing Cauldron's shared store when pnpm is
+        installed, or falling back to npm automatically; nothing is installed
+        globally).
+      </p>
+      <div className="home-dialog-actions">
+        <button
+          className="button primary"
+          type="button"
+          disabled={!canCreate}
+          onClick={() => void create()}
+        >
+          {creating ? 'Creating…' : 'Create and prepare'}
+        </button>
+        {hasRecents ? (
+          <button
+            className="button quiet"
+            type="button"
+            onClick={() => setNewDialogOpen(false)}
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const openByPathCard = (
+    <section
+      className="home-card"
+      style={{
+        border: '1px solid var(--hairline)',
+        borderRadius: 6,
+        padding: 16,
+        marginBottom: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <h2 style={{ fontSize: 14, margin: 0 }}>Open existing project</h2>
+      <p className="hint" style={{ margin: 0 }}>
+        Choose a folder with the picker, or paste its path here. If the
+        project's dependencies are not installed yet, you are asked before
+        anything is downloaded.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input
+          className="field"
+          style={{ height: 28, width: 320 }}
+          placeholder="Path to the project folder, e.g. /Users/you/Documents/my-site"
+          value={existingPath}
+          disabled={!canFormEdit}
+          aria-label="Path of the existing project folder"
+          onChange={(event) => setExistingPath(event.target.value)}
+        />
+        <button
+          className="button"
+          type="button"
+          disabled={!canFormEdit || existingPath.trim() === ''}
+          onClick={() => void open(existingPath.trim())}
+        >
+          Open by path
+        </button>
+      </div>
+    </section>
+  );
+
+  const recentsSection = (
+    <section style={{ marginBottom: hasRecents ? 20 : 0 }}>
+      <h2 style={{ fontSize: 14, margin: '0 0 10px' }}>
+        Your projects
+        {!hasRecents ? (
+          <button
+            className="button"
+            type="button"
+            style={{ marginLeft: 12 }}
+            onClick={onOpenExisting}
+            disabled={busy}
+          >
+            Open existing project…
+          </button>
+        ) : null}
+      </h2>
+      {recents.length === 0 ? (
+        <p className="hint">
+          Nothing here yet. Projects you create or open are kept in this list,
+          and it survives restarting Cauldron.
+        </p>
+      ) : (
+        <ul className="recent-list project-card-grid">
+          {recents.map((recent) => (
+            <li key={recent.path} className="recent-row project-card">
+              <ProjectCardThumbnail
+                recent={recent}
+                disabled={busy || busyRoot === recent.path}
+                onOpen={() => void open(recent.path)}
+              />
+              <div className="project-card-body">
+                <div className="project-card-title-row">
+                  <strong className="project-card-name">{recent.name}</strong>
+                  {recent.missing ? (
+                    <span className="badge-missing">
+                      Folder moved or missing
+                    </span>
+                  ) : null}
+                </div>
+                <div className="hint project-card-path" title={recent.path}>
+                  {recent.path}
+                </div>
+                <div className="hint project-card-time">
+                  {recent.lastOpenedAt
+                    ? `Last opened ${new Date(recent.lastOpenedAt).toLocaleString()}`
+                    : 'Never opened'}
+                </div>
+                {recent.missing ? (
+                  <span className="hint project-card-missing-note">
+                    Nothing can be opened from here until the folder is back.
+                    Removing the entry leaves the project on disk untouched.
+                  </span>
+                ) : null}
+                <div className="project-card-actions">
+                  {!recent.missing ? (
+                    <>
+                      <button
+                        className="button primary"
+                        type="button"
+                        disabled={busy || busyRoot === recent.path}
+                        onClick={() => void open(recent.path)}
+                      >
+                        {busyRoot === recent.path ? 'Opening…' : 'Open'}
+                      </button>
+                      {!recent.prepared ? (
+                        <button
+                          className="button"
+                          type="button"
+                          disabled={
+                            busy || busyRoot === recent.path || !!prepare
+                          }
+                          onClick={() => void installFor(recent.path, true)}
+                        >
+                          Install dependencies
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <button
+                    className="button quiet"
+                    type="button"
+                    onClick={() => void remove(recent.path)}
+                  >
+                    Remove from list
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+
   return (
     <div className="pane-body home" style={{ padding: 24, overflowY: 'auto' }}>
-      <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Projects</h1>
-      <p className="hint" style={{ marginTop: 0 }}>
-        Start a new Astro project, open one you already have, or return to
-        something from your library.
-      </p>
+      <div className="home-header">
+        <div>
+          <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Projects</h1>
+          <p className="hint" style={{ margin: 0 }}>
+            Start a new Astro project, open one you already have, or return to
+            something from your library.
+          </p>
+        </div>
+        {hasRecents ? (
+          <div className="home-header-actions">
+            <button
+              className="button"
+              type="button"
+              onClick={onOpenExisting}
+              disabled={busy}
+            >
+              Open existing project…
+            </button>
+            <button
+              className="button primary"
+              type="button"
+              disabled={!canFormEdit}
+              onClick={() => {
+                setFormProblem(null);
+                setNewDialogOpen(true);
+              }}
+            >
+              <PlusIcon size={14} />
+              <span>New project</span>
+            </button>
+          </div>
+        ) : null}
+      </div>
 
       {loadFailed || libraryProblem ? (
         <div className="notice" role="alert" style={{ marginBottom: 12 }}>
           {loadFailed ?? libraryProblem}
         </div>
       ) : null}
-      {formProblem ? (
+      {!newDialogOpen && formProblem ? (
         <div className="notice" role="alert" style={{ marginBottom: 12 }}>
           {formProblem}
         </div>
       ) : null}
-
-      <section
-        className="home-card"
-        style={{
-          border: '1px solid var(--hairline)',
-          borderRadius: 6,
-          padding: 16,
-          marginBottom: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
-        <h2 style={{ fontSize: 14, margin: 0 }}>New Astro project</h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            className="field"
-            ref={nameInput}
-            style={{ height: 28, width: 220 }}
-            placeholder="Project name, e.g. Sunrise Bakery"
-            value={name}
-            disabled={!canFormEdit}
-            aria-label="Project name"
-            onChange={(event) => setName(event.target.value)}
-          />
-          <input
-            className="field"
-            style={{ height: 28, width: 320 }}
-            placeholder="Folder to create it in, e.g. /Users/you/Documents"
-            value={parent}
-            disabled={!canFormEdit}
-            aria-label="Location for the new project folder"
-            onChange={(event) => setParent(event.target.value)}
-          />
-          <button
-            className="button"
-            type="button"
-            disabled={!canFormEdit}
-            onClick={() => void browseParent()}
-          >
-            Browse…
-          </button>
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            marginTop: 4,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: 'var(--text)',
-            }}
-          >
-            Starter Template
-          </span>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
-              gap: 8,
-            }}
-          >
-            {templatesProblem ? (
-              <div className="notice" role="alert">
-                {templatesProblem}
-              </div>
-            ) : null}
-            {templates.map((tpl) => {
-              const active = selectedTemplate === tpl.id;
-              return (
-                <button
-                  key={tpl.id}
-                  type="button"
-                  className={`starter-card${active ? ' starter-card-active' : ''}`}
-                  onClick={() => setSelectedTemplate(tpl.id)}
-                  disabled={!canFormEdit}
-                >
-                  <StarterThumbnail tpl={tpl} />
-                  <div className="starter-card-meta">
-                    <div className="starter-card-top">
-                      <span
-                        className={`starter-card-badge${active ? ' starter-card-badge-active' : ''}`}
-                      >
-                        {tpl.badge}
-                      </span>
-                      {active ? (
-                        <span className="starter-card-check">✓</span>
-                      ) : null}
-                    </div>
-                    <div className="starter-card-name">{tpl.name}</div>
-                    <div className="starter-card-cat">{tpl.category}</div>
-                    <div className="starter-card-swatches">
-                      {tpl.swatches.map((color, idx) => (
-                        <span
-                          key={idx}
-                          className="starter-card-swatch"
-                          style={{ background: color }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <p className="hint" style={{ margin: 0 }}>
-          The folder is created fresh at the chosen location — an existing
-          folder or file there is never overwritten. “Create and prepare”
-          downloads packages into the project (reusing Cauldron's shared store
-          when pnpm is installed, or falling back to npm automatically; nothing
-          is installed globally).
-        </p>
-        <div>
-          <button
-            className="button primary"
-            type="button"
-            disabled={!canCreate}
-            onClick={() => void create()}
-          >
-            {creating ? 'Creating…' : 'Create and prepare'}
-          </button>
-        </div>
-      </section>
 
       {pendingExisting ? (
         <section
@@ -651,45 +874,6 @@ export function ProjectHome({
           </div>
         </section>
       ) : null}
-
-      <section
-        className="home-card"
-        style={{
-          border: '1px solid var(--hairline)',
-          borderRadius: 6,
-          padding: 16,
-          marginBottom: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
-        <h2 style={{ fontSize: 14, margin: 0 }}>Open existing project</h2>
-        <p className="hint" style={{ margin: 0 }}>
-          Choose a folder with the picker, or paste its path here. If the
-          project's dependencies are not installed yet, you are asked before
-          anything is downloaded.
-        </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            className="field"
-            style={{ height: 28, width: 320 }}
-            placeholder="Path to the project folder, e.g. /Users/you/Documents/my-site"
-            value={existingPath}
-            disabled={!canFormEdit}
-            aria-label="Path of the existing project folder"
-            onChange={(event) => setExistingPath(event.target.value)}
-          />
-          <button
-            className="button"
-            type="button"
-            disabled={!canFormEdit || existingPath.trim() === ''}
-            onClick={() => void open(existingPath.trim())}
-          >
-            Open by path
-          </button>
-        </div>
-      </section>
 
       {prepare ? (
         <section
@@ -773,95 +957,57 @@ export function ProjectHome({
         </section>
       ) : null}
 
-      <section>
-        <h2 style={{ fontSize: 14, margin: '0 0 8px' }}>
-          Your projects
-          <button
-            className="button"
-            type="button"
-            style={{ marginLeft: 12 }}
-            onClick={onOpenExisting}
-            disabled={busy}
+      {hasRecents ? (
+        <>
+          {recentsSection}
+          {openByPathCard}
+          <dialog
+            ref={newDialogRef}
+            className="cauldron-dialog cauldron-dialog-wide"
+            aria-labelledby="new-project-dialog-title"
+            {...({ closedby: 'any' } as Record<string, string>)}
+            onClose={() => setNewDialogOpen(false)}
           >
-            Open existing project…
-          </button>
-        </h2>
-        {recents.length === 0 ? (
-          <p className="hint">
-            Nothing here yet. Projects you create or open are kept in this list,
-            and it survives restarting Cauldron.
-          </p>
-        ) : (
-          <ul className="recent-list project-card-grid">
-            {recents.map((recent) => (
-              <li key={recent.path} className="recent-row project-card">
-                <ProjectCardThumbnail
-                  recent={recent}
-                  disabled={busy || busyRoot === recent.path}
-                  onOpen={() => void open(recent.path)}
-                />
-                <div className="project-card-body">
-                  <div className="project-card-title-row">
-                    <strong className="project-card-name">{recent.name}</strong>
-                    {recent.missing ? (
-                      <span className="badge-missing">
-                        Folder moved or missing
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="hint project-card-path" title={recent.path}>
-                    {recent.path}
-                  </div>
-                  <div className="hint project-card-time">
-                    {recent.lastOpenedAt
-                      ? `Last opened ${new Date(recent.lastOpenedAt).toLocaleString()}`
-                      : 'Never opened'}
-                  </div>
-                  {recent.missing ? (
-                    <span className="hint project-card-missing-note">
-                      Nothing can be opened from here until the folder is back.
-                      Removing the entry leaves the project on disk untouched.
-                    </span>
-                  ) : null}
-                  <div className="project-card-actions">
-                    {!recent.missing ? (
-                      <>
-                        <button
-                          className="button primary"
-                          type="button"
-                          disabled={busy || busyRoot === recent.path}
-                          onClick={() => void open(recent.path)}
-                        >
-                          {busyRoot === recent.path ? 'Opening…' : 'Open'}
-                        </button>
-                        {!recent.prepared ? (
-                          <button
-                            className="button"
-                            type="button"
-                            disabled={
-                              busy || busyRoot === recent.path || !!prepare
-                            }
-                            onClick={() => void installFor(recent.path, true)}
-                          >
-                            Install dependencies
-                          </button>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <button
-                      className="button quiet"
-                      type="button"
-                      onClick={() => void remove(recent.path)}
-                    >
-                      Remove from list
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+            <div className="cauldron-dialog-head">
+              <h1
+                id="new-project-dialog-title"
+                className="cauldron-dialog-title"
+              >
+                New Astro project
+              </h1>
+              <button
+                type="button"
+                className="button quiet icon-btn"
+                aria-label="Close new project dialog"
+                onClick={() => setNewDialogOpen(false)}
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
+            <div className="cauldron-dialog-body">{newProjectFormBody}</div>
+          </dialog>
+        </>
+      ) : (
+        <>
+          <section
+            className="home-card"
+            style={{
+              border: '1px solid var(--hairline)',
+              borderRadius: 6,
+              padding: 16,
+              marginBottom: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <h2 style={{ fontSize: 14, margin: 0 }}>New Astro project</h2>
+            {newProjectFormBody}
+          </section>
+          {openByPathCard}
+          {recentsSection}
+        </>
+      )}
     </div>
   );
 }

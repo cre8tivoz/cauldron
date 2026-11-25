@@ -74,8 +74,6 @@ npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.10.0
 > 1. Unzip `Cauldron-darwin-arm64-0.10.0.zip` and move **`Cauldron.app`** into **Applications**.
 > 2. Try opening **`Cauldron.app`**. If macOS says the developer cannot be verified, dismiss the dialog.
 > 3. Open **System Settings → Privacy & Security**, scroll down to the Cauldron notice, click **Open Anyway**, and confirm **Open**.
->
-> _(Note: CI and local builds package and launch the `.app` cleanly, though opening a downloaded copy by hand on a separate Mac has not been manually tested yet.)_
 
 ## Development
 

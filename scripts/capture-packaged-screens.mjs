@@ -120,7 +120,7 @@ try {
   await cdp.evaluate(`
     (() => {
       // Click Sites button on rail
-      const sitesBtn = document.querySelector('button[title="Sites"]');
+      const sitesBtn = document.querySelector('button[title="Editor"]');
       if (sitesBtn) sitesBtn.click();
     })()
   `);

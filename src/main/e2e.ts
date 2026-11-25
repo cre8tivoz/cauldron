@@ -1289,7 +1289,7 @@ export async function runPublishUiTest(
     await wait(400);
 
     // (b) A visual buffer typed less than a second ago, not yet in recovery.
-    await rail('Sites');
+    await rail('Editor');
     const previewUp = await waitFor(
       async () =>
         (await api.previewHtml()).includes('data-cauldron-source-loc'),
@@ -1411,7 +1411,7 @@ export async function runPublishUiTest(
     );
 
     git(['remote', 'set-url', 'origin', `${root}-remote.git`]);
-    await rail('Sites');
+    await rail('Editor');
     await wait(300);
     await rail('Publishing');
     const retryReady = await waitFor(
@@ -3440,7 +3440,7 @@ export async function runUiTest(
       `${visibleCards.cards} cards: ${visibleCards.names.join(', ')}`,
     );
     await window.webContents.executeJavaScript(
-      `document.querySelector('button[title="Sites"]').click()`,
+      `document.querySelector('button[title="Editor"]').click()`,
     );
     await wait(300);
     window.setSize(1280, 800);
@@ -4785,14 +4785,14 @@ export async function runCrashTest(
         async () =>
           Boolean(
             await window.webContents.executeJavaScript(
-              `Boolean(document.querySelector('button[title="Sites"]'))`,
+              `Boolean(document.querySelector('button[title="Editor"]'))`,
             ),
           ),
         30000,
       );
     const ensureBuildView = () =>
       window.webContents.executeJavaScript(
-        `document.querySelector('button[title="Sites"]')?.click(); true`,
+        `document.querySelector('button[title="Editor"]')?.click(); true`,
       );
 
     if (phase === 'type') {
@@ -5905,7 +5905,7 @@ export async function runCompareTest(
             await rendererEval(
               window,
               `(() => {
-                const btn = document.querySelector('button[title="Sites"]');
+                const btn = document.querySelector('button[title="Editor"]');
                 if (!btn) return false;
                 btn.click();
                 return btn.getAttribute('aria-current') === 'page';
@@ -5921,7 +5921,7 @@ export async function runCompareTest(
         Boolean(
           await rendererEval(
             window,
-            `Boolean(document.querySelector('button[title="Sites"]'))`,
+            `Boolean(document.querySelector('button[title="Editor"]'))`,
           ),
         ),
       30000,
