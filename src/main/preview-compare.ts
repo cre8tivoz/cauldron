@@ -1,20 +1,26 @@
-import { WebContentsView, type BrowserWindow, type Rectangle } from 'electron';
+import {
+  WebContentsView,
+  type BrowserWindow,
+  type Rectangle,
+  type WebContents,
+} from 'electron';
 import { configurePreviewSecurity, isNavigationAborted } from './preview';
 import type { CompareFrame, CompareFrameId } from '../preview-compare';
 
 /**
- * The compare frames: one extra, read-only preview view per breakpoint, each
- * loading the same local dev-server URL at its own CSS width.
+ * The compare frames: one extra preview view per breakpoint, each loading the
+ * same local dev-server URL at its own CSS width.
  *
- * Deliberately separate from `Preview` rather than a mode inside it. `Preview`
- * carries click-to-select, height reporting and thumbnail capture, all of which
- * assume exactly one view; adding three more to that class would put the
- * working single-preview path at risk for a feature nobody has asked to be
- * editable yet. These frames take no input and send nothing back.
+ * Deliberately separate from `Preview` rather than a mode inside it. Compare
+ * frames keep their own locked-down session and security configuration, and
+ * forward click-to-select picks back to the main process when Select mode is
+ * active (WDL-244), while leaving inline editing and drag reordering to the
+ * single preview.
  */
 export class PreviewCompare {
   private views = new Map<CompareFrameId, WebContentsView>();
   private frames: CompareFrame[] = [];
+  private picking = true;
   /**
    * Chromium resets the zoom factor of a WebContents to its remembered per-host
    * value when a page loads, so the factor has to be re-applied after every
@@ -36,6 +42,27 @@ export class PreviewCompare {
 
   get enabled(): boolean {
     return this.frames.length > 0;
+  }
+
+  /** Whether a WebContents belongs to one of the active compare frames. */
+  hasWebContents(contents: WebContents): boolean {
+    for (const view of this.views.values()) {
+      if (!view.webContents.isDestroyed() && view.webContents === contents) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Propagates Select mode to all active and future compare frames. */
+  setPickMode(on: boolean): void {
+    this.picking = Boolean(on);
+    for (const view of this.views.values()) {
+      if (!view.webContents.isDestroyed()) {
+        view.webContents.send('preview:compare-frame', true);
+        view.webContents.send('preview:mode', this.picking);
+      }
+    }
   }
 
   /** Point any not-yet-loaded frames at a URL without disturbing the rest. */
@@ -139,12 +166,16 @@ export class PreviewCompare {
         // has committed. Registered here, at creation: the per-resize path below
         // fires while the first load is still in flight and cannot apply it.
         const frameView = view;
-        frameView.webContents.on('dom-ready', () =>
-          this.applyZoom(frame.id, frameView),
-        );
-        frameView.webContents.on('did-finish-load', () =>
-          this.applyZoom(frame.id, frameView),
-        );
+        frameView.webContents.on('dom-ready', () => {
+          this.applyZoom(frame.id, frameView);
+          frameView.webContents.send('preview:compare-frame', true);
+          frameView.webContents.send('preview:mode', this.picking);
+        });
+        frameView.webContents.on('did-finish-load', () => {
+          this.applyZoom(frame.id, frameView);
+          frameView.webContents.send('preview:compare-frame', true);
+          frameView.webContents.send('preview:mode', this.picking);
+        });
         if (this.url) void this.loadInto(frame.id, frameView, this.url);
       }
       if (view.webContents.isDestroyed()) continue;

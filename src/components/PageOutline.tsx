@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import {
+  computeDropMarkerY,
+  computeDropTarget,
+  type DropTarget,
+  type ItemRect,
+} from '../canvas-drag';
 import { normalizeSiteRoute } from '../status-bar';
 
 type Props = {
@@ -36,9 +48,20 @@ export function PageOutline({
     useState<ReadonlyArray<{ id: string; label: string }>>(
       QUICK_SECTION_PIECES,
     );
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
 
   const pageRef = useRef<string>(page);
   pageRef.current = page;
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const dragRef = useRef<{
+    pointerId: number;
+    fromIndex: number;
+    rects: ItemRect[];
+    target: DropTarget | null;
+    handle: HTMLButtonElement;
+  } | null>(null);
 
   useEffect(() => {
     setPage(normalizeSiteRoute(currentPage));
@@ -194,16 +217,132 @@ export function PageOutline({
     }
   };
 
-  const move = async (fromIndex: number, toIndex: number) => {
-    if (toIndex < 0 || toIndex >= sections.length) return;
-    await runOutlineEdit((baseHash) =>
-      window.cauldron.reorderPageSections({
-        page,
-        fromIndex,
-        toIndex,
-        baseHash,
-      }),
+  const move = useCallback(
+    async (fromIndex: number, toIndex: number) => {
+      if (toIndex < 0 || toIndex >= sections.length || fromIndex === toIndex) {
+        return;
+      }
+      const movedName = sections[fromIndex]?.name ?? 'Section';
+      const ok = await runOutlineEdit((baseHash) =>
+        window.cauldron.reorderPageSections({
+          page,
+          fromIndex,
+          toIndex,
+          baseHash,
+        }),
+      );
+      if (ok) {
+        setLiveAnnouncement(`Moved ${movedName} to position ${toIndex + 1}.`);
+      }
+    },
+    [page, sections, currentHash],
+  );
+
+  const clearDragVisuals = useCallback(() => {
+    document.documentElement.classList.remove('cauldron-outline-dragging');
+    const listEl = listRef.current;
+    if (listEl) {
+      delete listEl.dataset.drop;
+      listEl.style.removeProperty('--drop-x');
+      listEl.style.removeProperty('--drop-y');
+      listEl.style.removeProperty('--drop-w');
+    }
+    setDraggingIndex(null);
+  }, []);
+
+  const cancelDrag = useCallback(
+    (announce: boolean) => {
+      const active = dragRef.current;
+      if (!active) return;
+      dragRef.current = null;
+      if (active.handle.hasPointerCapture(active.pointerId)) {
+        active.handle.releasePointerCapture(active.pointerId);
+      }
+      clearDragVisuals();
+      if (announce) setLiveAnnouncement('Section reorder cancelled.');
+    },
+    [clearDragVisuals],
+  );
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && dragRef.current) {
+        event.preventDefault();
+        cancelDrag(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (dragRef.current) cancelDrag(false);
+    };
+  }, [cancelDrag]);
+
+  const onDragHandleDown = (
+    index: number,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (loading || sections.length < 2) return;
+    if (event.button !== 0 || dragRef.current) return;
+    const rects: ItemRect[] = sections.map((_, idx) => {
+      const el = rowRefs.current[idx];
+      if (!el) return { top: 0, height: 0 };
+      const r = el.getBoundingClientRect();
+      return { top: r.top, height: r.height };
+    });
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      fromIndex: index,
+      rects,
+      target: null,
+      handle,
+    };
+    setDraggingIndex(index);
+    document.documentElement.classList.add('cauldron-outline-dragging');
+  };
+
+  const onDragHandleMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const active = dragRef.current;
+    if (!active || event.pointerId !== active.pointerId) return;
+    const target = computeDropTarget(
+      event.clientY,
+      active.rects,
+      active.fromIndex,
     );
+    active.target = target;
+    const listEl = listRef.current;
+    if (!listEl) return;
+    if (!target) {
+      delete listEl.dataset.drop;
+      return;
+    }
+    const listRect = listEl.getBoundingClientRect();
+    const markerY = computeDropMarkerY(target.insertSlot, active.rects);
+    listEl.style.setProperty('--drop-x', `${Math.round(listRect.left)}px`);
+    listEl.style.setProperty('--drop-y', `${markerY}px`);
+    listEl.style.setProperty('--drop-w', `${Math.round(listRect.width)}px`);
+    listEl.dataset.drop = '1';
+  };
+
+  const onDragHandleUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const active = dragRef.current;
+    if (!active || event.pointerId !== active.pointerId) return;
+    dragRef.current = null;
+    if (active.handle.hasPointerCapture(active.pointerId)) {
+      active.handle.releasePointerCapture(active.pointerId);
+    }
+    clearDragVisuals();
+    if (active.target && active.target.toIndex !== active.fromIndex) {
+      void move(active.fromIndex, active.target.toIndex);
+    }
+  };
+
+  const onDragHandleCancel = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const active = dragRef.current;
+    if (!active || event.pointerId !== active.pointerId) return;
+    cancelDrag(true);
   };
 
   const remove = async (sectionIndex: number) => {
@@ -462,7 +601,11 @@ export function PageOutline({
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div
+        ref={listRef}
+        className="outline-sections-list"
+        style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+      >
         {renderInsertDivider(-1)}
 
         {sections.length === 0 ? (
@@ -475,6 +618,7 @@ export function PageOutline({
         ) : (
           sections.map((sec, idx) => {
             const isEditingAnchor = editingAnchorIndex === idx;
+            const isDragging = draggingIndex === idx;
             return (
               <div
                 key={sec.index}
@@ -485,6 +629,10 @@ export function PageOutline({
                 }}
               >
                 <div
+                  ref={(node) => {
+                    rowRefs.current[idx] = node;
+                  }}
+                  className={isDragging ? 'outline-row-dragging' : undefined}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -505,15 +653,19 @@ export function PageOutline({
                       flex: 1,
                     }}
                   >
-                    <span
-                      style={{
-                        color: 'var(--muted)',
-                        fontSize: 10,
-                        cursor: 'grab',
-                      }}
+                    <button
+                      type="button"
+                      className="outline-drag-handle"
+                      aria-label={`Drag to reorder ${sec.name}`}
+                      title="Drag to reorder section"
+                      disabled={loading || sections.length < 2}
+                      onPointerDown={(e) => onDragHandleDown(idx, e)}
+                      onPointerMove={onDragHandleMove}
+                      onPointerUp={onDragHandleUp}
+                      onPointerCancel={onDragHandleCancel}
                     >
                       ☰
-                    </span>
+                    </button>
                     <div style={{ minWidth: 0 }}>
                       <div
                         style={{
@@ -714,6 +866,9 @@ export function PageOutline({
           <span>+ Add component from library</span>
         </button>
       )}
+      <div className="sr-only" role="status" aria-live="polite">
+        {liveAnnouncement}
+      </div>
     </div>
   );
 }

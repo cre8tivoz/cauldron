@@ -6079,17 +6079,22 @@ test('WDL-244 compare frames keep the breakpoint width and scale to fit the colu
   }
 });
 
-test('WDL-244 the compare frames cannot be mistaken for the editable preview', () => {
+test('WDL-244 compare frames stay isolated and only allow click-to-select picks', () => {
   const source = fs.readFileSync(
     path.join(repoRoot, 'src/main/preview-compare.ts'),
     'utf8',
   );
-  // Read-only by construction: they take the same locked-down session, and they
-  // never register a pick handler or send anything back to the app.
+  // Compare frames stay in their own locked-down session and flag themselves
+  // as compare frames so inline editing and section drag remain disabled.
   assert.match(source, /partition: 'cauldron-preview-compare'/);
   assert.match(source, /configurePreviewSecurity/);
-  assert.equal(/pickMode|cauldron:pick|send\(/.test(source), false);
-  // ...and they cannot survive a preview restart.
+  assert.match(source, /preview:compare-frame/);
+  assert.equal(
+    /inline-text|reorder-sections|writeSelection/.test(source),
+    false,
+  );
+  // Main process restricts compare-frame reports strictly to `pick`, and drops
+  // compare frames on stopPreview.
   const main = fs.readFileSync(
     path.join(repoRoot, 'src/main/index.ts'),
     'utf8',
@@ -6098,6 +6103,15 @@ test('WDL-244 the compare frames cannot be mistaken for the editable preview', (
     main,
     /state\.previewCompare\.clear\(\)/,
     'stopPreview drops the frames',
+  );
+  const reportBlock = main.slice(
+    main.indexOf("ipcMain.on(\n    'preview:report'"),
+    main.indexOf('function writeResponsiveSelection'),
+  );
+  assert.match(
+    reportBlock,
+    /Compare frames only report click-to-select picks[\s\S]*if \(!isMainPreview\) return;/,
+    'compare frames cannot trigger inline-text or section reorder reports',
   );
 });
 
@@ -6873,6 +6887,240 @@ test('WDL-267 workspace chrome, preview switcher, native dialogs, and docs invar
     false,
     'AGENTS.md removes ruled-out second-Mac and tested hosted-Git caveats',
   );
+});
+
+// ---------------------------------------------------------------------------
+// WDL-244: interactive design canvas (inline text, drag-reorder, responsive layer).
+const canvasDrag = await import('../src/canvas-drag.ts');
+const responsiveLayer = await import('../src/responsive-layer.ts');
+const responsiveCss = await import('../src/main/responsive-css.ts');
+const pageSectionActions = await import('../src/main/actions.ts');
+
+test('WDL-244 drag reorder geometry computes midpoints, maps target indices, and skips no-op drops', () => {
+  const rects = [
+    { top: 0, height: 100 }, // mid 50
+    { top: 110, height: 100 }, // mid 160
+    { top: 220, height: 100 }, // mid 270
+  ];
+  assert.equal(canvasDrag.computeInsertSlot(20, rects), 0);
+  assert.equal(canvasDrag.computeInsertSlot(120, rects), 1);
+  assert.equal(canvasDrag.computeInsertSlot(200, rects), 2);
+  assert.equal(canvasDrag.computeInsertSlot(300, rects), 3);
+
+  // Dragging index 0 into slot 0 or slot 1 is a no-op.
+  assert.equal(canvasDrag.computeDropTarget(20, rects, 0), null);
+  assert.equal(canvasDrag.computeDropTarget(120, rects, 0), null);
+  // Dragging index 0 below mid(1) moves to index 1; below mid(2) moves to index 2.
+  assert.deepEqual(canvasDrag.computeDropTarget(200, rects, 0), {
+    insertSlot: 2,
+    toIndex: 1,
+  });
+  assert.deepEqual(canvasDrag.computeDropTarget(300, rects, 0), {
+    insertSlot: 3,
+    toIndex: 2,
+  });
+  // Dragging index 2 above mid(0) moves to index 0.
+  assert.deepEqual(canvasDrag.computeDropTarget(20, rects, 2), {
+    insertSlot: 0,
+    toIndex: 0,
+  });
+  // Drop marker sits at edges or midpoint of adjacent gap.
+  assert.equal(canvasDrag.computeDropMarkerY(0, rects), 0);
+  assert.equal(canvasDrag.computeDropMarkerY(1, rects), 105);
+  assert.equal(canvasDrag.computeDropMarkerY(3, rects), 320);
+});
+
+test('WDL-244 reorderPageSections splices multi-step moves instead of swapping two items', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-reorder-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const pageFile = path.join(dir, 'src/pages/index.astro');
+  fs.writeFileSync(
+    pageFile,
+    [
+      '---',
+      '---',
+      '<main>',
+      '  <section id="one"><h2>First</h2></section>',
+      '',
+      '  <section id="two"><h2>Second</h2></section>',
+      '',
+      '  <section id="three"><h2>Third</h2></section>',
+      '</main>',
+      '',
+    ].join('\n'),
+  );
+  const initial = pageSectionActions.readPageSections(dir, '/');
+  assert.equal(initial.ok, true);
+  assert.equal(initial.sections.length, 3);
+
+  // Move first section (0) to end (2) -> [two, three, one].
+  const movedDown = pageSectionActions.reorderPageSections(
+    dir,
+    '/',
+    0,
+    2,
+    initial.hash,
+  );
+  assert.equal(movedDown.ok, true);
+  assert.deepEqual(
+    movedDown.sections.map((s) => s.anchorId),
+    ['two', 'three', 'one'],
+  );
+
+  // Move last section (2) back to top (0) -> [one, two, three].
+  const movedUp = pageSectionActions.reorderPageSections(
+    dir,
+    '/',
+    2,
+    0,
+    movedDown.hash,
+  );
+  assert.equal(movedUp.ok, true);
+  assert.deepEqual(
+    movedUp.sections.map((s) => s.anchorId),
+    ['one', 'two', 'three'],
+  );
+});
+
+test('WDL-244 responsive CSS writes plain @media rules, imports once in Base.astro, and clears cleanly', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-resp-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'src/layouts/Base.astro'),
+    [
+      '---',
+      "import '../../cauldron/tokens.css';",
+      '---',
+      '<html><body><slot /></body></html>',
+      '',
+    ].join('\n'),
+  );
+
+  const id = responsiveCss.createResponsiveId(
+    'src/pages/index.astro',
+    12,
+    3,
+    'h1',
+  );
+  assert.equal(responsiveCss.isValidResponsiveId(id), true);
+
+  const first = responsiveCss.writeResponsiveStyle(dir, id, 'tablet', {
+    'font-size': 'var(--text-lg)',
+    padding: 'var(--space-2)',
+  });
+  assert.equal(first.ok, true);
+  assert.equal(
+    first.writes.length,
+    2,
+    'writes responsive.css and updates Base.astro once',
+  );
+
+  const layoutAfter = fs.readFileSync(
+    path.join(dir, 'src/layouts/Base.astro'),
+    'utf8',
+  );
+  assert.match(layoutAfter, /import '\.\.\/\.\.\/cauldron\/responsive\.css';/);
+
+  const second = responsiveCss.writeResponsiveStyle(dir, id, 'phone', {
+    'font-size': 'var(--text-base)',
+  });
+  assert.equal(second.ok, true);
+  assert.equal(second.writes.length, 1, 'does not duplicate Base.astro import');
+
+  const cssText = fs.readFileSync(
+    path.join(dir, responsiveCss.RESPONSIVE_CSS_REL),
+    'utf8',
+  );
+  assert.match(cssText, /@media \(max-width: 768px\)/);
+  assert.match(cssText, /@media \(max-width: 375px\)/);
+  assert.ok(
+    cssText.indexOf('max-width: 768px') < cssText.indexOf('max-width: 375px'),
+    'tablet breakpoint precedes phone breakpoint in cascade order',
+  );
+
+  const readBack = responsiveCss.readResponsiveStyles(dir, id);
+  assert.deepEqual(readBack, {
+    tablet: { 'font-size': 'var(--text-lg)', padding: 'var(--space-2)' },
+    phone: { 'font-size': 'var(--text-base)' },
+  });
+
+  // Clearing all tablet properties removes the empty tablet block.
+  const cleared = responsiveCss.writeResponsiveStyle(dir, id, 'tablet', {
+    'font-size': '',
+    padding: '',
+  });
+  assert.equal(cleared.ok, true);
+  assert.deepEqual(cleared.styles.tablet, {});
+  assert.deepEqual(cleared.styles.phone, { 'font-size': 'var(--text-base)' });
+  const cssAfterClear = fs.readFileSync(
+    path.join(dir, responsiveCss.RESPONSIVE_CSS_REL),
+    'utf8',
+  );
+  assert.equal(cssAfterClear.includes('max-width: 768px'), false);
+
+  // Unsafe CSS values and invalid property names are refused.
+  assert.equal(
+    responsiveCss.writeResponsiveStyle(dir, id, 'phone', {
+      color: 'red; background: url(https://evil.example)',
+    }).ok,
+    false,
+  );
+  assert.equal(
+    responsiveCss.writeResponsiveStyle(dir, id, 'phone', {
+      'bad prop': '1px',
+    }).ok,
+    false,
+  );
+});
+
+test('WDL-244 editing layer stays separate from preview viewport and resets on site switch', () => {
+  const sample = {
+    style: { color: 'var(--text)' },
+    responsiveStyles: {
+      tablet: { padding: 'var(--space-2)' },
+      phone: { padding: 'var(--space-1)' },
+    },
+  };
+  assert.deepEqual(responsiveLayer.layerStylesFor(sample, 'base'), {
+    color: 'var(--text)',
+  });
+  assert.deepEqual(responsiveLayer.layerStylesFor(sample, 'tablet'), {
+    padding: 'var(--space-2)',
+  });
+  assert.deepEqual(responsiveLayer.layerStylesFor(sample, 'phone'), {
+    padding: 'var(--space-1)',
+  });
+
+  const app = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.match(app, /useState<EditingLayer>\('base'\)/);
+  assert.match(app, /setEditingLayer\('base'\)/);
+  assert.match(app, /onViewportChange=\{setPreviewViewport\}/);
+  assert.match(app, /onCompareChange=\{setCompareWidths\}/);
+
+  const inspector = fs.readFileSync(
+    path.join(repoRoot, 'src/components/Inspector.tsx'),
+    'utf8',
+  );
+  assert.match(inspector, /aria-label="Editing layer"/);
+  assert.match(inspector, /independent of preview width/);
+  assert.match(inspector, /attr\.name !== 'data-cauldron-r'/);
+
+  const outline = fs.readFileSync(
+    path.join(repoRoot, 'src/components/PageOutline.tsx'),
+    'utf8',
+  );
+  assert.match(outline, /setPointerCapture/);
+  assert.match(outline, /computeDropTarget/);
+  assert.match(outline, /role="status" aria-live="polite"/);
+
+  const preload = fs.readFileSync(
+    path.join(repoRoot, 'src/preview/preload.ts'),
+    'utf8',
+  );
+  assert.match(preload, /kind: 'inline-text'/);
+  assert.match(preload, /kind: 'reorder-sections'/);
+  assert.match(preload, /contenteditable/);
+  assert.match(preload, /if \(isCompareFrame\) return;/);
 });
 
 process.exitCode = failures ? 1 : 0;

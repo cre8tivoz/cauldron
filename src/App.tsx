@@ -31,6 +31,7 @@ import {
 import { describeDraftBanner, selectionDraftValue } from './draft-restore';
 import { mergeProblemMessages } from './problems';
 import { computePreviewBounds, type PreviewViewport } from './preview-viewport';
+import type { EditingLayer } from './responsive-layer';
 import { previewRouteFromUrl } from './status-bar';
 import {
   INITIAL_AGENT_STREAM,
@@ -154,6 +155,9 @@ export function App() {
   const [previewViewport, setPreviewViewport] =
     useState<PreviewViewport>('desktop');
   const [compareWidths, setCompareWidths] = useState(false);
+  // Deliberately separate from previewViewport (WDL-244): switching preview
+  // width or Compare widths never silently turns on breakpoint overrides.
+  const [editingLayer, setEditingLayer] = useState<EditingLayer>('base');
   const [selection, setSelection] = useState<CauldronSelection | null>(null);
   const [drafts, setDrafts] = useState<CauldronDraft[]>([]);
   const [status, setStatus] = useState('Ready');
@@ -343,6 +347,7 @@ export function App() {
       }
       setConflict(null);
       if (isNewSite || !next.site) {
+        setEditingLayer('base');
         setAgentStream(INITIAL_AGENT_STREAM);
         setHistoryState(next.history ?? { canUndo: false, canRedo: false });
       } else if (next.history) {
@@ -788,11 +793,13 @@ export function App() {
   );
 
   const applyStyle = useCallback(
-    (properties: Record<string, string>) =>
-      apply({ kind: 'style', properties }, () =>
-        window.cauldron.applyStyle(properties),
-      ),
-    [apply],
+    (properties: Record<string, string>, layer?: EditingLayer) => {
+      const targetLayer = layer ?? editingLayer;
+      return apply({ kind: 'style', properties, layer: targetLayer }, () =>
+        window.cauldron.applyStyle(properties, targetLayer),
+      );
+    },
+    [apply, editingLayer],
   );
 
   const keepMine = useCallback(async () => {
@@ -1305,6 +1312,8 @@ export function App() {
                         currentPage={currentPage}
                         direction={direction}
                         selection={selection}
+                        editingLayer={editingLayer}
+                        onEditingLayerChange={setEditingLayer}
                         conflict={conflict}
                         onApplyText={applyText}
                         onApplyAttribute={applyAttribute}
