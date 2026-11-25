@@ -43,13 +43,20 @@ export function formatPreviewHost(url: string | null): string {
   }
 }
 
-/** Extracts a normalised site route ("/", "/menu") from a preview URL. */
+/**
+ * Normalises a site route to match `listPages` ("/", "/menu/", "/about/team/").
+ */
+export function normalizeSiteRoute(route: string): string {
+  const cleaned = route.trim().replace(/^\/+|\/+$/g, '');
+  if (cleaned === '') return '/';
+  return `/${cleaned.replace(/\/+/g, '/')}/`;
+}
+
+/** Extracts a normalised site route ("/", "/menu/") from a preview URL. */
 export function previewRouteFromUrl(url: string | null): string {
   if (!url) return '/';
   try {
-    const pathname = new URL(url).pathname;
-    const cleaned = pathname.replace(/\/+$/, '');
-    return cleaned === '' ? '/' : cleaned;
+    return normalizeSiteRoute(new URL(url).pathname);
   } catch {
     return '/';
   }

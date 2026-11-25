@@ -6678,14 +6678,18 @@ test('WDL-267 status bar deduplicates live preview URL and parses preview routes
     statusBar.formatPreviewHost('http://127.0.0.1:4321/menu/'),
     '127.0.0.1:4321',
   );
+  assert.equal(statusBar.normalizeSiteRoute('/'), '/');
+  assert.equal(statusBar.normalizeSiteRoute('/menu'), '/menu/');
+  assert.equal(statusBar.normalizeSiteRoute('menu/'), '/menu/');
+  assert.equal(statusBar.normalizeSiteRoute('//about//team'), '/about/team/');
   assert.equal(statusBar.previewRouteFromUrl('http://127.0.0.1:4321/'), '/');
   assert.equal(
     statusBar.previewRouteFromUrl('http://127.0.0.1:4321/menu/'),
-    '/menu',
+    '/menu/',
   );
   assert.equal(
     statusBar.previewRouteFromUrl('http://127.0.0.1:4321/about/team'),
-    '/about/team',
+    '/about/team/',
   );
   assert.equal(statusBar.previewRouteFromUrl(null), '/');
 });
@@ -6798,6 +6802,44 @@ test('WDL-267 workspace chrome, preview switcher, native dialogs, and docs invar
   );
   assert.match(app, /<dialog\b/, 'ConfirmDialog uses native dialog element');
   assert.match(app, /showModal\(\)/);
+  const agentDoneBlock = app.slice(
+    app.indexOf("window.cauldron.on(\n      'cauldron:agent-done'"),
+    app.indexOf('const onWindowError'),
+  );
+  assert.match(
+    agentDoneBlock,
+    /refreshSitePages\(\)/,
+    'agent completion refreshes the page switcher list',
+  );
+  const historyBlock = app.slice(
+    app.indexOf("window.cauldron.on(\n      'cauldron:history'"),
+    app.indexOf('const offAgentEvent'),
+  );
+  assert.match(
+    historyBlock,
+    /refreshSitePages\(\)/,
+    'history changes refresh the page switcher list',
+  );
+
+  const main = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.match(
+    main,
+    /did-navigate-in-page[\s\S]{0,120}if \(!isMainFrame\) return;/,
+    'in-page preview navigation ignores subframe events',
+  );
+
+  const outline = fs.readFileSync(
+    path.join(repoRoot, 'src/components/PageOutline.tsx'),
+    'utf8',
+  );
+  assert.match(
+    outline,
+    /normalizeSiteRoute\(currentPage\)/,
+    'PageOutline normalises routes to match listPages option values',
+  );
 
   const home = fs.readFileSync(
     path.join(repoRoot, 'src/components/ProjectHome.tsx'),

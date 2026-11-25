@@ -7,6 +7,7 @@ import {
   minimumStageWidth,
 } from '../preview-compare';
 import { PlusIcon, ReloadIcon } from './Icons';
+import { normalizeSiteRoute } from '../status-bar';
 
 type Props = {
   stageRef: RefObject<HTMLDivElement | null>;
@@ -124,9 +125,16 @@ export function PreviewStage({
     };
   }, [compare, running, reportFrames]);
 
-  const routeOptions = pages.some((entry) => entry.page === currentPage)
-    ? pages
-    : [{ page: currentPage, file: '' }, ...pages];
+  const normalizedCurrentPage = normalizeSiteRoute(currentPage);
+  const normalizedPages = pages.map((entry) => ({
+    ...entry,
+    page: normalizeSiteRoute(entry.page),
+  }));
+  const routeOptions = normalizedPages.some(
+    (entry) => entry.page === normalizedCurrentPage,
+  )
+    ? normalizedPages
+    : [{ page: normalizedCurrentPage, file: '' }, ...normalizedPages];
 
   return (
     <div className="stage-wrap">
@@ -141,7 +149,7 @@ export function PreviewStage({
               <select
                 className="stage-page-select mono"
                 aria-label="Current page"
-                value={currentPage}
+                value={normalizedCurrentPage}
                 disabled={!running}
                 onChange={(event) => onOpenPage(event.target.value)}
                 title="Switch preview page"

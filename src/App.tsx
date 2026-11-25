@@ -436,6 +436,7 @@ export function App() {
         setHistoryState(
           payload as unknown as { canUndo: boolean; canRedo: boolean },
         );
+        if (currentSiteRootRef.current) void refreshSitePages();
       },
     );
 
@@ -453,6 +454,7 @@ export function App() {
         const result = payload as { note: string };
         setAgentStream((current) => finishAgentStream(current, result.note));
         void refreshAgentRuns();
+        if (currentSiteRootRef.current) void refreshSitePages();
       },
     );
 
@@ -497,7 +499,7 @@ export function App() {
       window.removeEventListener('error', onWindowError);
       window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
-  }, [refreshAgentRuns]);
+  }, [refreshAgentRuns, refreshSitePages]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

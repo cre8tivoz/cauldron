@@ -3250,7 +3250,7 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
       scheduleThumbnailCapture(state.site.root, state.server.url);
     }
   });
-  const syncPreviewNavigation = (_event: Electron.Event, url: string) => {
+  const syncPreviewNavigation = (url: string) => {
     if (!state.server) return;
     try {
       if (new URL(url).origin !== new URL(state.server.url).origin) return;
@@ -3261,8 +3261,16 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
     state.previewCompare.setUrl(url);
     send('cauldron:preview', { running: true, url });
   };
-  state.preview.webContents?.on('did-navigate', syncPreviewNavigation);
-  state.preview.webContents?.on('did-navigate-in-page', syncPreviewNavigation);
+  state.preview.webContents?.on('did-navigate', (_event, url) => {
+    syncPreviewNavigation(url);
+  });
+  state.preview.webContents?.on(
+    'did-navigate-in-page',
+    (_event, url, isMainFrame) => {
+      if (!isMainFrame) return;
+      syncPreviewNavigation(url);
+    },
+  );
 
   window.webContents.on('did-start-loading', () => {
     editorRendererGone = false;
