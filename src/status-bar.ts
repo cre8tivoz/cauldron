@@ -52,11 +52,21 @@ export function normalizeSiteRoute(route: string): string {
   return `/${cleaned.replace(/\/+/g, '/')}/`;
 }
 
-/** Extracts a normalised site route ("/", "/menu/") from a preview URL. */
+/** Extracts a normalised site route ("/", "/menu/", "/café/") from a preview URL. */
 export function previewRouteFromUrl(url: string | null): string {
   if (!url) return '/';
   try {
-    return normalizeSiteRoute(new URL(url).pathname);
+    const decodedPath = new URL(url).pathname
+      .split('/')
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      })
+      .join('/');
+    return normalizeSiteRoute(decodedPath);
   } catch {
     return '/';
   }

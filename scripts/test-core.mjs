@@ -6691,6 +6691,14 @@ test('WDL-267 status bar deduplicates live preview URL and parses preview routes
     statusBar.previewRouteFromUrl('http://127.0.0.1:4321/about/team'),
     '/about/team/',
   );
+  assert.equal(
+    statusBar.previewRouteFromUrl('http://127.0.0.1:4321/caf%C3%A9/'),
+    '/café/',
+  );
+  assert.equal(
+    statusBar.previewRouteFromUrl('http://127.0.0.1:4321/%E0%A4%A/'),
+    '/%E0%A4%A/',
+  );
   assert.equal(statusBar.previewRouteFromUrl(null), '/');
 });
 
