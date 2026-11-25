@@ -26,6 +26,10 @@ type CauldronPageSection = import('./cauldron-types').CauldronPageSection;
 type CauldronStockPhoto = import('./cauldron-types').CauldronStockPhoto;
 type CauldronCollection = import('./cauldron-types').CauldronCollection;
 type CauldronEntry = import('./cauldron-types').CauldronEntry;
+type CauldronSeoValues = import('./cauldron-types').CauldronSeoValues;
+type CauldronSeoEntrySummary =
+  import('./cauldron-types').CauldronSeoEntrySummary;
+type CauldronSeoEntryDetail = import('./cauldron-types').CauldronSeoEntryDetail;
 type CauldronRun = import('./cauldron-types').CauldronRun;
 type WriteOutcome = import('./cauldron-types').WriteOutcome;
 type CauldronRecent = import('./cauldron-types').CauldronRecent;

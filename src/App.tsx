@@ -7,6 +7,7 @@ import { Splitter } from './components/Splitter';
 import { StatusBar } from './components/StatusBar';
 import { DesignPanel } from './components/DesignPanel';
 import { ContentPanel } from './components/ContentPanel';
+import { SeoPanel } from './components/SeoPanel';
 import { LibraryPanel } from './components/LibraryPanel';
 import { QualityPanel } from './components/QualityPanel';
 import { PublishPanel } from './components/PublishPanel';
@@ -20,6 +21,7 @@ import {
   PublishingIcon,
   QualityIcon,
   ProjectsIcon,
+  SeoIcon,
   SitesIcon,
 } from './components/Icons';
 import {
@@ -177,6 +179,7 @@ export function App() {
     | 'build'
     | 'design'
     | 'content'
+    | 'seo'
     | 'library'
     | 'quality'
     | 'publish'
@@ -959,6 +962,17 @@ export function App() {
           <button
             className="rail-button"
             type="button"
+            aria-current={view === 'seo' ? 'page' : undefined}
+            title="SEO"
+            onClick={() => setView('seo')}
+          >
+            <SeoIcon size={20} />
+            <span className="rail-label">SEO</span>
+          </button>
+
+          <button
+            className="rail-button"
+            type="button"
             aria-current={view === 'library' ? 'page' : undefined}
             title="Components"
             onClick={() => setView('library')}
@@ -1196,6 +1210,7 @@ export function App() {
         ) : (view === 'publish' ||
             view === 'quality' ||
             view === 'content' ||
+            view === 'seo' ||
             view === 'design') &&
           !site?.root ? (
           // These screens are built out of the open site's own files. With no
@@ -1210,7 +1225,9 @@ export function App() {
                     ? 'Quality checks'
                     : view === 'content'
                       ? 'Content'
-                      : 'Design directions'
+                      : view === 'seo'
+                        ? 'SEO'
+                        : 'Design directions'
               }
               onOpenSite={openSite}
               onNewProject={() => setView('projects')}
@@ -1340,6 +1357,14 @@ export function App() {
               onUnsavedChange={setContentUnsaved}
               onBack={() => setView('build')}
               draftResetVersion={draftResetVersion}
+            />
+          </div>
+        ) : view === 'seo' ? (
+          <div className="panes">
+            <SeoPanel
+              site={site}
+              currentPage={currentPage}
+              onBack={() => setView('build')}
             />
           </div>
         ) : (

@@ -38,6 +38,7 @@ import {
   checkTasteOfCss,
   type ChangedText,
 } from './taste-change';
+import { summariseSeoChecks, type SeoMeasuredPage } from './seo';
 
 /**
  * Quality checks on the built site (plan 4.4): layout overflow, keyboard use,
@@ -524,6 +525,18 @@ const PAGE_PROBE = `(async () => {
   result.h1Count = headings.filter((h) => h.tagName === 'H1').length;
   result.hasLang = Boolean(document.documentElement.getAttribute('lang'));
   result.hasMain = Boolean(document.querySelector('main'));
+  result.seo = {
+    title: (document.title || '').trim(),
+    description: (
+      document.querySelector('meta[name="description"]')?.getAttribute('content') || ''
+    ).trim(),
+    ogImage: (
+      document.querySelector('meta[property="og:image"]')?.getAttribute('content') || ''
+    ).trim(),
+    ogImageAlt: (
+      document.querySelector('meta[property="og:image:alt"]')?.getAttribute('content') || ''
+    ).trim(),
+  };
   const nameless = [...document.querySelectorAll('a, button')].filter((el) => {
     if (!visible(el)) return false;
     const name = (el.getAttribute('aria-label') || text(el) || '').trim();
@@ -764,6 +777,7 @@ export async function checkSite(options: {
 
   const server = await serveDist(built.dist);
   const window = inspectionWindow();
+  const seoPages: SeoMeasuredPage[] = [];
 
   try {
     for (const page of options.pages) {
@@ -1072,7 +1086,18 @@ export async function checkSite(options: {
             : `Broken: ${broken.slice(0, 5).join(', ')}`,
         page,
       });
+
+      const seo = (data.seo as Partial<SeoMeasuredPage> | undefined) ?? {};
+      seoPages.push({
+        page,
+        title: seo.title ?? '',
+        description: seo.description ?? '',
+        ogImage: seo.ogImage ?? '',
+        ogImageAlt: seo.ogImageAlt ?? '',
+      });
     }
+
+    findings.push(...summariseSeoChecks(seoPages));
 
     // The approved taste test that cannot be automated (4.1 #13) stays a
     // person's judgement, and is shown as opinion rather than a measurement.

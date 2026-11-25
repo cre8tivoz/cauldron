@@ -21,6 +21,13 @@ import {
   writeResponsiveStyle,
 } from './responsive-css';
 import {
+  listPublicImages,
+  listSeoEntries,
+  readPageSeo,
+  writePageSeo,
+  type SeoValues,
+} from './seo';
+import {
   cleanupOrphanedDevServers,
   detectSite,
   startDevServer,
@@ -2171,6 +2178,66 @@ function registerIpc(): void {
       const site = requireSite();
       if ('problem' in site) return site;
       return saveContent(payload);
+    },
+  );
+
+  handle('cauldron:seo-list', () => {
+    const site = requireSite();
+    if ('problem' in site) return { entries: [], images: [] };
+    return {
+      entries: listSeoEntries(site.root),
+      images: listPublicImages(site.root),
+    };
+  });
+
+  handle('cauldron:seo-read', (_event, file: string) => {
+    const site = requireSite();
+    if ('problem' in site) return site;
+    return readPageSeo(site.root, file);
+  });
+
+  handle(
+    'cauldron:seo-save',
+    (
+      _event,
+      payload: {
+        file: string;
+        baseHash: string;
+        changes: Partial<SeoValues>;
+      },
+    ) => {
+      const site = requireSite();
+      if ('problem' in site) return { ok: false, problem: site.problem };
+      const res = writePageSeo(
+        site.root,
+        payload.file,
+        payload.baseHash,
+        payload.changes ?? {},
+      );
+      if (!res.ok) {
+        if (!res.conflict) fail(res.problem);
+        return res;
+      }
+      for (const write of res.writes) {
+        state.history.record({
+          file: write.file,
+          location: { file: write.file, line: 1, column: 1, name: 'head' },
+          operation: { kind: 'text', value: '' },
+          before: write.before,
+          after: write.after,
+          beforeHash: write.beforeHash,
+          afterHash: write.afterHash,
+          label: `SEO on ${payload.file}`,
+          root: site.root,
+        });
+      }
+      if (res.writes.length > 0) {
+        pushHistory();
+        state.preview.reload();
+        state.previewCompare.reload();
+        status(`Saved SEO for ${payload.file}`);
+      }
+      return { ok: true, entry: res.entry };
     },
   );
 
