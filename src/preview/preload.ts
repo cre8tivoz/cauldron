@@ -20,7 +20,13 @@ let selectionMeta: {
 } | null = null;
 let pageSections: {
   file: string;
-  sections: Array<{ index: number; name: string; line: number }>;
+  sections: Array<{
+    index: number;
+    tag: string;
+    name: string;
+    line: number;
+    column: number;
+  }>;
 } | null = null;
 
 // Astro (6 and later) moves its annotations into the toolbar's private WeakMap after load.
@@ -211,12 +217,38 @@ function resolveSectionElements(): Array<{ index: number; element: Element }> {
   const resolved: Array<{ index: number; element: Element }> = [];
   const used = new Set<Element>();
   for (const sec of pageSections.sections) {
-    const exact = candidates.find((el) => {
-      if (used.has(el)) return false;
-      const src = sourceOf(el);
-      return src && src.file === pageSections!.file && src.line === sec.line;
-    });
-    const element = exact ?? fallbackChildren[sec.index] ?? null;
+    const isComponent = /^[A-Z]/.test(sec.tag);
+    const wantedTag = sec.tag.toLowerCase();
+    const exact =
+      candidates.find((el) => {
+        if (used.has(el)) return false;
+        const src = sourceOf(el);
+        if (!src || src.file !== pageSections!.file || src.line !== sec.line) {
+          return false;
+        }
+        if (!isComponent && el.tagName.toLowerCase() !== wantedTag) {
+          return false;
+        }
+        return src.column === sec.column;
+      }) ??
+      candidates.find((el) => {
+        if (used.has(el) || isComponent) return false;
+        const src = sourceOf(el);
+        return (
+          src !== null &&
+          src.file === pageSections!.file &&
+          src.line === sec.line &&
+          el.tagName.toLowerCase() === wantedTag
+        );
+      });
+    const fallback = fallbackChildren[sec.index] ?? null;
+    const element =
+      exact ??
+      (fallback &&
+      !used.has(fallback) &&
+      fallback.tagName.toLowerCase() !== 'main'
+        ? fallback
+        : null);
     if (element && !used.has(element)) {
       used.add(element);
       resolved.push({ index: sec.index, element });
@@ -555,7 +587,13 @@ ipcRenderer.on(
     _event,
     data: {
       file: string;
-      sections: Array<{ index: number; name: string; line: number }>;
+      sections: Array<{
+        index: number;
+        tag: string;
+        name: string;
+        line: number;
+        column: number;
+      }>;
     } | null,
   ) => {
     pageSections = data;

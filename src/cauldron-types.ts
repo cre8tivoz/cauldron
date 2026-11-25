@@ -115,6 +115,7 @@ export type CauldronPageSection = {
   name: string;
   anchorId: string | null;
   line: number;
+  column?: number;
   preview: string;
 };
 

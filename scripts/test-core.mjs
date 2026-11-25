@@ -7246,6 +7246,76 @@ test('WDL-244 editing layer stays separate from preview viewport and resets on s
     /editingUserTouched/,
     'inline text commit requires trusted user input',
   );
+  assert.match(
+    preload,
+    /src\.column === sec\.column/,
+    'canvas section lookup matches exact column and tag, never container tags on the same line',
+  );
+});
+
+test('WDL-244 duplicating a styled section remaps responsive IDs and copies rules independently', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-dup-resp-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'src/layouts/Base.astro'),
+    "---\nimport '../../cauldron/tokens.css';\n---\n<html><body><slot /></body></html>\n",
+  );
+  const pageFile = path.join(dir, 'src/pages/index.astro');
+  const origId = 'r-aaa11111';
+  fs.writeFileSync(
+    pageFile,
+    `---\nimport Base from '../layouts/Base.astro';\n---\n<Base><main><section id="hero" data-cauldron-r="${origId}"><h1>Hero</h1></section><section id="next"><h2>Next</h2></section></main></Base>\n`,
+  );
+  const written = responsiveCss.writeResponsiveStyle(
+    dir,
+    origId,
+    'phone',
+    { padding: 'var(--space-2)' },
+    { targetFile: pageFile },
+  );
+  assert.equal(written.ok, true);
+
+  // Single-line sections report distinct 1-based columns.
+  const initial = pageSectionActions.readPageSections(dir, '/');
+  assert.equal(initial.ok, true);
+  assert.equal(initial.sections.length, 2);
+  assert.equal(initial.sections[0].line, initial.sections[1].line);
+  assert.ok(initial.sections[1].column > initial.sections[0].column);
+
+  // Duplicating section 0 gives the copy a distinct responsive ID and clones its CSS rules.
+  const dup = pageSectionActions.duplicatePageSection(
+    dir,
+    '/',
+    0,
+    initial.hash,
+  );
+  assert.equal(dup.ok, true);
+  const pageAfter = fs.readFileSync(pageFile, 'utf8');
+  const ids = [...pageAfter.matchAll(/data-cauldron-r="([^"]+)"/g)].map(
+    (m) => m[1],
+  );
+  assert.equal(ids.length, 2);
+  assert.equal(ids[0], origId);
+  assert.notEqual(ids[1], origId);
+
+  assert.deepEqual(responsiveCss.readResponsiveStyles(dir, ids[1]).phone, {
+    padding: 'var(--space-2)',
+  });
+
+  // Clearing the copy's override leaves the original intact.
+  const cleared = responsiveCss.writeResponsiveStyle(
+    dir,
+    ids[1],
+    'phone',
+    { padding: '' },
+    { targetFile: pageFile },
+  );
+  assert.equal(cleared.ok, true);
+  assert.deepEqual(responsiveCss.readResponsiveStyles(dir, ids[1]).phone, {});
+  assert.deepEqual(responsiveCss.readResponsiveStyles(dir, origId).phone, {
+    padding: 'var(--space-2)',
+  });
 });
 
 process.exitCode = failures ? 1 : 0;

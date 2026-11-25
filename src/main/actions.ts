@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { ensureTokensImport, inlineLibraryPiece } from './library';
 import { toolsFor } from './mcp';
+import { cloneResponsiveIdsInMarkup } from './responsive-css';
 import {
   applyEdit,
   findTag,
@@ -320,6 +321,7 @@ export type PageSection = {
   name: string;
   anchorId: string | null;
   line: number;
+  column: number;
   preview: string;
 };
 
@@ -564,6 +566,7 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
 
     const before = text.slice(0, blockStart);
     const line = before.split('\n').length;
+    const column = blockStart - before.lastIndexOf('\n');
     const preview = innerText
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
@@ -576,6 +579,7 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
       name,
       anchorId,
       line,
+      column,
       preview,
       start: blockStart,
       end: blockEnd,
@@ -775,9 +779,10 @@ export function duplicatePageSection(
 
   const target = blocks[sectionIndex];
   const sectionText = text.slice(target.start, target.end);
+  const cloned = cloneResponsiveIdsInMarkup(root, text, sectionText);
 
   const newText =
-    text.slice(0, target.end) + '\n' + sectionText + text.slice(target.end);
+    text.slice(0, target.end) + '\n' + cloned.markup + text.slice(target.end);
   writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(

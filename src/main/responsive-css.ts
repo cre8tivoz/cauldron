@@ -79,6 +79,78 @@ export function allocateResponsiveId(
   return candidate;
 }
 
+/**
+ * Remaps every `data-cauldron-r="..."` attribute in a duplicated section's
+ * markup to a fresh unique ID and clones any existing breakpoint rules for
+ * those IDs in `cauldron/responsive.css` so the original and duplicate stay
+ * independently editable.
+ */
+export function cloneResponsiveIdsInMarkup(
+  siteRoot: string,
+  fullPageText: string,
+  markup: string,
+): { markup: string; remapped: Record<string, string> } {
+  const attrPattern = /\bdata-cauldron-r\s*=\s*(["'])([^"']+)\1/gi;
+  const oldIds: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = attrPattern.exec(markup)) !== null) {
+    if (!oldIds.includes(match[2])) oldIds.push(match[2]);
+  }
+  if (oldIds.length === 0) return { markup, remapped: {} };
+
+  const used = new Set<string>();
+  const pagePattern = /\bdata-cauldron-r\s*=\s*["']([^"']+)["']/gi;
+  while ((match = pagePattern.exec(fullPageText)) !== null) {
+    used.add(match[1]);
+  }
+  const cssFile = path.join(siteRoot, RESPONSIVE_CSS_REL);
+  const hasCss = isInside(siteRoot, cssFile) && fs.existsSync(cssFile);
+  const beforeCss = hasCss ? fs.readFileSync(cssFile, 'utf8') : '';
+  const parsed = hasCss
+    ? parseResponsiveCss(beforeCss)
+    : { tablet: {}, phone: {} };
+  for (const id of Object.keys(parsed.tablet)) used.add(id);
+  for (const id of Object.keys(parsed.phone)) used.add(id);
+
+  const remapped: Record<string, string> = {};
+  for (const oldId of oldIds) {
+    let fresh = `r-${crypto.randomBytes(4).toString('hex')}`;
+    while (used.has(fresh)) {
+      fresh = `r-${crypto.randomBytes(4).toString('hex')}`;
+    }
+    used.add(fresh);
+    remapped[oldId] = fresh;
+  }
+
+  const nextMarkup = markup.replace(
+    /\bdata-cauldron-r\s*=\s*(["'])([^"']+)\1/gi,
+    (whole, quote: string, id: string) => {
+      const replacement = remapped[id];
+      return replacement
+        ? `data-cauldron-r=${quote}${replacement}${quote}`
+        : whole;
+    },
+  );
+
+  if (hasCss) {
+    let copiedAny = false;
+    for (const [oldId, newId] of Object.entries(remapped)) {
+      for (const bp of ['tablet', 'phone'] as const) {
+        const existingRules = parsed[bp][oldId];
+        if (existingRules && Object.keys(existingRules).length > 0) {
+          parsed[bp][newId] = { ...existingRules };
+          copiedAny = true;
+        }
+      }
+    }
+    if (copiedAny) {
+      writeFileAtomic(cssFile, mergeResponsiveCss(beforeCss, parsed));
+    }
+  }
+
+  return { markup: nextMarkup, remapped };
+}
+
 /** Finds the matching closing brace for the `{` at `openBraceIndex`. */
 function findMatchingBrace(text: string, openBraceIndex: number): number {
   let depth = 0;

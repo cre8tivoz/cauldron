@@ -543,15 +543,19 @@ function pushPreviewSections(): void {
   const absFile = path.join(site.root, res.file);
   const sections = res.sections as Array<{
     index: number;
+    tag: string;
     name: string;
     line: number;
+    column: number;
   }>;
   contents.send('preview:sections', {
     file: absFile,
     sections: sections.map((sec) => ({
       index: sec.index,
+      tag: sec.tag,
       name: sec.name,
       line: sec.line,
+      column: sec.column,
     })),
   });
 }
