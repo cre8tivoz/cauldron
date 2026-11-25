@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { TopBar } from './components/TopBar';
 import { AgentPanel } from './components/AgentPanel';
 import { Inspector } from './components/Inspector';
@@ -31,6 +31,7 @@ import {
 import { describeDraftBanner, selectionDraftValue } from './draft-restore';
 import { mergeProblemMessages } from './problems';
 import { computePreviewBounds, type PreviewViewport } from './preview-viewport';
+import { previewRouteFromUrl } from './status-bar';
 import {
   INITIAL_AGENT_STREAM,
   applyAgentStreamEvent,
@@ -72,7 +73,6 @@ function isTextInputFocused(): boolean {
 }
 
 function ConfirmDialog({
-  ariaLabel,
   title,
   body,
   cancelLabel,
@@ -80,7 +80,6 @@ function ConfirmDialog({
   onCancel,
   onConfirm,
 }: {
-  ariaLabel: string;
   title: string;
   body: string;
   cancelLabel: string;
@@ -88,45 +87,60 @@ function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, []);
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={ariaLabel}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 40,
+    <dialog
+      ref={dialogRef}
+      className="cauldron-dialog"
+      aria-labelledby={titleId}
+      {...({ closedby: 'closerequest' } as Record<string, string>)}
+      onClose={() => {
+        const dialog = dialogRef.current;
+        const choice = dialog?.returnValue ?? '';
+        if (dialog) dialog.returnValue = '';
+        if (choice !== 'confirm') onCancel();
       }}
     >
-      <div
-        style={{
-          background: 'var(--panel, #121316)',
-          border: '1px solid var(--hairline)',
-          borderRadius: 8,
-          padding: 18,
-          maxWidth: 460,
-          boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
-        }}
-      >
-        <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>{title}</h2>
-        <p className="hint" style={{ marginTop: 0 }}>
+      <div className="cauldron-dialog-body">
+        <h1 id={titleId} className="cauldron-dialog-title">
+          {title}
+        </h1>
+        <p className="hint" style={{ margin: 0 }}>
           {body}
         </p>
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button className="button primary" type="button" onClick={onCancel}>
+        <div className="cauldron-dialog-footer">
+          <button
+            className="button primary"
+            type="button"
+            autoFocus
+            onClick={() => dialogRef.current?.close('cancel')}
+          >
             {cancelLabel}
           </button>
-          <button className="button" type="button" onClick={onConfirm}>
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              dialogRef.current?.close('confirm');
+              onConfirm();
+            }}
+          >
             {confirmLabel}
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -177,6 +191,27 @@ export function App() {
   const [agentRuns, setAgentRuns] = useState<CauldronRun[]>([]);
   const [agentStream, setAgentStream] =
     useState<AgentStreamState>(INITIAL_AGENT_STREAM);
+  const [sitePages, setSitePages] = useState<
+    Array<{ page: string; file: string }>
+  >([]);
+
+  const refreshSitePages = useCallback(async () => {
+    try {
+      const res = (await window.cauldron.runAction({
+        action: 'listPages',
+      })) as {
+        ok?: boolean;
+        pages?: Array<{ page: string; file: string }>;
+      };
+      if (Array.isArray(res.pages)) {
+        setSitePages(res.pages);
+      } else {
+        setSitePages([]);
+      }
+    } catch {
+      setSitePages([]);
+    }
+  }, []);
 
   const refreshAgentRuns = useCallback(async () => {
     const fetchedRuns = await window.cauldron.runs();
@@ -230,6 +265,7 @@ export function App() {
   const [unsavedEdits, setUnsavedEdits] = useState(0);
   const [contentUnsaved, setContentUnsaved] = useState(false);
   const [confirmDiscardDrafts, setConfirmDiscardDrafts] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState<{ root: string } | null>(null);
   const [draftResetVersion, setDraftResetVersion] = useState(0);
   const [historyState, setHistoryState] = useState<{
     canUndo: boolean;
@@ -400,6 +436,7 @@ export function App() {
         setHistoryState(
           payload as unknown as { canUndo: boolean; canRedo: boolean },
         );
+        if (currentSiteRootRef.current) void refreshSitePages();
       },
     );
 
@@ -417,6 +454,7 @@ export function App() {
         const result = payload as { note: string };
         setAgentStream((current) => finishAgentStream(current, result.note));
         void refreshAgentRuns();
+        if (currentSiteRootRef.current) void refreshSitePages();
       },
     );
 
@@ -461,7 +499,7 @@ export function App() {
       window.removeEventListener('error', onWindowError);
       window.removeEventListener('unhandledrejection', onUnhandledRejection);
     };
-  }, [refreshAgentRuns]);
+  }, [refreshAgentRuns, refreshSitePages]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -488,6 +526,16 @@ export function App() {
     }
   }, [refreshAgentRuns, site?.root, view]);
 
+  useEffect(() => {
+    if (site?.root) {
+      void refreshSitePages();
+    } else {
+      setSitePages([]);
+    }
+  }, [refreshSitePages, site?.root]);
+
+  const modalBlockingPreview = Boolean(confirmOpen || confirmDiscardDrafts);
+
   // The preview is a separate view laid over the middle column, so it needs the exact rectangle.
   useEffect(() => {
     const stage = stageRef.current;
@@ -495,10 +543,11 @@ export function App() {
 
     const measure = () => {
       const rect = stage.getBoundingClientRect();
-      // Compare mode puts three of its own views over this stage; the single
-      // preview must get out of the way rather than sit on top of them.
+      // Compare mode puts three of its own views over this stage, and modal
+      // dialogs must not sit underneath a native child view; hide the single
+      // preview whenever either is active.
       void window.cauldron.setPreviewBounds(
-        compareWidths
+        compareWidths || modalBlockingPreview
           ? { x: 0, y: 0, width: 0, height: 0 }
           : computePreviewBounds(rect, previewViewport),
       );
@@ -520,6 +569,7 @@ export function App() {
     view,
     previewViewport,
     compareWidths,
+    modalBlockingPreview,
   ]);
 
   useEffect(() => {
@@ -591,7 +641,6 @@ export function App() {
     setup: CauldronDependencySetup;
     problem: string;
   } | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState<{ root: string } | null>(null);
   const [newFormSignal, setNewFormSignal] = useState(0);
 
   const beginOpen = useCallback(
@@ -778,16 +827,35 @@ export function App() {
   }, []);
   redoRef.current = redo;
 
-  const newPage = useCallback(async (page: { path: string; title: string }) => {
+  const newPage = useCallback(
+    async (page: { path: string; title: string }) => {
+      try {
+        const result = await window.cauldron.newPage(page);
+        if ('problem' in result && result.problem) setProblem(result.problem);
+        else void refreshSitePages();
+      } catch (error) {
+        setProblem(
+          error instanceof Error ? error.message : 'Could not create the page.',
+        );
+      }
+    },
+    [refreshSitePages],
+  );
+
+  const openPreviewPage = useCallback(async (pageRoute: string) => {
     try {
-      const result = await window.cauldron.newPage(page);
-      if ('problem' in result && result.problem) setProblem(result.problem);
+      const result = await window.cauldron.openPreviewPage(pageRoute);
+      if (!result.ok) {
+        setProblem(result.problem ?? `Could not open ${pageRoute}.`);
+      }
     } catch (error) {
       setProblem(
-        error instanceof Error ? error.message : 'Could not create the page.',
+        error instanceof Error ? error.message : `Could not open ${pageRoute}.`,
       );
     }
   }, []);
+
+  const currentPage = previewRouteFromUrl(preview.url);
 
   const canUndo = historyState.canUndo;
   const canRedo = historyState.canRedo;
@@ -863,11 +931,11 @@ export function App() {
             className="rail-button"
             type="button"
             aria-current={view === 'build' ? 'page' : undefined}
-            title="Sites"
+            title="Editor"
             onClick={() => setView('build')}
           >
             <SitesIcon size={20} />
-            <span className="rail-label">Sites</span>
+            <span className="rail-label">Editor</span>
           </button>
 
           <button
@@ -931,19 +999,21 @@ export function App() {
       <div className="workspace">
         <TopBar
           site={site}
-          running={preview.running}
+          view={view}
           picking={picking}
           busy={busy}
           canUndo={canUndo}
           canRedo={canRedo}
+          agentCollapsed={agentCollapsed}
+          inspectorCollapsed={inspectorCollapsed}
           onOpen={openSite}
           onProjects={() => setView('projects')}
-          onTogglePreview={togglePreview}
-          onReload={() => void window.cauldron.reloadPreview()}
+          onPublish={() => setView('publish')}
           onUndo={undo}
           onRedo={redo}
           onTogglePick={() => setPicking((current) => !current)}
-          onNewPage={newPage}
+          onToggleAgent={() => setAgentCollapsed((value) => !value)}
+          onToggleInspector={() => setInspectorCollapsed((value) => !value)}
         />
 
         {/* Shown in every view, not only the Element panel (fablefixes 21). */}
@@ -1197,10 +1267,15 @@ export function App() {
                   stageRef={stageRef}
                   site={site}
                   running={preview.running}
+                  currentPage={currentPage}
+                  pages={sitePages}
                   viewport={previewViewport}
                   onViewportChange={setPreviewViewport}
                   compare={compareWidths}
                   onCompareChange={setCompareWidths}
+                  onOpenPage={(route) => void openPreviewPage(route)}
+                  onNewPage={(page) => void newPage(page)}
+                  onReload={() => void window.cauldron.reloadPreview()}
                   onOpen={openSite}
                 />
 
@@ -1227,6 +1302,7 @@ export function App() {
                       <Inspector
                         key={draftResetVersion}
                         site={site}
+                        currentPage={currentPage}
                         direction={direction}
                         selection={selection}
                         conflict={conflict}
@@ -1271,34 +1347,8 @@ export function App() {
           </div>
         )}
 
-        <div
-          className="topbar"
-          style={{ height: 28, flex: '0 0 28px', gap: 6, padding: '0 12px' }}
-        >
-          <button
-            className="button quiet"
-            type="button"
-            onClick={() => setAgentCollapsed((value) => !value)}
-            aria-pressed={!agentCollapsed}
-            style={{ fontSize: 11, height: 22 }}
-          >
-            Agent {agentCollapsed ? '▸' : '◂'}
-          </button>
-          <span className="spacer" />
-          <button
-            className="button quiet"
-            type="button"
-            onClick={() => setInspectorCollapsed((value) => !value)}
-            aria-pressed={!inspectorCollapsed}
-            style={{ fontSize: 11, height: 22 }}
-          >
-            Element {inspectorCollapsed ? '◂' : '▸'}
-          </button>
-        </div>
-
         {confirmOpen ? (
           <ConfirmDialog
-            ariaLabel="Unsaved edits"
             title="Unsaved edits in this project"
             body="Opening another project now would replace what is on screen. Keep editing to stay here, or discard the unsaved changes and open the other project. Nothing is discarded automatically."
             cancelLabel="Keep editing"
@@ -1310,7 +1360,6 @@ export function App() {
 
         {confirmDiscardDrafts ? (
           <ConfirmDialog
-            ariaLabel="Discard unsaved edits"
             title="Discard unsaved edits?"
             body={`This will permanently remove ${drafts.length} unsaved ${drafts.length === 1 ? 'draft' : 'drafts'}. Files already saved on disk are not changed.`}
             cancelLabel="Keep drafts"
@@ -1324,7 +1373,9 @@ export function App() {
           message={contextualStatus}
           url={preview.url}
           running={preview.running}
-          siteName={site?.name}
+          site={site}
+          busy={busy}
+          onTogglePreview={() => void togglePreview()}
         />
       </div>
     </div>

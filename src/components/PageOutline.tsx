@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { normalizeSiteRoute } from '../status-bar';
 
 type Props = {
   site: CauldronSite | null;
@@ -19,7 +20,7 @@ export function PageOutline({
   currentPage = '/',
   onNavigateToLibrary,
 }: Props) {
-  const [page, setPage] = useState(currentPage);
+  const [page, setPage] = useState(() => normalizeSiteRoute(currentPage));
   const [pages, setPages] = useState<Array<{ page: string; file: string }>>([]);
   const [sections, setSections] = useState<CauldronPageSection[]>([]);
   const [loading, setLoading] = useState(false);
@@ -38,6 +39,10 @@ export function PageOutline({
 
   const pageRef = useRef<string>(page);
   pageRef.current = page;
+
+  useEffect(() => {
+    setPage(normalizeSiteRoute(currentPage));
+  }, [currentPage]);
 
   useEffect(() => {
     void window.cauldron
@@ -77,7 +82,7 @@ export function PageOutline({
     }
   }, []);
 
-  useEffect(() => {
+  const refreshPages = useCallback(() => {
     window.cauldron
       .runAction({ action: 'listPages' })
       .then((res) => {
@@ -85,7 +90,12 @@ export function PageOutline({
           pages?: Array<{ page: string; file: string }>;
         };
         if (listed.pages) {
-          setPages(listed.pages);
+          setPages(
+            listed.pages.map((entry) => ({
+              ...entry,
+              page: normalizeSiteRoute(entry.page),
+            })),
+          );
         }
       })
       .catch((error) => {
@@ -94,7 +104,11 @@ export function PageOutline({
           `Could not list pages: ${error instanceof Error ? error.message : String(error)}`,
         );
       });
-  }, [site?.root]);
+  }, []);
+
+  useEffect(() => {
+    refreshPages();
+  }, [refreshPages, site?.root]);
 
   useEffect(() => {
     void window.cauldron
@@ -105,11 +119,18 @@ export function PageOutline({
       (payload: never) => {
         const next = payload as { canUndo: boolean; canRedo: boolean };
         setCanUndo(next.canUndo);
+        refreshPages();
         if (pageRef.current) void loadSections(pageRef.current);
       },
     );
-    return () => offHistory();
-  }, [loadSections]);
+    const offAgentDone = window.cauldron.on('cauldron:agent-done', () => {
+      refreshPages();
+    });
+    return () => {
+      offHistory();
+      offAgentDone();
+    };
+  }, [loadSections, refreshPages]);
 
   useEffect(() => {
     if (page) {
@@ -408,7 +429,7 @@ export function PageOutline({
           <select
             value={page}
             onChange={(e) => {
-              setPage(e.target.value);
+              setPage(normalizeSiteRoute(e.target.value));
             }}
             style={{
               fontSize: 11,
@@ -419,7 +440,10 @@ export function PageOutline({
               border: '1px solid var(--hairline)',
             }}
           >
-            {pages.map((p) => (
+            {(pages.some((p) => p.page === page)
+              ? pages
+              : [{ page, file: '' }, ...pages]
+            ).map((p) => (
               <option key={p.page} value={p.page}>
                 {p.page}
               </option>

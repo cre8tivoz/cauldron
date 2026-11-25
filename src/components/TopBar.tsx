@@ -1,60 +1,62 @@
-import { useState } from 'react';
 import {
   ChevronDownIcon,
-  NewPageIcon,
   OpenSiteIcon,
-  PlayIcon,
+  PanelLeftIcon,
+  PanelRightIcon,
+  PublishingIcon,
   RedoIcon,
-  ReloadIcon,
   SelectIcon,
-  StopIcon,
   UndoIcon,
 } from './Icons';
 
+export type WorkspaceView =
+  | 'projects'
+  | 'build'
+  | 'design'
+  | 'content'
+  | 'library'
+  | 'quality'
+  | 'publish';
+
 type Props = {
   site: CauldronSite | null;
-  running: boolean;
+  view: WorkspaceView;
   picking: boolean;
   busy: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  agentCollapsed: boolean;
+  inspectorCollapsed: boolean;
   onOpen: () => void;
   onProjects: () => void;
-  onTogglePreview: () => void;
-  onReload: () => void;
+  onPublish: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onTogglePick: () => void;
-  onNewPage: (page: { path: string; title: string }) => void;
+  onToggleAgent: () => void;
+  onToggleInspector: () => void;
 };
 
 export function TopBar({
   site,
-  running,
+  view,
   picking,
   busy,
   canUndo,
   canRedo,
+  agentCollapsed,
+  inspectorCollapsed,
   onOpen,
   onProjects,
-  onTogglePreview,
-  onReload,
+  onPublish,
   onUndo,
   onRedo,
   onTogglePick,
-  onNewPage,
+  onToggleAgent,
+  onToggleInspector,
 }: Props) {
-  const [makingPage, setMakingPage] = useState(false);
-  const [pagePath, setPagePath] = useState('');
-  const [pageTitle, setPageTitle] = useState('');
-
-  const addPage = () => {
-    if (pagePath.trim() === '') return;
-    onNewPage({ path: pagePath.trim(), title: pageTitle.trim() });
-    setMakingPage(false);
-    setPagePath('');
-    setPageTitle('');
-  };
+  const showAgentToggle = view === 'build' || view === 'quality';
+  const showInspectorToggle = view === 'build';
 
   return (
     <header className="topbar" aria-label="Application toolbar">
@@ -63,7 +65,7 @@ export function TopBar({
           className="topbar-project-btn"
           type="button"
           onClick={onProjects}
-          title="Project home"
+          title="Switch project"
         >
           <span className="site-name">{site ? site.name : 'No site open'}</span>
           <ChevronDownIcon size={12} />
@@ -74,124 +76,107 @@ export function TopBar({
             Astro {site.astroVersion} · {site.packageManager}
           </span>
         ) : null}
-
-        <button
-          className="button quiet topbar-projects-link"
-          type="button"
-          onClick={onProjects}
-          title="Project home"
-        >
-          Projects
-        </button>
       </div>
 
       <span className="spacer" />
 
       <div className="topbar-right">
-        {makingPage ? (
-          <div className="topbar-page-form">
-            <input
-              className="field"
-              style={{ height: 28, width: 140, margin: 0 }}
-              placeholder="about"
-              value={pagePath}
-              onChange={(event) => setPagePath(event.target.value)}
-              aria-label="Page address"
-            />
-            <input
-              className="field"
-              style={{ height: 28, width: 160, margin: 0 }}
-              placeholder="Page title"
-              value={pageTitle}
-              onChange={(event) => setPageTitle(event.target.value)}
-              aria-label="Page title"
-            />
-            <button className="button primary" type="button" onClick={addPage}>
-              Add page
+        {showAgentToggle || showInspectorToggle ? (
+          <div
+            className="button-group"
+            role="group"
+            aria-label="Workspace panels"
+          >
+            {showAgentToggle ? (
+              <button
+                className="button quiet panel-toggle-btn"
+                type="button"
+                onClick={onToggleAgent}
+                aria-pressed={!agentCollapsed}
+                title={agentCollapsed ? 'Show Agent panel' : 'Hide Agent panel'}
+              >
+                <PanelLeftIcon size={14} />
+                <span>Agent</span>
+              </button>
+            ) : null}
+            {showInspectorToggle ? (
+              <button
+                className="button quiet panel-toggle-btn"
+                type="button"
+                onClick={onToggleInspector}
+                aria-pressed={!inspectorCollapsed}
+                title={
+                  inspectorCollapsed
+                    ? 'Show Element panel'
+                    : 'Hide Element panel'
+                }
+              >
+                <PanelRightIcon size={14} />
+                <span>Element</span>
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {site ? (
+          <div className="button-group" role="group" aria-label="History">
+            <button
+              className="button icon-btn"
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Undo (⌘Z)"
+              aria-label="Undo"
+            >
+              <UndoIcon size={14} />
             </button>
             <button
-              className="button quiet"
+              className="button icon-btn"
               type="button"
-              onClick={() => setMakingPage(false)}
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Redo (⇧⌘Z)"
+              aria-label="Redo"
             >
-              Cancel
+              <RedoIcon size={14} />
             </button>
           </div>
+        ) : null}
+
+        {site && view === 'build' ? (
+          <button
+            className={`button ${picking ? 'active-tool' : ''}`}
+            type="button"
+            onClick={onTogglePick}
+            aria-pressed={picking}
+            title="Click an element in the preview to edit it"
+          >
+            <SelectIcon size={13} />
+            <span>Select</span>
+          </button>
+        ) : null}
+
+        {site ? (
+          <button
+            className="button primary publish-cta-btn"
+            type="button"
+            onClick={onPublish}
+            aria-current={view === 'publish' ? 'page' : undefined}
+          >
+            <PublishingIcon size={14} />
+            <span>Publish</span>
+          </button>
         ) : (
           <button
-            className="button"
+            className="button primary open-site-btn"
             type="button"
-            onClick={() => setMakingPage(true)}
-            disabled={!site}
+            onClick={onOpen}
+            disabled={busy}
           >
-            <NewPageIcon size={14} />
-            <span>New page</span>
+            <OpenSiteIcon size={13} />
+            <span>Open site</span>
           </button>
         )}
-
-        <div className="button-group">
-          <button
-            className="button icon-btn"
-            type="button"
-            onClick={onUndo}
-            disabled={!canUndo}
-            title="Undo (⌘Z)"
-            aria-label="Undo"
-          >
-            <UndoIcon size={14} />
-          </button>
-          <button
-            className="button icon-btn"
-            type="button"
-            onClick={onRedo}
-            disabled={!canRedo}
-            title="Redo (⇧⌘Z)"
-            aria-label="Redo"
-          >
-            <RedoIcon size={14} />
-          </button>
-        </div>
-
-        <button
-          className={`button ${picking ? 'active-tool' : ''}`}
-          type="button"
-          onClick={onTogglePick}
-          aria-pressed={picking}
-          title="Click an element in the preview to edit it"
-        >
-          <SelectIcon size={13} />
-          <span>{picking ? 'Selecting' : 'Select'}</span>
-        </button>
-
-        <button
-          className="button"
-          type="button"
-          onClick={onReload}
-          disabled={!running}
-        >
-          <ReloadIcon size={14} />
-          <span>Reload</span>
-        </button>
-
-        <button
-          className="button"
-          type="button"
-          onClick={onTogglePreview}
-          disabled={!site || busy}
-        >
-          {running ? <StopIcon size={12} /> : <PlayIcon size={12} />}
-          <span>{running ? 'Stop preview' : 'Start preview'}</span>
-        </button>
-
-        <button
-          className="button primary open-site-btn"
-          type="button"
-          onClick={onOpen}
-          disabled={busy}
-        >
-          <OpenSiteIcon size={13} />
-          <span>Open site</span>
-        </button>
       </div>
     </header>
   );

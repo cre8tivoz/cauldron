@@ -94,11 +94,17 @@ export class Preview {
   }
 
   /**
-   * The last URL this preview was asked to show. Compare mode starts from here
-   * so the three columns show the page being looked at, not the site root.
+   * The last URL this preview was asked to show (or navigated to). Compare
+   * mode starts from here so the three columns show the page being looked at,
+   * not the site root.
    */
   get currentUrl(): string | null {
     return this.lastUrl;
+  }
+
+  /** Record an in-preview navigation so route state stays accurate. */
+  noteNavigation(url: string): void {
+    this.lastUrl = url;
   }
 
   async load(url: string): Promise<void> {

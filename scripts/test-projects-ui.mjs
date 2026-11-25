@@ -366,7 +366,7 @@ check(
 // as a composite screenshot of the whole window.
 savePng(shown.parentPng, path.join(proofDir, '7-parent-window-capture.png'));
 check(
-  'Projects is reachable from the top bar',
+  'Projects is reachable from the rail',
   await clickButton(cdp, 'Projects'),
 );
 check(
@@ -380,9 +380,9 @@ check(
   })(),
 );
 check(
-  'the Sites rail button returns to the build view',
+  'the Editor rail button returns to the build view',
   await cdp.evaluate(
-    `(() => { const b = [...document.querySelectorAll('.rail-button')].find((x) => x.title === 'Sites'); if (!b) return false; b.click(); return true; })()`,
+    `(() => { const b = [...document.querySelectorAll('.rail-button')].find((x) => x.title === 'Editor'); if (!b) return false; b.click(); return true; })()`,
   ),
 );
 check(
@@ -711,6 +711,11 @@ check(
   await clickButton(cdp, 'Projects'),
 );
 await sleep(800);
+check(
+  'New project opens the creation dialog when projects already exist',
+  await clickUntilReady(cdp, 'New project'),
+);
+await sleep(300);
 check(
   'name field accepts input for a clash test',
   await fillField(cdp, 'Project name', projectName),

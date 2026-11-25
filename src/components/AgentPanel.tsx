@@ -35,6 +35,12 @@ type Props = {
  * selected element as context. Every job is rendered as a clean conversation
  * card with prompt bubbles, live progress, changed file pills, and run summary cards.
  */
+const AGENT_STARTER_PROMPTS = [
+  'Tighten hero spacing and typography',
+  'Add a testimonials section',
+  'Check mobile layout and contrast',
+] as const;
+
 export function AgentPanel({
   site,
   direction,
@@ -51,7 +57,13 @@ export function AgentPanel({
   const [request, setRequest] = useState('');
   const [showing, setShowing] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [installingMissing, setInstallingMissing] = useState(false);
+
+  const prefillPrompt = (promptText: string) => {
+    setRequest(promptText);
+    composerRef.current?.focus();
+  };
 
   const { lines, running, activePrompt, message } = stream;
 
@@ -209,6 +221,24 @@ export function AgentPanel({
                 Changes are checked after each run. You can undo a run unless
                 its files were later changed outside the run.
               </p>
+              {site && direction ? (
+                <div
+                  className="agent-starter-chips"
+                  role="group"
+                  aria-label="Suggested prompts"
+                >
+                  {AGENT_STARTER_PROMPTS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="agent-starter-chip"
+                      onClick={() => prefillPrompt(suggestion)}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -404,6 +434,7 @@ export function AgentPanel({
           Ask for something
         </label>
         <textarea
+          ref={composerRef}
           id="agent-request"
           rows={3}
           value={request}

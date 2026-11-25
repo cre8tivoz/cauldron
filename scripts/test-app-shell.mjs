@@ -189,7 +189,7 @@ try {
     'the site tools are grouped under that caption',
     JSON.stringify(home.tools) ===
       JSON.stringify([
-        'Sites',
+        'Editor',
         'Content',
         'Components',
         'Design',

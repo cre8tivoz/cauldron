@@ -6119,7 +6119,7 @@ test('WDL-265 the rail says where you are and which site its tools act on', () =
   assert.match(group, /aria-labelledby="rail-site-name"/);
   assert.match(group, /\{site \? site\.name : 'No site open'\}/);
   for (const label of [
-    'Sites',
+    'Editor',
     'Content',
     'Components',
     'Design',
@@ -6632,6 +6632,246 @@ test('WDL-243 nothing hands a saved key back to the renderer', () => {
     testOnly,
     /appendSwitch\('use-mock-keychain'\)/,
     'the fake keychain is switched on only for test runs',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// WDL-267: workspace chrome, preview page switcher, visual token pickers,
+// and project home flow.
+const statusBar = await import('../src/status-bar.ts');
+const inspectorTokens = await import('../src/inspector-tokens.ts');
+
+test('WDL-267 status bar deduplicates live preview URL and parses preview routes', () => {
+  assert.equal(
+    statusBar.formatStatusMessage(
+      'Preview running at http://127.0.0.1:4321/',
+      true,
+      'http://127.0.0.1:4321/',
+    ),
+    'Ready',
+  );
+  assert.equal(
+    statusBar.formatStatusMessage(
+      'Preview running at http://127.0.0.1:4321/ · 2 unsaved drafts',
+      true,
+      'http://127.0.0.1:4321/',
+    ),
+    '2 unsaved drafts',
+  );
+  assert.equal(
+    statusBar.formatStatusMessage(
+      'Opened /menu',
+      true,
+      'http://127.0.0.1:4321/menu',
+    ),
+    'Opened /menu',
+  );
+  assert.equal(
+    statusBar.formatStatusMessage(
+      'Preview running at http://127.0.0.1:4321/',
+      false,
+      null,
+    ),
+    'Preview running at http://127.0.0.1:4321/',
+  );
+  assert.equal(
+    statusBar.formatPreviewHost('http://127.0.0.1:4321/menu/'),
+    '127.0.0.1:4321',
+  );
+  assert.equal(statusBar.normalizeSiteRoute('/'), '/');
+  assert.equal(statusBar.normalizeSiteRoute('/menu'), '/menu/');
+  assert.equal(statusBar.normalizeSiteRoute('menu/'), '/menu/');
+  assert.equal(statusBar.normalizeSiteRoute('//about//team'), '/about/team/');
+  assert.equal(statusBar.previewRouteFromUrl('http://127.0.0.1:4321/'), '/');
+  assert.equal(
+    statusBar.previewRouteFromUrl('http://127.0.0.1:4321/menu/'),
+    '/menu/',
+  );
+  assert.equal(
+    statusBar.previewRouteFromUrl('http://127.0.0.1:4321/about/team'),
+    '/about/team/',
+  );
+  assert.equal(
+    statusBar.previewRouteFromUrl('http://127.0.0.1:4321/caf%C3%A9/'),
+    '/café/',
+  );
+  assert.equal(
+    statusBar.previewRouteFromUrl('http://127.0.0.1:4321/%E0%A4%A/'),
+    '/%E0%A4%A/',
+  );
+  assert.equal(statusBar.previewRouteFromUrl(null), '/');
+});
+
+test('WDL-267 inspector visual token pickers map direction tokens faithfully', () => {
+  const direction = {
+    id: 'long-lunch',
+    name: 'Long Lunch',
+    forWhom: 'Cafes',
+    learnedFrom: 'example.com',
+    colours: { bg: '#faf6ef', ink: '#241712', primary: '#b54a2c' },
+    fonts: { display: 'Fraunces', body: 'Karla', detail: 'IBM Plex Mono' },
+    typeScale: [14, 16, 20, 28, 40],
+    spacing: [0, 4, 8, 16, 24, 32],
+    radii: [0, 6, 14, 999],
+    character: 'Warm',
+    watch: 'Keep contrast',
+    structure: {
+      density: 'Airy',
+      displayType: 'Serif',
+      surfaces: 'Paper',
+      states: 'Subtle',
+      mobile: 'Stacked',
+    },
+  };
+  assert.equal(inspectorTokens.STYLE_TOKEN_GROUPS.length, 3);
+  const colours = inspectorTokens.tokenChoicesFor('color', direction);
+  assert.equal(colours.length, 3);
+  assert.deepEqual(colours[2], {
+    label: 'primary',
+    shortLabel: 'primary',
+    value: 'var(--cauldron-c-primary)',
+    title: 'primary · #b54a2c',
+    swatch: '#b54a2c',
+  });
+  const fonts = inspectorTokens.tokenChoicesFor('font-family', direction);
+  assert.deepEqual(
+    fonts.map((f) => f.shortLabel),
+    ['Display', 'Body', 'Detail'],
+  );
+  const radii = inspectorTokens.tokenChoicesFor('border-radius', direction);
+  assert.equal(radii[3].shortLabel, 'Pill');
+  assert.equal(
+    inspectorTokens.isTokenSelected(
+      ' var(--cauldron-c-primary) ',
+      'var(--cauldron-c-primary)',
+    ),
+    true,
+  );
+  assert.equal(
+    inspectorTokens.describeTokenValue(
+      'color',
+      'var(--cauldron-c-primary)',
+      direction,
+    ),
+    'primary',
+  );
+  assert.equal(
+    inspectorTokens.describeTokenValue(
+      'padding',
+      'var(--cauldron-space-3)',
+      direction,
+    ),
+    '16px',
+  );
+  assert.equal(
+    inspectorTokens.describeTokenValue(
+      'border-radius',
+      'var(--cauldron-radius-3)',
+      direction,
+    ),
+    'Pill',
+  );
+  assert.equal(
+    inspectorTokens.describeTokenValue('color', '#123456', direction),
+    '#123456',
+  );
+});
+
+test('WDL-267 workspace chrome, preview switcher, native dialogs, and docs invariants', () => {
+  const topBar = fs.readFileSync(
+    path.join(repoRoot, 'src/components/TopBar.tsx'),
+    'utf8',
+  );
+  assert.match(topBar, /publish-cta-btn/, 'TopBar promotes Publish as CTA');
+  assert.equal(
+    topBar.includes('topbar-projects-link'),
+    false,
+    'redundant TopBar Projects link is removed',
+  );
+  assert.match(
+    topBar,
+    /showAgentToggle = view === 'build' \|\| view === 'quality'/,
+  );
+  assert.match(topBar, /showInspectorToggle = view === 'build'/);
+
+  const stage = fs.readFileSync(
+    path.join(repoRoot, 'src/components/PreviewStage.tsx'),
+    'utf8',
+  );
+  assert.match(stage, /role="toolbar"/);
+  assert.match(stage, /aria-label="Current page"/);
+  assert.match(stage, /aria-label="Reload preview"/);
+
+  const app = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.equal(
+    app.includes("Agent {agentCollapsed ? '▸' : '◂'}"),
+    false,
+    'always-on bottom Agent/Element strip is removed',
+  );
+  assert.match(app, /<dialog\b/, 'ConfirmDialog uses native dialog element');
+  assert.match(app, /showModal\(\)/);
+  const agentDoneBlock = app.slice(
+    app.indexOf("window.cauldron.on(\n      'cauldron:agent-done'"),
+    app.indexOf('const onWindowError'),
+  );
+  assert.match(
+    agentDoneBlock,
+    /refreshSitePages\(\)/,
+    'agent completion refreshes the page switcher list',
+  );
+  const historyBlock = app.slice(
+    app.indexOf("window.cauldron.on(\n      'cauldron:history'"),
+    app.indexOf('const offAgentEvent'),
+  );
+  assert.match(
+    historyBlock,
+    /refreshSitePages\(\)/,
+    'history changes refresh the page switcher list',
+  );
+
+  const main = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.match(
+    main,
+    /did-navigate-in-page[\s\S]{0,120}if \(!isMainFrame\) return;/,
+    'in-page preview navigation ignores subframe events',
+  );
+
+  const outline = fs.readFileSync(
+    path.join(repoRoot, 'src/components/PageOutline.tsx'),
+    'utf8',
+  );
+  assert.match(
+    outline,
+    /normalizeSiteRoute\(currentPage\)/,
+    'PageOutline normalises routes to match listPages option values',
+  );
+
+  const home = fs.readFileSync(
+    path.join(repoRoot, 'src/components/ProjectHome.tsx'),
+    'utf8',
+  );
+  assert.match(
+    home,
+    /<dialog\b/,
+    'ProjectHome uses native dialog for new project',
+  );
+  assert.match(home, /closedby: 'any'/);
+  assert.match(home, /hasRecents \? \(\s*<>\s*\{recentsSection\}/);
+
+  const agentsDoc = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
+  const readmeDoc = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.equal(
+    /separate Mac/i.test(readmeDoc),
+    false,
+    'README no longer claims separate-Mac manual testing is pending',
+  );
+  assert.equal(
+    /Not proven:/i.test(agentsDoc),
+    false,
+    'AGENTS.md removes ruled-out second-Mac and tested hosted-Git caveats',
   );
 });
 

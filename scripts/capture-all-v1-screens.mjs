@@ -1097,7 +1097,7 @@ try {
   // Navigate to Workspace / Build view
   await cdp.evaluate(`
     (() => {
-      const sitesBtn = document.querySelector('button[title="Sites"]');
+      const sitesBtn = document.querySelector('button[title="Editor"]');
       if (sitesBtn) sitesBtn.click();
     })()
   `);

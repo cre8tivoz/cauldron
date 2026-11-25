@@ -357,10 +357,23 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
-.open-site-btn {
+.open-site-btn,
+.publish-cta-btn {
   background: var(--accent-coral, #c84b31) !important;
   color: #ffffff !important;
   border-color: var(--accent-coral, #c84b31) !important;
+}
+
+.panel-toggle-btn {
+  height: 30px;
+  padding: 0 9px;
+  font-size: 12px;
+  border-radius: 0;
+  border-right: 1px solid var(--hairline);
+}
+
+.panel-toggle-btn:last-child {
+  border-right: 0;
 }
 
 /* ==========================================================================
@@ -409,6 +422,36 @@ textarea:focus-visible {
 
 .status-dot.green {
   color: #38a169;
+}
+
+.status-dot.muted {
+  color: var(--faint);
+}
+
+.status-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 22px;
+  padding: 0 7px;
+  margin-left: 4px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  background: var(--panel-sunken);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.status-action-btn:hover:not(:disabled) {
+  background: var(--panel-raised);
+  border-color: var(--faint);
+}
+
+.status-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ==========================================================================
@@ -469,10 +512,92 @@ textarea:focus-visible {
 .stage-toolbar {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+
+.stage-toolbar-left,
+.stage-toolbar-center,
+.stage-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stage-toolbar-center {
+  margin: 0 auto;
+}
+
+.stage-page-select {
+  min-block-size: 26px;
+  max-width: 170px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--panel-sunken);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stage-page-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stage-icon-btn {
+  min-inline-size: 26px;
+  min-block-size: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--panel-sunken);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.stage-icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-raised);
+  border-color: var(--faint);
+}
+
+.stage-icon-btn[aria-expanded='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.stage-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stage-new-page-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--panel-sunken);
+}
+
+.stage-new-page-input {
+  height: 28px;
+  width: 150px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
 }
 
 .stage-viewport-switch {
@@ -482,7 +607,7 @@ textarea:focus-visible {
   padding: 2px;
   border-radius: 8px;
   background: var(--canvas);
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
 }
 
 .stage-viewport-btn {
@@ -492,7 +617,8 @@ textarea:focus-visible {
   font: inherit;
   font-size: 12px;
   font-weight: 500;
-  padding: 4px 10px;
+  min-block-size: 24px;
+  padding: 3px 10px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -501,10 +627,11 @@ textarea:focus-visible {
   color: var(--text);
 }
 
+.stage-viewport-btn[aria-pressed='true'],
 .stage-viewport-btn.active {
-  background: var(--surface);
+  background: var(--panel);
   color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .stage {
@@ -514,14 +641,15 @@ textarea:focus-visible {
 }
 
 .stage-compare-btn {
-  margin-left: 10px;
-  border: 1px solid var(--border);
+  margin-left: 4px;
+  border: 1px solid var(--hairline);
   background: var(--canvas);
   color: var(--muted);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
-  padding: 4px 10px;
+  min-block-size: 26px;
+  padding: 3px 10px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -530,10 +658,11 @@ textarea:focus-visible {
   color: var(--text);
 }
 
+.stage-compare-btn[aria-pressed='true'],
 .stage-compare-btn.active {
-  background: var(--surface);
-  color: var(--text);
-  border-color: var(--text);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 .stage-viewport-btn:disabled {
@@ -561,9 +690,9 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--panel);
   overflow: hidden;
 }
 
@@ -573,7 +702,7 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 8px;
   padding: 5px 9px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hairline);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -811,6 +940,32 @@ textarea:focus-visible {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.agent-starter-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.agent-starter-chip {
+  width: 100%;
+  min-block-size: 30px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-starter-chip:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* Chat Bubbles */
@@ -1169,6 +1324,125 @@ textarea:focus-visible {
   font-size: 12px;
   color: var(--text);
   width: 100%;
+}
+
+.inspector-section-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.inspector-token-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inspector-token-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inspector-token-group-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+
+.inspector-token-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.inspector-token-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inspector-token-badge {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--hairline);
+  color: var(--text);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inspector-swatch-btn {
+  min-inline-size: 26px;
+  min-block-size: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+
+.inspector-swatch-btn:hover {
+  border-color: var(--text);
+}
+
+.inspector-swatch-btn[aria-pressed='true'] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.inspector-pill-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inspector-token-pill {
+  min-inline-size: 28px;
+  min-block-size: 26px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--panel-sunken);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.inspector-token-pill:hover {
+  color: var(--text);
+  border-color: var(--faint);
+}
+
+.inspector-token-pill[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.inspector-inline-overrides {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 /* ==========================================================================
@@ -3246,4 +3520,90 @@ textarea:focus-visible {
   gap: 6px;
   margin-top: auto;
   padding-top: 10px;
+}
+
+/* ==========================================================================
+   Project Home Header & Native Modal Dialogs (WDL-267)
+   ========================================================================== */
+
+.home-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.home-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cauldron-dialog {
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  max-width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  width: 100%;
+  overflow: auto;
+}
+
+.cauldron-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.cauldron-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.cauldron-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.52);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.cauldron-dialog-wide {
+  max-width: min(980px, calc(100vw - 48px));
+}
+
+.cauldron-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cauldron-dialog-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cauldron-dialog-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cauldron-dialog-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
 }

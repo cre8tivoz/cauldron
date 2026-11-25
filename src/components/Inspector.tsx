@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
 import { PageOutline } from './PageOutline';
 import { AssetTray } from './AssetTray';
+import {
+  STYLE_TOKEN_GROUPS,
+  describeTokenValue,
+  isTokenSelected,
+  tokenChoicesFor,
+} from '../inspector-tokens';
 
 type Props = {
   site?: CauldronSite | null;
+  currentPage?: string;
   direction: CauldronDirectionSummary | null;
   selection: CauldronSelection | null;
   conflict: { file: string; reason: string; operation: unknown } | null;
@@ -16,70 +23,9 @@ type Props = {
   onNavigateToLibrary?: (targetPage: string) => void;
 };
 
-/** Which style properties can use the direction's tokens, and how they map (plan 4.2). */
-const TOKEN_STYLES: Record<
-  string,
-  (
-    direction: CauldronDirectionSummary,
-  ) => Array<{ label: string; value: string }>
-> = {
-  color: (direction) =>
-    Object.entries(direction.colours).map(([name, value]) => ({
-      label: `${name} ${value}`,
-      value: `var(--cauldron-c-${name})`,
-    })),
-  'background-color': (direction) =>
-    Object.entries(direction.colours).map(([name, value]) => ({
-      label: `${name} ${value}`,
-      value: `var(--cauldron-c-${name})`,
-    })),
-  'font-family': (direction) => [
-    {
-      label: `display — ${direction.fonts.display}`,
-      value: 'var(--cauldron-font-display)',
-    },
-    {
-      label: `body — ${direction.fonts.body}`,
-      value: 'var(--cauldron-font-body)',
-    },
-    ...(direction.fonts.detail
-      ? [
-          {
-            label: `detail — ${direction.fonts.detail}`,
-            value: 'var(--cauldron-font-detail)',
-          },
-        ]
-      : []),
-  ],
-  'font-size': (direction) =>
-    direction.typeScale.map((size, index) => ({
-      label: `size-${index + 1} · ${size}px`,
-      value: `var(--cauldron-size-${index + 1})`,
-    })),
-  padding: (direction) =>
-    direction.spacing.map((step, index) => ({
-      label: `space-${index} · ${step}px`,
-      value: `var(--cauldron-space-${index})`,
-    })),
-  margin: (direction) =>
-    direction.spacing.map((step, index) => ({
-      label: `space-${index} · ${step}px`,
-      value: `var(--cauldron-space-${index})`,
-    })),
-  gap: (direction) =>
-    direction.spacing.map((step, index) => ({
-      label: `space-${index} · ${step}px`,
-      value: `var(--cauldron-space-${index})`,
-    })),
-  'border-radius': (direction) =>
-    direction.radii.map((radius, index) => ({
-      label: `radius-${index} · ${radius}px`,
-      value: `var(--cauldron-radius-${index})`,
-    })),
-};
-
 export function Inspector({
   site,
+  currentPage = '/',
   direction,
   selection,
   conflict,
@@ -110,11 +56,6 @@ export function Inspector({
   const styleEntries: Array<[string, string]> = selection
     ? Object.entries(selection.style)
     : [];
-
-  // Determine current color for swatch display
-  const currentColor =
-    (selection && selection.style.color) ||
-    (direction?.colours ? Object.values(direction.colours)[0] : '#2a1712');
 
   return (
     <div className="inspector-container">
@@ -193,6 +134,7 @@ export function Inspector({
       {tab === 'outline' ? (
         <PageOutline
           site={site ?? null}
+          currentPage={currentPage}
           onNavigateToLibrary={onNavigateToLibrary}
         />
       ) : tab === 'assets' ? (
@@ -312,111 +254,155 @@ export function Inspector({
 
             {/* Styles Section */}
             <section className="inspector-accordion-section">
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  color: 'var(--text)',
-                  marginBottom: 8,
-                }}
-              >
-                Styles
-              </div>
+              <div className="inspector-section-heading">Styles</div>
               <div className="inspector-section-content">
                 {direction ? (
-                  <div className="inspector-styles-grid">
-                    {Object.keys(TOKEN_STYLES).map((property) => {
-                      const isColorProp =
-                        property === 'color' || property === 'background-color';
-                      const tokenOptions = TOKEN_STYLES[property](direction);
-                      const matchingInline = selection.style[property];
-
-                      return (
-                        <div
-                          className="inspector-grid-row"
-                          key={`token-${property}`}
-                        >
-                          <label
-                            htmlFor={`token-${property}`}
-                            className="inspector-row-label"
-                          >
-                            {property}
-                          </label>
-                          <div className="inspector-row-control">
-                            {isColorProp ? (
-                              <span
-                                className="color-swatch-badge"
-                                style={{
-                                  background: matchingInline || currentColor,
-                                }}
-                                aria-hidden="true"
-                              />
-                            ) : null}
-                            <select
-                              id={`token-${property}`}
-                              defaultValue=""
-                              className="inspector-row-select"
-                              onChange={(event) => {
-                                if (event.target.value !== '')
-                                  onApplyStyle({
-                                    [property]: event.target.value,
-                                  });
-                                event.target.value = '';
-                              }}
-                            >
-                              <option value="">
-                                {matchingInline || 'Choose token…'}
-                              </option>
-                              {tokenOptions.map((token) => (
-                                <option key={token.value} value={token.value}>
-                                  {token.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                  <div className="inspector-token-groups">
+                    {STYLE_TOKEN_GROUPS.map((group) => (
+                      <div
+                        className="inspector-token-group"
+                        key={group.heading}
+                      >
+                        <div className="inspector-token-group-title">
+                          {group.heading}
                         </div>
-                      );
-                    })}
+                        {group.rows.map((row) => {
+                          const choices = tokenChoicesFor(
+                            row.property,
+                            direction,
+                          );
+                          const currentVal = selection.style[row.property];
+                          const badge = describeTokenValue(
+                            row.property,
+                            currentVal,
+                            direction,
+                          );
+
+                          return (
+                            <div
+                              className="inspector-token-row"
+                              key={row.property}
+                            >
+                              <div className="inspector-token-row-head">
+                                <span className="inspector-row-label">
+                                  {row.label}
+                                </span>
+                                {badge ? (
+                                  <span
+                                    className="inspector-token-badge mono"
+                                    title={currentVal}
+                                  >
+                                    {badge}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {row.kind === 'swatch' ? (
+                                <div
+                                  className="inspector-swatch-grid"
+                                  role="group"
+                                  aria-label={`${row.label} colour tokens`}
+                                >
+                                  {choices.map((choice) => {
+                                    const active = isTokenSelected(
+                                      currentVal,
+                                      choice.value,
+                                    );
+                                    return (
+                                      <button
+                                        key={choice.value}
+                                        type="button"
+                                        className="inspector-swatch-btn"
+                                        aria-label={`${row.label} colour: ${choice.title}`}
+                                        aria-pressed={active}
+                                        title={choice.title}
+                                        style={{
+                                          backgroundColor: choice.swatch,
+                                        }}
+                                        onClick={() =>
+                                          onApplyStyle({
+                                            [row.property]: choice.value,
+                                          })
+                                        }
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div
+                                  className="inspector-pill-strip"
+                                  role="group"
+                                  aria-label={`${row.label} tokens`}
+                                >
+                                  {choices.map((choice) => {
+                                    const active = isTokenSelected(
+                                      currentVal,
+                                      choice.value,
+                                    );
+                                    return (
+                                      <button
+                                        key={choice.value}
+                                        type="button"
+                                        className="inspector-token-pill"
+                                        aria-pressed={active}
+                                        title={choice.title}
+                                        onClick={() =>
+                                          onApplyStyle({
+                                            [row.property]: choice.value,
+                                          })
+                                        }
+                                      >
+                                        {choice.shortLabel}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 ) : null}
 
                 {/* Explicit inline styles */}
                 {styleEntries.length > 0 ? (
-                  <div
-                    className="inspector-styles-grid"
-                    style={{ marginTop: 10 }}
-                  >
-                    {styleEntries.map(([name, value]) => (
-                      <div className="inspector-grid-row" key={name}>
-                        <label
-                          htmlFor={`style-${name}`}
-                          className="inspector-row-label"
-                        >
-                          {name}
-                        </label>
-                        <div className="inspector-row-control">
-                          <input
-                            id={`style-${name}`}
-                            defaultValue={value}
-                            className="inspector-row-input"
-                            onChange={(event) =>
-                              onDraft(`style:${name}`, event.target.value)
-                            }
-                            onBlur={(event) => {
-                              if (event.target.value !== value) {
-                                onApplyStyle({ [name]: event.target.value });
+                  <div className="inspector-inline-overrides">
+                    <div className="inspector-token-group-title">
+                      Inline overrides
+                    </div>
+                    <div className="inspector-styles-grid">
+                      {styleEntries.map(([name, value]) => (
+                        <div className="inspector-grid-row" key={name}>
+                          <label
+                            htmlFor={`style-${name}`}
+                            className="inspector-row-label"
+                          >
+                            {name}
+                          </label>
+                          <div className="inspector-row-control">
+                            <input
+                              id={`style-${name}`}
+                              defaultValue={value}
+                              className="inspector-row-input"
+                              onChange={(event) =>
+                                onDraft(`style:${name}`, event.target.value)
                               }
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter')
-                                event.currentTarget.blur();
-                            }}
-                          />
+                              onBlur={(event) => {
+                                if (event.target.value !== value) {
+                                  onApplyStyle({ [name]: event.target.value });
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter')
+                                  event.currentTarget.blur();
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </div>
