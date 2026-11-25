@@ -14,6 +14,7 @@ export type WorkspaceView =
   | 'build'
   | 'design'
   | 'content'
+  | 'seo'
   | 'library'
   | 'quality'
   | 'publish';

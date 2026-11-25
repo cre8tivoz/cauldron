@@ -191,6 +191,7 @@ try {
       JSON.stringify([
         'Editor',
         'Content',
+        'SEO',
         'Components',
         'Design',
         'Quality',
@@ -208,6 +209,7 @@ try {
   // real actions.
   for (const [nav, copy] of [
     ['Content', 'Open a site to use Content'],
+    ['SEO', 'Open a site to use SEO'],
     ['Design', 'Open a site to use Design directions'],
     ['Quality', 'Open a site to use Quality checks'],
     ['Publishing', 'Open a site to use Publishing'],

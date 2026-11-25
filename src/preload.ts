@@ -14,6 +14,9 @@ import type {
   CauldronRecent,
   CauldronRun,
   CauldronSelection,
+  CauldronSeoEntryDetail,
+  CauldronSeoEntrySummary,
+  CauldronSeoValues,
   CauldronSite,
   CauldronStarterTemplate,
   CauldronStockPhoto,
@@ -165,6 +168,26 @@ const api = {
       conflict?: boolean;
       conflictCopy?: string;
     }>('cauldron:save-entry', payload),
+  seoList: () =>
+    invoke<{ entries: CauldronSeoEntrySummary[]; images: string[] }>(
+      'cauldron:seo-list',
+    ),
+  seoRead: (file: string) =>
+    invoke<CauldronSeoEntryDetail | { problem: string }>(
+      'cauldron:seo-read',
+      file,
+    ),
+  seoSave: (payload: {
+    file: string;
+    baseHash: string;
+    changes: Partial<CauldronSeoValues>;
+  }) =>
+    invoke<{
+      ok: boolean;
+      entry?: CauldronSeoEntryDetail;
+      conflict?: boolean;
+      problem?: string;
+    }>('cauldron:seo-save', payload),
   library: () =>
     invoke<{
       pieces: CauldronPiece[];

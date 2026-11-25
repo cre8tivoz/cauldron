@@ -6135,6 +6135,7 @@ test('WDL-265 the rail says where you are and which site its tools act on', () =
   for (const label of [
     'Editor',
     'Content',
+    'SEO',
     'Components',
     'Design',
     'Quality',
@@ -7316,6 +7317,382 @@ test('WDL-244 duplicating a styled section remaps responsive IDs and copies rule
   assert.deepEqual(responsiveCss.readResponsiveStyles(dir, origId).phone, {
     padding: 'var(--space-2)',
   });
+});
+
+// ---------------------------------------------------------------------------
+// WDL-266: SEO panel that writes into the site's own files.
+const seo = await import('../src/main/seo.ts');
+
+test('WDL-266 layout-prop SEO writes <Base> props and updates Base.astro <head> once', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-seo-layout-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const layoutFile = path.join(dir, 'src/layouts/Base.astro');
+  const pageFile = path.join(dir, 'src/pages/index.astro');
+
+  fs.writeFileSync(
+    layoutFile,
+    [
+      '---',
+      "import '../../cauldron/tokens.css';",
+      'interface Props {',
+      '  title: string;',
+      '}',
+      'const { title } = Astro.props;',
+      '---',
+      '<!doctype html>',
+      '<html lang="en">',
+      '  <head>',
+      '    <meta charset="utf-8" />',
+      '    <title>{title}</title>',
+      '  </head>',
+      '  <body><slot /></body>',
+      '</html>',
+      '',
+    ].join('\n'),
+  );
+  fs.writeFileSync(
+    pageFile,
+    [
+      '---',
+      "import Base from '../layouts/Base.astro';",
+      '---',
+      '<Base title="Sunrise Bakery">',
+      '  <main><h1>Fresh bread daily</h1></main>',
+      '</Base>',
+      '',
+    ].join('\n'),
+  );
+
+  const initial = seo.readPageSeo(dir, 'src/pages/index.astro');
+  assert.equal('problem' in initial, false);
+  assert.equal(initial.storage, 'layout-props');
+  assert.equal(initial.fields.title.value, 'Sunrise Bakery');
+  assert.equal(initial.fields.description.value, '');
+
+  const first = seo.writePageSeo(dir, 'src/pages/index.astro', initial.hash, {
+    title: 'Sunrise Bakery — Melbourne',
+    description: 'Sourdough baked every morning in Fitzroy.',
+    image: '/images/share.jpg',
+    imageAlt: 'Warm sourdough loaves on a wooden counter',
+    noindex: true,
+  });
+  assert.equal(first.ok, true);
+  assert.equal(
+    first.writes.length,
+    2,
+    'updates Base.astro and index.astro in one batch',
+  );
+  assert.equal(first.entry.fields.title.value, 'Sunrise Bakery — Melbourne');
+  assert.equal(
+    first.entry.fields.description.value,
+    'Sourdough baked every morning in Fitzroy.',
+  );
+  assert.equal(first.entry.fields.image.value, '/images/share.jpg');
+  assert.equal(
+    first.entry.fields.imageAlt.value,
+    'Warm sourdough loaves on a wooden counter',
+  );
+  assert.equal(first.entry.fields.noindex.value, true);
+
+  const layoutAfter = fs.readFileSync(layoutFile, 'utf8');
+  assert.match(layoutAfter, /description\?: string;/);
+  assert.match(layoutAfter, /image\?: string;/);
+  assert.match(layoutAfter, /imageAlt\?: string;/);
+  assert.match(layoutAfter, /noindex\?: boolean;/);
+  assert.match(layoutAfter, /meta name="description" content=\{description\}/);
+  assert.match(layoutAfter, /property="og:image"/);
+  assert.match(layoutAfter, /property="og:image:alt"/);
+  assert.match(layoutAfter, /name="robots" content="noindex, nofollow"/);
+
+  // Second save does not duplicate props or meta tags in Base.astro.
+  const second = seo.writePageSeo(
+    dir,
+    'src/pages/index.astro',
+    first.entry.hash,
+    {
+      description: 'Updated bakery description.',
+      noindex: false,
+    },
+  );
+  assert.equal(second.ok, true);
+  assert.equal(
+    second.writes.length,
+    1,
+    'only touches index.astro once Base.astro is wired',
+  );
+  assert.equal(second.entry.fields.noindex.value, false);
+  assert.match(
+    fs.readFileSync(pageFile, 'utf8'),
+    /noindex=\{false\}/,
+    'disabling noindex writes explicit noindex={false} so layout defaults cannot override it',
+  );
+  assert.equal(
+    fs.readFileSync(layoutFile, 'utf8').match(/name="description"/g)?.length,
+    1,
+  );
+});
+
+test('WDL-266 standalone <head>, Markdown frontmatter, hash conflict, and shared-layout literal refusal', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-seo-cases-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/content/posts'), { recursive: true });
+
+  // 1. Standalone layout-less Astro page round-trip.
+  const standaloneFile = path.join(dir, 'src/pages/landing.astro');
+  fs.writeFileSync(
+    standaloneFile,
+    '<!doctype html><html><head><title>Landing</title></head><body><h1>Hi</h1></body></html>\n',
+  );
+  const standaloneRead = seo.readPageSeo(dir, 'src/pages/landing.astro');
+  assert.equal(standaloneRead.storage, 'page-head');
+  const standaloneSave = seo.writePageSeo(
+    dir,
+    'src/pages/landing.astro',
+    standaloneRead.hash,
+    {
+      title: 'Launch Page',
+      description: 'Standalone page description.',
+      image: 'https://example.com/card.png',
+      imageAlt: 'Launch card',
+      noindex: true,
+    },
+  );
+  assert.equal(standaloneSave.ok, true);
+  const standaloneAfter = fs.readFileSync(standaloneFile, 'utf8');
+  assert.match(standaloneAfter, /<title>Launch Page<\/title>/);
+  assert.match(
+    standaloneAfter,
+    /<meta name="description" content="Standalone page description\." \/>/,
+  );
+  assert.match(
+    standaloneAfter,
+    /<meta name="robots" content="noindex, nofollow" \/>/,
+  );
+
+  // Hash conflict refuses stale write without overwriting disk.
+  const stale = seo.writePageSeo(
+    dir,
+    'src/pages/landing.astro',
+    standaloneRead.hash,
+    { title: 'Stale Overwrite' },
+  );
+  assert.equal(stale.ok, false);
+  assert.equal(stale.conflict, true);
+  assert.match(fs.readFileSync(standaloneFile, 'utf8'), /Launch Page/);
+
+  // Unsafe share image URL scheme is refused.
+  const badUrl = seo.writePageSeo(
+    dir,
+    'src/pages/landing.astro',
+    standaloneSave.entry.hash,
+    { image: 'javascript:alert(1)' },
+  );
+  assert.equal(badUrl.ok, false);
+
+  // Standalone titles containing `{` / `}` are escaped safely and remain editable.
+  const braceSave = seo.writePageSeo(
+    dir,
+    'src/pages/landing.astro',
+    standaloneSave.entry.hash,
+    { title: 'Hello {world}' },
+  );
+  assert.equal(braceSave.ok, true);
+  assert.match(
+    fs.readFileSync(standaloneFile, 'utf8'),
+    /<title>Hello &#123;world&#125;<\/title>/,
+  );
+  assert.equal(braceSave.entry.fields.title.value, 'Hello {world}');
+  assert.equal(braceSave.entry.fields.title.locked, undefined);
+
+  // 2. Markdown content frontmatter round-trip preserves body and unrelated keys,
+  // and cleanly replaces multiline YAML block scalars without leaving orphaned lines.
+  const postFile = path.join(dir, 'src/content/posts/hello.md');
+  fs.writeFileSync(
+    postFile,
+    [
+      '---',
+      'title: "Hello"',
+      'description: >-',
+      '  First line of old multiline',
+      '  YAML description.',
+      'author: "Billy"',
+      '---',
+      '',
+      'Body paragraph stays intact.',
+      '',
+    ].join('\n'),
+  );
+  const postRead = seo.readPageSeo(dir, 'src/content/posts/hello.md');
+  assert.equal(postRead.storage, 'frontmatter');
+  assert.equal(
+    postRead.fields.description.value,
+    'First line of old multiline YAML description.',
+  );
+  const postSave = seo.writePageSeo(
+    dir,
+    'src/content/posts/hello.md',
+    postRead.hash,
+    {
+      description: 'First post summary.',
+      image: '/images/post.jpg',
+      imageAlt: 'Post cover',
+      noindex: true,
+    },
+  );
+  assert.equal(postSave.ok, true);
+  const postAfter = fs.readFileSync(postFile, 'utf8');
+  assert.match(postAfter, /author: "Billy"/);
+  assert.match(postAfter, /description: "First post summary\."/);
+  assert.equal(
+    postAfter.includes('First line of old multiline'),
+    false,
+    'multiline YAML continuation lines are removed cleanly',
+  );
+  assert.match(postAfter, /noindex: true/);
+  assert.match(postAfter, /Body paragraph stays intact\./);
+
+  // 2b. Imported layout without frontmatter initializes Props + Astro.props before adding <head> expressions.
+  const bareLayout = path.join(dir, 'src/layouts/Bare.astro');
+  const barePage = path.join(dir, 'src/pages/bare.astro');
+  fs.writeFileSync(
+    bareLayout,
+    '<!doctype html><html><head><meta charset="utf-8" /></head><body><slot /></body></html>\n',
+  );
+  fs.writeFileSync(
+    barePage,
+    "---\nimport Bare from '../layouts/Bare.astro';\n---\n<Bare><main>Bare</main></Bare>\n",
+  );
+  const bareRead = seo.readPageSeo(dir, 'src/pages/bare.astro');
+  assert.equal(bareRead.storage, 'layout-props');
+  const bareSave = seo.writePageSeo(
+    dir,
+    'src/pages/bare.astro',
+    bareRead.hash,
+    {
+      title: 'Bare Page',
+      description: 'Now has frontmatter props.',
+    },
+  );
+  assert.equal(bareSave.ok, true);
+  const bareLayoutAfter = fs.readFileSync(bareLayout, 'utf8');
+  assert.match(bareLayoutAfter, /^---\ninterface Props \{/);
+  assert.match(
+    bareLayoutAfter,
+    /const \{ title, description \} = Astro\.props;/,
+  );
+  assert.match(bareLayoutAfter, /<title>\{title\}<\/title>/);
+  assert.match(
+    bareLayoutAfter,
+    /\{description && <meta name="description" content=\{description\} \/>\}/,
+  );
+
+  // 3. Shared layout hardcoded literal is refused with "set by code in <file>:<line>".
+  const sharedLayout = path.join(dir, 'src/layouts/Fixed.astro');
+  const sharedPage = path.join(dir, 'src/pages/about.astro');
+  fs.writeFileSync(
+    sharedLayout,
+    '---\n---\n<!doctype html><html><head>\n<title>Fixed Site Title</title>\n</head><body><slot /></body></html>\n',
+  );
+  fs.writeFileSync(
+    sharedPage,
+    "---\nimport Fixed from '../layouts/Fixed.astro';\n---\n<Fixed><main>About</main></Fixed>\n",
+  );
+  const lockedRead = seo.readPageSeo(dir, 'src/pages/about.astro');
+  assert.equal(lockedRead.fields.title.inherited, 'Fixed Site Title');
+  assert.match(
+    lockedRead.fields.title.locked ?? '',
+    /^set by code in src\/layouts\/Fixed\.astro:4$/,
+  );
+  const lockedSave = seo.writePageSeo(
+    dir,
+    'src/pages/about.astro',
+    lockedRead.hash,
+    { title: 'About Us' },
+  );
+  assert.equal(lockedSave.ok, false);
+  assert.match(
+    lockedSave.problem,
+    /set by code in src\/layouts\/Fixed\.astro:4/,
+  );
+
+  // 4. Shared layout dynamic expression not bound to page prop (e.g. `{site.description}`) is also refused.
+  const computedLayout = path.join(dir, 'src/layouts/Computed.astro');
+  const computedPage = path.join(dir, 'src/pages/computed.astro');
+  fs.writeFileSync(
+    computedLayout,
+    [
+      '---',
+      'const site = { description: "Global" };',
+      '---',
+      '<!doctype html><html><head>',
+      '<meta name="description" content={site.description} />',
+      '</head><body><slot /></body></html>',
+      '',
+    ].join('\n'),
+  );
+  fs.writeFileSync(
+    computedPage,
+    "---\nimport Computed from '../layouts/Computed.astro';\n---\n<Computed><main>Hi</main></Computed>\n",
+  );
+  const computedRead = seo.readPageSeo(dir, 'src/pages/computed.astro');
+  assert.match(
+    computedRead.fields.description.locked ?? '',
+    /^set by code in src\/layouts\/Computed\.astro:5$/,
+  );
+  const computedSave = seo.writePageSeo(
+    dir,
+    'src/pages/computed.astro',
+    computedRead.hash,
+    { description: 'Page specific' },
+  );
+  assert.equal(computedSave.ok, false);
+  assert.match(
+    computedSave.problem,
+    /set by code in src\/layouts\/Computed\.astro:5/,
+  );
+});
+
+test('WDL-266 measured SEO quality findings check title, 1-160 char description, and share image alt', () => {
+  const findings = seo.summariseSeoChecks([
+    {
+      page: '/',
+      title: 'Home',
+      description: 'Good short description.',
+      ogImage: '/share.png',
+      ogImageAlt: 'Hero screenshot',
+    },
+    {
+      page: '/about/',
+      title: '',
+      description: 'a'.repeat(165),
+      ogImage: '/about.png',
+      ogImageAlt: '',
+    },
+  ]);
+  assert.equal(findings.length, 3);
+  const byId = Object.fromEntries(findings.map((f) => [f.id, f]));
+  assert.equal(byId['seo-title'].status, 'fail');
+  assert.match(byId['seo-title'].detail, /\/about\//);
+  assert.equal(byId['seo-description'].status, 'fail');
+  assert.match(byId['seo-description'].detail, /165 chars/);
+  assert.equal(byId['seo-share-image-alt'].status, 'fail');
+  assert.match(byId['seo-share-image-alt'].detail, /\/about\//);
+
+  const passing = seo.summariseSeoChecks([
+    {
+      page: '/',
+      title: 'Home',
+      description: 'Concise summary under 160 chars.',
+      ogImage: '/share.png',
+      ogImageAlt: 'Share preview',
+    },
+  ]);
+  assert.equal(
+    passing.every((f) => f.status === 'pass' && f.kind === 'measured'),
+    true,
+  );
 });
 
 process.exitCode = failures ? 1 : 0;

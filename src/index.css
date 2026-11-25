@@ -3766,3 +3766,392 @@ html.cauldron-outline-dragging * {
   white-space: nowrap;
   border: 0;
 }
+
+/* ==========================================================================
+   SEO Panel (WDL-266)
+   ========================================================================== */
+
+.seo-panel-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--canvas);
+}
+
+.seo-status-region:empty {
+  display: none;
+}
+
+.seo-split-workspace {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 24px;
+  min-height: 480px;
+}
+
+.seo-audit-sidebar {
+  border-right: 1px solid var(--hairline);
+  padding-right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.seo-audit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.seo-audit-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--hairline);
+  color: var(--muted);
+}
+
+.seo-audit-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.seo-audit-group-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.seo-audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.seo-audit-item {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.seo-audit-item:hover {
+  border-color: var(--faint);
+}
+
+.seo-audit-item.active {
+  border-color: var(--accent-coral, #c84b31);
+  background: var(--accent-soft);
+}
+
+.seo-audit-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.seo-audit-route {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seo-audit-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seo-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.seo-tag-ok {
+  background: rgba(56, 161, 105, 0.16);
+  color: #38a169;
+}
+
+.seo-tag-warn {
+  background: rgba(200, 75, 49, 0.16);
+  color: var(--accent-coral, #c84b31);
+}
+
+.seo-tag-muted {
+  background: var(--panel-sunken);
+  color: var(--muted);
+}
+
+.seo-editor-column {
+  min-width: 0;
+}
+
+.seo-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.9fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.seo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.seo-form-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.seo-entry-heading {
+  margin: 0 0 2px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.seo-storage-caption {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.seo-fieldset {
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 14px 16px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.seo-legend {
+  padding: 0 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.seo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.seo-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.seo-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.seo-counter {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.seo-counter.over {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.seo-input,
+.seo-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--surface, var(--panel-sunken));
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.seo-textarea {
+  resize: vertical;
+  min-height: 76px;
+  line-height: 1.45;
+}
+
+.seo-input:disabled,
+.seo-textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.seo-help {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.seo-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seo-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-coral, #c84b31);
+  flex-shrink: 0;
+}
+
+.seo-checkbox-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.seo-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.seo-preview-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.seo-preview-card {
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.seo-preview-eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.seo-serp-url {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seo-serp-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #4c8bf5;
+  line-height: 1.3;
+}
+
+.seo-serp-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.seo-serp-noindex {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-coral, #c84b31);
+}
+
+.seo-social-card {
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel-sunken);
+}
+
+.seo-social-media {
+  height: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--canvas);
+  text-align: center;
+}
+
+.seo-social-media-path {
+  font-size: 11.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.seo-social-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.seo-social-domain {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.seo-social-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.seo-social-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 1120px) {
+  .seo-editor-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

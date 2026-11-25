@@ -160,6 +160,46 @@ export type CauldronEntry = {
   schemaHash: string;
 };
 
+export type CauldronSeoValues = {
+  title: string;
+  description: string;
+  image: string;
+  imageAlt: string;
+  noindex: boolean;
+};
+
+export type CauldronSeoEntrySummary = {
+  id: string;
+  kind: 'page' | 'content';
+  label: string;
+  route: string | null;
+  file: string;
+  title: string;
+  description: string;
+  image: string;
+  imageAlt: string;
+  noindex: boolean;
+  issues: string[];
+};
+
+export type CauldronSeoEntryDetail = {
+  id: string;
+  kind: 'page' | 'content';
+  label: string;
+  route: string | null;
+  file: string;
+  storage: 'layout-props' | 'page-head' | 'frontmatter';
+  layoutFile: string | null;
+  hash: string;
+  fields: {
+    title: { value: string; inherited?: string; locked?: string };
+    description: { value: string; inherited?: string; locked?: string };
+    image: { value: string; inherited?: string; locked?: string };
+    imageAlt: { value: string; inherited?: string; locked?: string };
+    noindex: { value: boolean; inherited?: boolean; locked?: string };
+  };
+};
+
 export type CauldronRun = {
   id: string;
   tool: string;
