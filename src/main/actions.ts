@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { ensureTokensImport, inlineLibraryPiece } from './library';
 import { toolsFor } from './mcp';
+import { cloneResponsiveIdsInMarkup } from './responsive-css';
 import {
   applyEdit,
   findTag,
@@ -320,6 +321,7 @@ export type PageSection = {
   name: string;
   anchorId: string | null;
   line: number;
+  column: number;
   preview: string;
 };
 
@@ -564,6 +566,7 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
 
     const before = text.slice(0, blockStart);
     const line = before.split('\n').length;
+    const column = blockStart - before.lastIndexOf('\n');
     const preview = innerText
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
@@ -576,6 +579,7 @@ function findSectionBlocks(text: string): InternalSectionBlock[] {
       name,
       anchorId,
       line,
+      column,
       preview,
       start: blockStart,
       end: blockEnd,
@@ -629,18 +633,21 @@ export function reorderPageSections(
     return { ok: false, problem: 'Invalid section indices to reorder.' };
   }
 
-  const i = Math.min(fromIndex, toIndex);
-  const j = Math.max(fromIndex, toIndex);
-  const blockA = blocks[i];
-  const blockB = blocks[j];
+  const prefix = text.slice(0, blocks[0].start);
+  const suffix = text.slice(blocks[blocks.length - 1].end);
+  const slices = blocks.map((block) => text.slice(block.start, block.end));
+  const gaps = blocks
+    .slice(0, -1)
+    .map((block, idx) => text.slice(block.end, blocks[idx + 1].start));
 
-  const textBefore = text.slice(0, blockA.start);
-  const sliceA = text.slice(blockA.start, blockA.end);
-  const textBetween = text.slice(blockA.end, blockB.start);
-  const sliceB = text.slice(blockB.start, blockB.end);
-  const textAfter = text.slice(blockB.end);
+  const [moved] = slices.splice(fromIndex, 1);
+  slices.splice(toIndex, 0, moved);
 
-  const newText = textBefore + sliceB + textBetween + sliceA + textAfter;
+  let newText = prefix + slices[0];
+  for (let idx = 0; idx < gaps.length; idx += 1) {
+    newText += gaps[idx] + slices[idx + 1];
+  }
+  newText += suffix;
   writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(
@@ -772,9 +779,10 @@ export function duplicatePageSection(
 
   const target = blocks[sectionIndex];
   const sectionText = text.slice(target.start, target.end);
+  const cloned = cloneResponsiveIdsInMarkup(root, text, sectionText);
 
   const newText =
-    text.slice(0, target.end) + '\n' + sectionText + text.slice(target.end);
+    text.slice(0, target.end) + '\n' + cloned.markup + text.slice(target.end);
   writeFileAtomic(file, newText);
 
   const updated = findSectionBlocks(newText).map(

@@ -7,16 +7,26 @@ import {
   isTokenSelected,
   tokenChoicesFor,
 } from '../inspector-tokens';
+import {
+  EDITING_LAYERS,
+  layerStylesFor,
+  type EditingLayer,
+} from '../responsive-layer';
 
 type Props = {
   site?: CauldronSite | null;
   currentPage?: string;
   direction: CauldronDirectionSummary | null;
   selection: CauldronSelection | null;
+  editingLayer: EditingLayer;
+  onEditingLayerChange: (layer: EditingLayer) => void;
   conflict: { file: string; reason: string; operation: unknown } | null;
   onApplyText: (value: string) => void;
   onApplyAttribute: (name: string, value: string | null) => void;
-  onApplyStyle: (properties: Record<string, string>) => void;
+  onApplyStyle: (
+    properties: Record<string, string>,
+    layer?: EditingLayer,
+  ) => void;
   onKeepMine: () => void;
   onUseDisk: () => void;
   onDraft: (field: string, value: string) => void;
@@ -28,6 +38,8 @@ export function Inspector({
   currentPage = '/',
   direction,
   selection,
+  editingLayer,
+  onEditingLayerChange,
   conflict,
   onApplyText,
   onApplyAttribute,
@@ -53,8 +65,16 @@ export function Inspector({
     if (selection && text !== selection.text) onApplyText(text);
   };
 
-  const styleEntries: Array<[string, string]> = selection
-    ? Object.entries(selection.style)
+  const activeLayerStyles = selection
+    ? layerStylesFor(selection, editingLayer)
+    : {};
+  const styleEntries: Array<[string, string]> =
+    Object.entries(activeLayerStyles);
+  const activeLayerSpec =
+    EDITING_LAYERS.find((layer) => layer.id === editingLayer) ??
+    EDITING_LAYERS[0];
+  const visibleAttributes = selection
+    ? selection.attributes.filter((attr) => attr.name !== 'data-cauldron-r')
     : [];
 
   return (
@@ -240,7 +260,9 @@ export function Inspector({
                       className="inspector-textarea"
                     />
                     <div className="field-caption">
-                      <span className="hint">⌘Enter to save</span>
+                      <span className="hint">
+                        ⌘Enter to save · or double-click on the canvas
+                      </span>
                     </div>
                   </div>
                 ) : (
@@ -256,6 +278,65 @@ export function Inspector({
             <section className="inspector-accordion-section">
               <div className="inspector-section-heading">Styles</div>
               <div className="inspector-section-content">
+                <div
+                  className="inspector-layer-bar"
+                  role="group"
+                  aria-label="Editing layer"
+                >
+                  {EDITING_LAYERS.map((layer) => {
+                    const count =
+                      layer.id === 'base'
+                        ? 0
+                        : Object.keys(
+                            selection.responsiveStyles?.[layer.id] ?? {},
+                          ).length;
+                    return (
+                      <button
+                        key={layer.id}
+                        type="button"
+                        className="inspector-layer-btn"
+                        aria-pressed={editingLayer === layer.id}
+                        title={
+                          layer.mediaQuery
+                            ? `Edit styles inside @media ${layer.mediaQuery}`
+                            : 'Edit base styles for all widths'
+                        }
+                        onClick={() => onEditingLayerChange(layer.id)}
+                      >
+                        <span>{layer.shortLabel}</span>
+                        {count > 0 ? (
+                          <span className="inspector-layer-count">{count}</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+                {activeLayerSpec.mediaQuery ? (
+                  <div className="inspector-layer-note">
+                    <span>
+                      Writes to{' '}
+                      <code className="mono">
+                        @media {activeLayerSpec.mediaQuery}
+                      </code>{' '}
+                      in <code className="mono">cauldron/responsive.css</code> —
+                      independent of preview width.
+                    </span>
+                    {styleEntries.length > 0 ? (
+                      <button
+                        type="button"
+                        className="inspector-layer-clear"
+                        onClick={() => {
+                          const cleared: Record<string, string> = {};
+                          for (const [prop] of styleEntries) cleared[prop] = '';
+                          onApplyStyle(cleared, editingLayer);
+                        }}
+                      >
+                        Clear overrides
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {direction ? (
                   <div className="inspector-token-groups">
                     {STYLE_TOKEN_GROUPS.map((group) => (
@@ -271,7 +352,7 @@ export function Inspector({
                             row.property,
                             direction,
                           );
-                          const currentVal = selection.style[row.property];
+                          const currentVal = activeLayerStyles[row.property];
                           const badge = describeTokenValue(
                             row.property,
                             currentVal,
@@ -320,9 +401,12 @@ export function Inspector({
                                           backgroundColor: choice.swatch,
                                         }}
                                         onClick={() =>
-                                          onApplyStyle({
-                                            [row.property]: choice.value,
-                                          })
+                                          onApplyStyle(
+                                            {
+                                              [row.property]: choice.value,
+                                            },
+                                            editingLayer,
+                                          )
                                         }
                                       />
                                     );
@@ -347,9 +431,12 @@ export function Inspector({
                                         aria-pressed={active}
                                         title={choice.title}
                                         onClick={() =>
-                                          onApplyStyle({
-                                            [row.property]: choice.value,
-                                          })
+                                          onApplyStyle(
+                                            {
+                                              [row.property]: choice.value,
+                                            },
+                                            editingLayer,
+                                          )
                                         }
                                       >
                                         {choice.shortLabel}
@@ -366,32 +453,42 @@ export function Inspector({
                   </div>
                 ) : null}
 
-                {/* Explicit inline styles */}
+                {/* Explicit style overrides for the active layer */}
                 {styleEntries.length > 0 ? (
                   <div className="inspector-inline-overrides">
                     <div className="inspector-token-group-title">
-                      Inline overrides
+                      {editingLayer === 'base'
+                        ? 'Inline overrides'
+                        : `${activeLayerSpec.label} overrides`}
                     </div>
                     <div className="inspector-styles-grid">
                       {styleEntries.map(([name, value]) => (
-                        <div className="inspector-grid-row" key={name}>
+                        <div
+                          className="inspector-grid-row"
+                          key={`${selection.id}:${editingLayer}:${name}:${value}`}
+                        >
                           <label
-                            htmlFor={`style-${name}`}
+                            htmlFor={`style-${editingLayer}-${name}`}
                             className="inspector-row-label"
                           >
                             {name}
                           </label>
                           <div className="inspector-row-control">
                             <input
-                              id={`style-${name}`}
+                              id={`style-${editingLayer}-${name}`}
                               defaultValue={value}
                               className="inspector-row-input"
-                              onChange={(event) =>
-                                onDraft(`style:${name}`, event.target.value)
-                              }
+                              onChange={(event) => {
+                                if (editingLayer === 'base') {
+                                  onDraft(`style:${name}`, event.target.value);
+                                }
+                              }}
                               onBlur={(event) => {
                                 if (event.target.value !== value) {
-                                  onApplyStyle({ [name]: event.target.value });
+                                  onApplyStyle(
+                                    { [name]: event.target.value },
+                                    editingLayer,
+                                  );
                                 }
                               }}
                               onKeyDown={(event) => {
@@ -423,12 +520,12 @@ export function Inspector({
                 Settings
               </div>
               <div className="inspector-section-content">
-                {selection.attributes.length === 0 ? (
+                {visibleAttributes.length === 0 ? (
                   <p className="hint">No attributes on this element.</p>
                 ) : null}
 
                 <div className="inspector-styles-grid">
-                  {selection.attributes.map((attribute) => (
+                  {visibleAttributes.map((attribute) => (
                     <div
                       className="inspector-grid-row"
                       key={`attr-row-${attribute.name}`}

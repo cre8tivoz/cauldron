@@ -13,6 +13,13 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { buildMenu } from '../app-menu';
 import { mergeProblemMessages } from '../problems';
+import { previewRouteFromUrl } from '../status-bar';
+import type { EditingLayer } from '../responsive-layer';
+import {
+  allocateResponsiveId,
+  readResponsiveStyles,
+  writeResponsiveStyle,
+} from './responsive-css';
 import {
   cleanupOrphanedDevServers,
   detectSite,
@@ -477,6 +484,13 @@ function lastRunChanges(): Array<{
 function selectionView() {
   const selection = state.selection;
   if (!selection) return null;
+  const responsiveId =
+    selection.snapshot.attributes.find(
+      (attribute) => attribute.name === 'data-cauldron-r',
+    )?.value ?? null;
+  const responsiveStyles = state.site
+    ? readResponsiveStyles(state.site.root, responsiveId)
+    : { tablet: {}, phone: {} };
   return {
     id: selection.id,
     file: relativeFile(selection.location.file),
@@ -491,6 +505,8 @@ function selectionView() {
       : {}),
     attributes: selection.snapshot.attributes,
     style: selection.snapshot.style,
+    responsiveId,
+    responsiveStyles,
     pageUrl: selection.pageUrl,
     domPath: selection.domPath,
     history: state.history.state(),
@@ -498,11 +514,55 @@ function selectionView() {
 }
 
 function pushSelection(): void {
-  send('cauldron:selection', selectionView());
+  const view = selectionView();
+  send('cauldron:selection', view);
+  state.preview.webContents?.send(
+    'preview:selection-meta',
+    view
+      ? {
+          path: view.domPath,
+          textEditable: view.textEditable,
+          textEditReason: view.textEditReason,
+        }
+      : null,
+  );
+}
+
+function pushPreviewSections(): void {
+  const site = state.site;
+  const contents = state.preview.webContents;
+  if (!site || !contents) return;
+  const route = previewRouteFromUrl(
+    state.preview.currentUrl ?? state.server?.url ?? null,
+  );
+  const res = readPageSections(site.root, route);
+  if (!res.ok || !Array.isArray(res.sections) || typeof res.file !== 'string') {
+    contents.send('preview:sections', null);
+    return;
+  }
+  const absFile = path.join(site.root, res.file);
+  const sections = res.sections as Array<{
+    index: number;
+    tag: string;
+    name: string;
+    line: number;
+    column: number;
+  }>;
+  contents.send('preview:sections', {
+    file: absFile,
+    sections: sections.map((sec) => ({
+      index: sec.index,
+      tag: sec.tag,
+      name: sec.name,
+      line: sec.line,
+      column: sec.column,
+    })),
+  });
 }
 
 function pushHistory(): void {
   send('cauldron:history', state.history.state());
+  pushPreviewSections();
 }
 
 async function stopPreview(): Promise<void> {
@@ -1878,22 +1938,48 @@ function registerIpc(): void {
     return true;
   });
 
-  handle('cauldron:apply-text', (_event, value: string) =>
-    writeSelection({ kind: 'text', value }),
-  );
+  handle('cauldron:apply-text', (_event, value: string) => {
+    const res = writeSelection({ kind: 'text', value });
+    if (res.ok) state.previewCompare.reload();
+    return res;
+  });
 
   handle(
     'cauldron:apply-attribute',
-    (_event, name: string, value: string | null) =>
-      writeSelection({ kind: 'attribute', name, value }),
+    (_event, name: string, value: string | null) => {
+      const res = writeSelection({ kind: 'attribute', name, value });
+      if (res.ok) state.previewCompare.reload();
+      return res;
+    },
   );
 
-  handle('cauldron:apply-style', (_event, properties: Record<string, string>) =>
-    writeSelection({ kind: 'style', properties }),
+  handle(
+    'cauldron:apply-style',
+    (_event, properties: Record<string, string>, layer?: EditingLayer) => {
+      if (!layer || layer === 'base') {
+        const res = writeSelection({ kind: 'style', properties });
+        if (res.ok) state.previewCompare.reload();
+        return res;
+      }
+      return writeResponsiveSelection(layer, properties);
+    },
   );
 
-  handle('cauldron:force-write', (_event, operation: EditOperation) =>
-    writeSelection(operation, { force: true }),
+  handle(
+    'cauldron:force-write',
+    (_event, operation: EditOperation & { layer?: EditingLayer }) => {
+      if (
+        operation.kind === 'style' &&
+        (operation.layer === 'tablet' || operation.layer === 'phone')
+      ) {
+        return writeResponsiveSelection(operation.layer, operation.properties, {
+          force: true,
+        });
+      }
+      const res = writeSelection(operation, { force: true });
+      if (res.ok) state.previewCompare.reload();
+      return res;
+    },
   );
 
   handle('cauldron:undo', () => undoLast());
@@ -2362,7 +2448,11 @@ function registerIpc(): void {
       },
     ) => {
       const res = sharedAction({ action: 'reorderPageSections', ...payload });
-      if (res.ok) state.preview.reload();
+      if (res.ok) {
+        state.preview.reload();
+        state.previewCompare.reload();
+        pushPreviewSections();
+      }
       return res;
     },
   );
@@ -2374,7 +2464,11 @@ function registerIpc(): void {
       payload: { page: string; sectionIndex: number; baseHash: string },
     ) => {
       const res = sharedAction({ action: 'deletePageSection', ...payload });
-      if (res.ok) state.preview.reload();
+      if (res.ok) {
+        state.preview.reload();
+        state.previewCompare.reload();
+        pushPreviewSections();
+      }
       return res;
     },
   );
@@ -2391,7 +2485,11 @@ function registerIpc(): void {
       },
     ) => {
       const res = sharedAction({ action: 'setPageSectionAnchor', ...payload });
-      if (res.ok) state.preview.reload();
+      if (res.ok) {
+        state.preview.reload();
+        state.previewCompare.reload();
+        pushPreviewSections();
+      }
       return res;
     },
   );
@@ -2407,7 +2505,11 @@ function registerIpc(): void {
       },
     ) => {
       const res = sharedAction({ action: 'duplicatePageSection', ...payload });
-      if (res.ok) state.preview.reload();
+      if (res.ok) {
+        state.preview.reload();
+        state.previewCompare.reload();
+        pushPreviewSections();
+      }
       return res;
     },
   );
@@ -2425,7 +2527,11 @@ function registerIpc(): void {
       },
     ) => {
       const res = sharedAction({ action: 'insertPageSection', ...payload });
-      if (res.ok) state.preview.reload();
+      if (res.ok) {
+        state.preview.reload();
+        state.previewCompare.reload();
+        pushPreviewSections();
+      }
       return res;
     },
   );
@@ -2842,26 +2948,250 @@ function registerPreviewIpc(): void {
 
   handle('cauldron:pick-mode', (_event, on: boolean) => {
     state.preview.webContents?.send('preview:mode', on);
+    state.previewCompare.setPickMode(on);
     return true;
   });
 
   ipcMain.on(
     'preview:report',
     (event, report: { kind: string; payload: unknown }) => {
+      const isMainPreview = event.sender === state.preview.webContents;
+      const isCompareFrame = state.previewCompare.hasWebContents(event.sender);
       if (
-        event.sender !== state.preview.webContents ||
+        (!isMainPreview && !isCompareFrame) ||
         event.senderFrame !== event.sender.mainFrame
       )
         return;
+      if (report.kind === 'pick') {
+        handlePick(report.payload);
+        return;
+      }
+      // Compare frames only report click-to-select picks.
+      if (!isMainPreview) return;
       if (report.kind === 'height') {
         send('cauldron:preview-height', report.payload);
         return;
       }
-      if (report.kind === 'pick') {
-        handlePick(report.payload);
+      if (report.kind === 'inline-text') {
+        handleInlineTextEdit(report.payload);
+        return;
+      }
+      if (report.kind === 'reorder-sections') {
+        handleCanvasSectionReorder(report.payload);
       }
     },
   );
+}
+
+function writeResponsiveSelection(
+  layer: 'tablet' | 'phone',
+  properties: Record<string, string>,
+  options?: { force?: boolean },
+):
+  | { ok: true; selection: unknown }
+  | { ok: boolean; problem: string; conflict?: unknown } {
+  const selection = state.selection;
+  const site = state.site;
+  if (!selection || !site) {
+    return { ok: false, problem: 'Nothing is selected.' };
+  }
+  const existingResponsiveId =
+    selection.snapshot.attributes.find(
+      (attribute) => attribute.name === 'data-cauldron-r',
+    )?.value ?? null;
+
+  // Before modifying cauldron/responsive.css, verify the target file has not
+  // changed on disk when we need to add `data-cauldron-r`.
+  if (!existingResponsiveId && !options?.force) {
+    const disk = readFile(selection.location.file);
+    if (disk.hash !== hashOf(selection.snapshot.sourceText)) {
+      return {
+        ok: false,
+        problem: 'The file changed on disk since this element was selected.',
+        conflict: {
+          file: relativeFile(selection.location.file),
+          reason: 'The file changed on disk since this element was selected.',
+        },
+      };
+    }
+  }
+
+  const responsiveId =
+    existingResponsiveId ??
+    allocateResponsiveId(
+      site.root,
+      selection.snapshot.sourceText,
+      relativeFile(selection.location.file),
+      selection.location.line,
+      selection.location.column,
+      selection.location.name,
+    );
+
+  // Wire & write responsive CSS first so an unsupported layout refuses visibly
+  // before mutating the element's source file.
+  const res = writeResponsiveStyle(site.root, responsiveId, layer, properties, {
+    targetFile: selection.location.file,
+  });
+  if (!res.ok) {
+    fail(res.problem);
+    return { ok: false, problem: res.problem };
+  }
+
+  // If the target file itself received an import (standalone layout-less page),
+  // keep the selection's line and snapshot aligned before adding data-cauldron-r.
+  const selfWrite = res.writes.find(
+    (write) => write.file === selection.location.file,
+  );
+  if (selfWrite) {
+    const lineDelta =
+      selfWrite.after.split('\n').length - selfWrite.before.split('\n').length;
+    selection.location = {
+      ...selection.location,
+      line: Math.max(1, selection.location.line + lineDelta),
+    };
+    const updatedSnapshot = snapshotElement(
+      selfWrite.after,
+      selection.location,
+    );
+    if (updatedSnapshot) selection.snapshot = updatedSnapshot;
+  }
+
+  for (const write of res.writes) {
+    state.history.record({
+      file: write.file,
+      location: selection.location,
+      operation: { kind: 'style', properties },
+      before: write.before,
+      after: write.after,
+      beforeHash: write.beforeHash,
+      afterHash: write.afterHash,
+      label: `${layer} style on <${selection.location.name}>`,
+      created: write.created,
+      root: site.root,
+    });
+  }
+
+  if (!existingResponsiveId) {
+    const tagged = writeSelection(
+      {
+        kind: 'attribute',
+        name: 'data-cauldron-r',
+        value: responsiveId,
+      },
+      options,
+    );
+    if (!tagged.ok) return tagged;
+  }
+
+  pushHistory();
+  pushSelection();
+  state.preview.reload();
+  state.previewCompare.reload();
+  status(`Saved ${layer} style override`);
+  return { ok: true, selection: selectionView() };
+}
+
+function handleInlineTextEdit(payload: unknown): void {
+  const site = state.site;
+  if (!site) return;
+  const edit = payload as {
+    file?: string;
+    line?: number;
+    column?: number;
+    name?: string;
+    value?: string;
+    url?: string;
+  } | null;
+  if (
+    !edit?.file ||
+    !edit.name ||
+    !edit.line ||
+    !edit.column ||
+    typeof edit.value !== 'string'
+  ) {
+    return;
+  }
+  if (!isInside(site.root, edit.file)) {
+    fail('That element comes from outside the site.');
+    return;
+  }
+  // Ensure state.selection points at the edited element before writing through
+  // the standard hash-checked edit path.
+  const current = state.selection?.location;
+  if (
+    !current ||
+    current.file !== edit.file ||
+    current.line !== edit.line ||
+    current.column !== edit.column ||
+    current.name !== edit.name
+  ) {
+    handlePick(edit);
+  }
+  const outcome = writeSelection({ kind: 'text', value: edit.value });
+  if (!outcome.ok) {
+    fail(outcome.problem ?? 'That text could not be saved.');
+    state.preview.reload();
+    return;
+  }
+  state.previewCompare.reload();
+  status(`Saved text on <${edit.name}>`);
+}
+
+function handleCanvasSectionReorder(payload: unknown): void {
+  const site = state.site;
+  const server = state.server;
+  if (!site || !server) return;
+  const req = payload as {
+    fromIndex?: number;
+    toIndex?: number;
+    url?: string;
+  } | null;
+  if (
+    !req ||
+    !Number.isInteger(req.fromIndex) ||
+    !Number.isInteger(req.toIndex) ||
+    req.fromIndex === req.toIndex
+  ) {
+    return;
+  }
+  if (req.url) {
+    try {
+      if (new URL(req.url).origin !== new URL(server.url).origin) return;
+    } catch {
+      return;
+    }
+  }
+  const route = previewRouteFromUrl(
+    req.url ?? state.preview.currentUrl ?? server.url,
+  );
+  const read = readPageSections(site.root, route);
+  if (!read.ok || typeof read.hash !== 'string') {
+    fail(
+      typeof read.problem === 'string'
+        ? read.problem
+        : 'Could not read sections to reorder.',
+    );
+    return;
+  }
+  const res = sharedAction({
+    action: 'reorderPageSections',
+    page: route,
+    fromIndex: req.fromIndex as number,
+    toIndex: req.toIndex as number,
+    baseHash: read.hash,
+  });
+  if (!res.ok) {
+    fail(
+      typeof res.problem === 'string'
+        ? res.problem
+        : 'Could not reorder sections.',
+    );
+    return;
+  }
+  state.preview.reload();
+  state.previewCompare.reload();
+  pushPreviewSections();
+  status('Reordered page sections');
 }
 
 function handlePick(payload: unknown): void {
@@ -3073,6 +3403,8 @@ function undoLast(): { ok: boolean; problem?: string } {
   }
   pushHistory();
   refreshSelectionFromDisk();
+  state.preview.reload();
+  state.previewCompare.reload();
   status('Undone');
   return { ok: true };
 }
@@ -3085,6 +3417,8 @@ function redoLast(): { ok: boolean; problem?: string } {
   }
   pushHistory();
   refreshSelectionFromDisk();
+  state.preview.reload();
+  state.previewCompare.reload();
   status('Redone');
   return { ok: true };
 }
@@ -3248,6 +3582,7 @@ function createWindow(splash: Splash | null = null): BrowserWindow {
   state.preview.webContents?.on('did-finish-load', () => {
     if (state.site && state.server) {
       scheduleThumbnailCapture(state.site.root, state.server.url);
+      pushPreviewSections();
     }
   });
   const syncPreviewNavigation = (url: string) => {

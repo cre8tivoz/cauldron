@@ -25,6 +25,11 @@ export type CauldronSelection = {
   textEditReason?: string;
   attributes: Array<{ name: string; value: string }>;
   style: Record<string, string>;
+  responsiveId?: string | null;
+  responsiveStyles?: {
+    tablet: Record<string, string>;
+    phone: Record<string, string>;
+  };
   pageUrl: string;
   domPath: string;
   history: { canUndo: boolean; canRedo: boolean };
@@ -110,6 +115,7 @@ export type CauldronPageSection = {
   name: string;
   anchorId: string | null;
   line: number;
+  column?: number;
   preview: string;
 };
 

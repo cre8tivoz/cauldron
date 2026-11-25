@@ -3607,3 +3607,162 @@ textarea:focus-visible {
   gap: 8px;
   margin-top: 4px;
 }
+
+/* ==========================================================================
+   Interactive Canvas: Responsive Layer & Outline Drag-to-Reorder (WDL-244)
+   ========================================================================== */
+
+.inspector-layer-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--hairline);
+  margin-bottom: 10px;
+}
+
+.inspector-layer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inspector-layer-btn:hover {
+  color: var(--text);
+}
+
+.inspector-layer-btn[aria-pressed='true'] {
+  background: var(--panel);
+  border-color: var(--hairline);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.inspector-layer-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-coral, #c84b31);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.inspector-layer-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--panel-sunken);
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.inspector-layer-clear {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inspector-layer-clear:hover {
+  border-color: var(--accent-coral, #c84b31);
+  color: var(--accent-coral, #c84b31);
+}
+
+.outline-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.outline-drag-handle:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-sunken);
+}
+
+.outline-drag-handle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+html.cauldron-outline-dragging,
+html.cauldron-outline-dragging * {
+  cursor: grabbing !important;
+}
+
+.outline-row-dragging {
+  opacity: 0.48;
+  border-style: dashed !important;
+}
+
+.outline-sections-list[data-drop='1']::after {
+  content: '';
+  position: fixed;
+  left: var(--drop-x, 0px);
+  top: var(--drop-y, 0px);
+  width: var(--drop-w, 0px);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-coral, #c84b31);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+@media (forced-colors: active) {
+  .outline-sections-list[data-drop='1']::after {
+    background: Highlight;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -89,8 +89,10 @@ const api = {
     invoke<WriteOutcome>('cauldron:apply-text', value),
   applyAttribute: (name: string, value: string | null) =>
     invoke<WriteOutcome>('cauldron:apply-attribute', name, value),
-  applyStyle: (properties: Record<string, string>) =>
-    invoke<WriteOutcome>('cauldron:apply-style', properties),
+  applyStyle: (
+    properties: Record<string, string>,
+    layer?: 'base' | 'tablet' | 'phone',
+  ) => invoke<WriteOutcome>('cauldron:apply-style', properties, layer),
   forceWrite: (operation: unknown) =>
     invoke<WriteOutcome>('cauldron:force-write', operation),
 
