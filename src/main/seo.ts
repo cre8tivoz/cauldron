@@ -42,6 +42,12 @@ function escapeAttribute(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+function decodeSeoText(value: string): string {
+  return decodeEntities(value)
+    .replace(/&#123;|&#x7b;/gi, '{')
+    .replace(/&#125;|&#x7d;/gi, '}');
+}
+
 /**
  * Files-truth SEO reader & writer (WDL-266).
  *
@@ -137,6 +143,7 @@ export type SeoWriteResult =
 type HeadTagMatch = {
   kind: 'literal' | 'dynamic';
   value: string;
+  exprText?: string;
   line: number;
   start: number;
   end: number;
@@ -357,13 +364,17 @@ function findHeadBounds(
   };
 }
 
-/** Returns true when `offset` inside `headContent` sits inside a `{ ... }` Astro expression. */
-function isInsideBraceExpression(
+/**
+ * If `offset` inside `headContent` sits inside a `{ ... }` Astro expression,
+ * returns the expression prefix leading up to `offset` (e.g. `noindex && `);
+ * otherwise returns `null`.
+ */
+function enclosingBracePrefix(
   text: string,
   start: number,
   offset: number,
-): boolean {
-  let depth = 0;
+): string | null {
+  const stack: number[] = [];
   let quote: string | null = null;
   for (let i = start; i < offset; i += 1) {
     const ch = text[i];
@@ -376,10 +387,32 @@ function isInsideBraceExpression(
       quote = ch;
       continue;
     }
-    if (ch === '{') depth += 1;
-    else if (ch === '}' && depth > 0) depth -= 1;
+    if (ch === '{') stack.push(i);
+    else if (ch === '}' && stack.length > 0) stack.pop();
   }
-  return depth > 0;
+  if (stack.length === 0) return null;
+  return text.slice(stack[stack.length - 1] + 1, offset);
+}
+
+/**
+ * Verifies that a dynamic `<head>` tag in a shared layout actually consumes one
+ * of the supported page props (e.g. `{description}`, `{noindex && ...}`,
+ * `{new URL(image, Astro.site ?? Astro.url).href}`) rather than an unrelated
+ * computed expression such as `{site.description}`.
+ */
+function layoutTagConsumesProp(
+  layoutText: string,
+  headTag: HeadTagMatch,
+  propNames: string[],
+): boolean {
+  const expr = headTag.exprText ?? headTag.value;
+  const matchedProp = propNames.find((prop) =>
+    new RegExp(`(?<![.\\w$])${prop}\\b`).test(expr),
+  );
+  if (!matchedProp) return false;
+  const fm = astroFrontmatterBounds(layoutText);
+  if (!fm) return false;
+  return new RegExp(`(?<![.\\w$])${matchedProp}\\b`).test(fm.content);
 }
 
 /** Inspects `<title>` and SEO `<meta>` tags inside an Astro file's `<head>`. */
@@ -399,12 +432,15 @@ function inspectHead(text: string): HeadInspection {
     const rawInner = titleMatch[1].trim();
     const absStart = head.openEnd + titleMatch.index;
     const absEnd = absStart + titleMatch[0].length;
-    const isDynamic =
-      (rawInner.includes('{') && rawInner.includes('}')) ||
-      isInsideBraceExpression(text, head.openEnd, absStart);
+    const bracePrefix = enclosingBracePrefix(text, head.openEnd, absStart);
+    const hasInnerExpr = rawInner.includes('{') && rawInner.includes('}');
+    const isDynamic = hasInnerExpr || bracePrefix !== null;
     empty.title = {
       kind: isDynamic ? 'dynamic' : 'literal',
-      value: isDynamic ? rawInner : decodeEntities(rawInner),
+      value: isDynamic ? rawInner : decodeSeoText(rawInner),
+      exprText: isDynamic
+        ? `${bracePrefix ?? ''} ${rawInner}`.trim()
+        : undefined,
       line: lineAt(text, absStart),
       start: absStart,
       end: absEnd,
@@ -435,15 +471,19 @@ function inspectHead(text: string): HeadInspection {
     if (!contentAttr) continue;
 
     const key = (nameAttr?.value ?? propAttr?.value ?? '').toLowerCase();
-    const isDynamic =
-      (!contentAttr.quote && (contentAttr.value ?? '').startsWith('{')) ||
-      isInsideBraceExpression(text, head.openEnd, parsed.start);
+    const bracePrefix = enclosingBracePrefix(text, head.openEnd, parsed.start);
+    const dynamicContent =
+      !contentAttr.quote && (contentAttr.value ?? '').startsWith('{');
+    const isDynamic = dynamicContent || bracePrefix !== null;
     const decodedValue = isDynamic
       ? (contentAttr.value ?? '')
-      : decodeEntities(contentAttr.value ?? '');
+      : decodeSeoText(contentAttr.value ?? '');
     const record: HeadTagMatch = {
       kind: isDynamic ? 'dynamic' : 'literal',
       value: decodedValue,
+      exprText: isDynamic
+        ? `${bracePrefix ?? ''} ${dynamicContent ? (contentAttr.value ?? '') : ''}`.trim()
+        : undefined,
       line: lineAt(text, parsed.start),
       start: parsed.start,
       end: parsed.tagEnd,
@@ -618,25 +658,15 @@ function setLayoutTagProps(
     const propName = existing?.name ?? update.primary;
 
     if (typeof update.value === 'boolean') {
-      if (!update.value) {
-        if (existing) {
-          let cutStart = existing.start;
-          while (cutStart > parsed.start && /[ \t]/.test(next[cutStart - 1])) {
-            cutStart -= 1;
-          }
-          next = next.slice(0, cutStart) + next.slice(existing.end);
-        }
+      const rendered = `${propName}={${update.value ? 'true' : 'false'}}`;
+      if (existing) {
+        next =
+          next.slice(0, existing.start) + rendered + next.slice(existing.end);
       } else {
-        const rendered = `${propName}={true}`;
-        if (existing) {
-          next =
-            next.slice(0, existing.start) + rendered + next.slice(existing.end);
-        } else {
-          const insertAt = parsed.selfClosing
-            ? parsed.tagEnd - 2
-            : parsed.tagEnd - 1;
-          next = `${next.slice(0, insertAt)} ${rendered}${next.slice(insertAt)}`;
-        }
+        const insertAt = parsed.selfClosing
+          ? parsed.tagEnd - 2
+          : parsed.tagEnd - 1;
+        next = `${next.slice(0, insertAt)} ${rendered}${next.slice(insertAt)}`;
       }
       continue;
     }
@@ -895,7 +925,9 @@ function updateStandaloneHead(
         const safeTitle = clean
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
+          .replace(/>/g, '&gt;')
+          .replace(/\{/g, '&#123;')
+          .replace(/\}/g, '&#125;');
         const rendered = `<title>${safeTitle}</title>`;
         if (inspected.title) {
           next =
@@ -1013,12 +1045,20 @@ export function readPageSeo(
       headTag: HeadTagMatch | null,
     ): SeoStringFieldState => {
       const prop = readTagProp(disk.text, normalizedRel, layout.tag, propNames);
-      if (headTag && headTag.kind === 'literal') {
-        return {
-          value: prop.value,
-          inherited: headTag.value,
-          locked: `set by code in ${layout.layoutRel}:${headTag.line}`,
-        };
+      if (headTag) {
+        if (headTag.kind === 'literal') {
+          return {
+            value: prop.value,
+            inherited: headTag.value,
+            locked: `set by code in ${layout.layoutRel}:${headTag.line}`,
+          };
+        }
+        if (!layoutTagConsumesProp(layoutText, headTag, propNames)) {
+          return {
+            value: prop.value,
+            locked: `set by code in ${layout.layoutRel}:${headTag.line}`,
+          };
+        }
       }
       return {
         value: prop.value,
@@ -1030,13 +1070,25 @@ export function readPageSeo(
       const prop = readTagProp(disk.text, normalizedRel, layout.tag, [
         'noindex',
       ]);
-      if (layoutHead.noindex && layoutHead.noindex.kind === 'literal') {
-        const inheritedNoindex = /\bnoindex\b/i.test(layoutHead.noindex.value);
-        return {
-          value: prop.boolValue,
-          inherited: inheritedNoindex,
-          locked: `set by code in ${layout.layoutRel}:${layoutHead.noindex.line}`,
-        };
+      if (layoutHead.noindex) {
+        if (layoutHead.noindex.kind === 'literal') {
+          const inheritedNoindex = /\bnoindex\b/i.test(
+            layoutHead.noindex.value,
+          );
+          return {
+            value: prop.boolValue,
+            inherited: inheritedNoindex,
+            locked: `set by code in ${layout.layoutRel}:${layoutHead.noindex.line}`,
+          };
+        }
+        if (
+          !layoutTagConsumesProp(layoutText, layoutHead.noindex, ['noindex'])
+        ) {
+          return {
+            value: prop.boolValue,
+            locked: `set by code in ${layout.layoutRel}:${layoutHead.noindex.line}`,
+          };
+        }
       }
       return {
         value: prop.boolValue,

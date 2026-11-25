@@ -7422,6 +7422,11 @@ test('WDL-266 layout-prop SEO writes <Base> props and updates Base.astro <head> 
     'only touches index.astro once Base.astro is wired',
   );
   assert.equal(second.entry.fields.noindex.value, false);
+  assert.match(
+    fs.readFileSync(pageFile, 'utf8'),
+    /noindex=\{false\}/,
+    'disabling noindex writes explicit noindex={false} so layout defaults cannot override it',
+  );
   assert.equal(
     fs.readFileSync(layoutFile, 'utf8').match(/name="description"/g)?.length,
     1,
@@ -7485,6 +7490,21 @@ test('WDL-266 standalone <head>, Markdown frontmatter, hash conflict, and shared
     { image: 'javascript:alert(1)' },
   );
   assert.equal(badUrl.ok, false);
+
+  // Standalone titles containing `{` / `}` are escaped safely and remain editable.
+  const braceSave = seo.writePageSeo(
+    dir,
+    'src/pages/landing.astro',
+    standaloneSave.entry.hash,
+    { title: 'Hello {world}' },
+  );
+  assert.equal(braceSave.ok, true);
+  assert.match(
+    fs.readFileSync(standaloneFile, 'utf8'),
+    /<title>Hello &#123;world&#125;<\/title>/,
+  );
+  assert.equal(braceSave.entry.fields.title.value, 'Hello {world}');
+  assert.equal(braceSave.entry.fields.title.locked, undefined);
 
   // 2. Markdown content frontmatter round-trip preserves body and unrelated keys,
   // and cleanly replaces multiline YAML block scalars without leaving orphaned lines.
@@ -7595,6 +7615,42 @@ test('WDL-266 standalone <head>, Markdown frontmatter, hash conflict, and shared
   assert.match(
     lockedSave.problem,
     /set by code in src\/layouts\/Fixed\.astro:4/,
+  );
+
+  // 4. Shared layout dynamic expression not bound to page prop (e.g. `{site.description}`) is also refused.
+  const computedLayout = path.join(dir, 'src/layouts/Computed.astro');
+  const computedPage = path.join(dir, 'src/pages/computed.astro');
+  fs.writeFileSync(
+    computedLayout,
+    [
+      '---',
+      'const site = { description: "Global" };',
+      '---',
+      '<!doctype html><html><head>',
+      '<meta name="description" content={site.description} />',
+      '</head><body><slot /></body></html>',
+      '',
+    ].join('\n'),
+  );
+  fs.writeFileSync(
+    computedPage,
+    "---\nimport Computed from '../layouts/Computed.astro';\n---\n<Computed><main>Hi</main></Computed>\n",
+  );
+  const computedRead = seo.readPageSeo(dir, 'src/pages/computed.astro');
+  assert.match(
+    computedRead.fields.description.locked ?? '',
+    /^set by code in src\/layouts\/Computed\.astro:5$/,
+  );
+  const computedSave = seo.writePageSeo(
+    dir,
+    'src/pages/computed.astro',
+    computedRead.hash,
+    { description: 'Page specific' },
+  );
+  assert.equal(computedSave.ok, false);
+  assert.match(
+    computedSave.problem,
+    /set by code in src\/layouts\/Computed\.astro:5/,
   );
 });
 
