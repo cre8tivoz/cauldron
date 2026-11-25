@@ -7071,6 +7071,121 @@ test('WDL-244 responsive CSS writes plain @media rules, imports once in Base.ast
     }).ok,
     false,
   );
+
+  // User-authored CSS outside or alongside managed blocks is preserved intact.
+  const cssPath = path.join(dir, responsiveCss.RESPONSIVE_CSS_REL);
+  fs.writeFileSync(
+    cssPath,
+    [
+      '/* Custom site styles */',
+      '@media (max-width: 600px) {',
+      '  .custom-banner { gap: 1rem; }',
+      '}',
+      '',
+      fs.readFileSync(cssPath, 'utf8'),
+    ].join('\n'),
+  );
+  const afterCustom = responsiveCss.writeResponsiveStyle(dir, id, 'tablet', {
+    color: 'var(--accent)',
+  });
+  assert.equal(afterCustom.ok, true);
+  const preservedCss = fs.readFileSync(cssPath, 'utf8');
+  assert.match(preservedCss, /@media \(max-width: 600px\)/);
+  assert.match(preservedCss, /\.custom-banner \{ gap: 1rem; \}/);
+  assert.match(preservedCss, /color: var\(--accent\) !important;/);
+
+  // Unique ID allocation never reuses an ID already present in source or responsive.css.
+  const occupiedSource = `<section data-cauldron-r="${id}">Moved</section>\n<section>Now here</section>`;
+  const freshId = responsiveCss.allocateResponsiveId(
+    dir,
+    occupiedSource,
+    'src/pages/index.astro',
+    12,
+    3,
+    'h1',
+  );
+  assert.notEqual(freshId, id);
+  assert.equal(responsiveCss.isValidResponsiveId(freshId), true);
+});
+
+test('WDL-244 responsive CSS wires custom layouts, standalone pages, and visibly refuses unwireable sites', () => {
+  // Custom layout (no Base.astro).
+  const customDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-resp-custom-'),
+  );
+  fs.mkdirSync(path.join(customDir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(customDir, 'src/pages'), { recursive: true });
+  const customLayout = path.join(customDir, 'src/layouts/Shell.astro');
+  const customPage = path.join(customDir, 'src/pages/index.astro');
+  fs.writeFileSync(
+    customLayout,
+    '---\n---\n<!doctype html><html><head></head><body><slot /></body></html>\n',
+  );
+  fs.writeFileSync(
+    customPage,
+    "---\nimport Shell from '../layouts/Shell.astro';\n---\n<Shell><h1>Hello</h1></Shell>\n",
+  );
+  const customId = responsiveCss.createResponsiveId(
+    'src/pages/index.astro',
+    4,
+    8,
+    'h1',
+  );
+  const customRes = responsiveCss.writeResponsiveStyle(
+    customDir,
+    customId,
+    'phone',
+    { padding: 'var(--space-2)' },
+    { targetFile: customPage },
+  );
+  assert.equal(customRes.ok, true);
+  assert.match(
+    fs.readFileSync(customLayout, 'utf8'),
+    /import '\.\.\/\.\.\/cauldron\/responsive\.css';/,
+  );
+
+  // Standalone layout-less page imports responsive.css directly.
+  const standaloneDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-resp-standalone-'),
+  );
+  fs.mkdirSync(path.join(standaloneDir, 'src/pages/blog'), { recursive: true });
+  const standalonePage = path.join(standaloneDir, 'src/pages/blog/post.astro');
+  fs.writeFileSync(
+    standalonePage,
+    '<!doctype html><html><head></head><body><h1>Standalone</h1></body></html>\n',
+  );
+  const standaloneRes = responsiveCss.writeResponsiveStyle(
+    standaloneDir,
+    customId,
+    'tablet',
+    { color: 'var(--text)' },
+    { targetFile: standalonePage },
+  );
+  assert.equal(standaloneRes.ok, true);
+  assert.match(
+    fs.readFileSync(standalonePage, 'utf8'),
+    /import '\.\.\/\.\.\/\.\.\/cauldron\/responsive\.css';/,
+  );
+
+  // Site with no layout and non-page component refuses visibly without creating responsive.css.
+  const orphanDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cauldron-resp-orphan-'),
+  );
+  fs.mkdirSync(path.join(orphanDir, 'src/components'), { recursive: true });
+  const compFile = path.join(orphanDir, 'src/components/Card.astro');
+  fs.writeFileSync(compFile, '<div>Card</div>\n');
+  const refused = responsiveCss.writeResponsiveStyle(
+    orphanDir,
+    customId,
+    'phone',
+    { color: 'red' },
+    { targetFile: compFile },
+  );
+  assert.equal(refused.ok, false);
+  assert.equal(
+    fs.existsSync(path.join(orphanDir, responsiveCss.RESPONSIVE_CSS_REL)),
+    false,
+  );
 });
 
 test('WDL-244 editing layer stays separate from preview viewport and resets on site switch', () => {
@@ -7121,6 +7236,16 @@ test('WDL-244 editing layer stays separate from preview viewport and resets on s
   assert.match(preload, /kind: 'reorder-sections'/);
   assert.match(preload, /contenteditable/);
   assert.match(preload, /if \(isCompareFrame\) return;/);
+  assert.match(
+    preload,
+    /!event\.isTrusted/,
+    'preview preload gates user interactions and writes on trusted events',
+  );
+  assert.match(
+    preload,
+    /editingUserTouched/,
+    'inline text commit requires trusted user input',
+  );
 });
 
 process.exitCode = failures ? 1 : 0;

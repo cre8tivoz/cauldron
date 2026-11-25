@@ -16,7 +16,7 @@ import { mergeProblemMessages } from '../problems';
 import { previewRouteFromUrl } from '../status-bar';
 import type { EditingLayer } from '../responsive-layer';
 import {
-  createResponsiveId,
+  allocateResponsiveId,
   readResponsiveStyles,
   writeResponsiveStyle,
 } from './responsive-css';
@@ -2991,32 +2991,67 @@ function writeResponsiveSelection(
   if (!selection || !site) {
     return { ok: false, problem: 'Nothing is selected.' };
   }
-  let responsiveId =
+  const existingResponsiveId =
     selection.snapshot.attributes.find(
       (attribute) => attribute.name === 'data-cauldron-r',
     )?.value ?? null;
-  if (!responsiveId) {
-    responsiveId = createResponsiveId(
+
+  // Before modifying cauldron/responsive.css, verify the target file has not
+  // changed on disk when we need to add `data-cauldron-r`.
+  if (!existingResponsiveId && !options?.force) {
+    const disk = readFile(selection.location.file);
+    if (disk.hash !== hashOf(selection.snapshot.sourceText)) {
+      return {
+        ok: false,
+        problem: 'The file changed on disk since this element was selected.',
+        conflict: {
+          file: relativeFile(selection.location.file),
+          reason: 'The file changed on disk since this element was selected.',
+        },
+      };
+    }
+  }
+
+  const responsiveId =
+    existingResponsiveId ??
+    allocateResponsiveId(
+      site.root,
+      selection.snapshot.sourceText,
       relativeFile(selection.location.file),
       selection.location.line,
       selection.location.column,
       selection.location.name,
     );
-    const tagged = writeSelection(
-      {
-        kind: 'attribute',
-        name: 'data-cauldron-r',
-        value: responsiveId,
-      },
-      options,
-    );
-    if (!tagged.ok) return tagged;
-  }
-  const res = writeResponsiveStyle(site.root, responsiveId, layer, properties);
+
+  // Wire & write responsive CSS first so an unsupported layout refuses visibly
+  // before mutating the element's source file.
+  const res = writeResponsiveStyle(site.root, responsiveId, layer, properties, {
+    targetFile: selection.location.file,
+  });
   if (!res.ok) {
     fail(res.problem);
     return { ok: false, problem: res.problem };
   }
+
+  // If the target file itself received an import (standalone layout-less page),
+  // keep the selection's line and snapshot aligned before adding data-cauldron-r.
+  const selfWrite = res.writes.find(
+    (write) => write.file === selection.location.file,
+  );
+  if (selfWrite) {
+    const lineDelta =
+      selfWrite.after.split('\n').length - selfWrite.before.split('\n').length;
+    selection.location = {
+      ...selection.location,
+      line: Math.max(1, selection.location.line + lineDelta),
+    };
+    const updatedSnapshot = snapshotElement(
+      selfWrite.after,
+      selection.location,
+    );
+    if (updatedSnapshot) selection.snapshot = updatedSnapshot;
+  }
+
   for (const write of res.writes) {
     state.history.record({
       file: write.file,
@@ -3031,6 +3066,19 @@ function writeResponsiveSelection(
       root: site.root,
     });
   }
+
+  if (!existingResponsiveId) {
+    const tagged = writeSelection(
+      {
+        kind: 'attribute',
+        name: 'data-cauldron-r',
+        value: responsiveId,
+      },
+      options,
+    );
+    if (!tagged.ok) return tagged;
+  }
+
   pushHistory();
   pushSelection();
   state.preview.reload();

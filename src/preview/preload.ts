@@ -12,6 +12,7 @@ let hoveredEl: Element | null = null;
 let selectedEl: Element | null = null;
 let editingEl: HTMLElement | null = null;
 let editingOriginalText = '';
+let editingUserTouched = false;
 let selectionMeta: {
   path: string;
   textEditable: boolean;
@@ -264,6 +265,7 @@ function makePillButton(
     'white-space: nowrap',
   ].join(';');
   btn.addEventListener('click', (event) => {
+    if (!event.isTrusted) return;
     event.preventDefault();
     event.stopPropagation();
     onClick(event);
@@ -312,12 +314,14 @@ function canInlineEditElement(element: Element): element is HTMLElement {
 function finishInlineEdit(commit: boolean): void {
   const el = editingEl;
   if (!el) return;
+  const userTouched = editingUserTouched;
   editingEl = null;
+  editingUserTouched = false;
   const src = sourceOf(el);
   const nextText = (el.textContent ?? '').trim();
   el.removeAttribute('contenteditable');
   el.removeAttribute('data-cauldron-editing');
-  if (!commit) {
+  if (!commit || !userTouched) {
     el.textContent = editingOriginalText;
     renderSelectionPill();
     return;
@@ -343,6 +347,7 @@ function beginInlineEdit(element: HTMLElement): void {
   if (!canInlineEditElement(element)) return;
   editingEl = element;
   editingOriginalText = element.textContent ?? '';
+  editingUserTouched = false;
   try {
     element.setAttribute('contenteditable', 'plaintext-only');
   } catch {
@@ -371,7 +376,9 @@ function startCanvasSectionDrag(
   handle: HTMLElement,
   fromIndex: number,
 ): void {
-  if (event.button !== 0 || isCompareFrame || activeDrag) return;
+  if (!event.isTrusted || event.button !== 0 || isCompareFrame || activeDrag) {
+    return;
+  }
   const resolved = resolveSectionElements();
   if (resolved.length < 2) return;
   const elements = resolved.map((entry) => entry.element);
@@ -581,6 +588,7 @@ window.addEventListener('DOMContentLoaded', () => {
     'pointermove',
     (event) => {
       if (activeDrag && event.pointerId === activeDrag.pointerId) {
+        if (!event.isTrusted) return;
         event.preventDefault();
         const target = computeDropTarget(
           event.clientY,
@@ -601,7 +609,13 @@ window.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      if (!picking || editingEl || isCanvasUiNode(event.target)) return;
+      if (
+        !event.isTrusted ||
+        !picking ||
+        editingEl ||
+        isCanvasUiNode(event.target)
+      )
+        return;
       const target = event.target as Element | null;
       const candidate =
         target?.closest(
@@ -620,6 +634,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener(
     'pointerup',
     (event) => {
+      if (!event.isTrusted) return;
       if (!activeDrag || event.pointerId !== activeDrag.pointerId) return;
       const { fromIndex, target } = activeDrag;
       cancelCanvasDrag();
@@ -640,6 +655,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener(
     'pointercancel',
     (event) => {
+      if (!event.isTrusted) return;
       if (activeDrag && event.pointerId === activeDrag.pointerId) {
         cancelCanvasDrag();
       }
@@ -648,9 +664,21 @@ window.addEventListener('DOMContentLoaded', () => {
   );
 
   document.addEventListener(
+    'input',
+    (event) => {
+      if (!event.isTrusted || !editingEl) return;
+      const target = event.target as Node | null;
+      if (target && (target === editingEl || editingEl.contains(target))) {
+        editingUserTouched = true;
+      }
+    },
+    true,
+  );
+
+  document.addEventListener(
     'click',
     (event) => {
-      if (!picking) return;
+      if (!event.isTrusted || !picking) return;
       if (isCanvasUiNode(event.target)) return;
       const target = event.target as Element | null;
       if (!target || target.nodeType !== 1) return;
@@ -672,7 +700,14 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener(
     'dblclick',
     (event) => {
-      if (!picking || isCompareFrame || isCanvasUiNode(event.target)) return;
+      if (
+        !event.isTrusted ||
+        !picking ||
+        isCompareFrame ||
+        isCanvasUiNode(event.target)
+      ) {
+        return;
+      }
       const target = event.target as Element | null;
       if (!target || target.nodeType !== 1) return;
       const element = target.closest(
@@ -690,6 +725,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener(
     'keydown',
     (event) => {
+      if (!event.isTrusted) return;
       if (activeDrag && event.key === 'Escape') {
         event.preventDefault();
         cancelCanvasDrag();
@@ -720,6 +756,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener(
     'focusout',
     (event) => {
+      if (!event.isTrusted) return;
       if (editingEl && event.target === editingEl) {
         finishInlineEdit(true);
       }
