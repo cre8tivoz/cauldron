@@ -755,7 +755,6 @@ textarea:focus-visible {
 
 .notice {
   border: 1px solid var(--hairline);
-  border-left: 3px solid var(--accent-coral, #c84b31);
   background: var(--panel-sunken);
   border-radius: 8px;
   padding: 10px 14px;
@@ -765,11 +764,13 @@ textarea:focus-visible {
 }
 
 .notice.bad {
-  border-left-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--hairline));
+  background: color-mix(in srgb, var(--danger) 7%, var(--panel-sunken));
 }
 
 .notice.good {
-  border-left-color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--hairline));
+  background: color-mix(in srgb, var(--ok) 7%, var(--panel-sunken));
 }
 
 .notice-actions {
@@ -2045,12 +2046,12 @@ textarea:focus-visible {
   text-align: center;
   gap: 12px;
   padding: 48px 40px;
-  color: var(--ink);
+  color: var(--text);
 }
 
 .no-site-gate h2 {
   margin: 0;
-  font-size: var(--size-5);
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -2058,7 +2059,7 @@ textarea:focus-visible {
 .no-site-gate p {
   margin: 0;
   color: var(--muted);
-  font-size: var(--size-3);
+  font-size: 14px;
   line-height: 1.6;
   max-width: 46ch;
 }
@@ -2181,9 +2182,9 @@ textarea:focus-visible {
   max-width: 280px;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: 6px;
-  background: var(--surface);
+  background: var(--panel);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -2734,7 +2735,6 @@ textarea:focus-visible {
   gap: 14px;
   background: var(--panel);
   border: 1px solid var(--hairline);
-  border-left: 3px solid var(--danger);
   border-radius: 8px;
   padding: 12px 14px;
   margin-bottom: 8px;
@@ -3998,7 +3998,7 @@ html.cauldron-outline-dragging * {
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid var(--hairline);
-  background: var(--surface, var(--panel-sunken));
+  background: var(--panel-sunken);
   color: var(--text);
   font: inherit;
   font-size: 13px;

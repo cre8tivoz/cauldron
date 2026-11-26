@@ -515,7 +515,7 @@ export function PageOutline({
         gap: 12,
         padding: '12px 14px',
         borderBottom: '1px solid var(--hairline)',
-        background: 'var(--surface, #1e1e1e)',
+        background: 'var(--panel)',
       }}
     >
       <div
@@ -574,7 +574,7 @@ export function PageOutline({
               fontSize: 11,
               padding: '2px 6px',
               borderRadius: 4,
-              background: 'var(--bg, #141414)',
+              background: 'var(--panel-sunken)',
               color: 'inherit',
               border: '1px solid var(--hairline)',
             }}
@@ -639,7 +639,7 @@ export function PageOutline({
                     justifyContent: 'space-between',
                     padding: '6px 8px',
                     borderRadius: 4,
-                    background: 'var(--bg, #141414)',
+                    background: 'var(--panel-sunken)',
                     border: '1px solid var(--hairline)',
                     fontSize: 12,
                   }}
@@ -826,7 +826,7 @@ export function PageOutline({
                         padding: '2px 6px',
                         borderRadius: 3,
                         border: '1px solid var(--hairline)',
-                        background: 'var(--surface)',
+                        background: 'var(--panel-sunken)',
                         color: 'inherit',
                       }}
                     />

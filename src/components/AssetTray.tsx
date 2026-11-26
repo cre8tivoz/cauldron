@@ -156,7 +156,7 @@ export function AssetTray({
           textAlign: 'center',
           background: isDragging
             ? 'rgba(49, 130, 206, 0.08)'
-            : 'var(--bg, #141414)',
+            : 'var(--panel-sunken)',
           cursor: 'pointer',
           transition: 'all 0.15s ease',
         }}
