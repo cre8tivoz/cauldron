@@ -96,10 +96,11 @@ function ConfirmDialog({
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    // Open once, and never close() in a cleanup: StrictMode re-runs this
+    // effect on the same node, and a cleanup close() fires `close`, which
+    // onClose reads as Cancel, so the dialog vanished within milliseconds.
+    // A real unmount removes the node, which leaves the top layer silently.
     if (!dialog.open) dialog.showModal();
-    return () => {
-      if (dialog.open) dialog.close();
-    };
   }, []);
 
   return (

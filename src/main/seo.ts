@@ -582,7 +582,14 @@ function readTagProp(
       (inner.startsWith('"') && inner.endsWith('"')) ||
       (inner.startsWith("'") && inner.endsWith("'"))
     ) {
-      const unquoted = inner.slice(1, -1);
+      let unquoted = inner.slice(1, -1);
+      if (inner.startsWith('"')) {
+        try {
+          unquoted = String(JSON.parse(inner));
+        } catch {
+          // keep the raw text between the quotes
+        }
+      }
       return {
         present: true,
         value: unquoted,
@@ -596,11 +603,12 @@ function readTagProp(
       locked: `set by code in ${pageRel}:${lineAt(pageText, attr.start)}`,
     };
   }
-  const decoded = decodeEntities(attr.value);
+  // A quoted prop reaches the layout exactly as written (Astro does not
+  // decode entities in component props), so show it exactly as written.
   return {
     present: true,
-    value: decoded,
-    boolValue: decoded === 'true',
+    value: attr.value,
+    boolValue: attr.value === 'true',
   };
 }
 
@@ -683,7 +691,11 @@ function setLayoutTagProps(
       continue;
     }
 
-    const rendered = `${propName}="${escapeAttribute(cleanVal)}"`;
+    // Astro passes a quoted component prop through literally (no entity
+    // decoding), so write the text as typed, or as a JS string if it has a quote.
+    const rendered = cleanVal.includes('"')
+      ? `${propName}={${JSON.stringify(cleanVal)}}`
+      : `${propName}="${cleanVal}"`;
     if (existing) {
       next =
         next.slice(0, existing.start) + rendered + next.slice(existing.end);

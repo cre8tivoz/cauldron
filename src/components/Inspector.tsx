@@ -85,7 +85,7 @@ export function Inspector({
         style={{
           display: 'flex',
           borderBottom: '1px solid var(--hairline)',
-          background: 'var(--surface, #1e1e1e)',
+          background: 'var(--panel)',
           flexShrink: 0,
         }}
       >
@@ -103,7 +103,7 @@ export function Inspector({
                 ? '2px solid var(--accent, #3182ce)'
                 : '2px solid transparent',
             background: 'transparent',
-            color: tab === 'element' ? 'var(--fg, #fff)' : 'var(--muted)',
+            color: tab === 'element' ? 'var(--text)' : 'var(--muted)',
             cursor: 'pointer',
           }}
         >
@@ -123,7 +123,7 @@ export function Inspector({
                 ? '2px solid var(--accent, #3182ce)'
                 : '2px solid transparent',
             background: 'transparent',
-            color: tab === 'outline' ? 'var(--fg, #fff)' : 'var(--muted)',
+            color: tab === 'outline' ? 'var(--text)' : 'var(--muted)',
             cursor: 'pointer',
           }}
         >
@@ -143,7 +143,7 @@ export function Inspector({
                 ? '2px solid var(--accent, #3182ce)'
                 : '2px solid transparent',
             background: 'transparent',
-            color: tab === 'assets' ? 'var(--fg, #fff)' : 'var(--muted)',
+            color: tab === 'assets' ? 'var(--text)' : 'var(--muted)',
             cursor: 'pointer',
           }}
         >

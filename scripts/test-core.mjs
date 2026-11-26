@@ -7695,4 +7695,145 @@ test('WDL-266 measured SEO quality findings check title, 1-160 char description,
   );
 });
 
+// WDL-270: the app's own chrome. Two classes of slop, guarded as classes.
+const appStyleFiles = () => {
+  const out = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(css|tsx)$/.test(entry.name)) out.push(full);
+    }
+  };
+  walk(path.join(repoRoot, 'src'));
+  return out;
+};
+
+test('WDL-270 the app has no coloured side stripes on cards, notices or rows', () => {
+  const stripes = [];
+  for (const file of appStyleFiles()) {
+    const text = fs.readFileSync(file, 'utf8');
+    const rel = path.relative(repoRoot, file);
+    const rules = [
+      // border-left: 3px solid …, borderLeft: '3px solid …'
+      /border-?(left|right|inline-?start|inline-?end)\s*:\s*['"]?\s*([2-9]|\d{2,})px\s+solid/gi,
+      // border-left-color: …, borderLeftColor: …
+      /border-?(left|right|inline-?start|inline-?end)-?color\s*:/gi,
+      // box-shadow: inset 3px 0 0 …
+      /box-?shadow\s*:\s*['"]?\s*inset\s+-?([2-9]|\d{2,})px\s+0/gi,
+    ];
+    for (const rule of rules) {
+      for (const match of text.matchAll(rule)) {
+        stripes.push(
+          `${rel}:${text.slice(0, match.index).split('\n').length} ${match[0]}`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(
+    stripes,
+    [],
+    'side stripes read as generated UI; tint the whole box instead',
+  );
+});
+
+test('WDL-270 every token the app uses is defined, so light mode never falls back to dark', () => {
+  const defined = new Set();
+  const used = [];
+  const texts = appStyleFiles().map((file) => [
+    file,
+    fs.readFileSync(file, 'utf8'),
+  ]);
+  for (const [, text] of texts) {
+    for (const m of text.matchAll(/(--[a-zA-Z0-9-]+)\s*:/g)) defined.add(m[1]);
+    for (const m of text.matchAll(/['"](--[a-zA-Z0-9-]+)['"]\s*[:\],)]/g))
+      defined.add(m[1]);
+  }
+  for (const file of fs.readdirSync(path.join(repoRoot, 'src'), {
+    recursive: true,
+  })) {
+    if (!/\.(ts|tsx)$/.test(String(file))) continue;
+    const text = fs.readFileSync(
+      path.join(repoRoot, 'src', String(file)),
+      'utf8',
+    );
+    for (const m of text.matchAll(/setProperty\(\s*['"](--[a-zA-Z0-9-]+)/g))
+      defined.add(m[1]);
+  }
+  for (const [file, text] of texts) {
+    for (const m of text.matchAll(/var\((--[a-zA-Z0-9-]+)/g)) {
+      // Site tokens (--cauldron-*) and direction-card tokens (--dm-*) belong to
+      // the sites and cards Cauldron renders, not to the app's own chrome.
+      if (/^--(cauldron|dm)-/.test(m[1]) || defined.has(m[1])) continue;
+      used.push(
+        `${path.relative(repoRoot, file)}:${text.slice(0, m.index).split('\n').length} ${m[1]}`,
+      );
+    }
+  }
+  assert.deepEqual(used, [], 'undefined tokens');
+});
+
+test('WDL-269 SEO writes & and quotes into <Base> props so the page shows them as typed', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-seo-entities-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'src/layouts/Base.astro'),
+    [
+      '---',
+      'const { title } = Astro.props;',
+      '---',
+      '<html><head><title>{title}</title></head><body><slot /></body></html>',
+      '',
+    ].join('\n'),
+  );
+  const page = path.join(dir, 'src/pages/index.astro');
+  fs.writeFileSync(
+    page,
+    [
+      '---',
+      "import Base from '../layouts/Base.astro';",
+      '---',
+      '<Base title="Sunrise Bakery">',
+      '  <main><h1>Hi</h1></main>',
+      '</Base>',
+      '',
+    ].join('\n'),
+  );
+  const before = seo.readPageSeo(dir, 'src/pages/index.astro');
+  const plain = seo.writePageSeo(dir, 'src/pages/index.astro', before.hash, {
+    title: 'Bakery & Hearth',
+  });
+  assert.equal(plain.ok, true, JSON.stringify(plain));
+  let text = fs.readFileSync(page, 'utf8');
+  assert.match(text, /<Base title="Bakery & Hearth">/);
+  assert.doesNotMatch(text, /&amp;/);
+  const afterPlain = seo.readPageSeo(dir, 'src/pages/index.astro');
+  assert.equal(afterPlain.fields.title.value, 'Bakery & Hearth');
+
+  const quoted = seo.writePageSeo(
+    dir,
+    'src/pages/index.astro',
+    afterPlain.hash,
+    { title: 'Say "hi" & stay' },
+  );
+  assert.equal(quoted.ok, true, JSON.stringify(quoted));
+  text = fs.readFileSync(page, 'utf8');
+  assert.ok(text.includes('<Base title={"Say \\"hi\\" & stay"}>'), text);
+  assert.equal(
+    seo.readPageSeo(dir, 'src/pages/index.astro').fields.title.value,
+    'Say "hi" & stay',
+  );
+});
+
+test('WDL-267 the confirm dialog is never closed by its own effect cleanup', () => {
+  const app = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  const start = app.indexOf('function ConfirmDialog(');
+  const body = app.slice(start, app.indexOf('\nexport function App(', start));
+  assert.ok(start >= 0 && body.includes('showModal()'));
+  // StrictMode re-runs effects on the same node; a cleanup close() fires
+  // `close`, onClose treats it as Cancel, and the dialog disappears at once.
+  assert.doesNotMatch(body, /return \(\) => \{[^}]*\.close\(/);
+});
+
 process.exitCode = failures ? 1 : 0;
