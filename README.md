@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/cauldron-hero.jpg" alt="Cauldron workspace showing the Agent panel, live Sunday Table Astro preview, and Page Structure outline" width="900">
+  <img src=".github/readme/cauldron-hero.jpg" alt="Cauldron workspace showing the Agent panel with starter prompts, live Sunday Table Astro preview with canvas selection controls, and the visual Inspector" width="900">
 </p>
 
 Cauldron opens or creates an [Astro](https://astro.build) site folder on your Mac and shows the real site live alongside an AI agent and visual inspector. Edit by hand or ask your agent to build; everything is saved as ordinary Astro files in your own folder, with no lock-in.
@@ -35,7 +35,7 @@ No agent installed? Choose **Your AI key** in the Agent panel and paste a key fr
 Pick from **10 curated design directions** (including Long Lunch, Clear Ground, Solid Ground, Silver Screen, Componine, Niki Studio, and Henry From Online) or measure a reference URL to generate tokens for colour, typography, spacing, and radii. Preview your site at **Desktop**, **Tablet (768px)**, and **Phone (375px)** widths — one at a time, or all three side by side with **Compare widths**, each rendered at its real width so the layout reacts exactly as it will on a phone.
 
 <p align="center">
-  <img src=".github/readme/cauldron-design.jpg" alt="Design directions screen showing curated palettes, typography pairings, and reference URL matcher" width="840">
+  <img src=".github/readme/cauldron-design.jpg" alt="Design directions screen showing ten miniature page previews, curated palettes, typography pairings, and reference URL matcher" width="840">
 </p>
 
 ## Publish or export
@@ -50,12 +50,12 @@ Commit and push through the site's own Git repository, deploy in one click to **
 
 <table>
   <tr>
-    <td width="50%"><img src=".github/readme/cauldron-projects.jpg" alt="Projects home screen with five starter templates and project cards"><br><b>Projects &amp; starters.</b> Five ready-to-go Astro starters and project cards with live snapshots.</td>
+    <td width="50%"><img src=".github/readme/cauldron-projects.jpg" alt="Projects home screen showing site cards with live preview snapshots"><br><b>Projects &amp; starters.</b> Five ready-to-go Astro starters and project cards with live snapshots.</td>
     <td width="50%"><img src=".github/readme/cauldron-library.jpg" alt="Section library showing plain-Astro tokenised components and search"><br><b>Section library.</b> A plain-Astro, tokenised library across seven categories, with live previews and search.</td>
   </tr>
   <tr>
     <td><img src=".github/readme/cauldron-quality.jpg" alt="Quality checks report measuring load speed, tokens, headings, and responsive layout"><br><b>Quality &amp; accessibility.</b> Real build checks across 375px, 768px, and 1280px widths, with agent follow-up.</td>
-    <td><img src=".github/readme/cauldron-hero.jpg" alt="Live Astro workspace with page outline and local files"><br><b>Local files, zero lock-in.</b> Plain Astro files on your Mac, buildable anywhere without Cauldron.</td>
+    <td><img src=".github/readme/cauldron-seo.jpg" alt="SEO panel showing page audit sidebar, title and description fields, and live Google Search and social share previews"><br><b>SEO in your own files.</b> Edit page titles, descriptions, share images, and noindex directly in your Astro and Markdown files with live search and social previews.</td>
   </tr>
 </table>
 
@@ -94,12 +94,12 @@ npm run smoke       # package the app, open it hidden, confirm it renders
 npm run verify:mac  # run check + local Mac smoke verification
 ```
 
-| Folder            | Contents                                                                                        |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| `src/main/`       | Electron main process: Astro dev server, preview host, MCP actions, agents, quality, publishing |
-| `src/components/` | React editor interface (Agent panel, Inspector, Projects, Library, Design, Quality, Publishing) |
-| `scripts/`        | Unit test suites (`test-core`, `test-agent`, `test-gemini-upgrades`) and smoke checks           |
-| `docs/adr/`       | Architecture Decision Records explaining why Cauldron is built the way it is                    |
+| Folder            | Contents                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| `src/main/`       | Electron main process: Astro dev server, preview host, MCP actions, agents, quality, publishing               |
+| `src/components/` | React editor interface (Agent panel, Inspector, Projects, Library, Design, Content, SEO, Quality, Publishing) |
+| `scripts/`        | Unit test suites (`test-core`, `test-agent`, `test-gemini-upgrades`) and smoke checks                         |
+| `docs/adr/`       | Architecture Decision Records explaining why Cauldron is built the way it is                                  |
 
 Want to tinker or send a pull request? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
