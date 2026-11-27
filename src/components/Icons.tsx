@@ -9,8 +9,8 @@ export function CauldronMark({ size = 32 }: { size?: number }) {
         width: size,
         height: size,
         borderRadius: Math.round(size * 0.25),
-        background: 'var(--accent-coral, #c84b31)',
-        color: '#ffffff',
+        background: 'var(--primary)',
+        color: 'var(--primary-text)',
         display: 'grid',
         placeItems: 'center',
         fontFamily: "'Fraunces', Georgia, serif",
@@ -390,7 +390,7 @@ export function CheckCircleIcon({
 
 export function WarningTriangleIcon({
   size = 16,
-  color = '#e05e46',
+  color = 'var(--danger)',
 }: {
   size?: number;
   color?: string;
@@ -401,7 +401,7 @@ export function WarningTriangleIcon({
       height={size}
       viewBox="0 0 24 24"
       fill="none"
-      stroke={color}
+      style={{ stroke: color }}
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"

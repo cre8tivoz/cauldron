@@ -3556,9 +3556,9 @@ export async function runUiTest(
     await wait(300);
     const look = await layout();
     check(
-      '3.1 Coral, Source Sans 3 and the Mac system theme are kept',
+      '3.1 Ink & Violet, Source Sans 3 and the Mac system theme are kept',
       /Source Sans 3/.test(look.font) &&
-        (look.dark ? look.accent === '#ffa99a' : look.accent === '#a13f33'),
+        (look.dark ? look.accent === '#a58cf0' : look.accent === '#5b3cc4'),
       `font=${look.font} accent=${look.accent} dark=${look.dark}`,
     );
 

@@ -1133,7 +1133,7 @@ function highlightLocs(
       ];
     });
   const css = on
-    ? `${[...new Set(selectors)].join(',')}{outline:2px solid #ffa99a !important;outline-offset:2px !important}`
+    ? `${[...new Set(selectors)].join(',')}{outline:2px solid #a58cf0 !important;outline-offset:2px !important}`
     : '';
   void view
     .executeJavaScript(

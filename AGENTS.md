@@ -42,7 +42,7 @@ The site stays ordinary Astro files in the person's own folder, buildable withou
 - **macOS distribution & signing (closed):** Cauldron distributes through **GitHub Releases** as an **unsigned** Apple Silicon build (`Cauldron-darwin-arm64-<version>.zip`) with **"Open Anyway"** instructions in [`README.md`](README.md). Do not reopen Apple Developer code signing/notarisation (Billy has no Apple Developer account), a `witchdaddylabs.com` download page (`WDL-178` canceled), or manual Gatekeeper testing on a second Mac (no second Mac is available; ruled out permanently and must not be added to any backlog or "not proven" list).
 - **Design judgement is closed.** Billy accepted the reviewed PeNtA iteration. No further blind comparisons or regeneration are required.
 - **Ten design directions**, including Componine, Niki Studio and Henry From Online. Keep them.
-- **App look:** Source Sans 3, Coral, system light/dark. Agent on the left, preview in the centre, inspector on the right. Minimum window 1280 × 800. The websites it makes must still work at phone, tablet and desktop widths.
+- **App look:** Source Sans 3, Ink & Violet (ink buttons, violet selection, from the splash; `WDL-272`), system light/dark. Agent on the left, preview in the centre, inspector on the right. Minimum window 1280 × 800. The websites it makes must still work at phone, tablet and desktop widths.
 - The app icon and startup splash are final.
 
 ## Rules

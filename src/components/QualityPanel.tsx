@@ -83,7 +83,7 @@ export function QualityPanel({
   const renderFailingRow = (finding: QualityFinding) => (
     <div className="notice bad quality-failure-card" key={finding.id}>
       <div className="failure-card-left">
-        <WarningTriangleIcon size={18} color="#e05e46" />
+        <WarningTriangleIcon size={18} />
         <div className="failure-title-group">
           <strong className="failure-label">{finding.label}</strong>
           <span className="failure-loc">
