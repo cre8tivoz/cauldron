@@ -61,17 +61,17 @@ Commit and push through the site's own Git repository, deploy in one click to **
 
 ## Download (unsigned Mac build)
 
-Download **`Cauldron-darwin-arm64-0.10.0.zip`** from [GitHub Releases](https://github.com/cre8tivoz/cauldron/releases), or build it locally from source (`Node.js` 26.13, `npm` 12):
+Download **`Cauldron-darwin-arm64-0.150.0.zip`** from [GitHub Releases](https://github.com/cre8tivoz/cauldron/releases), or build it locally from source (`Node.js` 26.13, `npm` 12):
 
 ```bash
 npm install
-npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.10.0.zip
+npm run make   # produces out/make/zip/darwin/arm64/Cauldron-darwin-arm64-0.150.0.zip
 ```
 
 > **Unsigned macOS app — first launch:**
 > Cauldron is distributed **unsigned and not notarised** (no Apple Developer certificate). On first launch, macOS Gatekeeper may block `Cauldron.app`:
 >
-> 1. Unzip `Cauldron-darwin-arm64-0.10.0.zip` and move **`Cauldron.app`** into **Applications**.
+> 1. Unzip `Cauldron-darwin-arm64-0.150.0.zip` and move **`Cauldron.app`** into **Applications**.
 > 2. Try opening **`Cauldron.app`**. If macOS says the developer cannot be verified, dismiss the dialog.
 > 3. Open **System Settings → Privacy & Security**, scroll down to the Cauldron notice, click **Open Anyway**, and confirm **Open**.
 
