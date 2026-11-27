@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in Cauldron isn't working the way it should.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. No ticket or invite needed — just fill this in and we'll have a look.
+  - type: textarea
+    id: what-you-did
+    attributes:
+      label: What you did
+      description: The steps you took, in plain language.
+    validations:
+      required: true
+  - type: textarea
+    id: what-you-expected
+    attributes:
+      label: What you expected
+      description: What you thought would happen.
+    validations:
+      required: true
+  - type: textarea
+    id: what-you-saw
+    attributes:
+      label: What you saw
+      description: What actually happened. Paste any error message here.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Cauldron version and macOS version
+      description: Both, please. The Cauldron version is in the About window.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area?
+      description: Pick the closest one.
+      options:
+        - Setup
+        - Preview
+        - Editing
+        - Saving
+        - Agent
+        - Design taste
+        - Publishing
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: every-time
+    attributes:
+      label: Does it happen every time?
+      options:
+        - Every time
+        - Sometimes
+        - Only once
+        - Not sure
+    validations:
+      required: true

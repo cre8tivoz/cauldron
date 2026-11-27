@@ -1,0 +1,33 @@
+name: Feature idea
+description: Something you'd like Cauldron to do.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome from everyone. No ticket or invite needed — just tell us what you've got in mind.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem?
+      description: What's awkward, missing or annoying today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: Explain it like you would to a mate. Rough is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: who-it-helps
+    attributes:
+      label: Who it helps
+      description: You, your clients, other Cauldron users — whoever it is.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What else you tried
+      description: Workarounds you've tried, or other ways you thought of doing it. Optional.
