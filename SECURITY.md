@@ -27,6 +27,8 @@ A public issue gives everyone the details before there's a fix. Please don't ope
 
 The advisory goes straight to the maintainer and stays private.
 
+If you can't see **Report a vulnerability**, or you'd rather not use GitHub's advisory flow, contact the maintainer through GitHub at **[@cre8tivoz](https://github.com/cre8tivoz)** and say only that you have a security report — don't put the details in a public issue, a pull request or a direct message thread.
+
 ## What to expect
 
 This is a one-person project, so this is best effort. You'll usually hear back within a week, though I can't promise that every time. If the problem's confirmed, the fix ships in the **next release**, with a note about it in that release.
