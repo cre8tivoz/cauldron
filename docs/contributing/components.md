@@ -36,35 +36,34 @@ A piece that breaks one of these will be measured and rejected — not because o
 
 **3. No one-sided coloured accent bars.** A solid bar of 2px or more down one edge of a card, callout or row, with no matching edge, is out — it is the single most recognisable sign of a template. Use an even border, a tinted background, or a full-width rule. Hairlines, dashed tear lines and even borders are all fine.
 
-**4. Use the scales, and respect motion preferences.** Spacing and type come from the token scales (`--cauldron-space-*`, `--cauldron-size-*`); display type uses `--cauldron-font-display`. Every animation goes inside `@media (prefers-reduced-motion: reduce)` with a settled state, and layouts with more than one column must collapse at phone width.
+**4. Use the scales, and respect motion preferences.** Spacing and type come from the token scales (`--cauldron-space-*`, `--cauldron-size-*`); display type uses `--cauldron-font-display`. An animation runs as normal, and `@media (prefers-reduced-motion: reduce)` turns it off and leaves the settled state — never the other way round. Any layout with more than one column must collapse at phone width.
 
 Two more that aren't measured but matter: **no emoji in place of icons**, and **don't nest cards in cards** — pick one surface.
 
 ## A worked example
 
-Illustrative rather than shipped — paste it into the Sections block and it will appear in the library. Note the token use, the fallback on the accent, and the reduced-motion rule.
+A pull quote — one sentence, a name, a hairline rule. Nothing in the catalogue does this yet, and it needs no script, no accent colour and no motion, which makes it a good first piece.
 
 ```ts
 cataloguePiece(
-  'stat-row',
-  'Stat Row',
+  'pull-quote',
+  'Pull Quote',
   'Sections',
-  'Three figures with short labels, ruled top and bottom',
-  `<div class="sr-wrap">
-  <div class="sr-stat"><span class="sr-figure">24</span><span class="sr-label">Years open</span></div>
-  <div class="sr-stat"><span class="sr-figure">180</span><span class="sr-label">Seats inside</span></div>
-  <div class="sr-stat"><span class="sr-figure">7am</span><span class="sr-label">Doors, daily</span></div>
-</div>`,
-  `.cauldron-stat-row { background: var(--cauldron-c-bg); color: var(--cauldron-c-ink); padding: var(--cauldron-space-7) var(--cauldron-space-6); }
-.cauldron-stat-row .sr-wrap { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--cauldron-space-5); max-width: 900px; margin: 0 auto; border-top: 1px solid var(--cauldron-c-hairline, color-mix(in srgb, var(--cauldron-c-ink) 18%, transparent)); border-bottom: 1px solid var(--cauldron-c-hairline, color-mix(in srgb, var(--cauldron-c-ink) 18%, transparent)); padding: var(--cauldron-space-6) 0; }
-.cauldron-stat-row .sr-stat { display: grid; gap: var(--cauldron-space-2); text-align: center; }
-.cauldron-stat-row .sr-figure { font-family: var(--cauldron-font-display); font-size: var(--cauldron-size-7); line-height: 1; color: var(--cauldron-c-primary-text, var(--cauldron-c-primary)); }
-.cauldron-stat-row .sr-label { font-size: var(--cauldron-size-2); color: var(--cauldron-c-muted); }
-@media (max-width: 640px) { .cauldron-stat-row .sr-wrap { grid-template-columns: 1fr; } }`,
+  'One sentence from a client, with their name under it',
+  `<figure class="pq-wrap">
+  <blockquote class="pq-quote">They rebuilt the menu in an afternoon and the room has not been quiet since.</blockquote>
+  <figcaption class="pq-caption">Marco Dell'Aqua, Sunday Table</figcaption>
+</figure>`,
+  `.cauldron-pull-quote { background: var(--cauldron-c-bg); color: var(--cauldron-c-ink); padding: var(--cauldron-space-8) var(--cauldron-space-6); }
+.cauldron-pull-quote .pq-wrap { max-width: 760px; margin: 0 auto; padding-top: var(--cauldron-space-6); border-top: 1px solid color-mix(in srgb, var(--cauldron-c-ink) 18%, transparent); }
+.cauldron-pull-quote .pq-quote { font-family: var(--cauldron-font-display); font-size: var(--cauldron-size-6); line-height: 1.2; margin: 0 0 var(--cauldron-space-4); }
+.cauldron-pull-quote .pq-caption { font-size: var(--cauldron-size-2); letter-spacing: 0.06em; text-transform: uppercase; color: var(--cauldron-c-muted); }`,
 );
 ```
 
-The figure uses `--cauldron-c-primary-text` with a fallback because on a direction whose primary is pale, the plain primary would be unreadable at large size. That fallback is the difference between a piece that passes in all ten directions and one that only looks right in three.
+It passes every direction because it uses `--cauldron-c-ink` for the quote and `--cauldron-c-muted` for the caption, both of which each direction has already balanced against its own background. The rule at the top is a `color-mix` of the ink so it follows the direction instead of being a fixed grey.
+
+The moment you reach for `--cauldron-c-primary` as a text colour, use `--cauldron-c-primary-text` with the primary as a fallback — `var(--cauldron-c-primary-text, var(--cauldron-c-primary))`. That token exists because on a direction with a pale primary, painted primary text is unreadable; the fallback keeps the piece working on sites whose tokens predate it. This is the difference between a piece that passes in all ten directions and one that only looks right in three.
 
 ## Proving it
 
@@ -101,4 +100,6 @@ Fastest way to have a piece sent back:
 - three columns that don't collapse on a phone;
 - a second card inside a card.
 
-None of these are opinions. Every one of them is a defect someone already shipped, and the harness now catches each of them.
+None of these are opinions — each one is a defect that shipped in an earlier version of the catalogue.
+
+They are not all caught the same way. `test:library:render` measures contrast on real glyph pixels, horizontal overflow at 375px, keyboard and mouse interaction, and the JavaScript-off fallback. `npm run check` catches hard-coded colours in a few structural ways, and its token rules cover the pieces it knows about. The rest — placeholder copy, emoji standing in for icons, a card inside a card, three columns that do not collapse — are **reviewed by eye**, so a green harness is not a green light. Expect a maintainer to say so in review, and say what you checked yourself in the pull request.

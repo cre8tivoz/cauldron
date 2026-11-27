@@ -39,7 +39,7 @@ The source of truth is `src/main/library-pieces.ts` — if this table and the co
 | Buttons      | 2      |
 | Sections     | 4      |
 
-Galleries (2) and Buttons (2) are the thinnest, and there is no piece yet for pricing, teams, testimonials, process or logos — all common on real small-business sites. A suggestion for any of those is welcome as an issue, no code required.
+Galleries (2) and Buttons (2) are the thinnest categories. On the content side there is a pricing ticket and a process stepper, but nothing yet for testimonials or quotes, an FAQ list, a team or about block, a location and opening-hours block, a post or article listing, or a comparison table — all ordinary on small-business sites. A suggestion for any of those is welcome as an issue, no code required.
 
 ## How a piece is built
 
