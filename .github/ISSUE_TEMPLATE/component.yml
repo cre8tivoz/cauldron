@@ -1,0 +1,54 @@
+name: Component suggestion
+description: A bit of web design you'd like in Cauldron's section library.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Seen a section or component worth adding to the library? Tell us where you saw it and what it should feel like.
+  - type: textarea
+    id: what-and-where
+    attributes:
+      label: What is it, and where did you see it?
+      description: A reference URL or a screenshot is heaps helpful.
+    validations:
+      required: true
+  - type: textarea
+    id: feel
+    attributes:
+      label: What should it feel like?
+      description: Plain language — how it looks, how it behaves, and what it does on a phone.
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Which category?
+      description: Closest match is fine.
+      options:
+        - Text effects
+        - Backgrounds
+        - Cards
+        - Galleries
+        - Navigation
+        - Buttons
+        - Sections
+        - Not sure / other
+    validations:
+      required: true
+  - type: dropdown
+    id: javascript
+    attributes:
+      label: Does it need JavaScript to work?
+      options:
+        - No, plain HTML and CSS
+        - Yes, a bit of JavaScript
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: licence
+    attributes:
+      label: Licence and source of any code taken
+      description: Where the code came from and its licence (MIT or similar is fine). Say "none — it's just a reference" if you didn't take any code.
+    validations:
+      required: true
