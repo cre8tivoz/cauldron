@@ -108,15 +108,15 @@ export function hasSideStripe(
 ): boolean {
   const px = (value?: string) => Number.parseFloat(value ?? '') || 0;
   const visible = (colour?: string) => {
-    const c = (colour ?? '').trim();
+    const c = (colour ?? '').trim().toLowerCase();
     if (!c || c === 'transparent') return false;
-    const parts = c.match(/[\d.]+/g);
-    return !(
-      c.startsWith('rgba') &&
-      parts &&
-      parts.length > 3 &&
-      Number(parts[3]) === 0
-    );
+    // Space syntax with alpha: `oklch(0.6 0.2 30 / 0)`, `color(srgb 1 0 0 / 0%)`.
+    const slash = c.match(/\/\s*(-?[\d.]+)%?\s*\)$/);
+    if (slash) return Number(slash[1]) > 0;
+    // Comma syntax with alpha: `rgba(0, 0, 0, 0)`, `hsla(0, 0%, 0%, 0)`.
+    const args = c.match(/\(([^)]*)\)/)?.[1].split(',');
+    if (args && args.length === 4) return Number.parseFloat(args[3]) > 0;
+    return true;
   };
   const top = px(style.borderTopWidth);
   const bottom = px(style.borderBottomWidth);
@@ -151,10 +151,13 @@ export function hasSideStripe(
   for (const shadow of (style.boxShadow ?? '').split(/,(?![^(]*\))/)) {
     if (!/\binset\b/.test(shadow)) continue;
     const colour = shadow.match(
-      /(rgba?|hsla?|oklch|color)\([^)]*\)|#[0-9a-f]{3,8}/i,
+      /(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)|#[0-9a-f]{3,8}/i,
     )?.[0];
     const lengths = shadow
-      .replace(/(rgba?|hsla?|oklch|color)\([^)]*\)|#[0-9a-f]{3,8}/gi, '')
+      .replace(
+        /(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)|#[0-9a-f]{3,8}/gi,
+        '',
+      )
       .match(/-?[\d.]+px/g)
       ?.map((n) => Number.parseFloat(n));
     if (!lengths || lengths.length < 2) continue;

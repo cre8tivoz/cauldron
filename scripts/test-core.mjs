@@ -2677,6 +2677,45 @@ test('WDL-271 one-sided accent stripes are caught; even borders and dividers are
     stripe({ ...edges('4px'), borderLeftColor: 'rgba(0, 0, 0, 0)' }, box),
     false,
   );
+  // Transparent in modern colour syntax is not a bar either; opaque still is.
+  for (const clear of [
+    'oklch(0.6 0.2 30 / 0)',
+    'color(srgb 1 0 0 / 0)',
+    'hsla(0, 0%, 0%, 0)',
+    'oklab(0.5 0.1 0.1 / 0%)',
+  ]) {
+    assert.equal(
+      stripe({ ...edges('4px'), borderLeftColor: clear }, box),
+      false,
+      clear,
+    );
+    assert.equal(
+      stripe(
+        { ...edges('0px'), boxShadow: `${clear} 4px 0px 0px 0px inset` },
+        box,
+      ),
+      false,
+      clear,
+    );
+  }
+  assert.equal(
+    stripe({ ...edges('4px'), borderLeftColor: 'oklch(0.6 0.2 30)' }, box),
+    true,
+  );
+  assert.equal(
+    stripe(
+      { ...edges('4px'), borderLeftColor: 'oklch(0.6 0.2 30 / 0.8)' },
+      box,
+    ),
+    true,
+  );
+  assert.equal(
+    stripe(
+      { ...edges('0px'), boxShadow: 'lab(50 40 30) 4px 0px 0px 0px inset' },
+      box,
+    ),
+    true,
+  );
   // An even inset outline and a focus-style underline are not side bars.
   assert.equal(
     stripe(
