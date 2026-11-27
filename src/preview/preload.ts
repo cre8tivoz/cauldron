@@ -140,15 +140,15 @@ function ensureOverlayStyle(): void {
   style.setAttribute('data-cauldron-ui', '1');
   style.textContent = `
     [data-cauldron-hover="1"] {
-      outline: 1.5px dashed rgba(200, 75, 49, 0.78) !important;
+      outline: 1.5px dashed rgba(91, 60, 196, 0.78) !important;
       outline-offset: 2px !important;
     }
     [data-cauldron-selected="1"] {
-      outline: 2px solid #c84b31 !important;
+      outline: 2px solid #5b3cc4 !important;
       outline-offset: 2px !important;
     }
     [data-cauldron-editing="1"] {
-      outline: 2px solid #e05e46 !important;
+      outline: 2px solid #7a5ae0 !important;
       outline-offset: 3px !important;
       border-radius: 3px;
       cursor: text !important;
@@ -187,9 +187,9 @@ function showDropLine(y: number, left: number, width: number): void {
     dropLineEl.style.cssText = [
       'position: fixed',
       'height: 3px',
-      'background: #e05e46',
+      'background: #5b3cc4',
       'border-radius: 999px',
-      'box-shadow: 0 0 0 2px rgba(224, 94, 70, 0.25)',
+      'box-shadow: 0 0 0 2px rgba(91, 60, 196, 0.25)',
       'pointer-events: none',
       'z-index: 2147483646',
     ].join(';');
@@ -465,7 +465,7 @@ function renderSelectionPill(): void {
     'padding: 3px 6px',
     'border-radius: 6px',
     'background: #1c1d21',
-    'border: 1px solid #c84b31',
+    'border: 1px solid #5b3cc4',
     'color: #ffffff',
     'box-shadow: 0 4px 14px rgba(0,0,0,0.35)',
     'font: 600 11px/1 -apple-system, BlinkMacSystemFont, sans-serif',
@@ -475,7 +475,7 @@ function renderSelectionPill(): void {
   const tagBadge = document.createElement('span');
   tagBadge.setAttribute('data-cauldron-ui', '1');
   tagBadge.textContent = `<${selectedEl.tagName.toLowerCase()}>`;
-  tagBadge.style.cssText = 'color: #ffa99a; padding: 0 3px;';
+  tagBadge.style.cssText = 'color: #c9b8f7; padding: 0 3px;';
   pill.appendChild(tagBadge);
 
   if (editingEl === selectedEl) {
@@ -522,7 +522,7 @@ function renderSelectionPill(): void {
     dragBtn.style.cssText = [
       'appearance: none',
       'border: 0',
-      'background: rgba(200,75,49,0.28)',
+      'background: rgba(91,60,196,0.45)',
       'color: #ffffff',
       'font: 600 11px/1 -apple-system, BlinkMacSystemFont, sans-serif',
       'padding: 4px 7px',

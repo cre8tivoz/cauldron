@@ -403,9 +403,9 @@ export function AssetTray({
               textTransform: 'uppercase',
               padding: '4px 10px',
               borderRadius: 999,
-              background: 'rgba(184, 75, 48, 0.24)',
-              border: '1px solid rgba(242, 125, 98, 0.8)',
-              color: '#ffffff',
+              background: 'var(--primary)',
+              border: '1px solid var(--primary)',
+              color: 'var(--primary-text)',
             }}
           >
             COMING SOON
