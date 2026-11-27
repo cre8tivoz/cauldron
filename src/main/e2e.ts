@@ -1735,6 +1735,7 @@ export async function runQualityTest(root: string, api: Api): Promise<void> {
     const antiPatterns = [
       'No pure black',
       'No cards inside cards',
+      'No side stripes',
       'No tired blue-purple gradients',
     ];
     check(
@@ -3680,11 +3681,12 @@ export async function runTasteTest(): Promise<void> {
     body{background:#ffffff;color:#000000;font-family:Arial;padding:3px}
     h1,p,button{font-family:Arial;font-size:19px}
     .panel{border:1px solid #000;border-radius:7px;padding:3px}
+    .callout{border-left:4px solid #c84b31;padding:3px 3px 3px 9px}
     .gradient{background:linear-gradient(90deg,#2563eb,#7c3aed)}
     @keyframes move{to{transform:translateX(2px)}}
     .motion{animation:move 1s infinite}
     button{width:20px;overflow:hidden;white-space:nowrap;outline:none}
-  </style></head><body><h1>Negative control</h1><div class="panel"><div class="panel gradient"><p class="motion">Deliberately bad styles</p></div></div><button>🚀 A deliberately truncated label</button></body></html>`;
+  </style></head><body><h1>Negative control</h1><div class="panel"><div class="panel gradient"><p class="motion">Deliberately bad styles</p></div></div><button>🚀 A deliberately truncated label</button><blockquote class="callout">A striped callout</blockquote></body></html>`;
   // Everything on-brand except the focus ring, which is almost the page colour.
   const weakFocus = `<!doctype html><html><head><meta charset="utf-8"><style>
     ${tokensCss(direction).replace(/^@import[^\n]*\n/, '')}
@@ -3809,6 +3811,7 @@ export async function runTasteTest(): Promise<void> {
       'No unchosen default fonts',
       'No pure black',
       'No cards inside cards',
+      'No side stripes',
       'No tired blue-purple gradients',
       'No unchosen generic SaaS accents',
       'First fonts match the direction',

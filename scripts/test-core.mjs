@@ -2631,6 +2631,110 @@ test('29 typographic arrows are punctuation, not emoji icons', () => {
   assert.equal(tasteCheck.usesEmojiAsIcon('→'), false);
 });
 
+test('WDL-271 one-sided accent stripes are caught; even borders and dividers are not', () => {
+  assert.ok(tasteCheck, 'taste-check module missing');
+  const box = { width: 320, height: 120 };
+  const edges = (left, right = '0px', top = '0px', bottom = '0px') => ({
+    borderLeftWidth: left,
+    borderRightWidth: right,
+    borderTopWidth: top,
+    borderBottomWidth: bottom,
+    borderLeftStyle: 'solid',
+    borderRightStyle: 'solid',
+    borderLeftColor: 'rgb(200, 75, 49)',
+    borderRightColor: 'rgb(200, 75, 49)',
+    boxShadow: 'none',
+  });
+  const stripe = tasteCheck.hasSideStripe;
+  // Striped callout, card and right-hand bar.
+  assert.equal(stripe(edges('4px'), box), true);
+  assert.equal(stripe(edges('3px', '1px', '1px', '1px'), box), true);
+  assert.equal(stripe(edges('0px', '4px'), box), true);
+  // An inset shadow bar, either side.
+  assert.equal(
+    stripe(
+      { ...edges('0px'), boxShadow: 'rgb(200, 75, 49) 4px 0px 0px 0px inset' },
+      box,
+    ),
+    true,
+  );
+  assert.equal(
+    stripe(
+      { ...edges('0px'), boxShadow: 'rgb(200, 75, 49) -3px 0px 0px 0px inset' },
+      box,
+    ),
+    true,
+  );
+  // Even borders, hairline dividers and tear lines are fine.
+  assert.equal(stripe(edges('2px', '2px', '2px', '2px'), box), false);
+  assert.equal(stripe(edges('1px'), box), false);
+  assert.equal(
+    stripe({ ...edges('2px'), borderLeftStyle: 'dashed' }, box),
+    false,
+  );
+  // A transparent border is not a visible bar.
+  assert.equal(
+    stripe({ ...edges('4px'), borderLeftColor: 'rgba(0, 0, 0, 0)' }, box),
+    false,
+  );
+  // Transparent in modern colour syntax is not a bar either; opaque still is.
+  for (const clear of [
+    'oklch(0.6 0.2 30 / 0)',
+    'color(srgb 1 0 0 / 0)',
+    'hsla(0, 0%, 0%, 0)',
+    'oklab(0.5 0.1 0.1 / 0%)',
+  ]) {
+    assert.equal(
+      stripe({ ...edges('4px'), borderLeftColor: clear }, box),
+      false,
+      clear,
+    );
+    assert.equal(
+      stripe(
+        { ...edges('0px'), boxShadow: `${clear} 4px 0px 0px 0px inset` },
+        box,
+      ),
+      false,
+      clear,
+    );
+  }
+  assert.equal(
+    stripe({ ...edges('4px'), borderLeftColor: 'oklch(0.6 0.2 30)' }, box),
+    true,
+  );
+  assert.equal(
+    stripe(
+      { ...edges('4px'), borderLeftColor: 'oklch(0.6 0.2 30 / 0.8)' },
+      box,
+    ),
+    true,
+  );
+  assert.equal(
+    stripe(
+      { ...edges('0px'), boxShadow: 'lab(50 40 30) 4px 0px 0px 0px inset' },
+      box,
+    ),
+    true,
+  );
+  // An even inset outline and a focus-style underline are not side bars.
+  assert.equal(
+    stripe(
+      { ...edges('0px'), boxShadow: 'rgb(0, 0, 0) 0px 0px 0px 1px inset' },
+      box,
+    ),
+    false,
+  );
+  assert.equal(
+    stripe(
+      { ...edges('0px'), boxShadow: 'rgb(200, 75, 49) 0px -2px 0px 0px inset' },
+      box,
+    ),
+    false,
+  );
+  // An element that is itself only a thin vertical rule is a divider.
+  assert.equal(stripe(edges('2px'), { width: 2, height: 80 }), false);
+});
+
 test('29 screen-reader-only helpers are recognised and skipped', () => {
   assert.ok(tasteCheck, 'taste-check module missing');
   // The .visually-hidden pattern: absolute, 1px, clipped.
@@ -7709,21 +7813,44 @@ const appStyleFiles = () => {
   return out;
 };
 
+// WDL-271: the same guard covers the site code Cauldron writes (library
+// pieces, starter templates, direction CSS), and widths in rem/em as well
+// as px. e2e.ts is skipped: its negative control is deliberately striped.
+const siteAndAppSourceFiles = () => {
+  const out = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(css|tsx|ts)$/.test(entry.name) && entry.name !== 'e2e.ts')
+        out.push(full);
+    }
+  };
+  walk(path.join(repoRoot, 'src'));
+  return out;
+};
+
+// A stripe is 2px or more; in rem/em that is 0.125 or more at a 16px root.
+const stripeThick = (amount, unit) =>
+  unit === 'px' ? Number(amount) >= 2 : Number(amount) >= 0.125;
+
 test('WDL-270 the app has no coloured side stripes on cards, notices or rows', () => {
   const stripes = [];
-  for (const file of appStyleFiles()) {
+  for (const file of siteAndAppSourceFiles()) {
     const text = fs.readFileSync(file, 'utf8');
     const rel = path.relative(repoRoot, file);
     const rules = [
-      // border-left: 3px solid …, borderLeft: '3px solid …'
-      /border-?(left|right|inline-?start|inline-?end)\s*:\s*['"]?\s*([2-9]|\d{2,})px\s+solid/gi,
+      // border-left: 3px solid …, borderLeft: '0.25rem solid …'
+      /border-?(?:left|right|inline-?start|inline-?end)\s*:\s*['"`]?\s*(\d*\.?\d+)(px|rem|em)\s+solid/gi,
       // border-left-color: …, borderLeftColor: …
-      /border-?(left|right|inline-?start|inline-?end)-?color\s*:/gi,
-      // box-shadow: inset 3px 0 0 …
-      /box-?shadow\s*:\s*['"]?\s*inset\s+-?([2-9]|\d{2,})px\s+0/gi,
+      /border-?(?:left|right|inline-?start|inline-?end)-?color\s*:/gi,
+      // box-shadow: inset 3px 0 0 …, inset -0.25rem 0 0 …
+      /box-?shadow\s*:\s*['"`]?\s*inset\s+-?(\d*\.?\d+)(px|rem|em)\s+0(?![.\d])/gi,
     ];
     for (const rule of rules) {
       for (const match of text.matchAll(rule)) {
+        if (match[1] !== undefined && !stripeThick(match[1], match[2]))
+          continue;
         stripes.push(
           `${rel}:${text.slice(0, match.index).split('\n').length} ${match[0]}`,
         );
