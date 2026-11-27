@@ -20,7 +20,7 @@ export function LibraryPanel({ site, onBack }: Props) {
   >([]);
   const [pages, setPages] = useState<Array<{ page: string; file: string }>>([]);
   const [page, setPage] = useState('/');
-  // A failure must never look like a success (fablefixes 82).
+  // A failure must never look like a success.
   const [message, setNotice] = useState<{ ok: boolean; text: string } | null>(
     null,
   );

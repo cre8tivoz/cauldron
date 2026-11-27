@@ -19,7 +19,7 @@ Code: `src/main/**`, `src/preload.ts`, `src/preview/preload.ts`, the renderer un
 
 - The person's Mac and files outside the open site folder.
 - Their Git credentials and agent configuration.
-- Their AI provider keys (Your AI key, `WDL-243`).
+- Their AI provider keys (Your AI key).
 - Integrity of the site they are editing.
 
 ## Attackers

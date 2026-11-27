@@ -5,7 +5,7 @@
 //     1280×800 minimum and at 1440×900;
 //   - every category answers a real mouse click and the keyboard;
 //   - every component can be selected and shown at desktop and phone width.
-// With --capture it refreshes docs/library-audit/components/*.png.
+// With --capture it refreshes docs/reference/library-audit/components/*.png.
 // Run: npm run package && npm run test:library:ui
 import fs from 'node:fs';
 import net from 'node:net';
@@ -27,7 +27,13 @@ const exe = path.join(
 if (!fs.existsSync(exe))
   throw new Error('Package the app first (out/ missing).');
 const capture = process.argv.includes('--capture');
-const shots = path.join(repo, 'docs', 'library-audit', 'components');
+const shots = path.join(
+  repo,
+  'docs',
+  'reference',
+  'library-audit',
+  'components',
+);
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-library-ui-'));
 const site = path.join(work, 'library-site');

@@ -1,7 +1,7 @@
 /**
  * Renders the design-directions board: the app's own card markup and stylesheet
  * with the real direction data, as one static page. Used to look at the cards
- * and to capture them for `docs/directions-audit/`.
+ * and to capture them for `docs/reference/directions-audit/`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -102,7 +102,8 @@ const html = `<!doctype html>
 </head><body class="app">${renderToStaticMarkup(<Board />)}</body></html>`;
 
 const out =
-  process.argv[2] ?? path.join(repo, 'docs/directions-audit/board.html');
+  process.argv[2] ??
+  path.join(repo, 'docs/reference/directions-audit/board.html');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html);
 console.log(

@@ -1038,7 +1038,7 @@ export function App() {
           onToggleInspector={() => setInspectorCollapsed((value) => !value)}
         />
 
-        {/* Shown in every view, not only the Element panel (fablefixes 21). */}
+        {/* Shown in every view, not only the Element panel. */}
         {problem ? (
           <div
             className="notice bad"

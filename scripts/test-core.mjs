@@ -3430,7 +3430,7 @@ test('Finding 5: deletePageSection and setPageSectionAnchor validate baseHash', 
   assert.equal(goodDel.sections.length, 1);
 });
 
-test('fablefixes 9: an anchor lands on the section itself and refuses unsafe text', () => {
+test('an anchor lands on the section itself and refuses unsafe text', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-anchor-own-'));
   fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
   const file = path.join(dir, 'src/pages/index.astro');
@@ -3464,7 +3464,7 @@ test('fablefixes 9: an anchor lands on the section itself and refuses unsafe tex
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
 
-test('fablefixes 10: CSS and element edits are refused outside style and markup files', () => {
+test('CSS and element edits are refused outside style and markup files', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-edit-scope-'));
   fs.mkdirSync(path.join(dir, 'src/styles'), { recursive: true });
   const pkg = path.join(dir, 'package.json');
@@ -3518,7 +3518,7 @@ test('fablefixes 10: CSS and element edits are refused outside style and markup 
 });
 
 const content = await import('../src/main/content.ts');
-test('fablefixes 7: a date field is saved as a date, never as quoted text', () => {
+test('a date field is saved as a date, never as quoted text', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-date-'));
   fs.mkdirSync(path.join(dir, 'src/content/blog'), { recursive: true });
   fs.writeFileSync(
@@ -3552,7 +3552,7 @@ test('fablefixes 7: a date field is saved as a date, never as quoted text', () =
   );
 });
 
-test('fablefixes 25: changed files with spaces, accents and renames are read exactly', () => {
+test('changed files with spaces, accents and renames are read exactly', () => {
   const { repoState } = publishApi();
   const { site, page } = publishFixture('status');
   gitIn(site, ['mv', 'src/pages/index.astro', 'src/pages/home page.astro']);
@@ -3567,7 +3567,7 @@ test('fablefixes 25: changed files with spaces, accents and renames are read exa
   assert.equal(fs.existsSync(page), false);
 });
 
-test('fablefixes 25/81: the remote shown is the one a push would use, by name', () => {
+test('the remote shown is the one a push would use, by name', () => {
   const { repoState } = publishApi();
   const { site } = publishFixture('remote');
   assert.equal(repoState(site).remote, 'origin');
@@ -5226,18 +5226,18 @@ await (async () => {
   const { isCodexProcessArgs } = await import('../src/main/e2e.ts');
   const { default: mainViteConfig } = await import('../vite.main.config.mts');
 
-  test('WDL-222: deleted documentation-audit.zip is absent and README documents its removal', () => {
-    assert.equal(
-      fs.existsSync(
-        path.join(process.cwd(), 'docs/checkpoints/documentation-audit.zip'),
-      ),
-      false,
-    );
-    const readme = fs.readFileSync(
-      path.join(process.cwd(), 'docs/checkpoints/README.md'),
-      'utf8',
-    );
-    assert.match(readme, /removed from the Git repository/i);
+  test('no binary zip archives are tracked under docs', () => {
+    const zips = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (full.endsWith('.zip'))
+          zips.push(path.relative(process.cwd(), full));
+      }
+    };
+    walk(path.join(process.cwd(), 'docs'));
+    assert.deepEqual(zips, []);
   });
 
   test('WDL-237: declarations.d.ts derives CauldronApi from preload.ts without duplication', () => {

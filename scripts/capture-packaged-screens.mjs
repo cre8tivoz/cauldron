@@ -17,7 +17,7 @@ if (!fs.existsSync(exe)) {
   process.exit(1);
 }
 
-const outDir = path.join(repo, '.scratch', 'visual-verification');
+const outDir = path.join(repo, 'out', 'visual-verification');
 fs.mkdirSync(outDir, { recursive: true });
 
 const PORT = 9225;
