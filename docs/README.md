@@ -44,6 +44,7 @@ docs/
 
 ### contributing/
 
+- [components.md](contributing/components.md) — the component contract, the four rules, a worked example, and how to prove a piece.
 - [front-end.md](contributing/front-end.md) — the app's own tokens, layout and conventions, including the defects that became guard tests.
 - [testing.md](contributing/testing.md) — what each suite proves, and how CI is wired.
 - [releasing.md](contributing/releasing.md) — version, zip, tag, CI, release notes.
@@ -51,6 +52,7 @@ docs/
 ### reference/
 
 - [quality-checks.md](reference/quality-checks.md) — every measured check a generated site goes through, with thresholds.
+- [library-catalogue.md](reference/library-catalogue.md) — what ships in the browser today, by category, and where the gaps are.
 - [library-audit/](reference/library-audit/README.md) — how the component library is measured: contrast harness, contact sheets, and the evidence file.
 - [directions-audit/](reference/directions-audit/README.md) — the same for the ten design directions.
 

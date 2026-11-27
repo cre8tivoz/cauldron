@@ -89,6 +89,8 @@ If you can edit HTML and CSS, you can contribute here.
 
 The library lives in `src/main/library-pieces.ts`. Each piece is **plain Astro markup plus its own CSS**, built from the site's tokens, with a live preview in the app's component browser.
 
+The whole job — the piece contract, a worked example, how to prove it, and the list of things that get a piece rejected — is in [docs/contributing/components.md](docs/contributing/components.md). What's already built is in [docs/reference/library-catalogue.md](docs/reference/library-catalogue.md).
+
 Ground rules for a new piece:
 
 - **Keep it plain Astro.** It must work with JavaScript off unless the interaction _is_ the point — a slider or a menu, for example. Even then, the content should still be there without the script.
