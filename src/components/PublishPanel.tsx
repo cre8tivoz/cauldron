@@ -151,7 +151,7 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   const projectName = site?.name ?? 'No site open';
 
   // Export and static hosting do not need Git, so this card is shown for any open
-  // site, not only a Git repository (fablefixes 25).
+  // site, not only a Git repository.
   const productionCard = (
     <div className="publish-sidebar-card" style={{ marginTop: 14 }}>
       <h3 className="sidebar-card-title">Production & Hosting</h3>

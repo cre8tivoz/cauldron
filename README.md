@@ -103,6 +103,20 @@ npm run verify:mac  # run check + local Mac smoke verification
 
 Want to tinker or send a pull request? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Documentation
+
+[`docs/`](docs/README.md) is the written record: how the app is built, what it stores on disk, what the agent is allowed to do, the quality bar, and how to test and release it. Start with [the index](docs/README.md) or jump straight to [the architecture overview](docs/architecture/overview.md).
+
+## Contributing
+
+Cauldron wants help, and not only from developers. The place where a contribution lands deepest is the **component library** — the built-in sections and effects you drop into a site.
+
+- **If you don't write code:** a reference URL and a screenshot is a real contribution. Use the **Component suggestion** issue form.
+- **If you write CSS or HTML:** each piece is plain Astro with its own styles, and [CONTRIBUTING.md](CONTRIBUTING.md) sets out the four rules it has to meet.
+- **If you write code:** clone it, run `npm run check`, send a small pull request.
+
+Issues live in [GitHub Issues](https://github.com/cre8tivoz/cauldron/issues) — no ticket or invite needed. Behaviour expectations are in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and security reports go through [SECURITY.md](SECURITY.md), never a public issue.
+
 ## Privacy
 
 Your sites, recents list, run history, and preview thumbnails stay on your Mac. Cauldron has **no telemetry, no analytics, and no tracking**.

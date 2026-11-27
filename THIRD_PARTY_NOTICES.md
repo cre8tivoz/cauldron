@@ -25,7 +25,7 @@ scratch against the taste rules in `docs/adr/0005` and `docs/adr/0008`.
 
 - Copyright (c) 2026 Oleg Maykhopar and Nikita Osadchiy
 - Licence: MIT
-- What was taken (`WDL-243`, Your AI key): the provider wiring (Anthropic and
+- What was taken for Your AI key: the provider wiring (Anthropic and
   OpenAI natively, OpenRouter and Ollama through their OpenAI-compatible chat
   endpoints) and the status-based failure classifier, adapted in
   `src/main/ai-agent.ts` from `app/src/ai/AIService.ts` and `app/src/ai/failure.ts`;
@@ -46,15 +46,14 @@ scratch against the taste rules in `docs/adr/0005` and `docs/adr/0008`.
 
 ## Studied, not copied
 
-Kept in the research folder (`~/hermes/cauldronresearchbackup`), never a
-dependency, submodule or vendored copy.
+Read in a private research folder, never a dependency, submodule or vendored
+copy.
 
 - **Starquix** — https://github.com/Mayhopar/Starquix, MIT, commit `5a6240e`
   (v0.0.2, 22 Nov 2026). Read for the canvas, SEO panel, bring-your-own-key
-  handling and platform builds. The canvas study is
-  `docs/plans/2026-11-22-starquix-canvas-study.md`. Compare widths is our own
-  implementation on native Electron views; the code taken for Your AI key is
-  listed in the first section.
+  handling and platform builds. Compare widths is our own implementation on
+  native Electron views; the code taken for Your AI key is listed in the first
+  section.
 - **React Bits**, **OriginKit**, **Superdesign**, **Design Bites** — discovery
   leads for library ideas; credited in the library UI as sources of ideas, with
   no code taken.

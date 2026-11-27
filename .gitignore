@@ -35,5 +35,8 @@ coverage/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Local scratch work (never tracked)
+.scratch/
+
 # macOS Finder
 .DS_Store

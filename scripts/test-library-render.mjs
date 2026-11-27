@@ -339,7 +339,7 @@ if (process.argv.includes('--write') && !only) {
       encoding: 'utf8',
     }).trim() !== '';
   fs.writeFileSync(
-    path.join(repo, 'docs/library-audit/render-audit.json'),
+    path.join(repo, 'docs/reference/library-audit/render-audit.json'),
     JSON.stringify(
       {
         revision: dirty ? `${revision}+uncommitted` : revision,

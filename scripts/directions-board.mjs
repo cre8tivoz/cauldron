@@ -30,7 +30,8 @@ await build({
 
 try {
   const target =
-    process.argv[2] ?? path.join(repo, 'docs/directions-audit/board.html');
+    process.argv[2] ??
+    path.join(repo, 'docs/reference/directions-audit/board.html');
   process.stdout.write(
     execFileSync(process.execPath, [outfile, target], {
       encoding: 'utf8',
