@@ -18,7 +18,7 @@ type Props = {
 
 /**
  * Quality Report matching Sunday Table quality report mockup:
- * 2-column split layout (N to fix warning rows with coral accent bar + expanded Passing checks
+ * 2-column split layout (N to fix warning rows, tinted with an even border, + expanded Passing checks
  * with green circle checkmark icons on left; Measured table + Design direction swatch card on right).
  */
 export function QualityPanel({

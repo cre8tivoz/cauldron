@@ -28,6 +28,11 @@ export const TASTE_RULES: TasteRule[] = [
     rule: 'Do not nest a bordered or shadowed rounded box inside another one.',
   },
   {
+    id: 'side-stripes',
+    title: 'No side stripes',
+    rule: 'Do not put a coloured bar down one edge of a card, callout, quote or nav item (a thick border-left/border-inline-start, or an inset box-shadow bar). Use an even border or a tinted background instead.',
+  },
+  {
     id: 'saas-gradient',
     title: 'No tired blue-purple gradients',
     rule: 'Do not build gradients between blue and purple hues (210°-290°), unless the direction names it.',

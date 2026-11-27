@@ -85,6 +85,93 @@ export function usesEmojiAsIcon(text: string): boolean {
 }
 
 /**
+ * True when a box has a one-sided accent stripe: a solid bar at least 2px
+ * thick down its left or right edge that no other edge matches, or an inset
+ * box-shadow bar doing the same job. It reads as generated UI (WDL-271).
+ * Hairline dividers (1px), dashed or dotted tear lines, even borders and
+ * elements that are themselves only a thin rule are not stripes. Takes plain
+ * computed values so the page-side check and the tests share one rule.
+ */
+export function hasSideStripe(
+  style: {
+    borderTopWidth?: string;
+    borderRightWidth?: string;
+    borderBottomWidth?: string;
+    borderLeftWidth?: string;
+    borderRightStyle?: string;
+    borderLeftStyle?: string;
+    borderRightColor?: string;
+    borderLeftColor?: string;
+    boxShadow?: string;
+  },
+  rect: { width: number; height: number },
+): boolean {
+  const px = (value?: string) => Number.parseFloat(value ?? '') || 0;
+  const visible = (colour?: string) => {
+    const c = (colour ?? '').trim();
+    if (!c || c === 'transparent') return false;
+    const parts = c.match(/[\d.]+/g);
+    return !(
+      c.startsWith('rgba') &&
+      parts &&
+      parts.length > 3 &&
+      Number(parts[3]) === 0
+    );
+  };
+  const top = px(style.borderTopWidth);
+  const bottom = px(style.borderBottomWidth);
+  const sides: Array<[number, number, string | undefined, string | undefined]> =
+    [
+      [
+        px(style.borderLeftWidth),
+        px(style.borderRightWidth),
+        style.borderLeftStyle,
+        style.borderLeftColor,
+      ],
+      [
+        px(style.borderRightWidth),
+        px(style.borderLeftWidth),
+        style.borderRightStyle,
+        style.borderRightColor,
+      ],
+    ];
+  const bar = (width: number) =>
+    width >= 2 && rect.width >= Math.max(16, width * 4) && rect.height >= 16;
+  for (const [width, opposite, lineStyle, colour] of sides) {
+    if (!bar(width) || !visible(colour)) continue;
+    if (
+      !['solid', 'double', 'groove', 'ridge', 'inset', 'outset'].includes(
+        lineStyle ?? '',
+      )
+    )
+      continue;
+    if (width > opposite && width > top && width > bottom) return true;
+  }
+  // Computed box-shadow lists each shadow as `<colour> x y blur spread [inset]`.
+  for (const shadow of (style.boxShadow ?? '').split(/,(?![^(]*\))/)) {
+    if (!/\binset\b/.test(shadow)) continue;
+    const colour = shadow.match(
+      /(rgba?|hsla?|oklch|color)\([^)]*\)|#[0-9a-f]{3,8}/i,
+    )?.[0];
+    const lengths = shadow
+      .replace(/(rgba?|hsla?|oklch|color)\([^)]*\)|#[0-9a-f]{3,8}/gi, '')
+      .match(/-?[\d.]+px/g)
+      ?.map((n) => Number.parseFloat(n));
+    if (!lengths || lengths.length < 2) continue;
+    const [x, y, blur = 0, spread = 0] = lengths;
+    if (
+      y === 0 &&
+      blur === 0 &&
+      spread <= 0 &&
+      bar(Math.abs(x)) &&
+      visible(colour)
+    )
+      return true;
+  }
+  return false;
+}
+
+/**
  * The computed properties a hover or disabled state may visibly change.
  * Text-decoration thickness and underline offset are included because a
  * common link hover thickens an underline or moves it without touching the
@@ -151,8 +238,8 @@ export async function measureTaste(
     const key = value => rgba(value).join(',');
     const palette = new Set(Object.values(direction.colours).map(key));
     const allowedFonts = [direction.fonts.display.family,direction.fonts.body.family].map(f=>f.toLowerCase());
-    const counts = { black:0, cards:0, gradient:0, accents:0, fonts:0, defaultFonts:0, colours:0, spacing:0, type:0, radius:0, emoji:0, labels:0, declarations:0, hardcoded:0 };
-    const off = { spacing:[], type:[], radius:[] };
+    const counts = { black:0, cards:0, gradient:0, accents:0, fonts:0, defaultFonts:0, colours:0, spacing:0, type:0, radius:0, emoji:0, labels:0, stripes:0, declarations:0, hardcoded:0 };
+    const off = { spacing:[], type:[], radius:[], stripes:[] };
     const name = el => el.tagName.toLowerCase() + (typeof el.className==='string' && el.className ? '.'+el.className.split(' ')[0] : '');
     const near = (value, scale) => scale.some(token=>Math.abs(token-value)<0.6);
     const blackNamed = palette.has('0,0,0,255');
@@ -225,6 +312,7 @@ export async function measureTaste(
       for(const property of ['borderTopLeftRadius','borderTopRightRadius','borderBottomLeftRadius','borderBottomRightRadius']){
         const value=parseFloat(s[property]);if(Number.isFinite(value)&&!near(value,direction.radii))counts.radius++;
       }
+      if((${hasSideStripe.toString()})(s, rect)){counts.stripes++;if(off.stripes.length<4)off.stripes.push(name(el));}
       if(el.matches('button,nav,li')&&(${usesEmojiAsIcon.toString()})(el.textContent||''))counts.emoji++;
       if(el.matches('button,nav a')&&(s.textOverflow==='ellipsis'||el.scrollWidth>el.clientWidth+1))counts.labels++;
       if(judgeRules) declarations(el.style);
@@ -237,7 +325,12 @@ export async function measureTaste(
   })()`)) as {
     counts: Record<string, number>;
     hardcodedExamples: string[];
-    off: { spacing: string[]; type: string[]; radius: string[] };
+    off: {
+      spacing: string[];
+      type: string[];
+      radius: string[];
+      stripes: string[];
+    };
     controls: number;
     totalControls: number;
     fonts: string[];
@@ -301,6 +394,14 @@ export async function measureTaste(
     );
   }
   add('cards', 'No cards inside cards', c.cards);
+  add(
+    'side-stripes',
+    'No side stripes',
+    c.stripes,
+    measured.off.stripes.length > 0
+      ? `${c.stripes} box(es) with a bar down one edge: ${measured.off.stripes.join(', ')}. Use an even border or a tinted background.`
+      : undefined,
+  );
   add(
     'gradients',
     'No tired blue-purple gradients',
