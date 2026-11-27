@@ -5463,11 +5463,11 @@ await (async () => {
       assert.equal(traySrc.includes('public/images/'), true);
     });
 
-    test('WDL-153: version 0.10.0, unsigned release docs, and research cleanup match', () => {
+    test('WDL-153: release version matches the README download name, unsigned release docs, and research cleanup', () => {
       const pkg = JSON.parse(
         fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'),
       );
-      assert.equal(pkg.version, '0.10.0');
+      assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
       assert.equal(pkg.license, 'MIT');
       assert.equal(
         fs.existsSync(path.join(process.cwd(), 'originalresearch')),
@@ -5486,7 +5486,12 @@ await (async () => {
         path.join(process.cwd(), 'README.md'),
         'utf8',
       );
-      assert.equal(readme.includes('Cauldron-darwin-arm64-0.10.0.zip'), true);
+      // The README names the zip a release must ship, so a version bump that
+      // forgets the download path fails here instead of shipping a dead link.
+      assert.equal(
+        readme.includes(`Cauldron-darwin-arm64-${pkg.version}.zip`),
+        true,
+      );
       assert.equal(readme.includes('Open Anyway'), true);
     });
 
