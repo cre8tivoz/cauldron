@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import electron from 'electron';
-import { writeFileAtomic } from './files';
+import { hashOf, writeFileAtomic } from './files';
 import type { ChangedPage, CssRuleChange, HighlightedPart } from './compare';
 
 /**
@@ -383,17 +383,22 @@ export class Runs {
           ]),
         )
       : null;
-    const outside = new Map<string, { firstBefore: string; last: string }>();
+    const outside = new Map<
+      string,
+      { firstBefore: string | null; last: string }
+    >();
     for (const item of options.outside ?? []) {
       const name = path.isAbsolute(item.file)
         ? path.relative(root, item.file)
         : item.file;
       const seen = outside.get(name);
       outside.set(name, {
-        firstBefore: seen?.firstBefore ?? item.beforeHash ?? '',
+        firstBefore:
+          seen !== undefined ? seen.firstBefore : (item.beforeHash ?? null),
         last: item.afterHash,
       });
     }
+    const emptyHash = hashOf('');
 
     const changed: RunFile[] = [];
     const names = new Set([
@@ -410,10 +415,15 @@ export class Runs {
       const unreadable =
         before.problems.includes(name) || after.problems.includes(name);
       const other = outside.get(name);
+      const outsideBeforeMatches =
+        other !== undefined &&
+        (other.firstBefore === wasHash ||
+          (wasHash === null &&
+            (other.firstBefore === '' || other.firstBefore === emptyHash)));
       const ownership: RunFile['ownership'] =
         unreadable ||
         (other !== undefined &&
-          (other.last !== nowHash || other.firstBefore !== wasHash))
+          (other.last !== nowHash || !outsideBeforeMatches))
           ? 'uncertain'
           : other !== undefined
             ? 'outside'

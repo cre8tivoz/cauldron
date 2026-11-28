@@ -174,14 +174,93 @@ function lineAt(text: string, offset: number): number {
 function astroFrontmatterBounds(
   text: string,
 ): { start: number; end: number; bodyStart: number; content: string } | null {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  const match =
+    /^---\r?\n(?:---[ \t]*(?:\r?\n|$)|([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$))/.exec(
+      text,
+    );
   if (!match) return null;
   return {
     start: 0,
     end: match[0].length,
     bodyStart: match[0].length,
-    content: match[1],
+    content: match[1] ?? '',
   };
+}
+
+/** Finds the matching closing brace index for `{` at `openIdx`, skipping strings and comments. */
+function findBalancedBraceEnd(source: string, openIdx: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIdx; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i + 2);
+      if (nl === -1) return -1;
+      i = nl;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) return -1;
+      i = end + 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Splits top-level comma-separated destructuring entries, ignoring commas inside nested braces/strings. */
+function splitTopLevelCommas(body: string): string[] {
+  const items: string[] = [];
+  let start = 0;
+  let brace = 0;
+  let paren = 0;
+  let bracket = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body[i];
+    if (quote) {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+    } else if (ch === '{') brace += 1;
+    else if (ch === '}' && brace > 0) brace -= 1;
+    else if (ch === '(') paren += 1;
+    else if (ch === ')' && paren > 0) paren -= 1;
+    else if (ch === '[') bracket += 1;
+    else if (ch === ']' && bracket > 0) bracket -= 1;
+    else if (ch === ',' && brace === 0 && paren === 0 && bracket === 0) {
+      const piece = body.slice(start, i).trim();
+      if (piece) items.push(piece);
+      start = i + 1;
+    }
+  }
+  const tail = body.slice(start).trim();
+  if (tail) items.push(tail);
+  return items;
 }
 
 function isSafeImageRef(raw: string): boolean {
@@ -282,7 +361,8 @@ function updateMarkdownFrontmatter(
   changes: Partial<SeoValues>,
 ): string {
   const bounds = astroFrontmatterBounds(text);
-  const existingLines = bounds ? bounds.content.split(/\r?\n/) : [];
+  const existingLines =
+    bounds && bounds.content !== '' ? bounds.content.split(/\r?\n/) : [];
   const body = bounds ? text.slice(bounds.bodyStart) : text;
 
   const keyMap: Record<SeoField, string[]> = {
@@ -734,9 +814,13 @@ function ensureLayoutSupportsSeoProps(
   const fm = astroFrontmatterBounds(next);
   if (fm) {
     let fmText = fm.content;
-    const ifaceMatch = /interface\s+Props\s*\{([\s\S]*?)\}/.exec(fmText);
-    if (ifaceMatch) {
-      let body = ifaceMatch[1];
+    const ifaceHead = /interface\s+Props\s*\{/.exec(fmText);
+    const ifaceClose = ifaceHead
+      ? findBalancedBraceEnd(fmText, ifaceHead.index + ifaceHead[0].length - 1)
+      : -1;
+    if (ifaceHead && ifaceClose !== -1) {
+      const bodyStart = ifaceHead.index + ifaceHead[0].length;
+      let body = fmText.slice(bodyStart, ifaceClose);
       const missingDefs = neededFields.filter(
         (field) => !new RegExp(`\\b${field}\\b\\s*\\??:`).test(body),
       );
@@ -747,9 +831,9 @@ function ensureLayoutSupportsSeoProps(
         const trimmedEnd = body.replace(/[ \t]*$/, '');
         body = `${trimmedEnd}${trimmedEnd.endsWith('\n') ? '' : '\n'}${additions}\n`;
         fmText =
-          fmText.slice(0, ifaceMatch.index) +
+          fmText.slice(0, ifaceHead.index) +
           `interface Props {${body}}` +
-          fmText.slice(ifaceMatch.index + ifaceMatch[0].length);
+          fmText.slice(ifaceClose + 1);
       }
     } else {
       const allDefs = [...new Set<SeoField>(['title', ...neededFields])]
@@ -758,15 +842,32 @@ function ensureLayoutSupportsSeoProps(
       fmText = `${fmText.trimEnd()}\n\ninterface Props {\n${allDefs}\n}\n`;
     }
 
-    // 2. Update `const { ... } = Astro.props;` destructuring.
-    const destructureMatch = /const\s*\{([^}]*)\}\s*=\s*Astro\.props\s*;?/.exec(
-      fmText,
-    );
-    if (destructureMatch) {
-      const existingNames = destructureMatch[1]
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean);
+    // 2. Update `const { ... } = Astro.props;` destructuring (supporting nested object defaults).
+    let destructureFound: {
+      start: number;
+      end: number;
+      body: string;
+    } | null = null;
+    const constBraceRe = /const\s*\{/g;
+    let cbMatch: RegExpExecArray | null;
+    while ((cbMatch = constBraceRe.exec(fmText)) !== null) {
+      const openIdx = cbMatch.index + cbMatch[0].length - 1;
+      const closeIdx = findBalancedBraceEnd(fmText, openIdx);
+      if (closeIdx === -1) continue;
+      const afterBrace = /^\s*=\s*Astro\.props\s*;?/.exec(
+        fmText.slice(closeIdx + 1),
+      );
+      if (afterBrace) {
+        destructureFound = {
+          start: cbMatch.index,
+          end: closeIdx + 1 + afterBrace[0].length,
+          body: fmText.slice(openIdx + 1, closeIdx),
+        };
+        break;
+      }
+    }
+    if (destructureFound) {
+      const existingNames = splitTopLevelCommas(destructureFound.body);
       const present = new Set(
         existingNames.map((entry) => entry.split(/[:=]/)[0].trim()),
       );
@@ -774,9 +875,9 @@ function ensureLayoutSupportsSeoProps(
       if (toAdd.length > 0) {
         const merged = [...existingNames, ...toAdd].join(', ');
         fmText =
-          fmText.slice(0, destructureMatch.index) +
+          fmText.slice(0, destructureFound.start) +
           `const { ${merged} } = Astro.props;` +
-          fmText.slice(destructureMatch.index + destructureMatch[0].length);
+          fmText.slice(destructureFound.end);
       }
     } else {
       const allNames = [...new Set<SeoField>(['title', ...neededFields])].join(

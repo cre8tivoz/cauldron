@@ -233,33 +233,121 @@ export function findTag(text: string, location: Location): Tag | null {
   return tag;
 }
 
+function skipExpressionBlock(text: string, start: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i + 2);
+      if (nl === -1) return text.length;
+      i = nl;
+      continue;
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return text.length;
+      i = end + 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return text.length;
+}
+
 export function findClosingTag(
   text: string,
   tag: Tag,
 ): { start: number; end: number } | null {
-  if (tag.selfClosing || VOID_ELEMENTS.has(tag.name.toLowerCase())) return null;
+  const targetName = tag.name.toLowerCase();
+  if (tag.selfClosing || VOID_ELEMENTS.has(targetName)) return null;
 
-  const open = new RegExp(`<(/?)${tag.name}(?=[\\s/>])`, 'gi');
-  open.lastIndex = tag.tagEnd;
   let depth = 1;
-  let match: RegExpExecArray | null;
-  while ((match = open.exec(text)) !== null) {
-    if (match[1] === '/') {
-      depth -= 1;
-      if (depth === 0) {
-        const end = text.indexOf('>', match.index);
-        return { start: match.index, end: end === -1 ? text.length : end + 1 };
+  let i = tag.tagEnd;
+  while (i < text.length) {
+    if (text.startsWith('<!--', i)) {
+      const commentEnd = text.indexOf('-->', i + 4);
+      if (commentEnd === -1) return null;
+      i = commentEnd + 3;
+      continue;
+    }
+    if (text[i] === '{' && targetName !== 'script' && targetName !== 'style') {
+      i = skipExpressionBlock(text, i);
+      continue;
+    }
+    if (text[i] !== '<') {
+      i += 1;
+      continue;
+    }
+
+    // Closing tag?
+    if (text[i + 1] === '/') {
+      const closeMatch = /^<\/([A-Za-z][\w.:-]*)\s*>/.exec(text.slice(i));
+      if (closeMatch) {
+        if (closeMatch[1].toLowerCase() === targetName) {
+          depth -= 1;
+          if (depth === 0) {
+            return { start: i, end: i + closeMatch[0].length };
+          }
+        }
+        i += closeMatch[0].length;
+        continue;
       }
-    } else {
-      const nested = parseTag(text, match.index);
+      i += 2;
+      continue;
+    }
+
+    // Skip raw <script>/<style> content unless we are matching that tag itself.
+    if (targetName !== 'script' && /^<script(?=[\s/>])/i.test(text.slice(i))) {
+      const parsed = parseTag(text, i);
+      if (parsed && !parsed.selfClosing) {
+        const endRaw = text.slice(parsed.tagEnd).search(/<\/script\s*>/i);
+        if (endRaw === -1) return null;
+        const closeTagEnd = text.indexOf('>', parsed.tagEnd + endRaw);
+        i = closeTagEnd === -1 ? text.length : closeTagEnd + 1;
+        continue;
+      }
+    }
+    if (targetName !== 'style' && /^<style(?=[\s/>])/i.test(text.slice(i))) {
+      const parsed = parseTag(text, i);
+      if (parsed && !parsed.selfClosing) {
+        const endRaw = text.slice(parsed.tagEnd).search(/<\/style\s*>/i);
+        if (endRaw === -1) return null;
+        const closeTagEnd = text.indexOf('>', parsed.tagEnd + endRaw);
+        i = closeTagEnd === -1 ? text.length : closeTagEnd + 1;
+        continue;
+      }
+    }
+
+    const parsed = parseTag(text, i);
+    if (parsed) {
       if (
-        nested &&
-        !nested.selfClosing &&
-        !VOID_ELEMENTS.has(nested.name.toLowerCase())
+        parsed.name.toLowerCase() === targetName &&
+        !parsed.selfClosing &&
+        !VOID_ELEMENTS.has(targetName)
       ) {
         depth += 1;
       }
+      i = parsed.tagEnd;
+      continue;
     }
+    i += 1;
   }
   return null;
 }
@@ -313,9 +401,40 @@ export function escapeText(value: string): string {
     .replace(/}/g, '&#125;');
 }
 
+function splitStyleDeclarations(style: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let parens = 0;
+  for (let i = 0; i < style.length; i += 1) {
+    const ch = style[i];
+    if (quote) {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '(') {
+      parens += 1;
+    } else if (ch === ')' && parens > 0) {
+      parens -= 1;
+    } else if (ch === ';' && parens === 0) {
+      parts.push(style.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(style.slice(start));
+  return parts;
+}
+
 export function parseStyle(style: string): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const part of style.split(';')) {
+  const decoded = decodeEntities(style);
+  for (const part of splitStyleDeclarations(decoded)) {
     const index = part.indexOf(':');
     if (index === -1) continue;
     const name = part.slice(0, index).trim();
@@ -459,8 +578,11 @@ export function applyEdit(
         reason:
           'This attribute is an Astro expression. Edit its source instead of replacing it with a literal.',
       };
-    if (expected.attributes && operation.name in expected.attributes) {
-      const wanted = expected.attributes[operation.name];
+    if (expected.attributes) {
+      const wanted =
+        operation.name in expected.attributes
+          ? expected.attributes[operation.name]
+          : '';
       if ((existing?.value ?? '') !== wanted) {
         return {
           ok: false,
