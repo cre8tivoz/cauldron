@@ -820,13 +820,7 @@ function prepareCloudflareDeployStep(
     };
   }
 
-  let slug = projectName
-    ? packageSlug(projectName)
-    : path
-        .basename(root)
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, '-');
-  if (!slug) slug = 'cauldron-site';
+  const slug = slugForSite(root, projectName);
 
   const createdFiles: string[] = [];
   if (options.writeWranglerConfig) {
@@ -1023,13 +1017,15 @@ export type CommandRunner = (
   opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
 ) => Promise<CommandOutput>;
 
-function slugForSite(root: string, projectName?: string): string {
-  const raw = projectName
-    ? packageSlug(projectName)
-    : path
-        .basename(root)
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, '-');
+export function slugForSite(root: string, projectName?: string): string {
+  const raw = (
+    projectName
+      ? packageSlug(projectName)
+      : path
+          .basename(root)
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, '-')
+  ).replace(/^-+|-+$/g, '');
   return raw || 'cauldron-site';
 }
 
