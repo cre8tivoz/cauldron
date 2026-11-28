@@ -209,3 +209,29 @@ export function planBatchDraftRestores<
     .sort((a, b) => a.base - b.base || a.offset - b.offset)
     .map((item) => item.draft);
 }
+
+/** Returns the exact draft key(s) corresponding to an applied or resolved Inspector operation. */
+export function draftKeysForOperation(
+  selection: { file: string; line: number; column: number } | null,
+  operation: unknown,
+): string[] {
+  if (!selection || !operation || typeof operation !== 'object') return [];
+  const prefix = `${selection.file}:${selection.line}:${selection.column}`;
+  const op = operation as {
+    kind?: string;
+    name?: string;
+    properties?: Record<string, string>;
+  };
+  if (op.kind === 'text') return [`${prefix}:text`];
+  if (op.kind === 'attribute' && typeof op.name === 'string') {
+    return [`${prefix}:attribute:${op.name}`];
+  }
+  if (
+    op.kind === 'style' &&
+    op.properties &&
+    typeof op.properties === 'object'
+  ) {
+    return Object.keys(op.properties).map((prop) => `${prefix}:style:${prop}`);
+  }
+  return [];
+}

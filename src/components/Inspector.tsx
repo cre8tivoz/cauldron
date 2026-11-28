@@ -528,7 +528,7 @@ export function Inspector({
                   {visibleAttributes.map((attribute) => (
                     <div
                       className="inspector-grid-row"
-                      key={`attr-row-${attribute.name}`}
+                      key={`${selection.id}:attr:${attribute.name}:${attribute.value}`}
                     >
                       <label
                         htmlFor={`attr-${attribute.name}`}
