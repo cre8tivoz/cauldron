@@ -6746,10 +6746,14 @@ test('WDL-243 nothing hands a saved key back to the renderer', () => {
   // Test harnesses never touch the person's real keychain.
   assert.equal(main.split("appendSwitch('use-mock-keychain')").length - 1, 1);
   const testOnly = main.slice(
-    main.indexOf('if (process.env.CAULDRON_TEST_USER_DATA) {'),
+    main.indexOf(
+      'if (TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA) {',
+    ),
     main.indexOf(
       '}',
-      main.indexOf('if (process.env.CAULDRON_TEST_USER_DATA) {'),
+      main.indexOf(
+        'if (TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA) {',
+      ),
     ),
   );
   assert.match(
@@ -9270,6 +9274,90 @@ test('M9: runtime skips executable directories, strips login shell banners, and 
   assert.ok(runtimeSrc.includes("string join ':' $PATH"));
 
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M1: finishAgentRun keeps state.agent busy during teardown and guards buildError by site root', () => {
+  const indexSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  const fnStart = indexSrc.indexOf('async function finishAgentRun(');
+  const fnEnd = indexSrc.indexOf('function undoLast(', fnStart);
+  assert.ok(fnStart !== -1 && fnEnd > fnStart);
+  const body = indexSrc.slice(fnStart, fnEnd);
+  assert.ok(body.includes('state.agent = { cancel: () => {} };'));
+  assert.ok(body.includes('} finally {'));
+  assert.ok(body.includes('if (state.site?.root === site.root) {'));
+});
+
+test('M2: quit handlers cancel all detached child trees immediately and prepareDependencies suppresses post-done progress', () => {
+  const indexSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.ok(indexSrc.includes('state.agent?.cancel(true);'));
+  assert.ok(indexSrc.includes('state.prepare?.cancel(true);'));
+  assert.ok(indexSrc.includes('state.installPackages?.cancel(true);'));
+
+  const depsSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/dependencies.ts'),
+    'utf8',
+  );
+  const prepStart = depsSrc.indexOf('export function prepareDependencies(');
+  const prepEnd = depsSrc.indexOf('const SOURCE_RESOLVE_EXTS =', prepStart);
+  assert.ok(prepStart !== -1 && prepEnd > prepStart);
+  const prepBody = depsSrc.slice(prepStart, prepEnd);
+  assert.ok(prepBody.includes("detached: process.platform !== 'win32'"));
+  assert.ok(prepBody.includes('if (finished) return;'));
+  assert.ok(prepBody.includes('if (finished || cancelled) return;'));
+});
+
+test('M3: runAction edit actions return structured errors instead of throwing on missing file or directory', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m3-'));
+  fs.mkdirSync(path.join(dir, 'src/pages/subdir.astro'), { recursive: true });
+
+  const missingRes = runAction(dir, {
+    action: 'editElementText',
+    target: { file: 'src/pages/missing.astro', line: 1, column: 1, name: 'h1' },
+    baseHash: 'abc',
+    value: 'Hello',
+  });
+  assert.equal(missingRes.ok, false, JSON.stringify(missingRes));
+  assert.ok(missingRes.problem);
+
+  const dirRes = runAction(dir, {
+    action: 'editElementAttribute',
+    target: { file: 'src/pages/subdir.astro', line: 1, column: 1, name: 'h1' },
+    baseHash: 'abc',
+    name: 'id',
+    value: 'hero',
+  });
+  assert.equal(dirRes.ok, false, JSON.stringify(dirRes));
+  assert.ok(dirRes.problem);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M4: test userData, mock keychain, and test AI base URL are gated behind TEST_OVERRIDES_ENABLED', () => {
+  const indexSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.ok(
+    indexSrc.includes(
+      'const TEST_OVERRIDES_ENABLED = !app.isPackaged || E2E_HARNESS_ENABLED;',
+    ),
+  );
+  assert.ok(
+    indexSrc.includes(
+      'if (TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA)',
+    ),
+  );
+  assert.ok(
+    indexSrc.includes(
+      'return TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA',
+    ),
+  );
 });
 
 process.exitCode = failures ? 1 : 0;

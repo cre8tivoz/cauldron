@@ -94,7 +94,7 @@ export type AgentEvent =
   | { type: 'done'; text: string }
   | { type: 'error'; text: string };
 
-export type AgentHandle = { cancel: () => void };
+export type AgentHandle = { cancel: (immediate?: boolean) => void };
 
 export type PromptContext = {
   request: string;
@@ -665,10 +665,17 @@ export function runAgent(options: {
       );
   };
 
-  const killChild = () => {
+  const killChild = (immediate = false) => {
     signalTree('SIGTERM');
     if (killTimer) clearTimeout(killTimer);
     if (settleTimer) clearTimeout(settleTimer);
+    if (immediate) {
+      signalTree('SIGKILL');
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish(child.exitCode);
+      return;
+    }
     killTimer = setTimeout(() => {
       signalTree('SIGKILL');
       // A descendant that inherited stdout/stderr may keep pipes open briefly
@@ -740,11 +747,15 @@ export function runAgent(options: {
   });
 
   return {
-    cancel: () => {
-      if (cancelled || finished) return;
+    cancel: (immediate = false) => {
+      if (finished) return;
+      if (cancelled) {
+        if (immediate) killChild(true);
+        return;
+      }
       cancelled = true;
       if (timeoutTimer) clearTimeout(timeoutTimer);
-      killChild();
+      killChild(immediate);
     },
   };
 }

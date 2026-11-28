@@ -922,6 +922,12 @@ function writeChecked(
     };
   if (!fs.existsSync(full))
     return { ok: false, problem: 'That file no longer exists.' };
+  try {
+    if (!fs.statSync(full).isFile())
+      return { ok: false, problem: 'That path is not a file.' };
+  } catch {
+    return { ok: false, problem: 'That file could not be read.' };
+  }
 
   const disk = readFile(full);
   if (disk.hash !== baseHash && !hasOriginal) {
@@ -1354,7 +1360,13 @@ function expectedFor(
   file: string,
   target: Target,
 ): { text?: string; attributes?: Record<string, string> } {
-  const text = fs.readFileSync(file, 'utf8');
+  let text: string;
+  try {
+    if (!fs.statSync(file).isFile()) return {};
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return {};
+  }
   const tag = findTag(text, { ...target, file });
   if (!tag) return {};
   const attributes: Record<string, string> = {};
