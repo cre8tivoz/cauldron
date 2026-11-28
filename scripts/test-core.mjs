@@ -8664,6 +8664,11 @@ test('M18: PublishPanel.send and QualityPanel.run wrap IPC calls in try/catch/fi
     'PublishPanel.send missing finally',
   );
   assert.ok(sendBody.includes('setBusy(false);'));
+  assert.ok(
+    sendBody.includes('console.error(') &&
+      sendBody.includes('Could not refresh the repository file list'),
+    'PublishPanel.send must log and surface repoState refresh failures',
+  );
 
   const qualitySrc = fs.readFileSync(
     path.join(repoRoot, 'src/components/QualityPanel.tsx'),

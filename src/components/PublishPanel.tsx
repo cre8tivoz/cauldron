@@ -76,8 +76,22 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
       // list must not keep showing files that are already committed.
       try {
         setState(await window.cauldron.repoState());
-      } catch {
-        // Keep the publish outcome visible even if refreshing repo state fails.
+      } catch (refreshErr) {
+        const refreshMessage =
+          refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+        console.error(
+          `[publishing] Could not refresh repository status after publish: ${refreshMessage}`,
+          refreshErr,
+        );
+        setResult((current) => ({
+          ok: current?.ok ?? false,
+          text: [
+            current?.text,
+            `Could not refresh the repository file list (${refreshMessage}). The list shown below may be out of date.`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        }));
       }
     } catch (err) {
       setResult({
