@@ -1213,17 +1213,22 @@ export async function deployVercelAsync(
   }
 }
 
-const GITHUB_SEGMENT_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+const GITHUB_OWNER_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+const GITHUB_REPO_RE = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
 
 export function isSafeGitHubRepoSlug(slug: string): boolean {
   const parts = slug.split('/');
   if (parts.length !== 2) return false;
-  return parts.every(
-    (part) =>
-      part !== '.' &&
-      part !== '..' &&
-      !part.startsWith('-') &&
-      GITHUB_SEGMENT_RE.test(part),
+  const [owner, repo] = parts;
+  return (
+    owner !== '.' &&
+    owner !== '..' &&
+    !owner.startsWith('-') &&
+    GITHUB_OWNER_RE.test(owner) &&
+    repo !== '.' &&
+    repo !== '..' &&
+    !repo.startsWith('-') &&
+    GITHUB_REPO_RE.test(repo)
   );
 }
 

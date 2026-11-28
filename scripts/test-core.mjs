@@ -8301,6 +8301,12 @@ test('Security H6: parseGitHubRepoFromRemote rejects flags/traversal and credent
     'cre8tivoz/cauldron',
   );
   assert.equal(
+    parseGitHubRepoFromRemote('https://github.com/org/.website.git'),
+    'org/.website',
+  );
+  assert.equal(isSafeGitHubRepoSlug('org/.'), false);
+  assert.equal(isSafeGitHubRepoSlug('org/..'), false);
+  assert.equal(
     parseGitHubRepoFromRemote('https://github.com/--flag/repo'),
     null,
   );
