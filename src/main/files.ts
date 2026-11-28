@@ -11,23 +11,48 @@ export function readFile(file: string): { text: string; hash: string } {
   return { text, hash: hashOf(text) };
 }
 
-/** Writes through a temporary file in the same folder, so a half-written file is never left behind. */
+/** Writes through a unique exclusive temporary file in the same folder, so a half-written file is never left behind and pre-existing symlinks cannot redirect the write. */
 export function writeFileAtomic(
   file: string,
   content: string | Uint8Array,
 ): string {
-  const temp = path.join(
-    path.dirname(file),
-    `.${path.basename(file)}.cauldron-${process.pid}`,
-  );
-  if (typeof content === 'string') {
-    fs.writeFileSync(temp, content, 'utf8');
-    fs.renameSync(temp, file);
-    return hashOf(content);
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  let temp = '';
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = path.join(
+      dir,
+      `.${base}.cauldron-${process.pid}-${crypto.randomBytes(6).toString('hex')}`,
+    );
+    try {
+      if (typeof content === 'string') {
+        fs.writeFileSync(candidate, content, { encoding: 'utf8', flag: 'wx' });
+      } else {
+        fs.writeFileSync(candidate, content, { flag: 'wx' });
+      }
+      temp = candidate;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
   }
-  fs.writeFileSync(temp, content);
-  fs.renameSync(temp, file);
-  return crypto.createHash('sha256').update(content).digest('hex');
+  if (!temp) {
+    throw new Error(`Could not create unique temporary file for ${base}.`);
+  }
+  try {
+    fs.renameSync(temp, file);
+  } catch (error) {
+    try {
+      fs.unlinkSync(temp);
+    } catch {
+      // Best-effort cleanup if rename failed.
+    }
+    throw error;
+  }
+  return typeof content === 'string'
+    ? hashOf(content)
+    : crypto.createHash('sha256').update(content).digest('hex');
 }
 
 /**
@@ -66,20 +91,44 @@ export function createFileAtomic(file: string, text: string): string {
 }
 
 export function isInside(root: string, target: string): boolean {
-  // Resolve existing ancestors as well as the target, including files not created yet.
-  const real = (file: string): string => {
+  // Resolve existing ancestors as well as the target, including dangling symlinks
+  // and files not created yet.
+  const real = (file: string, depth = 0): string => {
+    if (depth > 40) throw new Error('Symlink loop detected.');
     const absolute = path.resolve(file);
-    if (fs.existsSync(absolute)) return fs.realpathSync(absolute);
-    const parent = path.dirname(absolute);
-    return parent === absolute
-      ? absolute
-      : path.join(real(parent), path.basename(absolute));
+    try {
+      return fs.realpathSync(absolute);
+    } catch {
+      // fs.existsSync returns false for dangling symlinks; inspect with lstatSync
+      // so a dangling symlink pointing outside root can never pass containment.
+      let resolvedTarget: string | null = null;
+      try {
+        const stat = fs.lstatSync(absolute);
+        if (stat.isSymbolicLink()) {
+          const linkTarget = fs.readlinkSync(absolute);
+          resolvedTarget = path.resolve(path.dirname(absolute), linkTarget);
+        }
+      } catch {
+        // Truly absent; resolve its parent chain instead.
+      }
+      if (resolvedTarget !== null) {
+        return real(resolvedTarget, depth + 1);
+      }
+      const parent = path.dirname(absolute);
+      return parent === absolute
+        ? absolute
+        : path.join(real(parent, depth + 1), path.basename(absolute));
+    }
   };
-  const relative = path.relative(real(root), real(target));
-  return (
-    relative !== '' &&
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
+  try {
+    const relative = path.relative(real(root), real(target));
+    return (
+      relative !== '' &&
+      relative !== '..' &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative)
+    );
+  } catch {
+    return false;
+  }
 }

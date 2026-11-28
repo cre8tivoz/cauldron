@@ -7968,4 +7968,181 @@ test('WDL-267 the confirm dialog is never closed by its own effect cleanup', () 
   assert.doesNotMatch(body, /return \(\) => \{[^}]*\.close\(/);
 });
 
+const { execFileSync: execGitSync } = await import('node:child_process');
+const { isSafeGitRefArg, publish: publishSec } =
+  await import('../src/main/publishing.ts');
+const { SAFE_PKG_NAME_RE } = await import('../src/main/dependencies.ts');
+const { writeDirection: writeDirectionSec, DIRECTIONS: DIRECTIONS_SEC } =
+  await import('../src/main/directions.ts');
+
+test('Security C1: preview:report enforces origin, inline-text binds to selection, reorder uses tracked URL, and pill uses closed Shadow DOM', () => {
+  const mainIndex = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  const reportStart = mainIndex.indexOf("ipcMain.on(\n    'preview:report'");
+  const reportBlock = mainIndex.slice(reportStart, reportStart + 1400);
+  assert.ok(reportStart >= 0);
+  assert.ok(
+    reportBlock.includes('event.senderFrame?.url') &&
+      reportBlock.includes(
+        'new URL(frameUrl).origin !== new URL(serverUrl).origin',
+      ),
+    'preview:report must verify senderFrame origin matches local server',
+  );
+
+  const inlineStart = mainIndex.indexOf('function handleInlineTextEdit(');
+  const inlineEnd = mainIndex.indexOf('function handleCanvasSectionReorder(');
+  const inlineBlock = mainIndex.slice(inlineStart, inlineEnd);
+  assert.ok(inlineStart >= 0 && inlineEnd > inlineStart);
+  assert.equal(
+    inlineBlock.includes('handlePick('),
+    false,
+    'handleInlineTextEdit must never switch selection to an untrusted preview payload',
+  );
+  assert.ok(
+    inlineBlock.includes('state.selection?.snapshot.textEditable'),
+    'handleInlineTextEdit must require an existing text-editable selection',
+  );
+
+  const reorderEnd = mainIndex.indexOf('function handlePick(', inlineEnd);
+  const reorderBlock = mainIndex.slice(inlineEnd, reorderEnd);
+  assert.equal(
+    reorderBlock.includes('req.url ??'),
+    false,
+    'handleCanvasSectionReorder must not trust preview window.location.href',
+  );
+
+  const preloadSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/preview/preload.ts'),
+    'utf8',
+  );
+  assert.ok(
+    preloadSrc.includes("attachShadow({ mode: 'closed' })"),
+    'selection pill must mount inside a closed Shadow DOM',
+  );
+  assert.ok(
+    preloadSrc.includes('editingTrustedText') &&
+      preloadSrc.includes('rawText !== trustedText'),
+    'finishInlineEdit must reject text mutated after the last trusted input event',
+  );
+});
+
+test('Security C2: isInside rejects dangling symlinks outside root and writeDirection refuses symlink targets', () => {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-c2-outer-'));
+  const site = path.join(outer, 'site');
+  fs.mkdirSync(path.join(site, 'cauldron'), { recursive: true });
+
+  const outsideDangling = path.join(outer, 'outside-new.css');
+  const danglingLink = path.join(site, 'cauldron', 'tokens.css');
+  fs.symlinkSync(outsideDangling, danglingLink);
+
+  assert.equal(
+    isInside(site, danglingLink),
+    false,
+    'dangling symlink pointing outside root must not pass isInside',
+  );
+
+  const loopA = path.join(site, 'loop-a');
+  const loopB = path.join(site, 'loop-b');
+  fs.symlinkSync(loopB, loopA);
+  fs.symlinkSync(loopA, loopB);
+  assert.equal(isInside(site, loopA), false, 'symlink loop must return false');
+
+  const dirResult = writeDirectionSec(site, DIRECTIONS_SEC[0]);
+  assert.equal(dirResult.ok, false);
+  assert.equal(
+    fs.existsSync(outsideDangling),
+    false,
+    'writeDirection must never create a file outside root through a dangling symlink',
+  );
+
+  // Verify writeFileAtomic cannot be redirected by a pre-planted PID temp symlink.
+  fs.unlinkSync(danglingLink);
+  const outsideExisting = path.join(outer, 'outside-existing.css');
+  fs.writeFileSync(outsideExisting, 'untouched', 'utf8');
+  fs.symlinkSync(
+    outsideExisting,
+    path.join(site, 'cauldron', `.tokens.css.cauldron-${process.pid}`),
+  );
+  const cleanDirResult = writeDirectionSec(site, DIRECTIONS_SEC[0]);
+  assert.equal(cleanDirResult.ok, true);
+  assert.equal(
+    fs.readFileSync(outsideExisting, 'utf8'),
+    'untouched',
+    'writeFileAtomic must use a unique wx temp file so planted temp symlinks cannot redirect writes',
+  );
+
+  fs.rmSync(outer, { recursive: true, force: true });
+});
+
+test('Security C3: publish refuses leading-hyphen git remote names so flags cannot be injected', () => {
+  assert.equal(isSafeGitRefArg('origin'), true);
+  assert.equal(isSafeGitRefArg('main'), true);
+  assert.equal(isSafeGitRefArg('--receive-pack=id'), false);
+  assert.equal(isSafeGitRefArg('--exec=touch /tmp/pwn'), false);
+  assert.equal(isSafeGitRefArg('-u'), false);
+  assert.equal(isSafeGitRefArg('bad remote'), false);
+
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-c3-git-'));
+  const markerFile = path.join(repo, 'pwned');
+  execGitSync('git', ['init', '-b', 'main'], { cwd: repo });
+  execGitSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+  execGitSync('git', ['config', 'user.email', 'test@example.com'], {
+    cwd: repo,
+  });
+  fs.appendFileSync(
+    path.join(repo, '.git', 'config'),
+    `\n[remote "--receive-pack=touch ${markerFile}"]\n\turl = https://example.invalid/repo.git\n`,
+    'utf8',
+  );
+  fs.writeFileSync(path.join(repo, 'README.md'), 'init\n', 'utf8');
+  execGitSync('git', ['add', 'README.md'], { cwd: repo });
+  execGitSync('git', ['commit', '-m', 'Initial commit'], { cwd: repo });
+  fs.writeFileSync(path.join(repo, 'index.astro'), '<h1>Hi</h1>\n', 'utf8');
+
+  const res = publishSec(repo, { message: 'Test publish', push: true });
+  assert.equal(res.ok, false);
+  assert.match(res.problem ?? '', /not safe to push/i);
+  assert.equal(
+    fs.existsSync(markerFile),
+    false,
+    'injected --receive-pack command must never execute',
+  );
+
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('Security C4: package name validation rejects leading-hyphen flags in findMissingPackages and planMissingPackageInstall', () => {
+  assert.equal(SAFE_PKG_NAME_RE.test('lucide-react'), true);
+  assert.equal(SAFE_PKG_NAME_RE.test('@astrojs/tailwind'), true);
+  assert.equal(SAFE_PKG_NAME_RE.test('--userconfig'), false);
+  assert.equal(SAFE_PKG_NAME_RE.test('-g'), false);
+  assert.equal(SAFE_PKG_NAME_RE.test('@scope/-bad'), false);
+
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-c4-deps-'));
+  fs.mkdirSync(path.join(site, 'src/pages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(site, 'package.json'),
+    JSON.stringify({ name: 'demo', dependencies: { astro: '^5.0.0' } }),
+  );
+  fs.writeFileSync(
+    path.join(site, 'src/pages/index.astro'),
+    "---\nimport '--userconfig';\nimport 'lucide-react';\n---\n<h1>Hi</h1>\n",
+  );
+
+  const missing = findMissingPackages(site);
+  assert.deepEqual(missing, ['lucide-react']);
+
+  const badPlan = planMissingPackageInstall({
+    setupManager: 'npm',
+    packages: ['--userconfig', 'rc'],
+    resolveToolOverride: () => '/usr/bin/npm',
+  });
+  assert.equal(badPlan.ok, false);
+  assert.match(badPlan.problem, /unsafe package name/i);
+
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 process.exitCode = failures ? 1 : 0;

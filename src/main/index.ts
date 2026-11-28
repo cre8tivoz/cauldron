@@ -3029,6 +3029,15 @@ function registerPreviewIpc(): void {
         event.senderFrame !== event.sender.mainFrame
       )
         return;
+      // Reject reports if the preview has navigated away from the local Astro server.
+      const serverUrl = state.server?.url;
+      const frameUrl = event.senderFrame?.url;
+      if (!serverUrl || !frameUrl) return;
+      try {
+        if (new URL(frameUrl).origin !== new URL(serverUrl).origin) return;
+      } catch {
+        return;
+      }
       if (report.kind === 'pick') {
         handlePick(report.payload);
         return;
@@ -3182,17 +3191,19 @@ function handleInlineTextEdit(payload: unknown): void {
     fail('That element comes from outside the site.');
     return;
   }
-  // Ensure state.selection points at the edited element before writing through
-  // the standard hash-checked edit path.
+  // Bind inline edits strictly to the already-validated selection; never switch
+  // state.selection to an untrusted payload reported from the preview DOM.
   const current = state.selection?.location;
   if (
     !current ||
+    !state.selection?.snapshot.textEditable ||
     current.file !== edit.file ||
     current.line !== edit.line ||
     current.column !== edit.column ||
     current.name !== edit.name
   ) {
-    handlePick(edit);
+    state.preview.reload();
+    return;
   }
   const outcome = writeSelection({ kind: 'text', value: edit.value });
   if (!outcome.ok) {
@@ -3221,16 +3232,15 @@ function handleCanvasSectionReorder(payload: unknown): void {
   ) {
     return;
   }
-  if (req.url) {
-    try {
-      if (new URL(req.url).origin !== new URL(server.url).origin) return;
-    } catch {
-      return;
-    }
+  // Always derive the route from main's tracked preview URL, never from the
+  // preview DOM's window.location.href (which page scripts can spoof via history.replaceState).
+  const trackedUrl = state.preview.currentUrl ?? server.url;
+  try {
+    if (new URL(trackedUrl).origin !== new URL(server.url).origin) return;
+  } catch {
+    return;
   }
-  const route = previewRouteFromUrl(
-    req.url ?? state.preview.currentUrl ?? server.url,
-  );
+  const route = previewRouteFromUrl(trackedUrl);
   const read = readPageSections(site.root, route);
   if (!read.ok || typeof read.hash !== 'string') {
     fail(
