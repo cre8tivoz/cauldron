@@ -2,7 +2,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { ensureTokensImport, inlineLibraryPiece } from './library';
 import { toolsFor } from './mcp';
-import { cloneResponsiveIdsInMarkup } from './responsive-css';
+import {
+  cloneResponsiveIdsInMarkup,
+  type ResponsiveFileWrite,
+} from './responsive-css';
 import {
   applyEdit,
   findTag,
@@ -769,7 +772,11 @@ export function duplicatePageSection(
   page: string,
   sectionIndex: number,
   baseHash: string,
-): ActionResult & { sections?: PageSection[]; hash?: string } {
+): ActionResult & {
+  sections?: PageSection[];
+  hash?: string;
+  extraWrites?: ResponsiveFileWrite[];
+} {
   const checked = requirePageForEdit(root, page, baseHash);
   if (!checked.ok) return checked;
   const { file, disk } = checked;
@@ -796,6 +803,7 @@ export function duplicatePageSection(
     file: path.relative(root, file),
     sections: updated,
     hash: hashOf(newText),
+    ...(cloned.cssWrite ? { extraWrites: [cloned.cssWrite] } : {}),
   };
 }
 

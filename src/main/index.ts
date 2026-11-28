@@ -1254,9 +1254,26 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
       ? readFile(full)
       : null;
   const result = runAction(site.root, request);
-  if (result.ok && fromAgent && full && !isReadOnlyAction(request.action)) {
-    claimForRun(state.agentRunId, full);
-    claimCheckedForRun(state.agentRunId, full);
+  const extraWrites =
+    result.ok && 'extraWrites' in result && Array.isArray(result.extraWrites)
+      ? (result.extraWrites as Array<{
+          file: string;
+          before: string;
+          after: string;
+          beforeHash: string;
+          afterHash: string;
+          created: boolean;
+        }>)
+      : [];
+  if (result.ok && fromAgent && !isReadOnlyAction(request.action)) {
+    if (full) {
+      claimForRun(state.agentRunId, full);
+      claimCheckedForRun(state.agentRunId, full);
+    }
+    for (const extra of extraWrites) {
+      claimForRun(state.agentRunId, extra.file);
+      claimCheckedForRun(state.agentRunId, extra.file);
+    }
   }
   if (result.ok && full) {
     const exists = fs.existsSync(full);
@@ -1297,6 +1314,24 @@ function sharedAction(request: ActionRequest, fromAgent = false) {
         root: site.root,
         runId: fromAgent ? (state.agentRunId ?? 'agent-connection') : undefined,
       });
+    }
+    for (const extra of extraWrites) {
+      if (extra.beforeHash !== extra.afterHash) {
+        state.history.record({
+          file: extra.file,
+          location: { file: extra.file, line: 1, column: 1, name: 'source' },
+          operation: { kind: 'text', value: '' },
+          before: extra.before,
+          after: extra.after,
+          beforeHash: extra.beforeHash,
+          afterHash: extra.afterHash,
+          label: request.action,
+          ...(extra.created ? { created: true, root: site.root } : {}),
+          runId: fromAgent
+            ? (state.agentRunId ?? 'agent-connection')
+            : undefined,
+        });
+      }
     }
     pushHistory();
     if (before || exists) refreshSelectionFromDisk();

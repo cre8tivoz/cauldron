@@ -89,7 +89,11 @@ export function cloneResponsiveIdsInMarkup(
   siteRoot: string,
   fullPageText: string,
   markup: string,
-): { markup: string; remapped: Record<string, string> } {
+): {
+  markup: string;
+  remapped: Record<string, string>;
+  cssWrite?: ResponsiveFileWrite;
+} {
   const attrPattern = /\bdata-cauldron-r\s*=\s*(["'])([^"']+)\1/gi;
   const oldIds: string[] = [];
   let match: RegExpExecArray | null;
@@ -132,6 +136,7 @@ export function cloneResponsiveIdsInMarkup(
     },
   );
 
+  let cssWrite: ResponsiveFileWrite | undefined;
   if (hasCss) {
     let copiedAny = false;
     for (const [oldId, newId] of Object.entries(remapped)) {
@@ -144,11 +149,20 @@ export function cloneResponsiveIdsInMarkup(
       }
     }
     if (copiedAny) {
-      writeFileAtomic(cssFile, mergeResponsiveCss(beforeCss, parsed));
+      const afterCss = mergeResponsiveCss(beforeCss, parsed);
+      writeFileAtomic(cssFile, afterCss);
+      cssWrite = {
+        file: cssFile,
+        before: beforeCss,
+        after: afterCss,
+        beforeHash: hashOf(beforeCss),
+        afterHash: hashOf(afterCss),
+        created: false,
+      };
     }
   }
 
-  return { markup: nextMarkup, remapped };
+  return { markup: nextMarkup, remapped, ...(cssWrite ? { cssWrite } : {}) };
 }
 
 /** Finds the matching closing brace for the `{` at `openBraceIndex`. */
@@ -227,31 +241,80 @@ function extractManagedAndPreserved(css: string): {
     const bp: ResponsiveBreakpoint = match[1] === '768' ? 'tablet' : 'phone';
     const body = css.slice(openBrace + 1, closeBrace);
 
-    const rulePattern =
-      /\[data-cauldron-r="([a-z0-9_-]+)"\]\s*\{([\s\S]*?)\}/gi;
-    let bodyCursor = 0;
+    // Walk top-level rules inside the @media body so compound selectors like
+    // `body [data-cauldron-r="r1"]` or `[data-cauldron-r="r1"]:hover` are never
+    // partially stripped into invalid CSS.
     const customInsideBody: string[] = [];
-    let ruleMatch: RegExpExecArray | null;
-    while ((ruleMatch = rulePattern.exec(body)) !== null) {
-      customInsideBody.push(body.slice(bodyCursor, ruleMatch.index));
-      bodyCursor = ruleMatch.index + ruleMatch[0].length;
-      const id = ruleMatch[1];
-      const declarations: Record<string, string> = {};
-      for (const line of ruleMatch[2].split(';')) {
-        const idx = line.indexOf(':');
-        if (idx === -1) continue;
-        const prop = line.slice(0, idx).trim().toLowerCase();
-        const rawVal = line
-          .slice(idx + 1)
-          .replace(/!important\s*$/i, '')
-          .trim();
-        if (prop && rawVal) declarations[prop] = rawVal;
+    let ruleCursor = 0;
+    while (ruleCursor < body.length) {
+      let openRuleBrace = -1;
+      let inComment = false;
+      let quote: string | null = null;
+      for (let i = ruleCursor; i < body.length; i += 1) {
+        const ch = body[i];
+        const nextCh = body[i + 1];
+        if (inComment) {
+          if (ch === '*' && nextCh === '/') {
+            inComment = false;
+            i += 1;
+          }
+          continue;
+        }
+        if (quote) {
+          if (ch === '\\') i += 1;
+          else if (ch === quote) quote = null;
+          continue;
+        }
+        if (ch === '/' && nextCh === '*') {
+          inComment = true;
+          i += 1;
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          quote = ch;
+          continue;
+        }
+        if (ch === '{') {
+          openRuleBrace = i;
+          break;
+        }
       }
-      if (Object.keys(declarations).length > 0) {
-        rules[bp][id] = { ...rules[bp][id], ...declarations };
+      if (openRuleBrace === -1) {
+        customInsideBody.push(body.slice(ruleCursor));
+        break;
       }
+      const closeRuleBrace = findMatchingBrace(body, openRuleBrace);
+      if (closeRuleBrace === -1) {
+        customInsideBody.push(body.slice(ruleCursor));
+        break;
+      }
+      const rawSelector = body.slice(ruleCursor, openRuleBrace);
+      const cleanSelector = rawSelector.replace(/\/\*[\s\S]*?\*\//g, '').trim();
+      const managedSel = /^\[data-cauldron-r="([a-z0-9_-]+)"\]$/i.exec(
+        cleanSelector,
+      );
+      if (managedSel) {
+        const id = managedSel[1];
+        const declText = body.slice(openRuleBrace + 1, closeRuleBrace);
+        const declarations: Record<string, string> = {};
+        for (const line of declText.split(';')) {
+          const idx = line.indexOf(':');
+          if (idx === -1) continue;
+          const prop = line.slice(0, idx).trim().toLowerCase();
+          const rawVal = line
+            .slice(idx + 1)
+            .replace(/!important\s*$/i, '')
+            .trim();
+          if (prop && rawVal) declarations[prop] = rawVal;
+        }
+        if (Object.keys(declarations).length > 0) {
+          rules[bp][id] = { ...rules[bp][id], ...declarations };
+        }
+      } else {
+        customInsideBody.push(body.slice(ruleCursor, closeRuleBrace + 1));
+      }
+      ruleCursor = closeRuleBrace + 1;
     }
-    customInsideBody.push(body.slice(bodyCursor));
     const customRemainder = customInsideBody.join('').trim();
     if (customRemainder !== '') {
       preservedChunks.push(
@@ -274,6 +337,15 @@ function extractManagedAndPreserved(css: string): {
 
 /** Parses Cauldron's plain-CSS responsive override file into per-breakpoint rules. */
 export function parseResponsiveCss(css: string): ResponsiveRuleSet {
+  const startIdx = css.indexOf(MANAGED_START);
+  const endIdx =
+    startIdx !== -1
+      ? css.indexOf(MANAGED_END, startIdx + MANAGED_START.length)
+      : -1;
+  if (startIdx !== -1 && endIdx !== -1) {
+    const inside = css.slice(startIdx + MANAGED_START.length, endIdx);
+    return extractManagedAndPreserved(inside).rules;
+  }
   return extractManagedAndPreserved(css).rules;
 }
 

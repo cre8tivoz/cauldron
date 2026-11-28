@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createFileAtomic, isInside, readFile, writeFileAtomic } from './files';
+import {
+  createFileAtomic,
+  hashOf,
+  isInside,
+  readFile,
+  writeFileAtomic,
+} from './files';
 import type { EditOperation, Location } from './edit';
 
 export type Change = {
@@ -77,8 +83,19 @@ function outOfScope(change: Change): string | null {
   return 'That file is no longer inside the site it was created in. Nothing was changed.';
 }
 
+type ReplayWrite = {
+  file: string;
+  beforeHash: string;
+  afterHash: string;
+  at: number;
+  changeId: number;
+  changeAt: number;
+  kind: 'undo' | 'redo';
+};
+
 export class History {
   private changes: Change[] = [];
+  private replayWrites: ReplayWrite[] = [];
   private cursor = 0;
   private nextId = 1;
 
@@ -118,6 +135,15 @@ export class History {
       }
       fs.rmSync(change.file);
       this.cursor -= 1;
+      this.replayWrites.push({
+        file: change.file,
+        beforeHash: disk.hash,
+        afterHash: '',
+        at: Date.now(),
+        changeId: change.id,
+        changeAt: change.at,
+        kind: 'undo',
+      });
       return { change, diskText: '' };
     }
     let disk;
@@ -135,6 +161,15 @@ export class History {
     }
     writeFileAtomic(change.file, restored);
     this.cursor -= 1;
+    this.replayWrites.push({
+      file: change.file,
+      beforeHash: disk.hash,
+      afterHash: hashOf(restored),
+      at: Date.now(),
+      changeId: change.id,
+      changeAt: change.at,
+      kind: 'undo',
+    });
     return { change, diskText: restored };
   }
 
@@ -166,6 +201,15 @@ export class History {
         throw error;
       }
       this.cursor += 1;
+      this.replayWrites.push({
+        file: change.file,
+        beforeHash: '',
+        afterHash: change.afterHash,
+        at: Date.now(),
+        changeId: change.id,
+        changeAt: change.at,
+        kind: 'redo',
+      });
       return { change };
     }
     let disk;
@@ -183,6 +227,15 @@ export class History {
     }
     writeFileAtomic(change.file, restored);
     this.cursor += 1;
+    this.replayWrites.push({
+      file: change.file,
+      beforeHash: disk.hash,
+      afterHash: hashOf(restored),
+      at: Date.now(),
+      changeId: change.id,
+      changeAt: change.at,
+      kind: 'redo',
+    });
     return { change };
   }
 
@@ -194,12 +247,59 @@ export class History {
   writtenSince(
     at: number,
   ): Array<{ file: string; beforeHash: string; afterHash: string }> {
-    return this.changes
+    const active = this.changes.slice(0, this.cursor);
+    const activeIds = new Set(active.map((change) => change.id));
+
+    const results: Array<{
+      file: string;
+      beforeHash: string;
+      afterHash: string;
+      at: number;
+    }> = active
       .filter((change) => change.at >= at && !change.runId)
       .map((change) => ({
         file: change.file,
         beforeHash: change.beforeHash,
         afterHash: change.afterHash,
+        at: change.at,
       }));
+
+    // Include manual Undo/Redo writes performed at >= `at` on pre-`at` changes
+    // whose net state differs from the state at `at` (and ignore undone/redone
+    // pairs that returned to their `at` state).
+    const preRunReplays = new Map<
+      number,
+      { first: ReplayWrite; last: ReplayWrite }
+    >();
+    for (const replay of this.replayWrites) {
+      if (replay.at < at || replay.changeAt >= at) continue;
+      const existing = preRunReplays.get(replay.changeId);
+      if (!existing) {
+        preRunReplays.set(replay.changeId, { first: replay, last: replay });
+      } else {
+        existing.last = replay;
+      }
+    }
+    for (const [changeId, pair] of preRunReplays.entries()) {
+      const isActive = activeIds.has(changeId);
+      if (
+        (pair.first.kind === 'undo' && !isActive) ||
+        (pair.first.kind === 'redo' && isActive)
+      ) {
+        results.push({
+          file: pair.last.file,
+          beforeHash: pair.first.beforeHash,
+          afterHash: pair.last.afterHash,
+          at: pair.last.at,
+        });
+      }
+    }
+
+    results.sort((a, b) => a.at - b.at);
+    return results.map(({ file, beforeHash, afterHash }) => ({
+      file,
+      beforeHash,
+      afterHash,
+    }));
   }
 }

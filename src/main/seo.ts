@@ -425,16 +425,24 @@ function updateMarkdownFrontmatter(
   return `${fmText}${body}`;
 }
 
+/** Replaces HTML comments with same-length spaces to preserve offsets while ignoring commented markup. */
+function maskHtmlComments(text: string): string {
+  return text.replace(/<!--[\s\S]*?-->/g, (comment) =>
+    comment.replace(/[^\r\n]/g, ' '),
+  );
+}
+
 /** Finds `<head>...</head>` bounds if present in an Astro file. */
 function findHeadBounds(
   text: string,
 ): { openEnd: number; closeStart: number; content: string } | null {
   const fm = astroFrontmatterBounds(text);
   const offset = fm ? fm.bodyStart : 0;
-  const openMatch = /<head\b[^>]*>/i.exec(text.slice(offset));
+  const masked = maskHtmlComments(text);
+  const openMatch = /<head\b[^>]*>/i.exec(masked.slice(offset));
   if (!openMatch) return null;
   const openEnd = offset + openMatch.index + openMatch[0].length;
-  const closeIdx = text.slice(openEnd).search(/<\/head\s*>/i);
+  const closeIdx = masked.slice(openEnd).search(/<\/head\s*>/i);
   if (closeIdx === -1) return null;
   const closeStart = openEnd + closeIdx;
   return {
@@ -507,12 +515,24 @@ function inspectHead(text: string): HeadInspection {
   const head = findHeadBounds(text);
   if (!head) return empty;
 
-  const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(head.content);
+  const maskedText = maskHtmlComments(text);
+  const maskedHeadContent = maskedText.slice(head.openEnd, head.closeStart);
+
+  const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(
+    maskedHeadContent,
+  );
   if (titleMatch) {
-    const rawInner = titleMatch[1].trim();
     const absStart = head.openEnd + titleMatch.index;
     const absEnd = absStart + titleMatch[0].length;
-    const bracePrefix = enclosingBracePrefix(text, head.openEnd, absStart);
+    const realTitleMatch = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(
+      text.slice(absStart, absEnd),
+    );
+    const rawInner = (realTitleMatch?.[1] ?? titleMatch[1]).trim();
+    const bracePrefix = enclosingBracePrefix(
+      maskedText,
+      head.openEnd,
+      absStart,
+    );
     const hasInnerExpr = rawInner.includes('{') && rawInner.includes('}');
     const isDynamic = hasInnerExpr || bracePrefix !== null;
     empty.title = {
@@ -529,7 +549,9 @@ function inspectHead(text: string): HeadInspection {
 
   let cursor = head.openEnd;
   while (cursor < head.closeStart) {
-    const nextMeta = text.slice(cursor, head.closeStart).search(/<meta\b/i);
+    const nextMeta = maskedText
+      .slice(cursor, head.closeStart)
+      .search(/<meta\b/i);
     if (nextMeta === -1) break;
     const tagStart = cursor + nextMeta;
     const parsed = parseTag(text, tagStart);
@@ -658,23 +680,55 @@ function readTagProp(
         boolValue: inner === 'true',
       };
     }
-    if (
-      (inner.startsWith('"') && inner.endsWith('"')) ||
-      (inner.startsWith("'") && inner.endsWith("'"))
-    ) {
-      let unquoted = inner.slice(1, -1);
-      if (inner.startsWith('"')) {
-        try {
-          unquoted = String(JSON.parse(inner));
-        } catch {
-          // keep the raw text between the quotes
+    if (inner.length >= 2 && inner.startsWith('"') && inner.endsWith('"')) {
+      try {
+        const parsed = JSON.parse(inner);
+        if (typeof parsed === 'string') {
+          return {
+            present: true,
+            value: parsed,
+            boolValue: parsed === 'true',
+          };
+        }
+      } catch {
+        // Not a single string literal (e.g. `"Home" + " | " + "Site"`): fall through to locked.
+      }
+    }
+    if (inner.length >= 2 && inner.startsWith("'") && inner.endsWith("'")) {
+      // Ensure no unescaped single quote closes the literal before the final character.
+      let validSingleLiteral = true;
+      let unquoted = '';
+      for (let i = 1; i < inner.length - 1; i += 1) {
+        const ch = inner[i];
+        if (ch === '\\') {
+          if (i + 1 >= inner.length - 1) {
+            validSingleLiteral = false;
+            break;
+          }
+          const nextCh = inner[i + 1];
+          unquoted +=
+            nextCh === 'n'
+              ? '\n'
+              : nextCh === 'r'
+                ? '\r'
+                : nextCh === 't'
+                  ? '\t'
+                  : nextCh;
+          i += 1;
+        } else if (ch === "'") {
+          validSingleLiteral = false;
+          break;
+        } else {
+          unquoted += ch;
         }
       }
-      return {
-        present: true,
-        value: unquoted,
-        boolValue: unquoted === 'true',
-      };
+      if (validSingleLiteral) {
+        return {
+          present: true,
+          value: unquoted,
+          boolValue: unquoted === 'true',
+        };
+      }
     }
     return {
       present: true,
@@ -900,7 +954,7 @@ function ensureLayoutSupportsSeoProps(
   const head = findHeadBounds(next);
   if (!head) return next;
 
-  const headContent = head.content;
+  const headContent = maskHtmlComments(head.content);
   const tagsToInsert: string[] = [];
 
   if (neededFields.includes('title') && !/<title\b/i.test(headContent)) {
