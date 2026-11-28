@@ -6,7 +6,7 @@
 //   - every category answers a real mouse click and the keyboard;
 //   - every component can be selected and shown at desktop and phone width.
 // With --capture it refreshes docs/reference/library-audit/components/*.png.
-// Run: npm run package && npm run test:library:ui
+// Run: CAULDRON_BUNDLE_E2E=1 npm run package && npm run test:library:ui
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -25,7 +25,9 @@ const exe = path.join(
   'Cauldron',
 );
 if (!fs.existsSync(exe))
-  throw new Error('Package the app first (out/ missing).');
+  throw new Error(
+    'Package a harness-enabled build first (CAULDRON_BUNDLE_E2E=1 npm run package).',
+  );
 const capture = process.argv.includes('--capture');
 const shots = path.join(
   repo,

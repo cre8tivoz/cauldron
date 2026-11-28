@@ -948,7 +948,7 @@ export function startInstallMissingPackages(
     });
   });
 
-  return { cancel: () => cancelFn(), promise };
+  return { cancel: (immediate?: boolean) => cancelFn(immediate), promise };
 }
 
 /**
