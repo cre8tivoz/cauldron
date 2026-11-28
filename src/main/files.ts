@@ -11,23 +11,48 @@ export function readFile(file: string): { text: string; hash: string } {
   return { text, hash: hashOf(text) };
 }
 
-/** Writes through a temporary file in the same folder, so a half-written file is never left behind. */
+/** Writes through a unique exclusive temporary file in the same folder, so a half-written file is never left behind and pre-existing symlinks cannot redirect the write. */
 export function writeFileAtomic(
   file: string,
   content: string | Uint8Array,
 ): string {
-  const temp = path.join(
-    path.dirname(file),
-    `.${path.basename(file)}.cauldron-${process.pid}`,
-  );
-  if (typeof content === 'string') {
-    fs.writeFileSync(temp, content, 'utf8');
-    fs.renameSync(temp, file);
-    return hashOf(content);
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  let temp = '';
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = path.join(
+      dir,
+      `.${base}.cauldron-${process.pid}-${crypto.randomBytes(6).toString('hex')}`,
+    );
+    try {
+      if (typeof content === 'string') {
+        fs.writeFileSync(candidate, content, { encoding: 'utf8', flag: 'wx' });
+      } else {
+        fs.writeFileSync(candidate, content, { flag: 'wx' });
+      }
+      temp = candidate;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
   }
-  fs.writeFileSync(temp, content);
-  fs.renameSync(temp, file);
-  return crypto.createHash('sha256').update(content).digest('hex');
+  if (!temp) {
+    throw new Error(`Could not create unique temporary file for ${base}.`);
+  }
+  try {
+    fs.renameSync(temp, file);
+  } catch (error) {
+    try {
+      fs.unlinkSync(temp);
+    } catch {
+      // Best-effort cleanup if rename failed.
+    }
+    throw error;
+  }
+  return typeof content === 'string'
+    ? hashOf(content)
+    : crypto.createHash('sha256').update(content).digest('hex');
 }
 
 /**

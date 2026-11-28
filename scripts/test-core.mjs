@@ -8057,6 +8057,22 @@ test('Security C2: isInside rejects dangling symlinks outside root and writeDire
     'writeDirection must never create a file outside root through a dangling symlink',
   );
 
+  // Verify writeFileAtomic cannot be redirected by a pre-planted PID temp symlink.
+  fs.unlinkSync(danglingLink);
+  const outsideExisting = path.join(outer, 'outside-existing.css');
+  fs.writeFileSync(outsideExisting, 'untouched', 'utf8');
+  fs.symlinkSync(
+    outsideExisting,
+    path.join(site, 'cauldron', `.tokens.css.cauldron-${process.pid}`),
+  );
+  const cleanDirResult = writeDirectionSec(site, DIRECTIONS_SEC[0]);
+  assert.equal(cleanDirResult.ok, true);
+  assert.equal(
+    fs.readFileSync(outsideExisting, 'utf8'),
+    'untouched',
+    'writeFileAtomic must use a unique wx temp file so planted temp symlinks cannot redirect writes',
+  );
+
   fs.rmSync(outer, { recursive: true, force: true });
 });
 
