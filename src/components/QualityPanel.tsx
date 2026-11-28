@@ -40,13 +40,18 @@ export function QualityPanel({
   const run = async () => {
     setRunning(true);
     setMessage(null);
-    const result = await window.cauldron.qualityRun({});
-    setRunning(false);
-    setReport(result);
-    if (!result.built)
-      setMessage(
-        'The site does not build, so there is nothing to measure yet.',
-      );
+    try {
+      const result = await window.cauldron.qualityRun({});
+      setReport(result);
+      if (!result.built)
+        setMessage(
+          'The site does not build, so there is nothing to measure yet.',
+        );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
   };
 
   const sendFeedback = async () => {
@@ -344,6 +349,7 @@ export function QualityPanel({
                     <option value="claude">Claude Code</option>
                     <option value="codex">Codex</option>
                     <option value="hermes">Hermes</option>
+                    <option value="key">Your AI key</option>
                   </select>
                   <ChevronDownIcon size={12} />
                 </div>

@@ -22,8 +22,8 @@ export function LibrarySpecimen({
     // Fit width *and* height. Fitting width alone let the stage clip the bottom
     // of a 520px-tall frame whenever the canvas was shorter, cutting a card in
     // half and leaving dead space below it.
-    const available = element.parentElement?.clientHeight ?? 0;
     const resize = () => {
+      const available = element.parentElement?.clientHeight ?? 0;
       const byWidth = element.clientWidth / width;
       const byHeight = available > 0 ? available / height : 1;
       setScale(Math.max(0.1, Math.min(1, byWidth, byHeight)));

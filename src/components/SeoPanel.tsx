@@ -76,13 +76,17 @@ export function SeoPanel({ site, currentPage = '/', onBack }: Props) {
   const selectedFileRef = useRef<string | null>(null);
   selectedFileRef.current = selectedFile;
   const dirtyRef = useRef(false);
+  const listRequestIdRef = useRef(0);
+  const readRequestIdRef = useRef(0);
 
   const openEntry = useCallback(
     async (file: string, preserveNotice = false) => {
+      const reqId = ++readRequestIdRef.current;
       setProblem(null);
       setConflict(false);
       if (!preserveNotice) setSavedNotice(null);
       const res = await window.cauldron.seoRead(file);
+      if (readRequestIdRef.current !== reqId) return;
       if ('problem' in res) {
         setProblem(res.problem);
         return;
@@ -96,10 +100,13 @@ export function SeoPanel({ site, currentPage = '/', onBack }: Props) {
 
   const refreshList = useCallback(
     async (preferFile?: string | null) => {
+      const reqId = ++listRequestIdRef.current;
       const res = await window.cauldron.seoList();
+      if (listRequestIdRef.current !== reqId) return;
       setEntries(res.entries);
       setPublicImages(res.images);
       if (res.entries.length === 0) {
+        readRequestIdRef.current += 1;
         setSelectedFile(null);
         setDetail(null);
         setValues(EMPTY_VALUES);
