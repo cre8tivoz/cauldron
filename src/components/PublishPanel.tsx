@@ -42,39 +42,65 @@ export function PublishPanel({ site, unsavedBuffers, onBack }: Props) {
   const send = async (push: boolean) => {
     setBusy(true);
     setResult(null);
-    const outcome = await window.cauldron.publish({
-      message,
-      push,
-      unsavedBuffers,
-    });
-    setBusy(false);
-    const commit =
-      outcome.ok && outcome.commit
-        ? outcome.commit
-        : !outcome.ok && (outcome.committed ?? 0) > 0
-          ? `Committed ${outcome.committed} file(s) locally.`
-          : '';
-    const upload = outcome.ok && outcome.upload ? outcome.upload : '';
-    if (outcome.ok) {
-      setResult({
-        ok: true,
-        text: [commit, upload].filter(Boolean).join('\n'),
+    try {
+      const outcome = await window.cauldron.publish({
+        message,
+        push,
+        unsavedBuffers,
       });
-      setMessage('');
-    } else {
+      const commit =
+        outcome.ok && outcome.commit
+          ? outcome.commit
+          : !outcome.ok && (outcome.committed ?? 0) > 0
+            ? `Committed ${outcome.committed} file(s) locally.`
+            : '';
+      const upload = outcome.ok && outcome.upload ? outcome.upload : '';
+      if (outcome.ok) {
+        setResult({
+          ok: true,
+          text: [commit, upload].filter(Boolean).join('\n'),
+        });
+        setMessage('');
+      } else {
+        setResult({
+          ok: false,
+          text: [
+            commit,
+            `${outcome.problem ?? 'That did not go through.'}${outcome.details ? `\n${outcome.details}` : ''}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        });
+      }
+      // Always re-read: a commit can succeed while its upload fails, and the
+      // list must not keep showing files that are already committed.
+      try {
+        setState(await window.cauldron.repoState());
+      } catch (refreshErr) {
+        const refreshMessage =
+          refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+        console.error(
+          `[publishing] Could not refresh repository status after publish: ${refreshMessage}`,
+          refreshErr,
+        );
+        setResult((current) => ({
+          ok: current?.ok ?? false,
+          text: [
+            current?.text,
+            `Could not refresh the repository file list (${refreshMessage}). The list shown below may be out of date.`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        }));
+      }
+    } catch (err) {
       setResult({
         ok: false,
-        text: [
-          commit,
-          `${outcome.problem ?? 'That did not go through.'}${outcome.details ? `\n${outcome.details}` : ''}`,
-        ]
-          .filter(Boolean)
-          .join('\n'),
+        text: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      setBusy(false);
     }
-    // Always re-read: a commit can succeed while its upload fails, and the
-    // list must not keep showing files that are already committed.
-    setState(await window.cauldron.repoState());
   };
 
   const handleExportStatic = async () => {

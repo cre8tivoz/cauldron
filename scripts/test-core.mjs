@@ -8633,4 +8633,127 @@ test('H15: PreviewStage hides compare views on modalBlocking and observes stageR
   );
 });
 
+test('M17: Cancel install button only renders in the Missing Packages banner, not the Unsaved Edits banner', () => {
+  const appSrc = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  const cancelMatches = appSrc.match(/cancelInstallPackages\(\)/g) ?? [];
+  assert.equal(
+    cancelMatches.length,
+    1,
+    `expected exactly 1 cancelInstallPackages() button in App.tsx, found ${cancelMatches.length}`,
+  );
+});
+
+test('M18: PublishPanel.send and QualityPanel.run wrap IPC calls in try/catch/finally', () => {
+  const publishSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/PublishPanel.tsx'),
+    'utf8',
+  );
+  const sendStart = publishSrc.indexOf(
+    'const send = async (push: boolean) => {',
+  );
+  const sendEnd = publishSrc.indexOf('const handleExportStatic =', sendStart);
+  assert.ok(sendStart !== -1 && sendEnd > sendStart);
+  const sendBody = publishSrc.slice(sendStart, sendEnd);
+  assert.ok(sendBody.includes('try {'), 'PublishPanel.send missing try');
+  assert.ok(
+    sendBody.includes('catch (err)'),
+    'PublishPanel.send missing catch',
+  );
+  assert.ok(
+    sendBody.includes('finally {'),
+    'PublishPanel.send missing finally',
+  );
+  assert.ok(sendBody.includes('setBusy(false);'));
+  assert.ok(
+    sendBody.includes('console.error(') &&
+      sendBody.includes('Could not refresh the repository file list'),
+    'PublishPanel.send must log and surface repoState refresh failures',
+  );
+
+  const qualitySrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/QualityPanel.tsx'),
+    'utf8',
+  );
+  const runStart = qualitySrc.indexOf('const run = async () => {');
+  const runEnd = qualitySrc.indexOf('const sendFeedback =', runStart);
+  assert.ok(runStart !== -1 && runEnd > runStart);
+  const runBody = qualitySrc.slice(runStart, runEnd);
+  assert.ok(runBody.includes('try {'), 'QualityPanel.run missing try');
+  assert.ok(runBody.includes('catch (err)'), 'QualityPanel.run missing catch');
+  assert.ok(runBody.includes('finally {'), 'QualityPanel.run missing finally');
+  assert.ok(runBody.includes('setRunning(false);'));
+});
+
+test('M19: QualityPanel feedback agent selector includes the Your AI key option', () => {
+  const qualitySrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/QualityPanel.tsx'),
+    'utf8',
+  );
+  assert.ok(
+    qualitySrc.includes('<option value="key">Your AI key</option>'),
+    'QualityPanel tool selector is missing the "key" option',
+  );
+});
+
+test('M20: LibrarySpecimen reads parent clientHeight inside resize() on every ResizeObserver callback', () => {
+  const specSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/LibrarySpecimen.tsx'),
+    'utf8',
+  );
+  const resizeIdx = specSrc.indexOf('const resize = () => {');
+  const availIdx = specSrc.indexOf('element.parentElement?.clientHeight ?? 0');
+  assert.ok(resizeIdx !== -1 && availIdx > resizeIdx);
+});
+
+test('M21: AgentPanel delegates missing-package installs to App handler so site state and errors stay in sync', () => {
+  const agentSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/AgentPanel.tsx'),
+    'utf8',
+  );
+  assert.equal(
+    agentSrc.includes('window.cauldron.installMissingPackages'),
+    false,
+    'AgentPanel should use the shared onInstallMissingPackages handler instead of calling IPC directly',
+  );
+  assert.ok(agentSrc.includes('onInstallMissingPackages'));
+  assert.ok(agentSrc.includes('onMessage(result.problem)'));
+
+  const appSrc = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.ok(
+    appSrc.includes('onInstallMissingPackages={installMissingPackages}'),
+  );
+});
+
+test('M22: async site/list/read handlers guard against stale responses and clear stale state', () => {
+  const appSrc = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.ok(appSrc.includes('const targetRoot = currentSiteRootRef.current;'));
+  assert.ok(
+    appSrc.includes('if (currentSiteRootRef.current !== targetRoot) return;'),
+  );
+  assert.ok(appSrc.includes('setInstallError(null);'));
+
+  const seoSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/SeoPanel.tsx'),
+    'utf8',
+  );
+  assert.ok(seoSrc.includes('listRequestIdRef'));
+  assert.ok(seoSrc.includes('readRequestIdRef'));
+  assert.ok(seoSrc.includes('if (readRequestIdRef.current !== reqId) return;'));
+  assert.ok(seoSrc.includes('if (listRequestIdRef.current !== reqId) return;'));
+
+  const contentSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/ContentPanel.tsx'),
+    'utf8',
+  );
+  assert.ok(contentSrc.includes('loadRequestIdRef'));
+  assert.ok(contentSrc.includes('openRequestIdRef'));
+  assert.ok(
+    contentSrc.includes('if (loadRequestIdRef.current !== reqId) return;'),
+  );
+  assert.ok(
+    contentSrc.includes('if (openRequestIdRef.current !== reqId) return;'),
+  );
+  assert.ok(contentSrc.includes('setOpenFile(null);'));
+});
+
 process.exitCode = failures ? 1 : 0;

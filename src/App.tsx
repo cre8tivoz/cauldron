@@ -194,6 +194,7 @@ export function App() {
   );
   const [installingPackages, setInstallingPackages] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
+  const installRequestIdRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [agentWidth, setAgentWidth] = useState(400);
   const [inspectorWidth, setInspectorWidth] = useState(310);
@@ -208,6 +209,7 @@ export function App() {
   >([]);
 
   const refreshSitePages = useCallback(async () => {
+    const targetRoot = currentSiteRootRef.current;
     try {
       const res = (await window.cauldron.runAction({
         action: 'listPages',
@@ -215,20 +217,64 @@ export function App() {
         ok?: boolean;
         pages?: Array<{ page: string; file: string }>;
       };
+      if (currentSiteRootRef.current !== targetRoot) return;
       if (Array.isArray(res.pages)) {
         setSitePages(res.pages);
       } else {
         setSitePages([]);
       }
     } catch {
+      if (currentSiteRootRef.current !== targetRoot) return;
       setSitePages([]);
     }
   }, []);
 
   const refreshAgentRuns = useCallback(async () => {
+    const targetRoot = currentSiteRootRef.current;
     const fetchedRuns = await window.cauldron.runs();
+    if (currentSiteRootRef.current !== targetRoot) return;
     setAgentRuns(fetchedRuns);
   }, []);
+
+  const installMissingPackages = useCallback(async (): Promise<{
+    ok: boolean;
+    problem?: string;
+  }> => {
+    if (!site || !site.missingPackages || site.missingPackages.length === 0) {
+      return { ok: false, problem: 'No missing packages to install.' };
+    }
+    const targetRoot = site.root;
+    const reqId = ++installRequestIdRef.current;
+    setInstallingPackages(true);
+    setInstallError(null);
+    try {
+      const res = await window.cauldron.installMissingPackages(
+        site.missingPackages,
+      );
+      if (currentSiteRootRef.current !== targetRoot) {
+        return { ok: false };
+      }
+      if (!res.ok) {
+        const problemText = res.problem || res.log || 'Installation failed.';
+        setInstallError(problemText);
+        return { ok: false, problem: problemText };
+      }
+      if (res.site) {
+        setSite(res.site);
+      }
+      return { ok: true };
+    } catch (err) {
+      const problemText = err instanceof Error ? err.message : String(err);
+      if (currentSiteRootRef.current === targetRoot) {
+        setInstallError(problemText);
+      }
+      return { ok: false, problem: problemText };
+    } finally {
+      if (installRequestIdRef.current === reqId) {
+        setInstallingPackages(false);
+      }
+    }
+  }, [site]);
 
   const setAgentMessage = useCallback((message: string | null) => {
     setAgentStream((current) => ({ ...current, message }));
@@ -356,6 +402,7 @@ export function App() {
       setConflict(null);
       if (isNewSite || !next.site) {
         setEditingLayer('base');
+        setInstallError(null);
         setAgentStream(INITIAL_AGENT_STREAM);
         setHistoryState(next.history ?? { canUndo: false, canRedo: false });
       } else if (next.history) {
@@ -1122,26 +1169,7 @@ export function App() {
                   className="button primary"
                   type="button"
                   disabled={installingPackages}
-                  onClick={async () => {
-                    setInstallingPackages(true);
-                    setInstallError(null);
-                    try {
-                      const res = await window.cauldron.installMissingPackages(
-                        site.missingPackages,
-                      );
-                      if (!res.ok) {
-                        setInstallError(
-                          res.problem || res.log || 'Installation failed.',
-                        );
-                      } else if (res.site) {
-                        setSite(res.site);
-                      }
-                    } catch (e) {
-                      setInstallError((e as Error).message);
-                    } finally {
-                      setInstallingPackages(false);
-                    }
-                  }}
+                  onClick={() => void installMissingPackages()}
                 >
                   {installingPackages
                     ? 'Installing packages…'
@@ -1198,15 +1226,6 @@ export function App() {
                   }}
                 >
                   Restore all
-                </button>
-              ) : null}
-              {installingPackages ? (
-                <button
-                  className="button"
-                  type="button"
-                  onClick={() => void window.cauldron.cancelInstallPackages()}
-                >
-                  Cancel install
                 </button>
               ) : null}
               <button
@@ -1305,6 +1324,8 @@ export function App() {
                     onMessage={setAgentMessage}
                     onRefreshRuns={refreshAgentRuns}
                     onSend={sendAgentRequest}
+                    installingPackages={installingPackages}
+                    onInstallMissingPackages={installMissingPackages}
                   />
                 </div>
                 <Splitter

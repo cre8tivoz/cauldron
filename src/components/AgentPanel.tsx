@@ -28,6 +28,8 @@ type Props = {
     tool: AgentTool,
     request: string,
   ) => Promise<{ ok: boolean; problem?: string }>;
+  installingPackages?: boolean;
+  onInstallMissingPackages?: () => Promise<{ ok: boolean; problem?: string }>;
 };
 
 /**
@@ -53,12 +55,13 @@ export function AgentPanel({
   onMessage,
   onRefreshRuns,
   onSend,
+  installingPackages = false,
+  onInstallMissingPackages,
 }: Props) {
   const [request, setRequest] = useState('');
   const [showing, setShowing] = useState<string | null>(null);
   const transcript = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const [installingMissing, setInstallingMissing] = useState(false);
 
   const prefillPrompt = (promptText: string) => {
     setRequest(promptText);
@@ -370,19 +373,16 @@ export function AgentPanel({
                     <button
                       className="button primary"
                       type="button"
-                      disabled={installingMissing}
+                      disabled={installingPackages}
                       onClick={async () => {
-                        setInstallingMissing(true);
-                        try {
-                          await window.cauldron.installMissingPackages(
-                            site.missingPackages,
-                          );
-                        } finally {
-                          setInstallingMissing(false);
+                        if (!onInstallMissingPackages) return;
+                        const result = await onInstallMissingPackages();
+                        if (!result.ok && result.problem) {
+                          onMessage(result.problem);
                         }
                       }}
                     >
-                      {installingMissing
+                      {installingPackages
                         ? 'Installing…'
                         : `Install missing packages (${site.missingPackages.join(', ')})`}
                     </button>

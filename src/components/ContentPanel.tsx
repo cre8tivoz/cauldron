@@ -31,44 +31,55 @@ export function ContentPanel({
   const [saved, setSaved] = useState<string | null>(null);
   const [conflict, setConflict] = useState<Record<string, string> | null>(null);
 
+  const loadRequestIdRef = useRef(0);
+  const openRequestIdRef = useRef(0);
+
+  /** `carry` holds typed values in other fields that must survive a reload. */
+  const open = useCallback(
+    async (file: string, carry: Record<string, string> = {}) => {
+      const reqId = ++openRequestIdRef.current;
+      setProblem(null);
+      setSaved(null);
+      setConflict(null);
+      const result = await window.cauldron.entry(file);
+      if (openRequestIdRef.current !== reqId) return;
+      if ('problem' in result) {
+        setProblem(result.problem);
+        return;
+      }
+      setOpenFile(file);
+      setEntry(result);
+      setValues({ ...result.values, ...carry });
+      setAsText(null);
+    },
+    [],
+  );
+
   const load = useCallback(async () => {
+    const reqId = ++loadRequestIdRef.current;
     const result = await window.cauldron.collections();
+    if (loadRequestIdRef.current !== reqId) return;
     setCollections(result.collections);
-    // If no entry is open yet and there is an entry available, select the first one
     if (
       result.collections.length > 0 &&
       result.collections[0].entries.length > 0
     ) {
-      const firstFile = result.collections[0].entries[0].file;
-      void window.cauldron.entry(firstFile).then((entryRes) => {
-        if ('hash' in entryRes) {
-          setOpenFile(firstFile);
-          setEntry(entryRes);
-          setValues(entryRes.values);
-        }
-      });
+      await open(result.collections[0].entries[0].file);
+    } else {
+      openRequestIdRef.current += 1;
+      setOpenFile(null);
+      setEntry(null);
+      setValues({});
+      setAsText(null);
+      setProblem(null);
+      setSaved(null);
+      setConflict(null);
     }
-  }, []);
+  }, [open]);
 
   useEffect(() => {
     void load();
   }, [load, site?.root]);
-
-  /** `carry` holds typed values in other fields that must survive a reload. */
-  const open = async (file: string, carry: Record<string, string> = {}) => {
-    setProblem(null);
-    setSaved(null);
-    setConflict(null);
-    const result = await window.cauldron.entry(file);
-    if ('problem' in result) {
-      setProblem(result.problem);
-      return;
-    }
-    setOpenFile(file);
-    setEntry(result);
-    setValues({ ...result.values, ...carry });
-    setAsText(null);
-  };
 
   const currentCollection = collections.find((collection) =>
     collection.entries.some((item) => item.file === openFile),
