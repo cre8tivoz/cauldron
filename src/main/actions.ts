@@ -1258,6 +1258,17 @@ export function editCssRule(
   if (!normalizedTarget) {
     return { ok: false, problem: 'Choose a valid CSS selector.' };
   }
+  if (
+    hasUnquotedCssDelimiter(normalizedTarget) ||
+    /<\/style>/i.test(normalizedTarget) ||
+    /@import\b/i.test(normalizedTarget)
+  ) {
+    return {
+      ok: false,
+      problem:
+        'CSS selectors cannot contain unquoted braces, semicolons, @import, or closing style tags.',
+    };
+  }
   if (!/^(?:--[A-Za-z0-9_-]+|[A-Za-z][A-Za-z0-9-]*)$/.test(cleanProp)) {
     return { ok: false, problem: 'Choose a valid CSS property name.' };
   }

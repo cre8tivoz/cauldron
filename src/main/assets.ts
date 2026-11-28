@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isInside } from './files';
+import { isBlockedRemoteHostname, isInside } from './files';
 
 const MAX_STOCK_PHOTO_BYTES = 25 * 1024 * 1024;
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
@@ -210,6 +210,13 @@ export async function downloadAndSaveStockPhoto(
       problem: 'Photo downloads require an https:// address.',
     };
   }
+  if (isBlockedRemoteHostname(parsedUrl.hostname)) {
+    return {
+      ok: false,
+      problem:
+        'Photo downloads cannot target local or private network addresses.',
+    };
+  }
 
   const fetchFn = params.fetchImpl ?? globalThis.fetch;
   if (typeof fetchFn !== 'function') {
@@ -225,9 +232,46 @@ export async function downloadAndSaveStockPhoto(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetchFn(parsedUrl.toString(), {
-      signal: controller.signal,
-    });
+    let currentUrl = parsedUrl;
+    let response: Response | null = null;
+    for (let hop = 0; hop < 5; hop += 1) {
+      const res = await fetchFn(currentUrl.toString(), {
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (!location) {
+          return {
+            ok: false,
+            problem: 'Photo download redirect had no destination.',
+          };
+        }
+        let nextUrl: URL;
+        try {
+          nextUrl = new URL(location, currentUrl);
+        } catch {
+          return { ok: false, problem: 'Photo download redirect was invalid.' };
+        }
+        if (
+          nextUrl.protocol !== 'https:' ||
+          isBlockedRemoteHostname(nextUrl.hostname)
+        ) {
+          return {
+            ok: false,
+            problem:
+              'Photo download redirected to an unsafe or private network address.',
+          };
+        }
+        currentUrl = nextUrl;
+        continue;
+      }
+      response = res;
+      break;
+    }
+    if (!response) {
+      return { ok: false, problem: 'Photo download exceeded redirect limit.' };
+    }
     if (!response.ok) {
       return {
         ok: false,
@@ -255,7 +299,30 @@ export async function downloadAndSaveStockPhoto(
       }
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let buffer: Buffer;
+    if (response.body && typeof response.body.getReader === 'function') {
+      const reader = response.body.getReader();
+      const chunks: Buffer[] = [];
+      let total = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel().catch(() => {});
+            return {
+              ok: false,
+              problem: `Downloaded image exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB limit.`,
+            };
+          }
+          chunks.push(Buffer.from(value));
+        }
+      }
+      buffer = Buffer.concat(chunks, total);
+    } else {
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
     if (buffer.length === 0) {
       return { ok: false, problem: 'Downloaded photo was empty.' };
     }

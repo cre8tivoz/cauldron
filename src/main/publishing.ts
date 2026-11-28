@@ -1213,16 +1213,36 @@ export async function deployVercelAsync(
   }
 }
 
+const GITHUB_SEGMENT_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+
+export function isSafeGitHubRepoSlug(slug: string): boolean {
+  const parts = slug.split('/');
+  if (parts.length !== 2) return false;
+  return parts.every(
+    (part) =>
+      part !== '.' &&
+      part !== '..' &&
+      !part.startsWith('-') &&
+      GITHUB_SEGMENT_RE.test(part),
+  );
+}
+
+function shellQuotePosix(arg: string): string {
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
 export function parseGitHubRepoFromRemote(remoteUrl: string): string | null {
   const trimmed = remoteUrl.trim();
   const httpsMatch = trimmed.match(
-    /^https?:\/\/github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i,
+    /^https?:\/\/github\.com\/([^/\s?#]+\/[^/\s?#]+?)(?:\.git)?\/?$/i,
   );
-  if (httpsMatch) return httpsMatch[1];
-  const sshMatch = trimmed.match(
-    /^git@github\.com:([^/\s]+\/[^/\s]+?)(?:\.git)?$/i,
-  );
-  return sshMatch ? sshMatch[1] : null;
+  const candidate =
+    httpsMatch?.[1] ??
+    trimmed.match(
+      /^git@github\.com:([^/\s?#]+\/[^/\s?#]+?)(?:\.git)?$/i,
+    )?.[1] ??
+    null;
+  return candidate && isSafeGitHubRepoSlug(candidate) ? candidate : null;
 }
 
 export function parseGitHubPagesUrl(output: string): string | undefined {
@@ -1399,6 +1419,14 @@ export async function deployGitHubPagesAsync(
     repoSlug = `${owner}/${name}`;
   }
 
+  if (!isSafeGitHubRepoSlug(repoSlug)) {
+    return {
+      ok: false,
+      problem: `Invalid GitHub repository slug "${repoSlug}".`,
+      log: logs.join('\n'),
+    };
+  }
+
   // 3. Ensure repository exists on GitHub
   const viewRes = await runner(
     ghBin,
@@ -1446,7 +1474,7 @@ export async function deployGitHubPagesAsync(
         '-c',
         'credential.helper=',
         '-c',
-        `credential.helper=!${ghBin} auth git-credential`,
+        `credential.helper=!${shellQuotePosix(ghBin)} auth git-credential`,
         'push',
         '--force',
         remoteUrl,

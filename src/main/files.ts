@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import net from 'node:net';
 
 export function hashOf(text: string): string {
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
@@ -131,4 +132,61 @@ export function isInside(root: string, target: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Returns true if an IPv4/IPv6 address is loopback, private, link-local, or otherwise non-public. */
+export function isPrivateOrLocalIp(ip: string): boolean {
+  const clean = ip.replace(/^\[|\]$/g, '').toLowerCase();
+  if (clean.startsWith('::ffff:')) {
+    return isPrivateOrLocalIp(clean.slice('::ffff:'.length));
+  }
+  const version = net.isIP(clean);
+  if (version === 4) {
+    const parts = clean.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true;
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a >= 224
+    );
+  }
+  if (version === 6) {
+    return (
+      clean === '::' ||
+      clean === '::1' ||
+      clean.startsWith('fc') ||
+      clean.startsWith('fd') ||
+      clean.startsWith('fe8') ||
+      clean.startsWith('fe9') ||
+      clean.startsWith('fea') ||
+      clean.startsWith('feb') ||
+      clean.startsWith('ff')
+    );
+  }
+  return false;
+}
+
+/** Rejects loopback/internal hostnames and private IP literals before outbound fetches or loads. */
+export function isBlockedRemoteHostname(hostname: string): boolean {
+  const host = hostname
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (
+    !host ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  ) {
+    return true;
+  }
+  if (net.isIP(host)) return isPrivateOrLocalIp(host);
+  return false;
 }
