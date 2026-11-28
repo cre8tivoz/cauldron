@@ -18,6 +18,7 @@ type Props = {
   viewport: PreviewViewport;
   onViewportChange: (viewport: PreviewViewport) => void;
   compare: boolean;
+  modalBlocking?: boolean;
   onCompareChange: (compare: boolean) => void;
   onOpenPage: (pageRoute: string) => void;
   onNewPage: (page: { path: string; title: string }) => void;
@@ -42,6 +43,7 @@ export function PreviewStage({
   viewport,
   onViewportChange,
   compare,
+  modalBlocking = false,
   onCompareChange,
   onOpenPage,
   onNewPage,
@@ -77,6 +79,10 @@ export function PreviewStage({
   };
 
   const reportFrames = useCallback(() => {
+    if (modalBlocking) {
+      void window.cauldron.setCompareFrames([]).catch(() => undefined);
+      return;
+    }
     const stage = stageRef.current;
     const fits = !stage || stage.clientWidth >= minimumStageWidth();
     setTooNarrow(!fits);
@@ -104,18 +110,22 @@ export function PreviewStage({
         ),
       )
       .catch(() => undefined);
-  }, [stageRef]);
+  }, [modalBlocking, stageRef]);
 
   useEffect(() => {
-    if (!compare || !running) {
+    if (!compare || !running || modalBlocking) {
       void window.cauldron.setCompareFrames([]).catch(() => undefined);
       return;
     }
     reportFrames();
+    const observer = new ResizeObserver(reportFrames);
+    // Always observe the outer stage so collapsing a sidebar recovers from
+    // `tooNarrow` even while the individual slot nodes are unmounted.
+    const stage = stageRef.current;
+    if (stage) observer.observe(stage);
     const slots = slotRefs.current.filter((slot): slot is HTMLDivElement =>
       Boolean(slot),
     );
-    const observer = new ResizeObserver(reportFrames);
     for (const slot of slots) observer.observe(slot);
     window.addEventListener('resize', reportFrames);
     return () => {
@@ -123,7 +133,7 @@ export function PreviewStage({
       window.removeEventListener('resize', reportFrames);
       void window.cauldron.setCompareFrames([]).catch(() => undefined);
     };
-  }, [compare, running, reportFrames]);
+  }, [compare, running, modalBlocking, tooNarrow, reportFrames, stageRef]);
 
   const normalizedCurrentPage = normalizeSiteRoute(currentPage);
   const normalizedPages = pages.map((entry) => ({

@@ -8567,4 +8567,70 @@ test('H12: editor-created file during an agent run is marked outside and does no
   fs.rmSync(store, { recursive: true, force: true });
 });
 
+const { draftKeysForOperation } = await import('../src/draft-restore.ts');
+
+test('H13: Inspector attribute rows key by selection.id, attribute name, and value', () => {
+  const inspectorSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/Inspector.tsx'),
+    'utf8',
+  );
+  assert.equal(
+    inspectorSrc.includes('key={`attr-row-${attribute.name}`}'),
+    false,
+    'attribute row key must include selection.id and attribute.value to prevent cross-element bleed',
+  );
+  assert.ok(
+    inspectorSrc.includes(
+      'key={`${selection.id}:attr:${attribute.name}:${attribute.value}`}',
+    ),
+  );
+});
+
+test('H14: draftKeysForOperation scopes draft pruning per operation and App prunes on restore & conflict resolution', () => {
+  const sel = { file: 'src/pages/index.astro', line: 4, column: 3 };
+  assert.deepEqual(draftKeysForOperation(sel, { kind: 'text', value: 'Hi' }), [
+    'src/pages/index.astro:4:3:text',
+  ]);
+  assert.deepEqual(
+    draftKeysForOperation(sel, {
+      kind: 'attribute',
+      name: 'href',
+      value: '/x',
+    }),
+    ['src/pages/index.astro:4:3:attribute:href'],
+  );
+  assert.deepEqual(
+    draftKeysForOperation(sel, {
+      kind: 'style',
+      properties: { color: 'red', padding: '8px' },
+    }),
+    [
+      'src/pages/index.astro:4:3:style:color',
+      'src/pages/index.astro:4:3:style:padding',
+    ],
+  );
+  assert.deepEqual(draftKeysForOperation(null, { kind: 'text' }), []);
+
+  const appSrc = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.ok(appSrc.includes('pruneDraftKeys(targetKeys)'));
+  assert.ok(appSrc.includes('pruneDraftKeys([first.key])'));
+  assert.ok(appSrc.includes('pruneDraftKeys(restoredKeys)'));
+});
+
+test('H15: PreviewStage hides compare views on modalBlocking and observes stageRef across tooNarrow transitions', () => {
+  const appSrc = fs.readFileSync(path.join(repoRoot, 'src/App.tsx'), 'utf8');
+  assert.ok(appSrc.includes('modalBlocking={modalBlockingPreview}'));
+
+  const stageSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/components/PreviewStage.tsx'),
+    'utf8',
+  );
+  assert.ok(stageSrc.includes('if (stage) observer.observe(stage);'));
+  assert.ok(
+    stageSrc.includes(
+      '[compare, running, modalBlocking, tooNarrow, reportFrames, stageRef]',
+    ),
+  );
+});
+
 process.exitCode = failures ? 1 : 0;

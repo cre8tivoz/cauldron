@@ -30,7 +30,11 @@ import {
   noteDraftChange,
   type DraftSchedule,
 } from './draft-schedule';
-import { describeDraftBanner, selectionDraftValue } from './draft-restore';
+import {
+  describeDraftBanner,
+  draftKeysForOperation,
+  selectionDraftValue,
+} from './draft-restore';
 import { mergeProblemMessages } from './problems';
 import { computePreviewBounds, type PreviewViewport } from './preview-viewport';
 import type { EditingLayer } from './responsive-layer';
@@ -402,6 +406,18 @@ export function App() {
         recoveryDraftKeys.current = new Set(
           [...recoveryDraftKeys.current].filter((key) => present.has(key)),
         );
+        // When no unflushed local timer is pending, prune any flushed keys that
+        // were restored or discarded on disk so unsavedEdits stays accurate.
+        if (draftTimer.current === null && draftValues.current.size > 0) {
+          let pruned = false;
+          for (const key of draftValues.current.keys()) {
+            if (!present.has(key)) {
+              draftValues.current.delete(key);
+              pruned = true;
+            }
+          }
+          if (pruned) setUnsavedEdits(draftValues.current.size);
+        }
         if (incoming.length === 0) setConfirmDiscardDrafts(false);
         setDrafts(incoming);
       },
@@ -755,21 +771,30 @@ export function App() {
     }
   }, [preview.running]);
 
+  const pruneDraftKeys = useCallback((keys: string[]) => {
+    if (keys.length === 0) return;
+    for (const key of keys) {
+      draftValues.current.delete(key);
+    }
+    setUnsavedEdits(draftValues.current.size);
+    if (draftValues.current.size === 0) {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+      draftTimer.current = null;
+      draftSchedule.current = clearDraftSchedule();
+    }
+  }, []);
+
   const apply = useCallback(
     async (operation: unknown, run: () => Promise<WriteOutcome>) => {
       setProblem(null);
+      const targetKeys = draftKeysForOperation(selection, operation);
       const result = await run();
       if (result.ok) {
         setConflict(null);
         if (result.selection) setSelection(result.selection);
-        const clearedKeys = [...draftValues.current.keys()];
-        draftValues.current.clear();
-        setUnsavedEdits(0);
-        if (draftTimer.current) clearTimeout(draftTimer.current);
-        draftTimer.current = null;
-        draftSchedule.current = clearDraftSchedule();
-        if (clearedKeys.length > 0) {
-          await window.cauldron.removeDrafts(clearedKeys);
+        if (targetKeys.length > 0) {
+          pruneDraftKeys(targetKeys);
+          await window.cauldron.removeDrafts(targetKeys);
         }
         return;
       }
@@ -779,7 +804,7 @@ export function App() {
       }
       setProblem(result.problem ?? 'That change could not be saved.');
     },
-    [],
+    [pruneDraftKeys, selection],
   );
 
   const applyText = useCallback(
@@ -809,20 +834,32 @@ export function App() {
   const keepMine = useCallback(async () => {
     if (!conflict) return;
     setProblem(null);
+    const targetKeys = draftKeysForOperation(selection, conflict.operation);
     const result = await window.cauldron.forceWrite(conflict.operation);
     if (result.ok) {
       setConflict(null);
       if (result.selection) setSelection(result.selection);
+      if (targetKeys.length > 0) {
+        pruneDraftKeys(targetKeys);
+        await window.cauldron.removeDrafts(targetKeys);
+      }
     } else {
       setProblem(result.problem ?? 'That change could not be saved.');
     }
-  }, [conflict]);
+  }, [conflict, pruneDraftKeys, selection]);
 
   const useDisk = useCallback(async () => {
+    const targetKeys = conflict
+      ? draftKeysForOperation(selection, conflict.operation)
+      : [];
     setConflict(null);
+    if (targetKeys.length > 0) {
+      pruneDraftKeys(targetKeys);
+      await window.cauldron.removeDrafts(targetKeys);
+    }
     const next = await window.cauldron.refreshSelection();
     setSelection(next);
-  }, []);
+  }, [conflict, pruneDraftKeys, selection]);
 
   const undo = useCallback(async () => {
     const result = await window.cauldron.undo();
@@ -1144,11 +1181,14 @@ export function App() {
                   className="button primary"
                   type="button"
                   onClick={async () => {
+                    const restoredKeys = drafts.map((draft) => draft.key);
                     const result = await window.cauldron.restoreAllDrafts();
                     if (!result.ok) {
                       setProblem(
                         result.problem ?? 'Some drafts could not be restored.',
                       );
+                    } else {
+                      pruneDraftKeys(restoredKeys);
                     }
                     if (result.restored > 0) {
                       setDraftResetVersion((version) => version + 1);
@@ -1179,7 +1219,10 @@ export function App() {
                     setProblem(
                       result.problem ?? 'That draft could not be restored.',
                     );
-                  else setDraftResetVersion((version) => version + 1);
+                  else {
+                    pruneDraftKeys([first.key]);
+                    setDraftResetVersion((version) => version + 1);
+                  }
                   const next = await window.cauldron.refreshSelection();
                   setSelection(next);
                 }}
@@ -1297,6 +1340,7 @@ export function App() {
                   viewport={previewViewport}
                   onViewportChange={setPreviewViewport}
                   compare={compareWidths}
+                  modalBlocking={modalBlockingPreview}
                   onCompareChange={setCompareWidths}
                   onOpenPage={(route) => void openPreviewPage(route)}
                   onNewPage={(page) => void newPage(page)}
