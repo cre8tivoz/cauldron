@@ -30,16 +30,19 @@ function schemaFiles(root: string): string[] {
   ].map((file) => path.join(root, file));
 }
 
+const ISO_DATE_VALUE =
+  /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
 function fieldType(definition: string): ContentField['type'] {
   // A definition may span lines, so `z` and `.string()` can be split apart.
   const compact = definition.replace(/\s+/g, '');
   if (/z\.object\(/.test(compact)) return 'unknown';
-  if (/z\.number\(/.test(compact)) return 'number';
-  if (/z\.boolean\(/.test(compact)) return 'boolean';
-  if (/z\.date\(/.test(compact)) return 'date';
-  if (/z\.enum\(/.test(compact)) return 'list';
   if (/z\.array\(/.test(compact)) return 'list';
-  if (/z\.string\(/.test(compact)) return 'text';
+  if (/z\.(?:coerce\.)?number\(/.test(compact)) return 'number';
+  if (/z\.(?:coerce\.)?boolean\(/.test(compact)) return 'boolean';
+  if (/z\.(?:coerce\.)?date\(/.test(compact)) return 'date';
+  if (/z\.enum\(/.test(compact)) return 'list';
+  if (/z\.(?:coerce\.)?string\(/.test(compact)) return 'text';
   return 'unknown';
 }
 
@@ -155,7 +158,11 @@ function parseFields(schemaText: string): ContentField[] {
     const match = /^\s*([A-Za-z_]\w*)\s*:\s*([\s\S]+)$/.exec(part);
     if (!match) continue;
     const definition = match[2].trim();
-    const enumMatch = /z\.enum\(\[([^\]]*)\]\)/.exec(definition);
+    const compactDef = definition.replace(/\s+/g, '');
+    const isArray = /z\.array\(/.test(compactDef);
+    const enumMatch = isArray
+      ? null
+      : /z\.enum\(\[([^\]]*)\]\)/.exec(definition);
     const options = enumMatch
       ? [...enumMatch[1].matchAll(/['"`]([^'"`]+)['"`]/g)].map(
           (item) => item[1],
@@ -173,9 +180,9 @@ function parseFields(schemaText: string): ContentField[] {
 
 function frontmatterFields(file: string): ContentField[] {
   const text = fs.readFileSync(file, 'utf8');
-  const match = /^---\n([\s\S]*?)\n---/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!match) return [];
-  const lines = match[1].split('\n');
+  const lines = match[1].split(/\r?\n/);
   const fields: ContentField[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const item = /^([A-Za-z_]\w*)\s*:\s*(.*)$/.exec(lines[index]);
@@ -189,9 +196,12 @@ function frontmatterFields(file: string): ContentField[] {
       ? 'unknown'
       : raw === '' && continues
         ? 'unknown'
-        : /^[-\d.]+$/.test(raw)
-          ? 'number'
-          : 'text';
+        : ISO_DATE_VALUE.test(raw) &&
+            !Number.isNaN(Date.parse(raw.replace(' ', 'T')))
+          ? 'date'
+          : /^-?\d+(?:\.\d+)?$/.test(raw)
+            ? 'number'
+            : 'text';
     fields.push({ name: item[1], type, optional: raw === '' });
   }
   return fields;
@@ -274,10 +284,10 @@ export type ContentEntry = {
 };
 
 function parseFrontmatter(text: string): Record<string, string> {
-  const match = /^---\n([\s\S]*?)\n---/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   const values: Record<string, string> = {};
   if (!match) return values;
-  for (const line of match[1].split('\n')) {
+  for (const line of match[1].split(/\r?\n/)) {
     const item = /^([A-Za-z_][\w]*)\s*:\s*(.*)$/.exec(line);
     if (!item) continue;
     const raw = item[2].trim();
@@ -303,7 +313,7 @@ export function readEntry(
     return { problem: 'That file is outside the site.' };
   if (!fs.existsSync(full)) return { problem: 'That entry does not exist.' };
   const disk = readFile(full);
-  const frontmatter = disk.text.startsWith('---\n');
+  const frontmatter = /^---\r?\n/.test(disk.text);
   return {
     file,
     hash: disk.hash,
@@ -402,12 +412,13 @@ export function saveEntry(
   ) {
     return { ok: false, problem: 'Choose one of the defined options.' };
   }
-  const match = /^---\n([\s\S]*?)\n---/.exec(disk.text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(disk.text);
   if (!match)
     return { ok: false, problem: 'This entry has no frontmatter to edit.' };
 
+  const eol = match[0].includes('\r\n') ? '\r\n' : '\n';
   const body = match[1];
-  const lines = body.split('\n');
+  const lines = body.split(/\r?\n/);
   const keyLine = new RegExp(`^${field}\\s*:`);
   const defined = lines
     .map((line, index) => (keyLine.test(line) ? index : -1))
@@ -434,10 +445,10 @@ export function saveEntry(
   } else {
     lines.push(`${field}: ${value}`);
   }
-  const nextBody = lines.join('\n');
+  const nextBody = lines.join(eol);
   // The frontmatter match starts the file; splice by position so `$` sequences
   // in a saved value are never read as replacement patterns.
-  const next = `---\n${nextBody}\n---${disk.text.slice(match[0].length)}`;
+  const next = `---${eol}${nextBody}${eol}---${disk.text.slice(match[0].length)}`;
   writeFileAtomic(full, next);
   return { ok: true, hash: hashOf(next) };
 }

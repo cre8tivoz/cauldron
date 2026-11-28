@@ -643,8 +643,8 @@ export function addPiece(
   const importLine = `import ${componentName} from '${componentImport}';\n`;
 
   if (!new RegExp(`import\\s+${componentName}\\s+from`).test(next)) {
-    if (next.startsWith('---\n'))
-      next = next.replace(/^---\n/, `---\n${importLine}`);
+    if (/^---\r?\n/.test(next))
+      next = next.replace(/^---\r?\n/, (fence) => `${fence}${importLine}`);
     else next = `---\n${importLine}---\n${next}`;
   }
 
@@ -668,7 +668,10 @@ export function addPiece(
     // page does not keep importing a component it no longer renders.
     if (!new RegExp(`<${selector}[\\s/>]`).test(next)) {
       next = next.replace(
-        new RegExp(`^import\\s+${selector}\\s+from\\s+['"][^'"]+['"];\\n`, 'm'),
+        new RegExp(
+          `^import\\s+${selector}\\s+from\\s+['"][^'"]+['"];\\r?\\n`,
+          'm',
+        ),
         '',
       );
     }

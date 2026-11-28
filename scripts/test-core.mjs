@@ -8756,4 +8756,405 @@ test('M22: async site/list/read handlers guard against stale responses and clear
   assert.ok(contentSrc.includes('setOpenFile(null);'));
 });
 
+const {
+  writeResponsiveStyle: writeResponsiveStylesM10,
+  parseResponsiveCss: parseResponsiveCssM10,
+} = await import('../src/main/responsive-css.ts');
+const { readPageSeo: readSeoEntryM14, writePageSeo: saveSeoEntryM14 } =
+  await import('../src/main/seo.ts');
+const { addPiece: addPieceM15, LIBRARY: LIBRARY_M15 } =
+  await import('../src/main/library.ts');
+
+test('M10: responsive-css preserves compound selectors and does not resurrect rules outside managed markers', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m10-'));
+  fs.mkdirSync(path.join(dir, 'cauldron'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'src/layouts/Base.astro'),
+    "---\nimport '../../cauldron/responsive.css';\n---\n<html><head></head><body><slot /></body></html>\n",
+    'utf8',
+  );
+  const initialCss = [
+    '/* Managed by Cauldron responsive layer edits. Plain CSS; safe to edit or keep without Cauldron. */',
+    '',
+    '@media (max-width: 768px) {',
+    '  body [data-cauldron-r="r-demo01"] { color: red; }',
+    '  [data-cauldron-r="r-out001"] { padding: 4px; }',
+    '}',
+    '',
+    '/* cauldron:responsive:start */',
+    '@media (max-width: 768px) {',
+    '  [data-cauldron-r="r-demo02"] {',
+    '    font-size: 18px !important;',
+    '  }',
+    '}',
+    '/* cauldron:responsive:end */',
+    '',
+  ].join('\n');
+  const cssPath = path.join(dir, 'cauldron/responsive.css');
+  fs.writeFileSync(cssPath, initialCss, 'utf8');
+
+  const parsed = parseResponsiveCssM10(initialCss);
+  assert.equal(
+    parsed.tablet['r-out001'],
+    undefined,
+    'outside-marker rule must not be parsed as managed',
+  );
+  assert.equal(
+    parsed.tablet['r-demo01'],
+    undefined,
+    'compound selector must not be parsed as managed',
+  );
+  assert.equal(parsed.tablet['r-demo02']?.['font-size'], '18px');
+
+  const res = writeResponsiveStylesM10(dir, 'r-demo02', 'tablet', {
+    'font-size': '20px',
+  });
+  assert.equal(res.ok, true, JSON.stringify(res));
+  const after = fs.readFileSync(cssPath, 'utf8');
+  assert.ok(
+    after.includes('body [data-cauldron-r="r-demo01"] { color: red; }'),
+    after,
+  );
+  assert.equal(
+    after.includes('@media (max-width: 768px) {\n  body\n}'),
+    false,
+    after,
+  );
+  const managedStart = after.indexOf('/* cauldron:responsive:start */');
+  const managedEnd = after.indexOf('/* cauldron:responsive:end */');
+  const managedBlock = after.slice(managedStart, managedEnd);
+  assert.equal(managedBlock.includes('r-out001'), false, managedBlock);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M11 & M12: content.ts infers schema-less ISO dates, prioritizes z.array, supports z.coerce, and handles CRLF', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m11-m12-'));
+  fs.mkdirSync(path.join(dir, 'src/content/notes'), { recursive: true });
+  const noteFile = path.join(dir, 'src/content/notes/first.md');
+  fs.writeFileSync(
+    noteFile,
+    '---\r\ntitle: Hello\r\ndate: 2026-11-28\r\ncount: 42\r\n---\r\nBody text.\r\n',
+    'utf8',
+  );
+
+  const cols = content.readCollections(dir);
+  assert.equal(cols.length, 1);
+  const byName = Object.fromEntries(cols[0].fields.map((f) => [f.name, f]));
+  assert.equal(byName.date?.type, 'date', JSON.stringify(byName));
+  assert.equal(byName.count?.type, 'number', JSON.stringify(byName));
+
+  const entry = content.readEntry(dir, 'src/content/notes/first.md');
+  assert.equal('hash' in entry, true);
+  assert.equal(entry.frontmatter, true);
+  assert.equal(entry.values.date, '2026-11-28');
+
+  const saved = content.saveEntry(
+    dir,
+    'src/content/notes/first.md',
+    entry.hash,
+    {
+      field: 'date',
+      value: '2026-12-01',
+      schemaHash: entry.schemaHash,
+    },
+  );
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  const diskText = fs.readFileSync(noteFile, 'utf8');
+  assert.ok(
+    diskText.includes('date: 2026-12-01\r\n'),
+    JSON.stringify(diskText),
+  );
+
+  // Schema with z.array(z.number()), z.array(z.enum(...)), and z.coerce.date()
+  fs.writeFileSync(
+    path.join(dir, 'src/content.config.ts'),
+    [
+      'const notes = defineCollection({',
+      '  schema: z.object({',
+      '    scores: z.array(z.number()),',
+      "    tags: z.array(z.enum(['a', 'b'])),",
+      '    publishedAt: z.coerce.date(),',
+      '  }),',
+      '});',
+    ].join('\n'),
+    'utf8',
+  );
+  const schemaCols = content.readCollections(dir);
+  const schemaByName = Object.fromEntries(
+    schemaCols[0].fields.map((f) => [f.name, f]),
+  );
+  assert.equal(schemaByName.scores?.type, 'list', JSON.stringify(schemaByName));
+  assert.equal(schemaByName.tags?.type, 'list', JSON.stringify(schemaByName));
+  assert.equal(
+    schemaByName.tags?.options,
+    undefined,
+    JSON.stringify(schemaByName),
+  );
+  assert.equal(
+    schemaByName.publishedAt?.type,
+    'date',
+    JSON.stringify(schemaByName),
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M13: History.writtenSince excludes undone post-run edits and includes manual Undo of pre-run edits', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m13-'));
+  const fileA = path.join(dir, 'a.astro');
+  const fileB = path.join(dir, 'b.astro');
+  fs.writeFileSync(fileA, '<h1>A1</h1>\n', 'utf8');
+  fs.writeFileSync(fileB, '<h1>B0</h1>\n', 'utf8');
+
+  const hist = new History();
+  // Pre-run edit on fileA (A0 -> A1)
+  hist.record({
+    file: fileA,
+    location: { file: fileA, line: 1, column: 1, name: 'h1' },
+    operation: { kind: 'text', value: 'A1' },
+    before: '<h1>A0</h1>\n',
+    after: '<h1>A1</h1>\n',
+    beforeHash: hashOf('<h1>A0</h1>\n'),
+    afterHash: hashOf('<h1>A1</h1>\n'),
+    label: 'pre-run',
+  });
+
+  const runStart = Date.now() + 5;
+  while (Date.now() < runStart) {
+    // wait 5ms so timestamps are strictly ordered
+  }
+
+  // Post-run edit on fileB (B0 -> B1), then immediately undone
+  fs.writeFileSync(fileB, '<h1>B1</h1>\n', 'utf8');
+  hist.record({
+    file: fileB,
+    location: { file: fileB, line: 1, column: 1, name: 'h1' },
+    operation: { kind: 'text', value: 'B1' },
+    before: '<h1>B0</h1>\n',
+    after: '<h1>B1</h1>\n',
+    beforeHash: hashOf('<h1>B0</h1>\n'),
+    afterHash: hashOf('<h1>B1</h1>\n'),
+    label: 'post-run',
+  });
+  const undoB = hist.undo();
+  assert.equal('change' in undoB, true);
+
+  // Manual Undo of pre-run edit on fileA (A1 -> A0) during the run
+  const undoA = hist.undo();
+  assert.equal('change' in undoA, true);
+
+  const writes = hist.writtenSince(runStart);
+  assert.equal(
+    writes.some((w) => w.file === fileB),
+    false,
+    `undone post-run edit must not appear in writtenSince: ${JSON.stringify(writes)}`,
+  );
+  const aWrite = writes.find((w) => w.file === fileA);
+  assert.ok(
+    aWrite,
+    `manual Undo of pre-run edit must appear in writtenSince: ${JSON.stringify(writes)}`,
+  );
+  assert.equal(aWrite.beforeHash, hashOf('<h1>A1</h1>\n'));
+  assert.equal(aWrite.afterHash, hashOf('<h1>A0</h1>\n'));
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M14: SEO locks string-concatenation props and ignores commented-out head tags', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m14-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+
+  fs.writeFileSync(
+    path.join(dir, 'src/layouts/Base.astro'),
+    [
+      '---',
+      'interface Props { title?: string; description?: string; }',
+      'const { title, description } = Astro.props;',
+      '---',
+      '<html><head>',
+      '  <title>{title}</title>',
+      '  {description && <meta name="description" content={description} />}',
+      '</head><body><slot /></body></html>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'src/pages/concat.astro'),
+    [
+      '---',
+      "import Base from '../layouts/Base.astro';",
+      '---',
+      '<Base title={"Home" + " | " + "Site"} description="Real desc"><main /></Base>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const concatEntry = readSeoEntryM14(dir, 'src/pages/concat.astro');
+  assert.equal('fields' in concatEntry, true);
+  assert.ok(
+    typeof concatEntry.fields.title.locked === 'string' &&
+      concatEntry.fields.title.locked.length > 0,
+    `string concatenation must be locked: ${JSON.stringify(concatEntry.fields.title)}`,
+  );
+  assert.equal(concatEntry.fields.description.locked, undefined);
+  assert.equal(concatEntry.fields.description.value, 'Real desc');
+
+  const commentedPage = path.join(dir, 'src/pages/commented.astro');
+  fs.writeFileSync(
+    commentedPage,
+    [
+      '---',
+      '---',
+      '<html><head>',
+      '  <!-- <title>Commented Title</title> -->',
+      '  <!-- <meta name="description" content="Commented Desc" /> -->',
+      '  <title>Live Title</title>',
+      '</head><body><main /></body></html>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const commEntry = readSeoEntryM14(dir, 'src/pages/commented.astro');
+  assert.equal('fields' in commEntry, true);
+  assert.equal(commEntry.fields.title.value, 'Live Title');
+  assert.equal(commEntry.fields.description.value, '');
+
+  const saveRes = saveSeoEntryM14(
+    dir,
+    'src/pages/commented.astro',
+    commEntry.hash,
+    {
+      title: 'Updated Title',
+      description: 'Fresh Desc',
+    },
+  );
+  assert.equal(saveRes.ok, true, JSON.stringify(saveRes));
+  const afterComm = fs.readFileSync(commentedPage, 'utf8');
+  assert.ok(
+    afterComm.includes('<!-- <title>Commented Title</title> -->'),
+    afterComm,
+  );
+  assert.ok(afterComm.includes('<title>Updated Title</title>'), afterComm);
+  assert.ok(
+    afterComm.includes('<meta name="description" content="Fresh Desc" />'),
+    afterComm,
+  );
+
+  // Frontmatter JS string containing '<!--' must not hide real <head> markup.
+  const fmCommentPage = path.join(dir, 'src/pages/fm-comment.astro');
+  fs.writeFileSync(
+    fmCommentPage,
+    [
+      '---',
+      "const commentStart = '<!--';",
+      '---',
+      '<html><head>',
+      '  <title>Frontmatter Safe Title</title>',
+      '</head><body><!-- real body comment --></body></html>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const fmEntry = readSeoEntryM14(dir, 'src/pages/fm-comment.astro');
+  assert.equal('fields' in fmEntry, true);
+  assert.equal(fmEntry.fields.title.value, 'Frontmatter Safe Title');
+  const fmSave = saveSeoEntryM14(
+    dir,
+    'src/pages/fm-comment.astro',
+    fmEntry.hash,
+    {
+      title: 'Frontmatter Updated Title',
+    },
+  );
+  assert.equal(fmSave.ok, true, JSON.stringify(fmSave));
+  const afterFm = fs.readFileSync(fmCommentPage, 'utf8');
+  assert.ok(
+    afterFm.includes('<title>Frontmatter Updated Title</title>'),
+    afterFm,
+  );
+  assert.equal((afterFm.match(/<head\b/gi) ?? []).length, 1, afterFm);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M15: addPiece inserts imports into existing CRLF frontmatter instead of prepending duplicate fences', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m15-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const page = path.join(dir, 'src/pages/index.astro');
+  fs.writeFileSync(
+    page,
+    "---\r\nconst title = 'Home';\r\n---\r\n<main><h1>{title}</h1></main>\r\n",
+    'utf8',
+  );
+  const pieceId = LIBRARY_M15.find((item) => item.codeAllowed).id;
+  const res = addPieceM15(dir, { pieceId, page: '/', mode: 'add' });
+  assert.equal(res.ok, true, JSON.stringify(res));
+  const after = fs.readFileSync(page, 'utf8');
+  const fenceMatches = after.match(/^---\r?$/gm) ?? [];
+  assert.equal(
+    fenceMatches.length,
+    2,
+    `expected exactly 2 frontmatter fences, found ${fenceMatches.length}:\n${after}`,
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M16: duplicatePageSection returns extraWrites for cauldron/responsive.css and sharedAction tracks them', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m16-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'cauldron'), { recursive: true });
+  const page = path.join(dir, 'src/pages/index.astro');
+  const pageText = [
+    '---',
+    '---',
+    '<main><section data-cauldron-r="r-demo01"><h2>Hero</h2></section></main>',
+    '',
+  ].join('\n');
+  fs.writeFileSync(page, pageText, 'utf8');
+  const cssPath = path.join(dir, 'cauldron/responsive.css');
+  fs.writeFileSync(
+    cssPath,
+    [
+      '/* Managed by Cauldron responsive layer edits. Plain CSS; safe to edit or keep without Cauldron. */',
+      '',
+      '/* cauldron:responsive:start */',
+      '@media (max-width: 768px) {',
+      '  [data-cauldron-r="r-demo01"] {',
+      '    padding: 12px !important;',
+      '  }',
+      '}',
+      '/* cauldron:responsive:end */',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const dupRes = duplicatePageSection(dir, '/', 0, hashOf(pageText));
+  assert.equal(dupRes.ok, true, JSON.stringify(dupRes));
+  assert.ok(
+    Array.isArray(dupRes.extraWrites) && dupRes.extraWrites.length === 1,
+    `expected extraWrites with responsive.css: ${JSON.stringify(dupRes)}`,
+  );
+  assert.equal(dupRes.extraWrites[0].file, cssPath);
+  assert.notEqual(
+    dupRes.extraWrites[0].beforeHash,
+    dupRes.extraWrites[0].afterHash,
+  );
+
+  const indexSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/index.ts'),
+    'utf8',
+  );
+  assert.ok(indexSrc.includes('for (const extra of extraWrites)'));
+  assert.ok(
+    indexSrc.includes('claimCheckedForRun(state.agentRunId, extra.file)'),
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 process.exitCode = failures ? 1 : 0;
