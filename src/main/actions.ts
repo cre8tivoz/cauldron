@@ -470,7 +470,10 @@ function skipBraces(text: string, start: number): number {
 function findSectionBlocks(text: string): InternalSectionBlock[] {
   let searchStart = 0;
   // The front matter fence may use Windows line endings.
-  const frontMatter = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  const frontMatter =
+    /^---\r?\n(?:---[ \t]*(?:\r?\n|$)|[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$))/.exec(
+      text,
+    );
   if (frontMatter) searchStart = frontMatter[0].length;
 
   const blocks: InternalSectionBlock[] = [];
@@ -1392,7 +1395,7 @@ export function runAction(root: string, request: ActionRequest): ActionResult {
         { kind: 'attribute', name: request.name, value: request.value },
         request.target,
         request.expected ?? expectedFor(full, request.target),
-        Boolean(request.expected),
+        Boolean(request.expected?.attributes),
       );
     }
 

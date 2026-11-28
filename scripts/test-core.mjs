@@ -8324,4 +8324,216 @@ test('Security H6: parseGitHubRepoFromRemote rejects flags/traversal and credent
   assert.ok(pubSrc.includes('credential.helper=!${shellQuotePosix(ghBin)}'));
 });
 
+const { applyEdit: applyEditH7 } = await import('../src/main/edit.ts');
+
+test('H7: inline style editing preserves quoted font-family and HTML entities across repeated edits', () => {
+  const initial = '<p>Hello</p>\n';
+  const loc = { file: 'index.astro', line: 1, column: 1, name: 'p' };
+  const first = applyEditH7(
+    initial,
+    loc,
+    {
+      kind: 'style',
+      properties: { 'font-family': '"Source Sans 3", sans-serif' },
+    },
+    {},
+  );
+  assert.equal(first.ok, true);
+  const second = applyEditH7(
+    first.text,
+    loc,
+    { kind: 'style', properties: { color: 'red' } },
+    {},
+  );
+  assert.equal(second.ok, true);
+  assert.equal(
+    second.text.includes('&amp;quot'),
+    false,
+    `Must not double-escape entities: ${second.text}`,
+  );
+  assert.ok(
+    second.text.includes(
+      'font-family: &quot;Source Sans 3&quot;, sans-serif; color: red',
+    ),
+    second.text,
+  );
+});
+
+test('H8 & H11: SEO handles empty frontmatter, nested interface Props, and Astro.props object defaults', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h8-h11-'));
+  fs.mkdirSync(path.join(dir, 'src/layouts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+
+  const mdFile = path.join(dir, 'src/pages/post.md');
+  fs.writeFileSync(
+    mdFile,
+    '---\n---\n# Heading\n\nIntro\n\n---\n\nSecond\n',
+    'utf8',
+  );
+  const mdBefore = seo.readPageSeo(dir, 'src/pages/post.md');
+  const mdWrite = seo.writePageSeo(dir, 'src/pages/post.md', mdBefore.hash, {
+    title: 'Post Title',
+  });
+  assert.equal(mdWrite.ok, true, JSON.stringify(mdWrite));
+  const mdAfter = fs.readFileSync(mdFile, 'utf8');
+  assert.ok(
+    mdAfter.startsWith('---\ntitle: "Post Title"\n---\n# Heading'),
+    mdAfter,
+  );
+
+  const layoutFile = path.join(dir, 'src/layouts/Base.astro');
+  fs.writeFileSync(
+    layoutFile,
+    [
+      '---',
+      'interface Props {',
+      '  title: string;',
+      '  author?: { name: string };',
+      '}',
+      'const { title, author = { name: "A" } } = Astro.props;',
+      '---',
+      '<html><head><title>{title}</title></head><body><slot /></body></html>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const pageFile = path.join(dir, 'src/pages/index.astro');
+  fs.writeFileSync(
+    pageFile,
+    [
+      '---',
+      "import Base from '../layouts/Base.astro';",
+      '---',
+      '<Base title="Home"><main><h1>Hi</h1></main></Base>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const pageBefore = seo.readPageSeo(dir, 'src/pages/index.astro');
+  const pageWrite = seo.writePageSeo(
+    dir,
+    'src/pages/index.astro',
+    pageBefore.hash,
+    { description: 'Fresh description' },
+  );
+  assert.equal(pageWrite.ok, true, JSON.stringify(pageWrite));
+  const layoutAfter = fs.readFileSync(layoutFile, 'utf8');
+  assert.ok(
+    layoutAfter.includes(
+      'author?: { name: string };\n  description?: string;\n}',
+    ),
+    layoutAfter,
+  );
+  assert.equal(
+    (layoutAfter.match(/= Astro\.props/g) ?? []).length,
+    1,
+    `Must not append duplicate Astro.props destructuring: ${layoutAfter}`,
+  );
+  assert.ok(
+    layoutAfter.includes(
+      'const { title, author = { name: "A" }, description } = Astro.props;',
+    ),
+    layoutAfter,
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('H9: editElementAttribute detects disk conflict when adding a previously absent attribute', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h9-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const page = path.join(dir, 'src/pages/index.astro');
+  const original = '<img src="/a.png" />\n';
+  fs.writeFileSync(page, original, 'utf8');
+  const baseHash = hashOf(original);
+
+  const concurrent = '<img src="/a.png" alt="Disk alt" />\n';
+  fs.writeFileSync(page, concurrent, 'utf8');
+
+  const res = runAction(dir, {
+    action: 'editElementAttribute',
+    target: { file: 'src/pages/index.astro', line: 1, column: 1, name: 'img' },
+    name: 'alt',
+    value: 'Stale alt',
+    baseHash,
+    expected: { text: '', attributes: { src: '/a.png', style: '' } },
+  });
+  assert.equal(res.ok, false);
+  assert.equal(fs.readFileSync(page, 'utf8'), concurrent);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('H10: deletePageSection ignores commented-out closing tags inside HTML comments', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h10-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const page = path.join(dir, 'src/pages/index.astro');
+  const initial = [
+    '---',
+    '---',
+    '<main>',
+    '  <section id="a">',
+    '    <!-- </section> -->',
+    '    <p>Real content</p>',
+    '  </section>',
+    '  <section id="b"><p>Keep</p></section>',
+    '</main>',
+    '',
+  ].join('\n');
+  fs.writeFileSync(page, initial, 'utf8');
+  const res = deletePageSection(dir, '/', 0, hashOf(initial));
+  assert.equal(res.ok, true, JSON.stringify(res));
+  const after = fs.readFileSync(page, 'utf8');
+  assert.equal(after.includes('Real content'), false, after);
+  assert.equal(after.includes('-->'), false, after);
+  assert.ok(after.includes('<section id="b"><p>Keep</p></section>'), after);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('H12: editor-created file during an agent run is marked outside and does not block Run Undo', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h12-'));
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h12-store-'));
+  fs.mkdirSync(path.join(dir, 'src/pages'), { recursive: true });
+  const indexFile = path.join(dir, 'src/pages/index.astro');
+  fs.writeFileSync(indexFile, '<h1>Before</h1>\n', 'utf8');
+
+  const runsInst = new Runs(store);
+  const started = runsInst.start(dir, 'claude', 'Update heading');
+
+  fs.writeFileSync(indexFile, '<h1>After</h1>\n', 'utf8');
+  const aboutFile = path.join(dir, 'src/pages/about.astro');
+  const aboutContent = '<h1>About</h1>\n';
+  fs.writeFileSync(aboutFile, aboutContent, 'utf8');
+
+  const finished = runsInst.finish(dir, started.id, {
+    status: 'done',
+    summary: 'Updated heading',
+    claimed: [indexFile],
+    outside: [
+      {
+        file: aboutFile,
+        beforeHash: hashOf(''),
+        afterHash: hashOf(aboutContent),
+      },
+    ],
+  });
+  assert.ok(
+    finished.outside.includes('src/pages/about.astro'),
+    JSON.stringify(finished),
+  );
+  assert.equal(
+    finished.files.some((f) => f.file === 'src/pages/about.astro'),
+    false,
+  );
+
+  const undoRes = runsInst.undo(dir, started.id);
+  assert.equal(undoRes.ok, true, JSON.stringify(undoRes));
+  assert.equal(fs.readFileSync(indexFile, 'utf8'), '<h1>Before</h1>\n');
+  assert.equal(fs.readFileSync(aboutFile, 'utf8'), aboutContent);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(store, { recursive: true, force: true });
+});
+
 process.exitCode = failures ? 1 : 0;
