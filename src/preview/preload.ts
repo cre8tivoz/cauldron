@@ -12,6 +12,13 @@ let hoveredEl: Element | null = null;
 let selectedEl: Element | null = null;
 let editingEl: HTMLElement | null = null;
 let editingOriginalText = '';
+let editingSource: {
+  file: string;
+  line: number;
+  column: number;
+  name: string;
+} | null = null;
+let editingTrustedText: string | null = null;
 let editingUserTouched = false;
 let selectionMeta: {
   path: string;
@@ -347,13 +354,24 @@ function finishInlineEdit(commit: boolean): void {
   const el = editingEl;
   if (!el) return;
   const userTouched = editingUserTouched;
+  const src = editingSource;
+  const trustedText = editingTrustedText;
   editingEl = null;
+  editingSource = null;
+  editingTrustedText = null;
   editingUserTouched = false;
-  const src = sourceOf(el);
-  const nextText = (el.textContent ?? '').trim();
+  const rawText = el.textContent ?? '';
+  const nextText = rawText.trim();
   el.removeAttribute('contenteditable');
   el.removeAttribute('data-cauldron-editing');
-  if (!commit || !userTouched) {
+  // Refuse to commit if a page script mutated the element's text after the last
+  // trusted user input event.
+  if (
+    !commit ||
+    !userTouched ||
+    trustedText === null ||
+    rawText !== trustedText
+  ) {
     el.textContent = editingOriginalText;
     renderSelectionPill();
     return;
@@ -377,8 +395,12 @@ function beginInlineEdit(element: HTMLElement): void {
     finishInlineEdit(true);
   }
   if (!canInlineEditElement(element)) return;
+  const src = sourceOf(element);
+  if (!src) return;
   editingEl = element;
   editingOriginalText = element.textContent ?? '';
+  editingSource = src;
+  editingTrustedText = null;
   editingUserTouched = false;
   try {
     element.setAttribute('contenteditable', 'plaintext-only');
@@ -478,6 +500,15 @@ function renderSelectionPill(): void {
   tagBadge.style.cssText = 'color: #c9b8f7; padding: 0 3px;';
   pill.appendChild(tagBadge);
 
+  const mountPill = (content: HTMLDivElement): void => {
+    const host = document.createElement('div');
+    host.setAttribute('data-cauldron-ui', '1');
+    const shadow = host.attachShadow({ mode: 'closed' });
+    shadow.appendChild(content);
+    document.body.appendChild(host);
+    pillEl = host;
+  };
+
   if (editingEl === selectedEl) {
     const hint = document.createElement('span');
     hint.setAttribute('data-cauldron-ui', '1');
@@ -486,8 +517,7 @@ function renderSelectionPill(): void {
       : '⌘Enter to save · Esc to cancel';
     hint.style.cssText = 'color: #d4d6dc; font-weight: 500; padding: 0 4px;';
     pill.appendChild(hint);
-    document.body.appendChild(pill);
-    pillEl = pill;
+    mountPill(pill);
     return;
   }
 
@@ -539,8 +569,7 @@ function renderSelectionPill(): void {
     pill.appendChild(dragBtn);
   }
 
-  document.body.appendChild(pill);
-  pillEl = pill;
+  mountPill(pill);
 }
 
 ipcRenderer.on('preview:compare-frame', (_event, flag: boolean) => {
@@ -708,6 +737,7 @@ window.addEventListener('DOMContentLoaded', () => {
       const target = event.target as Node | null;
       if (target && (target === editingEl || editingEl.contains(target))) {
         editingUserTouched = true;
+        editingTrustedText = editingEl.textContent ?? '';
       }
     },
     true,

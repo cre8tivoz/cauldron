@@ -66,20 +66,44 @@ export function createFileAtomic(file: string, text: string): string {
 }
 
 export function isInside(root: string, target: string): boolean {
-  // Resolve existing ancestors as well as the target, including files not created yet.
-  const real = (file: string): string => {
+  // Resolve existing ancestors as well as the target, including dangling symlinks
+  // and files not created yet.
+  const real = (file: string, depth = 0): string => {
+    if (depth > 40) throw new Error('Symlink loop detected.');
     const absolute = path.resolve(file);
-    if (fs.existsSync(absolute)) return fs.realpathSync(absolute);
-    const parent = path.dirname(absolute);
-    return parent === absolute
-      ? absolute
-      : path.join(real(parent), path.basename(absolute));
+    try {
+      return fs.realpathSync(absolute);
+    } catch {
+      // fs.existsSync returns false for dangling symlinks; inspect with lstatSync
+      // so a dangling symlink pointing outside root can never pass containment.
+      let resolvedTarget: string | null = null;
+      try {
+        const stat = fs.lstatSync(absolute);
+        if (stat.isSymbolicLink()) {
+          const linkTarget = fs.readlinkSync(absolute);
+          resolvedTarget = path.resolve(path.dirname(absolute), linkTarget);
+        }
+      } catch {
+        // Truly absent; resolve its parent chain instead.
+      }
+      if (resolvedTarget !== null) {
+        return real(resolvedTarget, depth + 1);
+      }
+      const parent = path.dirname(absolute);
+      return parent === absolute
+        ? absolute
+        : path.join(real(parent, depth + 1), path.basename(absolute));
+    }
   };
-  const relative = path.relative(real(root), real(target));
-  return (
-    relative !== '' &&
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
+  try {
+    const relative = path.relative(real(root), real(target));
+    return (
+      relative !== '' &&
+      relative !== '..' &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative)
+    );
+  } catch {
+    return false;
+  }
 }

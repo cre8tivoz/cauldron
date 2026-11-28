@@ -330,6 +330,16 @@ export async function repoStateAsync(root: string): Promise<RepoState> {
   );
 }
 
+/** Rejects leading hyphens and whitespace/control chars so git remote/branch names cannot inject CLI flags. */
+export function isSafeGitRefArg(value: string): boolean {
+  if (!value || value.startsWith('-') || /\s/.test(value)) return false;
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return false;
+  }
+  return true;
+}
+
 export type PublishResult =
   | {
       ok: true;
@@ -506,11 +516,22 @@ async function runPublishWith(
       committed,
     };
   }
+  if (
+    upstream.status !== 0 &&
+    (!isSafeGitRefArg(remote!) || !isSafeGitRefArg(state.branch))
+  ) {
+    return {
+      ok: false,
+      problem:
+        'Committed locally. The configured Git remote or branch name is not safe to push automatically.',
+      committed,
+    };
+  }
   const push = await runGit(
     root,
     upstream.status === 0
       ? ['push']
-      : ['push', '--set-upstream', remote!, state.branch],
+      : ['push', '--set-upstream', '--', remote!, state.branch],
   );
   if (push.status !== 0) {
     return {
@@ -584,11 +605,22 @@ export function publish(
       committed,
     };
   }
+  if (
+    upstream.status !== 0 &&
+    (!isSafeGitRefArg(remote!) || !isSafeGitRefArg(state.branch))
+  ) {
+    return {
+      ok: false,
+      problem:
+        'Committed locally. The configured Git remote or branch name is not safe to push automatically.',
+      committed,
+    };
+  }
   const push = git(
     root,
     upstream.status === 0
       ? ['push']
-      : ['push', '--set-upstream', remote!, state.branch],
+      : ['push', '--set-upstream', '--', remote!, state.branch],
   );
   if (push.status !== 0) {
     return {

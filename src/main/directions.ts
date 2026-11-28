@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isInside } from './files';
+import { isInside, writeFileAtomic } from './files';
 import {
   BUTTON_CONTRAST,
   LARGE_TEXT_CONTRAST,
@@ -921,33 +921,49 @@ export type DirectionWrite =
   | { ok: false; problem: string };
 
 /** Saves the direction inside the site, so the site owns it and works without Cauldron. */
+function isSymlink(file: string): boolean {
+  try {
+    return fs.lstatSync(file).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 export function writeDirection(
   root: string,
   direction: DesignDirection,
 ): DirectionWrite {
   const folder = path.join(root, 'cauldron');
-  if (!isInside(root, folder))
+  if (!isInside(root, folder) || isSymlink(folder))
     return { ok: false, problem: 'That folder is outside the site.' };
+  const files: Array<{ target: string; content: string }> = [
+    { target: path.join(folder, 'tokens.css'), content: tokensCss(direction) },
+    {
+      target: path.join(folder, 'DESIGN.md'),
+      content: designDocument(direction),
+    },
+    {
+      target: path.join(folder, 'design.json'),
+      content: JSON.stringify(
+        { id: direction.id, name: direction.name, tokens: direction },
+        null,
+        2,
+      ),
+    },
+  ];
+  for (const { target } of files) {
+    if (!isInside(root, target) || isSymlink(target)) {
+      return {
+        ok: false,
+        problem:
+          'A direction file points outside the site and was not written.',
+      };
+    }
+  }
   fs.mkdirSync(folder, { recursive: true });
-  fs.writeFileSync(
-    path.join(folder, 'tokens.css'),
-    tokensCss(direction),
-    'utf8',
-  );
-  fs.writeFileSync(
-    path.join(folder, 'DESIGN.md'),
-    designDocument(direction),
-    'utf8',
-  );
-  fs.writeFileSync(
-    path.join(folder, 'design.json'),
-    JSON.stringify(
-      { id: direction.id, name: direction.name, tokens: direction },
-      null,
-      2,
-    ),
-    'utf8',
-  );
+  for (const { target, content } of files) {
+    writeFileAtomic(target, content);
+  }
   return { ok: true, id: direction.id, folder: 'cauldron' };
 }
 

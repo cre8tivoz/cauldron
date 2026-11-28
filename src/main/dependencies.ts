@@ -554,7 +554,7 @@ export function findMissingPackages(root: string): string[] {
   }
 
   const specifiers = new Set<string>();
-  const pkgNameRe = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+  const pkgNameRe = SAFE_PKG_NAME_RE;
   const nodeBuiltins = new Set(builtinModules);
 
   for (const file of files) {
@@ -675,6 +675,10 @@ export function resolveEffectiveStoreDir(
   return undefined;
 }
 
+/** Valid npm package name; disallows leading '-' or '.' so specifiers cannot inject CLI flags. */
+export const SAFE_PKG_NAME_RE =
+  /^(?:@[a-z0-9~][a-z0-9-._~]*\/)?[a-z0-9~][a-z0-9-._~]*$/;
+
 export function planMissingPackageInstall(options: {
   setupManager: 'npm' | 'pnpm' | 'yarn';
   packages: string[];
@@ -683,6 +687,15 @@ export function planMissingPackageInstall(options: {
 }): InstallPlan {
   const { setupManager, packages, storeDirOrUserData, resolveToolOverride } =
     options;
+  const invalidPkg = packages.find((p) => !SAFE_PKG_NAME_RE.test(p));
+  if (invalidPkg) {
+    return {
+      ok: false,
+      manager: setupManager,
+      storeDir: storeDirOrUserData,
+      problem: `Refused unsafe package name "${invalidPkg}".`,
+    };
+  }
   const resolution = resolvePackageManagerTool(
     setupManager,
     resolveToolOverride,
@@ -746,7 +759,7 @@ export function startInstallMissingPackages(
   cancel: () => void;
   promise: Promise<InstallMissingPackagesResult>;
 } {
-  const pkgNameRe = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+  const pkgNameRe = SAFE_PKG_NAME_RE;
   const valid = [...new Set(packages.filter((p) => pkgNameRe.test(p)))];
   if (valid.length === 0) {
     return {
