@@ -174,10 +174,14 @@ const E2E_SITE = E2E_HARNESS_ENABLED
  * deliberately NOT presented as a live "latest" lookup.
  */
 const ASTRO_VERSION_TESTED = '7.4.7';
+// Test overrides (fake keychain, custom userData, local AI stand-in URL) are
+// disabled in packaged production builds unless E2E_HARNESS_ENABLED was
+// explicitly bundled at build time.
+const TEST_OVERRIDES_ENABLED = !app.isPackaged || E2E_HARNESS_ENABLED;
 // Test runs can keep their app data in their own folder, so parallel or
 // repeated harness runs never share recovery, conflict or run records. The
 // variable is only ever set by a test run.
-if (process.env.CAULDRON_TEST_USER_DATA) {
+if (TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA) {
   app.setPath('userData', process.env.CAULDRON_TEST_USER_DATA);
   // Harness runs use Chromium's fake keychain, never the person's own. This
   // MUST stay inside the test-only branch: the fake uses a fixed, public
@@ -680,7 +684,7 @@ function keyStore(): KeyStore {
 
 /** Harness only: a local stand-in provider, so acceptance never spends money. */
 function testAiBaseUrl(): string | undefined {
-  return process.env.CAULDRON_TEST_USER_DATA
+  return TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA
     ? process.env.CAULDRON_TEST_AI_BASE_URL || undefined
     : undefined;
 }
@@ -3426,86 +3430,105 @@ function setDirectionTo(id: string): { ok: boolean; problem?: string } {
 async function finishAgentRun(note: string): Promise<void> {
   const site = state.site;
   const id = state.agentRunId;
-  state.agent = null;
-  state.agentRunId = null;
-  if (!site || !id) return;
+  if (!site || !id) {
+    state.agent = null;
+    state.agentRunId = null;
+    return;
+  }
+  // Keep `state.agent` non-null until async teardown and build verification
+  // finish so a second run or site switch cannot race with this run's cleanup.
+  state.agent = { cancel: () => {} };
 
-  await reloadPreview();
-  const after = await collectLocs();
-  const run = state.runs.finish(site.root, id, {
-    outside: outsideWrites(runStartedAt(id)),
-    claimed: [...(runClaims.get(id) ?? [])],
-    checkedFiles: Object.fromEntries(checkedRunClaims.get(id) ?? []),
-  });
-  runClaims.delete(id);
-  checkedRunClaims.delete(id);
-  if (!run) return;
-  recordRunComparison(site.root, run, after);
-  if (note) state.runs.fail(id, note);
+  try {
+    await reloadPreview();
+    const after = await collectLocs();
+    const run = state.runs.finish(site.root, id, {
+      outside: outsideWrites(runStartedAt(id)),
+      claimed: [...(runClaims.get(id) ?? [])],
+      checkedFiles: Object.fromEntries(checkedRunClaims.get(id) ?? []),
+    });
+    runClaims.delete(id);
+    checkedRunClaims.delete(id);
+    if (!run) return;
+    recordRunComparison(site.root, run, after);
+    if (note) state.runs.fail(id, note);
 
-  if (run.files.length > 0) {
-    const build = await buildSiteAsync(site.root);
-    await refreshSiteHealth({ buildVerifiedOk: build.ok });
-    let buildLogLine: string | null = null;
-    if (!build.ok) {
-      const lines = build.log
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-      buildLogLine =
-        lines.find(
-          (l) =>
-            l.includes('Failed to resolve import') ||
-            l.includes('Rolldown failed') ||
-            l.includes('Cannot find module') ||
-            l.toLowerCase().includes('error'),
-        ) ??
-        lines.at(-1) ??
-        'astro build failed';
-      state.buildError = buildLogLine;
-      if (state.site) pushSiteSnapshot(state.site);
-    }
+    if (run.files.length > 0) {
+      const build = await buildSiteAsync(site.root);
+      const stillSameSite = state.site?.root === site.root;
+      if (stillSameSite) {
+        await refreshSiteHealth({ buildVerifiedOk: build.ok });
+      }
+      let buildLogLine: string | null = null;
+      if (!build.ok) {
+        const lines = build.log
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
+        buildLogLine =
+          lines.find(
+            (l) =>
+              l.includes('Failed to resolve import') ||
+              l.includes('Rolldown failed') ||
+              l.includes('Cannot find module') ||
+              l.toLowerCase().includes('error'),
+          ) ??
+          lines.at(-1) ??
+          'astro build failed';
+        if (state.site?.root === site.root) {
+          state.buildError = buildLogLine;
+          pushSiteSnapshot(state.site);
+        }
+      }
 
-    if (
-      (!build.ok && state.missingPackages.length > 0) ||
-      state.buildError ||
-      buildLogLine
-    ) {
-      const problems: string[] = [];
-      if (!build.ok && state.missingPackages.length > 0) {
-        problems.push(
-          `Missing package imports: ${state.missingPackages.join(', ')}`,
+      const activeBuildError =
+        state.site?.root === site.root ? state.buildError : null;
+      const activeMissing =
+        state.site?.root === site.root ? state.missingPackages : [];
+      if (
+        (!build.ok && activeMissing.length > 0) ||
+        activeBuildError ||
+        buildLogLine
+      ) {
+        const problems: string[] = [];
+        if (!build.ok && activeMissing.length > 0) {
+          problems.push(`Missing package imports: ${activeMissing.join(', ')}`);
+        }
+        if (activeBuildError && !problems.includes(activeBuildError)) {
+          problems.push(activeBuildError);
+        }
+        if (buildLogLine && !problems.includes(buildLogLine)) {
+          problems.push(buildLogLine);
+        }
+        const primary = problems[0] ?? 'Build failed';
+        state.runs.recordBuildFailure(
+          run.id,
+          problems,
+          `${run.files.length} file${run.files.length === 1 ? '' : 's'} changed · Build failed: ${primary}`,
         );
       }
-      if (state.buildError && !problems.includes(state.buildError)) {
-        problems.push(state.buildError);
-      }
-      if (buildLogLine && !problems.includes(buildLogLine)) {
-        problems.push(buildLogLine);
-      }
-      const primary = problems[0] ?? 'Build failed';
-      state.runs.recordBuildFailure(
-        run.id,
-        problems,
-        `${run.files.length} file${run.files.length === 1 ? '' : 's'} changed · Build failed: ${primary}`,
-      );
+    } else if (state.site?.root === site.root) {
+      await refreshSiteHealth();
     }
-  } else {
-    await refreshSiteHealth();
-  }
 
-  status(run.note);
-  if (run.problems.length > 0)
-    console.error(
-      `Run ${run.id}: ${run.problems.join(', ')} could not be read. ${run.note}`,
-    );
-  send('cauldron:agent-done', { runId: id, note: run.note });
-  agentDoneWaiter?.({
-    ok: run.status !== 'failed' && !note,
-    runId: id,
-    note: run.note,
-  });
-  agentDoneWaiter = null;
+    status(run.note);
+    if (run.problems.length > 0)
+      console.error(
+        `Run ${run.id}: ${run.problems.join(', ')} could not be read. ${run.note}`,
+      );
+    send('cauldron:agent-done', { runId: id, note: run.note });
+    agentDoneWaiter?.({
+      ok: run.status !== 'failed' && !note,
+      runId: id,
+      note: run.note,
+    });
+    agentDoneWaiter = null;
+  } finally {
+    if (state.agentRunId === id) {
+      state.agent = null;
+      state.agentRunId = null;
+    }
+  }
 }
 
 function undoLast(): { ok: boolean; problem?: string } {
@@ -4183,6 +4206,9 @@ async function routeEditShortcut(kind: 'undo' | 'redo'): Promise<void> {
 
 export function start(): void {
   process.on('exit', () => {
+    state.agent?.cancel(true);
+    state.prepare?.cancel(true);
+    state.installPackages?.cancel(true);
     state.server?.stop();
     state.mcp?.close();
   });
@@ -4278,12 +4304,14 @@ export function start(): void {
     // A window closing while an install runs must not leave the pnpm child
     // running detached from any UI (issue 32).
     state.prepare?.cancel();
+    state.installPackages?.cancel();
     if (process.platform !== 'darwin') app.quit();
   });
 
   app.on('before-quit', () => {
-    state.agent?.cancel();
-    state.prepare?.cancel();
+    state.agent?.cancel(true);
+    state.prepare?.cancel(true);
+    state.installPackages?.cancel(true);
     state.server?.stop();
     state.mcp?.close();
     clearHermesConnection();

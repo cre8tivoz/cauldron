@@ -86,7 +86,7 @@ export type PrepareUpdate =
   | { type: 'done'; ok: true; detail: string }
   | { type: 'done'; ok: false; problem: string; detail: string };
 
-export type PrepareHandle = { cancel: () => void };
+export type PrepareHandle = { cancel: (immediate?: boolean) => void };
 
 export type PreparePlan =
   | {
@@ -238,7 +238,23 @@ export function prepareDependencies(options: {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   });
+  const signalTree = (signal: NodeJS.Signals) => {
+    try {
+      if (process.platform !== 'win32' && child.pid) {
+        process.kill(-child.pid, signal);
+        return;
+      }
+    } catch {
+      // Fall through to direct child kill if process group already exited.
+    }
+    try {
+      child.kill(signal);
+    } catch {
+      // Child already exited.
+    }
+  };
   // Exactly one terminal `done` is ever emitted: a spawn error and the close
   // event that follows it must not both report, and a cancelled install is
   // quiet after cancellation. Trailing output is flushed before the verdict.
@@ -253,12 +269,14 @@ export function prepareDependencies(options: {
     stream.setEncoding('utf8');
     let buffer = '';
     stream.on('data', (chunk: string) => {
+      if (finished) return;
       buffer += chunk;
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
       trailing[which] = buffer;
       for (const line of lines)
-        if (line.trim()) onUpdate({ type: 'progress', text: line.trim() });
+        if (!finished && line.trim())
+          onUpdate({ type: 'progress', text: line.trim() });
     });
   };
   const settle = (update: PrepareUpdate) => {
@@ -273,9 +291,9 @@ export function prepareDependencies(options: {
     settle(done(false, `${plan.manager} could not start.`, error.message));
   });
   child.on('close', (code) => {
+    if (finished || cancelled) return;
     for (const line of [trailing.stdout, trailing.stderr])
       if (line.trim()) onUpdate({ type: 'progress', text: line.trim() });
-    if (cancelled) return; // Cancellation already owns the outcome.
     settle(
       code === 0
         ? done(true, '', `${plan.manager} install finished in ${root}.`)
@@ -288,12 +306,19 @@ export function prepareDependencies(options: {
   });
 
   return {
-    cancel: () => {
-      if (finished) return;
+    cancel: (immediate = false) => {
+      if (finished) {
+        if (immediate) signalTree('SIGKILL');
+        return;
+      }
       cancelled = true;
       finished = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 2000).unref();
+      signalTree('SIGTERM');
+      if (immediate) {
+        signalTree('SIGKILL');
+      } else {
+        setTimeout(() => signalTree('SIGKILL'), 2000).unref();
+      }
       onUpdate({ type: 'progress', text: 'Install cancelled.' });
       // Cancellation is itself the outcome: the caller gets exactly one
       // terminal event, so progress UI can restore its controls and offer a
@@ -811,7 +836,7 @@ export function startInstallMissingPackages(
   });
   const timeoutMs = options.timeoutMs ?? 120_000;
 
-  let cancelFn = () => {};
+  let cancelFn: (immediate?: boolean) => void = () => {};
   const promise = new Promise<InstallMissingPackagesResult>((resolve) => {
     const child = spawn(plan.cmd, plan.args, {
       cwd: root,
@@ -827,27 +852,28 @@ export function startInstallMissingPackages(
     let cancelled = false;
     let timedOut = false;
 
-    const killTree = () => {
+    const signalTree = (signal: NodeJS.Signals) => {
       try {
         if (process.platform !== 'win32' && child.pid) {
-          process.kill(-child.pid, 'SIGTERM');
-        } else {
-          child.kill('SIGTERM');
+          process.kill(-child.pid, signal);
+          return;
         }
       } catch {
-        child.kill('SIGTERM');
+        // Fall through to direct child kill if process group already exited.
       }
-      setTimeout(() => {
-        try {
-          if (process.platform !== 'win32' && child.pid) {
-            process.kill(-child.pid, 'SIGKILL');
-          } else if (child.exitCode === null) {
-            child.kill('SIGKILL');
-          }
-        } catch {
-          // Process already exited.
-        }
-      }, 2000).unref();
+      try {
+        if (child.exitCode === null) child.kill(signal);
+      } catch {
+        // Process already exited.
+      }
+    };
+    const killTree = (immediate = false) => {
+      signalTree('SIGTERM');
+      if (immediate) {
+        signalTree('SIGKILL');
+        return;
+      }
+      setTimeout(() => signalTree('SIGKILL'), 2000).unref();
     };
 
     const finish = (res: InstallMissingPackagesResult) => {
@@ -873,10 +899,13 @@ export function startInstallMissingPackages(
       });
     }, timeoutMs);
 
-    cancelFn = () => {
-      if (settled) return;
+    cancelFn = (immediate = false) => {
+      if (settled) {
+        if (immediate) killTree(true);
+        return;
+      }
       cancelled = true;
-      killTree();
+      killTree(immediate);
       finish({
         ok: false,
         cancelled: true,
