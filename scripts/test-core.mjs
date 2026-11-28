@@ -9044,6 +9044,40 @@ test('M14: SEO locks string-concatenation props and ignores commented-out head t
     afterComm,
   );
 
+  // Frontmatter JS string containing '<!--' must not hide real <head> markup.
+  const fmCommentPage = path.join(dir, 'src/pages/fm-comment.astro');
+  fs.writeFileSync(
+    fmCommentPage,
+    [
+      '---',
+      "const commentStart = '<!--';",
+      '---',
+      '<html><head>',
+      '  <title>Frontmatter Safe Title</title>',
+      '</head><body><!-- real body comment --></body></html>',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const fmEntry = readSeoEntryM14(dir, 'src/pages/fm-comment.astro');
+  assert.equal('fields' in fmEntry, true);
+  assert.equal(fmEntry.fields.title.value, 'Frontmatter Safe Title');
+  const fmSave = saveSeoEntryM14(
+    dir,
+    'src/pages/fm-comment.astro',
+    fmEntry.hash,
+    {
+      title: 'Frontmatter Updated Title',
+    },
+  );
+  assert.equal(fmSave.ok, true, JSON.stringify(fmSave));
+  const afterFm = fs.readFileSync(fmCommentPage, 'utf8');
+  assert.ok(
+    afterFm.includes('<title>Frontmatter Updated Title</title>'),
+    afterFm,
+  );
+  assert.equal((afterFm.match(/<head\b/gi) ?? []).length, 1, afterFm);
+
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

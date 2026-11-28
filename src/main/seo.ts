@@ -438,11 +438,12 @@ function findHeadBounds(
 ): { openEnd: number; closeStart: number; content: string } | null {
   const fm = astroFrontmatterBounds(text);
   const offset = fm ? fm.bodyStart : 0;
-  const masked = maskHtmlComments(text);
-  const openMatch = /<head\b[^>]*>/i.exec(masked.slice(offset));
+  const maskedBody = maskHtmlComments(text.slice(offset));
+  const openMatch = /<head\b[^>]*>/i.exec(maskedBody);
   if (!openMatch) return null;
-  const openEnd = offset + openMatch.index + openMatch[0].length;
-  const closeIdx = masked.slice(openEnd).search(/<\/head\s*>/i);
+  const relOpenEnd = openMatch.index + openMatch[0].length;
+  const openEnd = offset + relOpenEnd;
+  const closeIdx = maskedBody.slice(relOpenEnd).search(/<\/head\s*>/i);
   if (closeIdx === -1) return null;
   const closeStart = openEnd + closeIdx;
   return {
@@ -515,8 +516,11 @@ function inspectHead(text: string): HeadInspection {
   const head = findHeadBounds(text);
   if (!head) return empty;
 
-  const maskedText = maskHtmlComments(text);
-  const maskedHeadContent = maskedText.slice(head.openEnd, head.closeStart);
+  const maskedHeadContent = maskHtmlComments(head.content);
+  const maskedText =
+    text.slice(0, head.openEnd) +
+    maskedHeadContent +
+    text.slice(head.closeStart);
 
   const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(
     maskedHeadContent,
