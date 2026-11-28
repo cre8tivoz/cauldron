@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -48,11 +49,38 @@ export function writeHermesConnection(url: string, code: string): boolean {
   kept.push(`CAULDRON_MCP_URL=${url}`, `CAULDRON_MCP_CODE=${code}`, '');
   const after = kept.join('\n');
   if (after === before) return false;
-  const temp = `${file}.cauldron-tmp`;
-  fs.writeFileSync(temp, after, { mode: 0o600 });
+  const temp = `${file}.cauldron-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  fs.writeFileSync(temp, after, { mode: 0o600, flag: 'wx' });
   fs.renameSync(temp, file);
   hermesConnectionChangedAt = Date.now();
   return true;
+}
+
+/** Remove CAULDRON_MCP_URL and CAULDRON_MCP_CODE from the Hermes profile .env on close/quit. */
+export function clearHermesConnection(): boolean {
+  const file = hermesEnvFile();
+  if (!fs.existsSync(file)) return false;
+  const before = fs.readFileSync(file, 'utf8');
+  const kept = before
+    .split('\n')
+    .filter(
+      (line) =>
+        !line.startsWith('CAULDRON_MCP_URL=') &&
+        !line.startsWith('CAULDRON_MCP_CODE='),
+    );
+  const after = kept.join('\n');
+  if (after === before) return false;
+  const temp = `${file}.cauldron-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  fs.writeFileSync(temp, after, { mode: 0o600, flag: 'wx' });
+  fs.renameSync(temp, file);
+  return true;
+}
+
+/** Strict allowlist for CLI session/thread IDs so agent stdout cannot inject flags on resume. */
+export const SAFE_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+export function isSafeSessionId(value: unknown): value is string {
+  return typeof value === 'string' && SAFE_SESSION_ID_RE.test(value);
 }
 
 /** `key` is the built-in chat on the person's own AI key (WDL-243, ai-agent.ts). */
@@ -235,7 +263,7 @@ function normaliseClaude(line: string): AgentEvent[] {
     };
   };
 
-  if (item.session_id)
+  if (isSafeSessionId(item.session_id))
     events.push({ type: 'session', sessionId: item.session_id });
   // Claude and Hermes both send plain text events, with slightly different shapes.
   if (
@@ -327,10 +355,10 @@ function normaliseJsonLines(line: string): AgentEvent[] {
     msg?: Record<string, unknown>;
     session_id?: string;
   };
-  if (typeof item.session_id === 'string')
+  if (isSafeSessionId(item.session_id))
     events.push({ type: 'session', sessionId: item.session_id });
 
-  if (item.type === 'thread.started' && typeof item.thread_id === 'string')
+  if (item.type === 'thread.started' && isSafeSessionId(item.thread_id))
     events.push({ type: 'session', sessionId: item.thread_id });
   const nested =
     item.item && typeof item.item === 'object'
@@ -341,7 +369,7 @@ function normaliseJsonLines(line: string): AgentEvent[] {
   // Codex reports its own notices as a finished item of type "error". They are
   // not a failed turn, so they are shown, never treated as one.
   const notice = nested !== null && type.includes('error');
-  if (type.includes('session') && typeof message.id === 'string') {
+  if (type.includes('session') && isSafeSessionId(message.id)) {
     events.push({ type: 'session', sessionId: message.id });
   }
   const text =
@@ -408,7 +436,10 @@ export function runAgent(options: {
   timeoutMs?: number;
   onEvent: (event: AgentEvent) => void;
 }): AgentHandle {
-  const { tool, root, prompt, sessionId, onEvent } = options;
+  const { tool, root, prompt, onEvent } = options;
+  const sessionId = isSafeSessionId(options.sessionId)
+    ? options.sessionId
+    : undefined;
   const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
 
   if (tool === 'key')
@@ -416,6 +447,7 @@ export function runAgent(options: {
 
   let command: string;
   let args: string[];
+  let tempMcpConfigPath: string | null = null;
 
   if (tool === 'claude') {
     command = 'claude';
@@ -428,9 +460,15 @@ export function runAgent(options: {
       '--permission-mode',
       'acceptEdits',
     ];
-    if (options.mcp)
-      args.push(
-        '--mcp-config',
+    if (options.mcp) {
+      // Keep the per-session MCP access code out of process argv by writing a
+      // 0600 temporary config file cleaned up when the child exits.
+      tempMcpConfigPath = path.join(
+        os.tmpdir(),
+        `cauldron-mcp-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`,
+      );
+      fs.writeFileSync(
+        tempMcpConfigPath,
         JSON.stringify({
           mcpServers: {
             cauldron: {
@@ -440,21 +478,28 @@ export function runAgent(options: {
             },
           },
         }),
+        { encoding: 'utf8', mode: 0o600, flag: 'wx' },
+      );
+      args.push(
+        '--mcp-config',
+        tempMcpConfigPath,
         '--allowedTools',
         'mcp__cauldron__*',
       );
+    }
     if (sessionId) args.push('--resume', sessionId);
   } else if (tool === 'codex') {
     command = 'codex';
     // Codex takes its MCP servers as config, and config overrides on the command
     // line apply to this run only, so the Cauldron connection never goes into
-    // the person's own Codex configuration (plan 3.3).
+    // the person's own Codex configuration (plan 3.3). Pass the header secret
+    // via env_http_headers + CAULDRON_MCP_CODE so it never appears in argv.
     const connection = options.mcp
       ? [
           '-c',
           `mcp_servers.cauldron.url=${JSON.stringify(options.mcp.url)}`,
           '-c',
-          `mcp_servers.cauldron.http_headers={ "x-cauldron-code" = ${JSON.stringify(options.mcp.code)} }`,
+          'mcp_servers.cauldron.env_http_headers={ "x-cauldron-code" = "CAULDRON_MCP_CODE" }',
           // A busy app (a build, a measurement) must not make the connection
           // look broken: Codex drops a server it could not reach in time, and
           // then the job silently runs without Cauldron's actions.
@@ -520,8 +565,19 @@ export function runAgent(options: {
   // GUI launch: bare names rely on a terminal PATH that the app does not have.
   // Resolve the real installed binary, and hand every child a PATH that puts
   // the resolved directories first so sibling shebang tools still run.
+  const cleanupTempMcpConfig = () => {
+    if (!tempMcpConfigPath) return;
+    const toDelete = tempMcpConfigPath;
+    tempMcpConfigPath = null;
+    try {
+      fs.unlinkSync(toDelete);
+    } catch {
+      // Best-effort cleanup of temp MCP config file.
+    }
+  };
   const resolvedCommand = resolveToolPath(command);
   if (!resolvedCommand) {
+    cleanupTempMcpConfig();
     onEvent({
       type: 'error',
       text: `${command} could not be found. It is not installed, or it is installed somewhere Cauldron could not resolve (check ~/.local/bin and your shell's PATH). Nothing was sent to any provider.`,
@@ -533,6 +589,9 @@ export function runAgent(options: {
     FORCE_COLOR: '0',
     NO_COLOR: '1',
   });
+  if (tool === 'codex' && options.mcp) {
+    env.CAULDRON_MCP_CODE = options.mcp.code;
+  }
   // The profile's Cauldron entry stays dormant until these two are set (plan 3.3).
   if (tool === 'hermes' && options.mcp) {
     env.CAULDRON_MCP_URL = options.mcp.url;
@@ -578,6 +637,7 @@ export function runAgent(options: {
 
   const finish = (code: number | null) => {
     if (finished) return;
+    cleanupTempMcpConfig();
     consume(buffer);
     buffer = '';
     finished = true;

@@ -169,7 +169,7 @@ try {
   await test(
     '3.3 Codex is given the Cauldron connection for the run',
     'codex',
-    `require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, 'codex-argv'))}, process.argv.slice(2).join('\\n')); console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'ok'}}));`,
+    `require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, 'codex-argv'))}, process.argv.slice(2).join('\\n')); require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, 'codex-env-code'))}, process.env.CAULDRON_MCP_CODE ?? ''); console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'ok'}}));`,
     () => {
       const args = argvOf('codex-argv');
       assert.ok(args.includes('-c'), args.join(' '));
@@ -179,9 +179,18 @@ try {
       );
       assert.ok(
         args.includes(
-          'mcp_servers.cauldron.http_headers={ "x-cauldron-code" = "fixture-code" }',
+          'mcp_servers.cauldron.env_http_headers={ "x-cauldron-code" = "CAULDRON_MCP_CODE" }',
         ),
         args.join(' '),
+      );
+      assert.equal(
+        args.join(' ').includes('fixture-code'),
+        false,
+        'MCP secret must not appear in process argv',
+      );
+      assert.equal(
+        fs.readFileSync(path.join(dir, 'codex-env-code'), 'utf8'),
+        'fixture-code',
       );
       assert.ok(
         args.includes(

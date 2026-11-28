@@ -1,15 +1,40 @@
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import { BrowserWindow } from 'electron';
-import { hashOf } from './files';
+import { hashOf, isBlockedRemoteHostname, isPrivateOrLocalIp } from './files';
+import { configurePreviewSecurity } from './preview';
 import type { DesignDirection } from './directions';
 import { REFERENCE_STRUCTURE } from './directions';
+
+async function assertPublicAddress(url: URL): Promise<void> {
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Use an http or https reference URL.');
+  }
+  if (isBlockedRemoteHostname(url.hostname)) {
+    throw new Error(
+      'Local and private network addresses cannot be used as reference URLs.',
+    );
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (!net.isIP(host)) {
+    const records = await dns.lookup(host, { all: true });
+    if (
+      records.length === 0 ||
+      records.some((r) => isPrivateOrLocalIp(r.address))
+    ) {
+      throw new Error(
+        'That address resolves to a private or local network and cannot be loaded.',
+      );
+    }
+  }
+}
 
 /** Plan 4.2: measure a reference URL. No source code, images or font files are copied. */
 export async function directionFromUrl(
   input: string,
 ): Promise<DesignDirection> {
   const url = new URL(input);
-  if (!['http:', 'https:'].includes(url.protocol))
-    throw new Error('Use an http or https reference URL.');
+  await assertPublicAddress(url);
   const window = new BrowserWindow({
     show: false,
     width: 1280,
@@ -18,23 +43,38 @@ export async function directionFromUrl(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      partition: 'cauldron-reference',
     },
   });
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  configurePreviewSecurity(window.webContents);
+  const guardNavigation = (event: Electron.Event, targetUrl: string) => {
+    try {
+      const parsed = new URL(targetUrl);
+      if (
+        !['http:', 'https:'].includes(parsed.protocol) ||
+        isBlockedRemoteHostname(parsed.hostname)
+      ) {
+        event.preventDefault();
+      }
+    } catch {
+      event.preventDefault();
+    }
+  };
+  window.webContents.on('will-redirect', guardNavigation);
+  window.webContents.on('will-navigate', guardNavigation);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
-      window.loadURL(url.href),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(new Error('The reference did not load within 30 seconds.')),
-          30000,
-        );
-      }),
-    ]);
-    const measured = (await window.webContents.executeJavaScript(`(async () => {
-      await document.fonts.ready;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(new Error('The reference did not load within 30 seconds.')),
+        30000,
+      );
+    });
+    await Promise.race([window.loadURL(url.href), deadline]);
+    const measured = (await Promise.race([
+      window.webContents.executeJavaScript(`(async () => {
+      await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 5000))]);
       const visible = [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().width > 0 && getComputedStyle(el).visibility !== 'hidden');
       const css = el => getComputedStyle(el || document.body);
       const colour = value => {
@@ -50,7 +90,9 @@ export async function directionFromUrl(
         ink: colour(body.color), primary: colour(button.backgroundColor) || colour(button.color), palette,
         display: heading.fontFamily.split(',')[0].replace(/["']/g,''), body: body.fontFamily.split(',')[0].replace(/["']/g,''),
         sizes: values(['fontSize']), spacing: values(['paddingTop','paddingBottom','paddingLeft','paddingRight','marginTop','marginBottom','gap']), radii: values(['borderTopLeftRadius']) };
-    })()`)) as {
+    })()`),
+      deadline,
+    ])) as {
       title: string;
       bg: string;
       ink: string;

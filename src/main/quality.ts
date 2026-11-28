@@ -441,32 +441,84 @@ export function buildSiteAsync(root: string): Promise<{
 export function serveDist(
   dist: string,
 ): Promise<{ url: string; close: () => void }> {
+  const realDist = fs.realpathSync(path.resolve(dist));
   const server = http.createServer((request, response) => {
-    let file: string;
+    let candidate: string;
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-      file = path.join(dist, decodeURIComponent(url.pathname));
+      candidate = path.resolve(
+        realDist,
+        `.${decodeURIComponent(url.pathname)}`,
+      );
     } catch {
       response
         .writeHead(400, { 'content-type': 'text/plain' })
         .end('Bad address');
       return;
     }
-    if (file !== dist && !file.startsWith(dist + path.sep)) {
+    const resolveContained = (target: string): string | 'outside' | null => {
+      let realTarget: string;
+      try {
+        realTarget = fs.realpathSync(target);
+      } catch {
+        return null;
+      }
+      if (
+        realTarget !== realDist &&
+        !realTarget.startsWith(realDist + path.sep)
+      ) {
+        return 'outside';
+      }
+      return realTarget;
+    };
+    let resolved = resolveContained(candidate);
+    if (resolved === 'outside') {
       response.writeHead(403).end();
       return;
     }
-    if (fs.existsSync(file) && fs.statSync(file).isDirectory()) {
-      file = path.join(file, 'index.html');
-    }
-    if (!fs.existsSync(file)) {
+    if (!resolved) {
       response
         .writeHead(404, { 'content-type': 'text/plain' })
         .end('Not found');
       return;
     }
-    response.writeHead(200, { 'content-type': typeFor(file) });
-    fs.createReadStream(file).pipe(response);
+    try {
+      if (fs.statSync(resolved).isDirectory()) {
+        resolved = resolveContained(path.join(resolved, 'index.html'));
+        if (resolved === 'outside') {
+          response.writeHead(403).end();
+          return;
+        }
+        if (!resolved || !fs.statSync(resolved).isFile()) {
+          response
+            .writeHead(404, { 'content-type': 'text/plain' })
+            .end('Not found');
+          return;
+        }
+      } else if (!fs.statSync(resolved).isFile()) {
+        response
+          .writeHead(404, { 'content-type': 'text/plain' })
+          .end('Not found');
+        return;
+      }
+    } catch {
+      response
+        .writeHead(404, { 'content-type': 'text/plain' })
+        .end('Not found');
+      return;
+    }
+    const stream = fs.createReadStream(resolved);
+    stream.on('error', () => {
+      if (!response.headersSent) {
+        response
+          .writeHead(500, { 'content-type': 'text/plain' })
+          .end('Read error');
+      } else {
+        response.destroy();
+      }
+    });
+    response.writeHead(200, { 'content-type': typeFor(resolved) });
+    stream.pipe(response);
   });
 
   return new Promise((resolve, reject) => {
@@ -712,7 +764,7 @@ export function inspectionWindow(): BrowserWindow {
   if (!ElectronBrowserWindow) {
     throw new Error('BrowserWindow is only available inside Electron.');
   }
-  return new ElectronBrowserWindow({
+  const win = new ElectronBrowserWindow({
     show: false,
     width: 1280,
     height: 900,
@@ -720,8 +772,17 @@ export function inspectionWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      partition: 'cauldron-quality',
     },
   });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.session.setPermissionCheckHandler(() => false);
+  win.webContents.session.setPermissionRequestHandler(
+    (_wc, _permission, callback) => {
+      callback(false);
+    },
+  );
+  return win;
 }
 
 async function probe(

@@ -60,6 +60,7 @@ import {
 import {
   runAgent,
   buildPrompt,
+  clearHermesConnection,
   writeHermesConnection,
   hermesPickupWaitMs,
   type AgentTool,
@@ -4250,6 +4251,7 @@ export function start(): void {
     state.prepare?.cancel();
     state.server?.stop();
     state.mcp?.close();
+    clearHermesConnection();
     mcpToolCalls.length = 0;
     clearMcpCallsLog();
   });

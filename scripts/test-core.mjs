@@ -8145,4 +8145,183 @@ test('Security C4: package name validation rejects leading-hyphen flags in findM
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+const { isSafeSessionId, clearHermesConnection } =
+  await import('../src/main/agent.ts');
+const { isBlockedRemoteHostname, isPrivateOrLocalIp } =
+  await import('../src/main/files.ts');
+const { isSafeGitHubRepoSlug } = await import('../src/main/publishing.ts');
+const { serveDist: serveDistSec } = await import('../src/main/quality.ts');
+
+test('Security H1 & H2: sessionId rejects flags, clearHermesConnection scrubs secrets, and Claude MCP config avoids argv', () => {
+  assert.equal(isSafeSessionId('session_abc-123:4'), true);
+  assert.equal(isSafeSessionId('--dangerously-skip-permissions'), false);
+  assert.equal(isSafeSessionId('-c'), false);
+  assert.equal(isSafeSessionId('bad id with spaces'), false);
+
+  const hermesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h2-'));
+  const envFile = path.join(hermesDir, '.env');
+  const prevEnv = process.env.CAULDRON_HERMES_ENV_FILE;
+  process.env.CAULDRON_HERMES_ENV_FILE = envFile;
+  try {
+    fs.writeFileSync(
+      envFile,
+      'OTHER=keep\nCAULDRON_MCP_URL=http://127.0.0.1:9999/mcp\nCAULDRON_MCP_CODE=secret123\n',
+      'utf8',
+    );
+    assert.equal(clearHermesConnection(), true);
+    const scrubbed = fs.readFileSync(envFile, 'utf8');
+    assert.equal(scrubbed.includes('CAULDRON_MCP_CODE'), false);
+    assert.equal(scrubbed.includes('CAULDRON_MCP_URL'), false);
+    assert.equal(scrubbed.includes('OTHER=keep'), true);
+  } finally {
+    if (prevEnv === undefined) delete process.env.CAULDRON_HERMES_ENV_FILE;
+    else process.env.CAULDRON_HERMES_ENV_FILE = prevEnv;
+    fs.rmSync(hermesDir, { recursive: true, force: true });
+  }
+});
+
+test('Security H3: editCssRule rejects </style> breakout and delimiter injection in selector', () => {
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h3-'));
+  fs.mkdirSync(path.join(site, 'src/pages'), { recursive: true });
+  const page = path.join(site, 'src/pages/index.astro');
+  const initial =
+    '---\n---\n<main><h1>Hi</h1></main>\n<style>\n.hero { color: black; }\n</style>\n';
+  fs.writeFileSync(page, initial, 'utf8');
+  const baseHash = hashOf(initial);
+
+  const breakout = editCssRule(
+    site,
+    'src/pages/index.astro',
+    '</style><script>alert(1)</script><style>.x',
+    'color',
+    'blue',
+    baseHash,
+  );
+  assert.equal(breakout.ok, false);
+  assert.equal(fs.readFileSync(page, 'utf8'), initial);
+
+  const braceInject = editCssRule(
+    site,
+    'src/pages/index.astro',
+    '.a { color: red; } .b',
+    'color',
+    'blue',
+    baseHash,
+  );
+  assert.equal(braceInject.ok, false);
+  assert.equal(fs.readFileSync(page, 'utf8'), initial);
+
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+const h4h5Results = await (async () => {
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h4-'));
+  const localBlocked = await downloadAndSaveStockPhoto(site, {
+    photoId: 'test',
+    url: 'https://127.0.0.1/secret.png',
+  });
+  const redirectBlocked = await downloadAndSaveStockPhoto(site, {
+    photoId: 'test',
+    url: 'https://images.example.com/a.png',
+    fetchImpl: async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: 'http://127.0.0.1:4321/internal' },
+      }),
+  });
+  const bigChunk = new Uint8Array(64);
+  const streamBlocked = await downloadAndSaveStockPhoto(site, {
+    photoId: 'big',
+    url: 'https://images.example.com/big.png',
+    maxBytes: 100,
+    fetchImpl: async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(bigChunk);
+            controller.enqueue(bigChunk);
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'image/png' } },
+      ),
+  });
+  fs.rmSync(site, { recursive: true, force: true });
+
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-h5-'));
+  const dist = path.join(outer, 'dist');
+  fs.mkdirSync(dist, { recursive: true });
+  const secret = path.join(outer, 'secret.txt');
+  fs.writeFileSync(secret, 'top-secret', 'utf8');
+  fs.writeFileSync(path.join(dist, 'index.html'), '<h1>OK</h1>', 'utf8');
+  fs.symlinkSync(secret, path.join(dist, 'leak.txt'));
+  const srv = await serveDistSec(dist);
+  let okStatus = 0;
+  let leakStatus = 0;
+  try {
+    okStatus = (await fetch(`${srv.url}index.html`)).status;
+    leakStatus = (await fetch(`${srv.url}leak.txt`)).status;
+  } finally {
+    srv.close();
+    fs.rmSync(outer, { recursive: true, force: true });
+  }
+  return { localBlocked, redirectBlocked, streamBlocked, okStatus, leakStatus };
+})();
+
+test('Security H4: SSRF hostname/IP guards and stock-photo redirect/streaming limits work', () => {
+  assert.equal(isBlockedRemoteHostname('localhost'), true);
+  assert.equal(isBlockedRemoteHostname('127.0.0.1'), true);
+  assert.equal(isBlockedRemoteHostname('169.254.169.254'), true);
+  assert.equal(isBlockedRemoteHostname('10.0.0.5'), true);
+  assert.equal(isBlockedRemoteHostname('[::1]'), true);
+  assert.equal(isPrivateOrLocalIp('::ffff:127.0.0.1'), true);
+  assert.equal(isBlockedRemoteHostname('images.unsplash.com'), false);
+
+  assert.equal(h4h5Results.localBlocked.ok, false);
+  assert.equal(h4h5Results.redirectBlocked.ok, false);
+  assert.equal(h4h5Results.streamBlocked.ok, false);
+  assert.match(h4h5Results.streamBlocked.problem, /limit/i);
+});
+
+test('Security H5: serveDist blocks symlink escapes outside dist and inspectionWindow uses isolated partition', () => {
+  assert.equal(h4h5Results.okStatus, 200);
+  assert.equal(h4h5Results.leakStatus, 403);
+
+  const qualitySrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/quality.ts'),
+    'utf8',
+  );
+  assert.ok(qualitySrc.includes("partition: 'cauldron-quality'"));
+  assert.ok(qualitySrc.includes('setPermissionRequestHandler'));
+});
+
+test('Security H6: parseGitHubRepoFromRemote rejects flags/traversal and credential.helper shell-quotes ghBin', () => {
+  assert.equal(
+    parseGitHubRepoFromRemote('https://github.com/cre8tivoz/cauldron.git'),
+    'cre8tivoz/cauldron',
+  );
+  assert.equal(
+    parseGitHubRepoFromRemote('https://github.com/org/.website.git'),
+    'org/.website',
+  );
+  assert.equal(isSafeGitHubRepoSlug('org/.'), false);
+  assert.equal(isSafeGitHubRepoSlug('org/..'), false);
+  assert.equal(
+    parseGitHubRepoFromRemote('https://github.com/--flag/repo'),
+    null,
+  );
+  assert.equal(
+    parseGitHubRepoFromRemote('https://github.com/owner/repo?x=1'),
+    null,
+  );
+  assert.equal(isSafeGitHubRepoSlug('../etc'), false);
+  assert.equal(isSafeGitHubRepoSlug('owner/-repo'), false);
+
+  const pubSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/publishing.ts'),
+    'utf8',
+  );
+  assert.ok(pubSrc.includes('credential.helper=!${shellQuotePosix(ghBin)}'));
+});
+
 process.exitCode = failures ? 1 : 0;
