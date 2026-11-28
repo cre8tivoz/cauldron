@@ -233,9 +233,42 @@ export function findTag(text: string, location: Location): Tag | null {
   return tag;
 }
 
+const REGEX_PREFIX_KEYWORDS = new Set([
+  'return',
+  'case',
+  'throw',
+  'in',
+  'of',
+  'typeof',
+  'void',
+  'delete',
+  'new',
+  'else',
+  'yield',
+  'await',
+]);
+
+function skipRegexLiteral(text: string, start: number): number {
+  let inClass = false;
+  for (let i = start + 1; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (ch === '\n' || ch === '\r') return -1;
+    if (ch === '[') inClass = true;
+    else if (ch === ']' && inClass) inClass = false;
+    else if (ch === '/' && !inClass) return i;
+  }
+  return -1;
+}
+
 function skipExpressionBlock(text: string, start: number): number {
   let depth = 0;
   let quote: string | null = null;
+  let canStartRegex = true;
+  let word = '';
   for (let i = start; i < text.length; i += 1) {
     const ch = text[i];
     if (quote) {
@@ -243,8 +276,19 @@ function skipExpressionBlock(text: string, start: number): number {
         i += 1;
         continue;
       }
-      if (ch === quote) quote = null;
+      if (ch === quote) {
+        quote = null;
+        canStartRegex = false;
+      }
       continue;
+    }
+    if (/[A-Za-z0-9_$]/.test(ch)) {
+      word += ch;
+      continue;
+    }
+    if (word) {
+      canStartRegex = REGEX_PREFIX_KEYWORDS.has(word);
+      word = '';
     }
     if (ch === '/' && text[i + 1] === '/') {
       const nl = text.indexOf('\n', i + 2);
@@ -258,14 +302,27 @@ function skipExpressionBlock(text: string, start: number): number {
       i = end + 1;
       continue;
     }
+    if (ch === '/' && canStartRegex && text[i - 1] !== '<') {
+      const regexEnd = skipRegexLiteral(text, i);
+      if (regexEnd !== -1) {
+        i = regexEnd;
+        canStartRegex = false;
+        continue;
+      }
+    }
     if (ch === '"' || ch === "'" || ch === '`') {
       quote = ch;
       continue;
     }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
+    if (ch === '{') {
+      depth += 1;
+      canStartRegex = true;
+    } else if (ch === '}') {
       depth -= 1;
       if (depth === 0) return i + 1;
+      canStartRegex = false;
+    } else if (!/\s/.test(ch)) {
+      canStartRegex = ch !== ')' && ch !== ']';
     }
   }
   return text.length;
@@ -277,6 +334,18 @@ export function findClosingTag(
 ): { start: number; end: number } | null {
   const targetName = tag.name.toLowerCase();
   if (tag.selfClosing || VOID_ELEMENTS.has(targetName)) return null;
+
+  // Raw-text elements (<script>, <style>) run directly to their matching closing tag;
+  // never parse embedded JS/CSS string fragments as nested HTML tags.
+  if (targetName === 'script' || targetName === 'style') {
+    const closeRe = new RegExp(`</${targetName}\\s*>`, 'i');
+    const match = closeRe.exec(text.slice(tag.tagEnd));
+    if (!match) return null;
+    return {
+      start: tag.tagEnd + match.index,
+      end: tag.tagEnd + match.index + match[0].length,
+    };
+  }
 
   let depth = 1;
   let i = tag.tagEnd;

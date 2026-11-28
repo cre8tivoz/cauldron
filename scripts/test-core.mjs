@@ -8488,6 +8488,37 @@ test('H10: deletePageSection ignores commented-out closing tags inside HTML comm
   assert.equal(after.includes('-->'), false, after);
   assert.ok(after.includes('<section id="b"><p>Keep</p></section>'), after);
 
+  // Regex literal containing `{` inside an Astro expression must not throw off brace depth.
+  const regexPage = [
+    '---',
+    'const value = "{";',
+    '---',
+    '<main>',
+    '  <section id="rx">{ /{/.test(value) && <p>Yes</p> }</section>',
+    '  <section id="after"><p>Still here</p></section>',
+    '</main>',
+    '',
+  ].join('\n');
+  fs.writeFileSync(page, regexPage, 'utf8');
+  const rxRes = deletePageSection(dir, '/', 0, hashOf(regexPage));
+  assert.equal(rxRes.ok, true, JSON.stringify(rxRes));
+  const rxAfter = fs.readFileSync(page, 'utf8');
+  assert.equal(rxAfter.includes('Yes'), false, rxAfter);
+  assert.ok(rxAfter.includes('<section id="after">'), rxAfter);
+
+  // Target <script> elements with unclosed HTML fragments in JS strings must stay raw text.
+  const scriptPage = [
+    '---',
+    '---',
+    "<script>const prefix = '<div class=\"';</script>",
+    '<main><section id="live"><p>Visible</p></section></main>',
+    '',
+  ].join('\n');
+  fs.writeFileSync(page, scriptPage, 'utf8');
+  const sectionsRead = readPageSections(dir, '/');
+  assert.equal(sectionsRead.ok, true, JSON.stringify(sectionsRead));
+  assert.equal(sectionsRead.sections.length, 1, JSON.stringify(sectionsRead));
+
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
