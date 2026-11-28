@@ -97,6 +97,7 @@ const {
   publishAsync,
   exportStaticSiteAsync,
   deployCloudflarePagesAsync,
+  slugForSite,
   deployVercelAsync,
   deployGitHubPagesAsync,
   parseCloudflarePagesUrl,
@@ -5709,6 +5710,16 @@ await (async () => {
       assert.equal(cfCreateAuthFailRes.ok, false);
       assert.equal(cfCreateAuthFailRes.isAuthError, true);
       assert.ok(cfCreateAuthFailRes.problem?.includes('Wrangler login'));
+    });
+
+    test('L11: slugForSite strips leading/trailing hyphens for folder names starting with -, _, or whitespace', () => {
+      assert.equal(slugForSite('/tmp/-my-site'), 'my-site');
+      assert.equal(slugForSite('/tmp/_preview_app_'), 'preview-app');
+      assert.equal(slugForSite('/tmp/  spaced site  '), 'spaced-site');
+      assert.equal(slugForSite('/tmp/---'), 'cauldron-site');
+      assert.equal(slugForSite('/tmp/___'), 'cauldron-site');
+      assert.equal(slugForSite('/tmp/   '), 'cauldron-site');
+      assert.equal(slugForSite('/tmp/-ignored', 'My Site'), 'my-site');
     });
 
     const { computePreviewBounds } = await import('../src/preview-viewport.ts');
