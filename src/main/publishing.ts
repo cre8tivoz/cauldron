@@ -1084,11 +1084,11 @@ function summarizeCliError(
 
 export function parseVercelUrl(output: string): string | undefined {
   const aliased = output.match(
-    /Aliased\s+(https:\/\/[a-z0-9.-]+\.vercel\.app(?:\/[^\s)'"`]*)?)/i,
+    /Aliased:?\s+(https:\/\/[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s)'"`]*)?)/i,
   )?.[1];
   if (aliased) return aliased;
   const production = output.match(
-    /Production\s+(https:\/\/[a-z0-9.-]+\.vercel\.app(?:\/[^\s)'"`]*)?)/i,
+    /Production:?\s+(https:\/\/[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s)'"`]*)?)/i,
   )?.[1];
   if (production) return production;
   return output.match(
@@ -1250,7 +1250,46 @@ export function parseGitHubRepoFromRemote(remoteUrl: string): string | null {
   return candidate && isSafeGitHubRepoSlug(candidate) ? candidate : null;
 }
 
+function normalizePagesUrlCandidate(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return undefined;
+    }
+    const host = parsed.hostname.toLowerCase();
+    // Never mistake GitHub API/repo/docs links for a deployed Pages site URL.
+    if (host === 'github.com' || host.endsWith('.github.com')) {
+      return undefined;
+    }
+    return parsed.href;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseGitHubPagesUrl(output: string): string | undefined {
+  const trimmed = output.trim();
+  if (!trimmed) return undefined;
+  // 1. JSON payload from `gh api repos/<slug>/pages` (supports custom CNAME domains).
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as { html_url?: unknown };
+      if (typeof parsed.html_url === 'string') {
+        const direct = normalizePagesUrlCandidate(parsed.html_url);
+        if (direct) return direct;
+      }
+    } catch {
+      // Fall through to plain-text parsing.
+    }
+  }
+  // 2. Single-line URL output (e.g. `gh api ... --jq .html_url` or direct `html_url`).
+  if (!/\s/.test(trimmed)) {
+    const direct = normalizePagesUrlCandidate(trimmed);
+    if (direct) return direct;
+  }
+  // 3. Fallback for unstructured CLI output: match standard github.io Pages URLs.
   return output.match(
     /https:\/\/[a-z0-9.-]+\.github\.io(?:\/[^\s)'"`]*)?/i,
   )?.[0];
