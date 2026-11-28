@@ -64,36 +64,60 @@ const numericVersionDescending = (a: string, b: string): number => {
  * node never silently wins over a modern one. `process.execPath` is
  * deliberately absent — in a packaged app that is Electron, never Node.
  */
-const CANDIDATE_NODE_PATHS = (home: string): string[] => {
-  const candidates: string[] = [];
+function collectVersionedNodeCandidates(
+  versionsDir: string,
+  suffix: string,
+): string[] {
+  const compatible: string[] = [];
+  const fallback: string[] = [];
   try {
-    const nodeVersionsDir = `${home}/.nvm/versions/node`;
     const versions = fs
-      .readdirSync(nodeVersionsDir)
-      .filter((entry) => entry.startsWith('v'))
+      .readdirSync(versionsDir)
+      .filter((entry) => /^v?\d+/.test(entry))
       .sort(numericVersionDescending);
-    // Compatible versions first, then any others as a last resort.
-    for (const pass of [true, false])
-      for (const version of versions) {
-        const major = majorFromVersionDir(version);
-        if (major === null || (pass && major < MIN_NODE_MAJOR)) continue;
-        candidates.push(`${nodeVersionsDir}/${version}/bin/node`);
-      }
+    for (const version of versions) {
+      const normalized = version.startsWith('v') ? version : `v${version}`;
+      const major = majorFromVersionDir(normalized);
+      if (major === null) continue;
+      const bin = path.join(versionsDir, version, suffix);
+      if (major >= MIN_NODE_MAJOR) compatible.push(bin);
+      else fallback.push(bin);
+    }
   } catch {
-    // No nvm; the plain locations below still apply.
+    // Version manager not installed; skip.
   }
-  candidates.push(
+  return [...compatible, ...fallback];
+}
+
+const CANDIDATE_NODE_PATHS = (home: string): string[] => {
+  const candidates: string[] = [
+    ...collectVersionedNodeCandidates(`${home}/.nvm/versions/node`, 'bin/node'),
+    ...collectVersionedNodeCandidates(
+      `${home}/.local/share/fnm/node-versions`,
+      'installation/bin/node',
+    ),
+    ...collectVersionedNodeCandidates(
+      `${home}/Library/Application Support/fnm/node-versions`,
+      'installation/bin/node',
+    ),
+    ...collectVersionedNodeCandidates(
+      `${home}/.local/share/mise/installs/node`,
+      'bin/node',
+    ),
+    `${home}/.volta/bin/node`,
+    `${home}/.asdf/shims/node`,
     '/opt/homebrew/bin/node',
     '/usr/local/bin/node',
     `${home}/.local/bin/node`,
     `${home}/.hermes/node/bin/node`,
-  );
+  ];
   return candidates;
 };
 
-function firstExisting(paths: string[]): string | null {
+export function firstExisting(paths: string[]): string | null {
   for (const candidate of paths) {
     try {
+      if (!fs.statSync(candidate).isFile()) continue;
       fs.accessSync(candidate, fs.constants.X_OK);
       return candidate;
     } catch {
@@ -110,12 +134,43 @@ function firstExisting(paths: string[]): string | null {
  * process and no config is changed. The (potentially slow) shell probe is
  * cached so one action never pays for it twice.
  */
+const PATH_SENTINEL_START = '__CAULDRON_PATH_START__';
+const PATH_SENTINEL_END = '__CAULDRON_PATH_END__';
+
+/** Extracts colon-delimited PATH directories between sentinel markers, ignoring login banners. */
+export function parseLoginShellPathOutput(stdout: string): string[] {
+  const start = stdout.indexOf(PATH_SENTINEL_START);
+  const end =
+    start !== -1
+      ? stdout.indexOf(PATH_SENTINEL_END, start + PATH_SENTINEL_START.length)
+      : -1;
+  const payload =
+    start !== -1 && end !== -1
+      ? stdout.slice(start + PATH_SENTINEL_START.length, end)
+      : stdout;
+  return payload
+    .trim()
+    .split(':')
+    .filter((dir) => {
+      if (!dir) return false;
+      try {
+        return fs.statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+}
+
 let loginShellCache: { dirs: string[]; problem: string | null } | null = null;
 function loginShellDirs(): { dirs: string[]; problem: string | null } {
   if (loginShellCache) return loginShellCache;
   const shell = process.env.SHELL || '/bin/zsh';
+  const isFish = path.basename(shell) === 'fish';
+  const command = isFish
+    ? `printf '${PATH_SENTINEL_START}%s${PATH_SENTINEL_END}' (string join ':' $PATH)`
+    : `printf '${PATH_SENTINEL_START}%s${PATH_SENTINEL_END}' "$PATH"`;
   try {
-    const result = spawnSync(shell, ['-l', '-c', 'printf %s "$PATH"'], {
+    const result = spawnSync(shell, ['-l', '-c', command], {
       encoding: 'utf8',
       timeout: 5000,
       env: {
@@ -134,10 +189,7 @@ function loginShellDirs(): { dirs: string[]; problem: string | null } {
       };
       return loginShellCache;
     }
-    const dirs = result.stdout
-      .trim()
-      .split(':')
-      .filter((dir) => dir && fs.existsSync(dir));
+    const dirs = parseLoginShellPathOutput(result.stdout);
     loginShellCache = { dirs, problem: null };
     return loginShellCache;
   } catch (error) {
@@ -193,7 +245,16 @@ export function resolveInstalledExecutables(options?: {
   const home = os.homedir();
   const problems: string[] = [];
 
-  const nodePath = firstExisting(CANDIDATE_NODE_PATHS(home));
+  const envPathDirs = parsePathDirs(process.env.PATH);
+  const login = loginShellDirs();
+  if (login.problem) problems.push(login.problem);
+
+  const nodePath = firstExisting([
+    ...(options?.extraDirs ?? []).map((dir) => path.join(dir, 'node')),
+    ...CANDIDATE_NODE_PATHS(home),
+    ...envPathDirs.map((dir) => path.join(dir, 'node')),
+    ...login.dirs.map((dir) => path.join(dir, 'node')),
+  ]);
 
   // Node's directory first (its own tools such as npm live beside it), then
   // caller-supplied extras, then the caller's PATH, then the common
@@ -209,12 +270,10 @@ export function resolveInstalledExecutables(options?: {
   };
   if (nodePath) addDir(path.dirname(nodePath));
   for (const dir of options?.extraDirs ?? []) addDir(dir);
-  for (const dir of parsePathDirs(process.env.PATH)) addDir(dir);
+  for (const dir of envPathDirs) addDir(dir);
   addDir(`${home}/.local/bin`);
   addDir('/usr/local/bin');
   addDir('/opt/homebrew/bin');
-  const login = loginShellDirs();
-  if (login.problem) problems.push(login.problem);
   for (const dir of login.dirs) addDir(dir);
 
   const tools: ToolLocation[] = [];

@@ -491,83 +491,90 @@ export async function measureTaste(
       `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
     );
   // Keyboard modality is set by actual Tab key events, not element.focus().
-  window.webContents.debugger.attach('1.3');
-  await window.webContents.debugger.sendCommand('DOM.enable');
-  await window.webContents.debugger.sendCommand('CSS.enable');
-  const { root } =
-    await window.webContents.debugger.sendCommand('DOM.getDocument');
-  const force = async (index: number, classes: string[]) => {
-    const { nodeId } = await window.webContents.debugger.sendCommand(
-      'DOM.querySelector',
-      {
-        nodeId: root.nodeId,
-        selector: `[data-cauldron-audit-control="${index}"]`,
-      },
-    );
-    if (nodeId)
-      await window.webContents.debugger.sendCommand('CSS.forcePseudoState', {
-        nodeId,
-        forcedPseudoClasses: classes,
-      });
-  };
-  const reached = new Set<number>();
-  let invisible = 0,
-    lowContrast = 0,
-    weakest = 99,
-    hoverless = 0,
-    disabledUnchanged = 0;
-  const focusProblems: string[] = [];
-  const hoverProblems: string[] = [];
-  const disabledProblems: string[] = [];
-  // The hover and disabled signatures cover the control AND its visible
-  // descendants: a link whose hover moves its arrow span or scales its image
-  // does have visible hover feedback (ticket 29). Text-decoration
-  // thickness/offset are in the property list because a hover that only
-  // thickens an underline changes none of the shorthand properties.
-  const signature = `(() => [el, ...[...el.querySelectorAll('*')].slice(0, 40)].map(node => { const s = getComputedStyle(node); return [${INTERACTION_PROPERTIES.map((p) => `'${p}'`).join(',')}].map(p => s[p]).join('|'); }).join('::'))()`;
-  const activeFocusSeq = () =>
-    window.webContents.executeJavaScript(
-      `(() => document.activeElement?.getAttribute?.('data-cauldron-focus-seq') ?? '')()`,
-    ) as Promise<string>;
-  const activeIndex = () =>
-    window.webContents.executeJavaScript(
-      `(() => {const el=document.activeElement;return Number(el?.getAttribute?.('data-cauldron-audit-control')??-1);})()`,
-    ) as Promise<number>;
-  // Ticket 29: one Tab press per expected control lost controls to the race
-  // between the key event and Chromium moving focus. Two passes over the same
-  // page in one report disagreed (5/7 then 7/7), so wait for focus to actually
-  // move and press again only when the first press did nothing.
-  const pressTab = async (): Promise<number> => {
-    const before = await activeFocusSeq();
-    for (let attempt = 0; attempt < 3; attempt++) {
-      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
-      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-      for (let wait = 0; wait < 4; wait++) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        const after = await activeFocusSeq();
-        if (after !== before) return await activeIndex();
-      }
-    }
-    return await activeIndex();
-  };
-  window.webContents.focus();
-  await window.webContents.executeJavaScript(
-    `document.body.tabIndex=-1;document.body.focus()`,
-  );
-  await settleFrames();
-  const moves = measured.controls + measured.totalControls * 2 + 8;
-  for (let step = 0; step < moves && reached.size < measured.controls; step++) {
-    const index = await pressTab();
-    if (index >= 0 && !reached.has(index)) {
-      reached.add(index);
-      const selector = `[data-cauldron-audit-control="${index}"]`;
-      await force(index, []);
-      const before = await window.webContents.executeJavaScript(
-        `(() => {const el=document.querySelector(${JSON.stringify(selector)});return getComputedStyle(el).backgroundColor;})()`,
+  if (!window.webContents.debugger.isAttached()) {
+    window.webContents.debugger.attach('1.3');
+  }
+  try {
+    await window.webContents.debugger.sendCommand('DOM.enable');
+    await window.webContents.debugger.sendCommand('CSS.enable');
+    const { root } =
+      await window.webContents.debugger.sendCommand('DOM.getDocument');
+    const force = async (index: number, classes: string[]) => {
+      const { nodeId } = await window.webContents.debugger.sendCommand(
+        'DOM.querySelector',
+        {
+          nodeId: root.nodeId,
+          selector: `[data-cauldron-audit-control="${index}"]`,
+        },
       );
-      await force(index, ['focus', 'focus-visible']);
-      const after = (await window.webContents.executeJavaScript(
-        `(() => {
+      if (nodeId)
+        await window.webContents.debugger.sendCommand('CSS.forcePseudoState', {
+          nodeId,
+          forcedPseudoClasses: classes,
+        });
+    };
+    const reached = new Set<number>();
+    let invisible = 0,
+      lowContrast = 0,
+      weakest = 99,
+      hoverless = 0,
+      disabledUnchanged = 0;
+    const focusProblems: string[] = [];
+    const hoverProblems: string[] = [];
+    const disabledProblems: string[] = [];
+    // The hover and disabled signatures cover the control AND its visible
+    // descendants: a link whose hover moves its arrow span or scales its image
+    // does have visible hover feedback (ticket 29). Text-decoration
+    // thickness/offset are in the property list because a hover that only
+    // thickens an underline changes none of the shorthand properties.
+    const signature = `(() => [el, ...[...el.querySelectorAll('*')].slice(0, 40)].map(node => { const s = getComputedStyle(node); return [${INTERACTION_PROPERTIES.map((p) => `'${p}'`).join(',')}].map(p => s[p]).join('|'); }).join('::'))()`;
+    const activeFocusSeq = () =>
+      window.webContents.executeJavaScript(
+        `(() => document.activeElement?.getAttribute?.('data-cauldron-focus-seq') ?? '')()`,
+      ) as Promise<string>;
+    const activeIndex = () =>
+      window.webContents.executeJavaScript(
+        `(() => {const el=document.activeElement;return Number(el?.getAttribute?.('data-cauldron-audit-control')??-1);})()`,
+      ) as Promise<number>;
+    // Ticket 29: one Tab press per expected control lost controls to the race
+    // between the key event and Chromium moving focus. Two passes over the same
+    // page in one report disagreed (5/7 then 7/7), so wait for focus to actually
+    // move and press again only when the first press did nothing.
+    const pressTab = async (): Promise<number> => {
+      const before = await activeFocusSeq();
+      for (let attempt = 0; attempt < 3; attempt++) {
+        window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+        window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+        for (let wait = 0; wait < 4; wait++) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          const after = await activeFocusSeq();
+          if (after !== before) return await activeIndex();
+        }
+      }
+      return await activeIndex();
+    };
+    window.webContents.focus();
+    await window.webContents.executeJavaScript(
+      `document.body.tabIndex=-1;document.body.focus()`,
+    );
+    await settleFrames();
+    const moves = measured.controls + measured.totalControls * 2 + 8;
+    for (
+      let step = 0;
+      step < moves && reached.size < measured.controls;
+      step++
+    ) {
+      const index = await pressTab();
+      if (index >= 0 && !reached.has(index)) {
+        reached.add(index);
+        const selector = `[data-cauldron-audit-control="${index}"]`;
+        await force(index, []);
+        const before = await window.webContents.executeJavaScript(
+          `(() => {const el=document.querySelector(${JSON.stringify(selector)});return getComputedStyle(el).backgroundColor;})()`,
+        );
+        await force(index, ['focus', 'focus-visible']);
+        const after = (await window.webContents.executeJavaScript(
+          `(() => {
           const el=document.querySelector(${JSON.stringify(selector)});
           const s=getComputedStyle(el);
           let node=el.parentElement;
@@ -586,78 +593,78 @@ export async function measureTaste(
             parentBackground,
           };
         })()`,
-      )) as Omit<FocusSample, 'beforeBackground'>;
-      // The approved focus threshold is 3:1 against its surroundings, not mere
-      // presence of a ring.
-      const verdict = judgeFocus({ ...after, beforeBackground: before });
-      if (verdict.state === 'missing') {
-        invisible++;
-      } else if (verdict.state === 'low-contrast') {
-        lowContrast++;
-        focusProblems.push(`${after.where} ${verdict.ratio}:1`);
+        )) as Omit<FocusSample, 'beforeBackground'>;
+        // The approved focus threshold is 3:1 against its surroundings, not mere
+        // presence of a ring.
+        const verdict = judgeFocus({ ...after, beforeBackground: before });
+        if (verdict.state === 'missing') {
+          invisible++;
+        } else if (verdict.state === 'low-contrast') {
+          lowContrast++;
+          focusProblems.push(`${after.where} ${verdict.ratio}:1`);
+        }
+        if (verdict.state !== 'ok')
+          weakest = Math.min(weakest, verdict.ratio ?? 0);
+        await force(index, []);
       }
-      if (verdict.state !== 'ok')
-        weakest = Math.min(weakest, verdict.ratio ?? 0);
-      await force(index, []);
     }
-  }
-  const unreached = measured.controls - reached.size;
-  // Name what was not reached, so the person (or the next agent job) knows
-  // where to look instead of only a count.
-  const missed = unreached
-    ? ((await window.webContents.executeJavaScript(
-        `(${JSON.stringify(
-          [...Array(measured.controls).keys()].filter(
-            (index) => !reached.has(index),
-          ),
-        )}).map(i => {
+    const unreached = measured.controls - reached.size;
+    // Name what was not reached, so the person (or the next agent job) knows
+    // where to look instead of only a count.
+    const missed = unreached
+      ? ((await window.webContents.executeJavaScript(
+          `(${JSON.stringify(
+            [...Array(measured.controls).keys()].filter(
+              (index) => !reached.has(index),
+            ),
+          )}).map(i => {
           const el = document.querySelector('[data-cauldron-audit-control="'+i+'"]');
           if (!el) return 'control '+i;
           const where = el.tagName.toLowerCase() + (typeof el.className==='string' && el.className ? '.'+el.className.split(' ')[0] : '');
           const name = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\\s+/g,' ').slice(0,40);
           return name ? where+' (“'+name+'”)' : where;
         })`,
-      )) as string[])
-    : [];
-  add(
-    'keyboard',
-    'Interactive parts can be reached by keyboard',
-    unreached,
-    `${reached.size}/${measured.controls} reached using Tab.${
-      missed.length ? ` Not reached: ${missed.slice(0, 5).join('; ')}.` : ''
-    }`,
-  );
-  const focus = focusOutcome({
-    invisible,
-    lowContrast,
-    unreached,
-    weakest,
-    problems: focusProblems,
-  });
-  add(
-    'focus',
-    'Focus is visible on controls',
-    focus.failed ? 1 : 0,
-    focus.focusDetail,
-  );
-  add(
-    'focus-threshold',
-    'Focus indicator is visible at 3:1 or better',
-    focus.failed ? 1 : 0,
-    focus.thresholdDetail,
-  );
-  for (let index = 0; index < measured.controls; index++) {
-    const selector = `[data-cauldron-audit-control="${index}"]`;
-    await window.webContents.executeJavaScript(
-      `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`,
+        )) as string[])
+      : [];
+    add(
+      'keyboard',
+      'Interactive parts can be reached by keyboard',
+      unreached,
+      `${reached.size}/${measured.controls} reached using Tab.${
+        missed.length ? ` Not reached: ${missed.slice(0, 5).join('; ')}.` : ''
+      }`,
     );
-    await force(index, []);
-    await settleFrames();
-    // Every sample (resting, hover, disabled) is read with the element's own
-    // transitions suppressed and each touched element's inline transition
-    // value and priority restored afterwards. Settling two animation frames
-    // replaces slow fixed multi-hundred-ms waits across controls.
-    const sample = (body: string) => `(() => {
+    const focus = focusOutcome({
+      invisible,
+      lowContrast,
+      unreached,
+      weakest,
+      problems: focusProblems,
+    });
+    add(
+      'focus',
+      'Focus is visible on controls',
+      focus.failed ? 1 : 0,
+      focus.focusDetail,
+    );
+    add(
+      'focus-threshold',
+      'Focus indicator is visible at 3:1 or better',
+      focus.failed ? 1 : 0,
+      focus.thresholdDetail,
+    );
+    for (let index = 0; index < measured.controls; index++) {
+      const selector = `[data-cauldron-audit-control="${index}"]`;
+      await window.webContents.executeJavaScript(
+        `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`,
+      );
+      await force(index, []);
+      await settleFrames();
+      // Every sample (resting, hover, disabled) is read with the element's own
+      // transitions suppressed and each touched element's inline transition
+      // value and priority restored afterwards. Settling two animation frames
+      // replaces slow fixed multi-hundred-ms waits across controls.
+      const sample = (body: string) => `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         const settled = [el, ...[...el.querySelectorAll('*')].slice(0, 40)];
         const saved = settled.map(node => [node.style.getPropertyValue('transition'), node.style.getPropertyPriority('transition')]);
@@ -670,104 +677,105 @@ export async function measureTaste(
             else node.style.removeProperty('transition'); });
         }
       })()`;
-    const before = (await window.webContents.executeJavaScript(
-      sample(
-        `return {signature:${signature},where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40),rect:el.getBoundingClientRect().toJSON()};`,
-      ),
-    )) as {
-      signature: string;
-      where: string;
-      name: string;
-      rect: { width: number; height: number };
-    };
-    const interactionKey = `${before.where}::${before.name}::${before.signature}`;
-    if (verifiedInteractionKeys?.has(interactionKey)) continue;
-    await force(index, ['hover']);
-    await settleFrames();
-    const hover = (await window.webContents.executeJavaScript(
-      sample(`return {signature:${signature}};`),
-    )) as { signature: string };
-    // The forced :hover must be removed before the disabled probe: it was not
-    // once, and the settled disabled style was compared against a hovered one
-    // (ticket 29 recheck).
-    await force(index, []);
-    await settleFrames();
-    const disabled = (await window.webContents.executeJavaScript(
-      sample(`if (!('disabled' in el)) return null;
+      const before = (await window.webContents.executeJavaScript(
+        sample(
+          `return {signature:${signature},where:el.tagName.toLowerCase()+(typeof el.className==='string'&&el.className?'.'+el.className.split(' ')[0]:''),name:(el.getAttribute('aria-label')||el.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40),rect:el.getBoundingClientRect().toJSON()};`,
+        ),
+      )) as {
+        signature: string;
+        where: string;
+        name: string;
+        rect: { width: number; height: number };
+      };
+      const interactionKey = `${before.where}::${before.name}::${before.signature}`;
+      if (verifiedInteractionKeys?.has(interactionKey)) continue;
+      await force(index, ['hover']);
+      await settleFrames();
+      const hover = (await window.webContents.executeJavaScript(
+        sample(`return {signature:${signature}};`),
+      )) as { signature: string };
+      // The forced :hover must be removed before the disabled probe: it was not
+      // once, and the settled disabled style was compared against a hovered one
+      // (ticket 29 recheck).
+      await force(index, []);
+      await settleFrames();
+      const disabled = (await window.webContents.executeJavaScript(
+        sample(`if (!('disabled' in el)) return null;
           const wasDisabled = el.disabled;
           el.disabled = true;
           const disabledSignature = ${signature};
           el.disabled = wasDisabled;
           return disabledSignature;`),
-    )) as string | null;
-    await force(index, []);
-    const label = before.name
-      ? `${before.where} (“${before.name}”)`
-      : before.where;
-    // Every control is measured normally. A control already in a selected or
-    // pressed state (aria-pressed, aria-current) is measured the same way: the
-    // selected style does not excuse a missing hover state. A control whose
-    // hover changes only its underline offset, or whose hover styles only a
-    // descendant, still counts as changing.
-    if (hover.signature === before.signature) {
-      hoverless++;
-      hoverProblems.push(label);
+      )) as string | null;
+      await force(index, []);
+      const label = before.name
+        ? `${before.where} (“${before.name}”)`
+        : before.where;
+      // Every control is measured normally. A control already in a selected or
+      // pressed state (aria-pressed, aria-current) is measured the same way: the
+      // selected style does not excuse a missing hover state. A control whose
+      // hover changes only its underline offset, or whose hover styles only a
+      // descendant, still counts as changing.
+      if (hover.signature === before.signature) {
+        hoverless++;
+        hoverProblems.push(label);
+      }
+      // A control with hover styling and NO disabled CSS fails here: the
+      // disabled signature equals the resting one. A control whose disabled
+      // style is visibly different passes.
+      if (disabled !== null && disabled === before.signature) {
+        disabledUnchanged++;
+        disabledProblems.push(label);
+      }
+      if (
+        hover.signature !== before.signature &&
+        (disabled === null || disabled !== before.signature)
+      ) {
+        verifiedInteractionKeys?.add(interactionKey);
+      }
     }
-    // A control with hover styling and NO disabled CSS fails here: the
-    // disabled signature equals the resting one. A control whose disabled
-    // style is visibly different passes.
-    if (disabled !== null && disabled === before.signature) {
-      disabledUnchanged++;
-      disabledProblems.push(label);
-    }
-    if (
-      hover.signature !== before.signature &&
-      (disabled === null || disabled !== before.signature)
-    ) {
-      verifiedInteractionKeys?.add(interactionKey);
-    }
-  }
-  add(
-    'hover',
-    'Controls have a visible hover state',
-    hoverless,
-    `${hoverless} violation(s).${
-      hoverProblems.length
-        ? ` No hover change: ${hoverProblems.slice(0, 5).join('; ')}.`
-        : ''
-    }`,
-  );
-  add(
-    'disabled',
-    'Controls have a visible disabled state',
-    disabledUnchanged,
-    `${disabledUnchanged} violation(s).${
-      disabledProblems.length
-        ? ` No disabled change: ${disabledProblems.slice(0, 5).join('; ')}.`
-        : ''
-    }`,
-  );
-  try {
-    await window.webContents.debugger.sendCommand(
-      'Emulation.setEmulatedMedia',
-      { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] },
+    add(
+      'hover',
+      'Controls have a visible hover state',
+      hoverless,
+      `${hoverless} violation(s).${
+        hoverProblems.length
+          ? ` No hover change: ${hoverProblems.slice(0, 5).join('; ')}.`
+          : ''
+      }`,
     );
-    const moving = await window.webContents.executeJavaScript(
-      `(() => [...document.querySelectorAll(${JSON.stringify(scope)})].flatMap(root=>[root,...root.querySelectorAll('*')]).filter(el=>{const s=getComputedStyle(el);return [...s.animationDuration.split(','),...s.transitionDuration.split(',')].some(v=>parseFloat(v)>.01);}).length)()`,
+    add(
+      'disabled',
+      'Controls have a visible disabled state',
+      disabledUnchanged,
+      `${disabledUnchanged} violation(s).${
+        disabledProblems.length
+          ? ` No disabled change: ${disabledProblems.slice(0, 5).join('; ')}.`
+          : ''
+      }`,
     );
-    add('motion', 'Motion respects reduced-motion', moving);
-  } catch (error) {
-    findings.push({
-      id: tasteFindingId('motion', page, width, opts.kind),
-      label: 'Motion respects reduced-motion',
-      status: 'unknown',
-      kind: 'failure',
-      detail: `The motion check could not run: ${String(error)}`,
-      page,
-      width,
-    });
+    try {
+      await window.webContents.debugger.sendCommand(
+        'Emulation.setEmulatedMedia',
+        { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] },
+      );
+      const moving = await window.webContents.executeJavaScript(
+        `(() => [...document.querySelectorAll(${JSON.stringify(scope)})].flatMap(root=>[root,...root.querySelectorAll('*')]).filter(el=>{const s=getComputedStyle(el);return [...s.animationDuration.split(','),...s.transitionDuration.split(',')].some(v=>parseFloat(v)>.01);}).length)()`,
+      );
+      add('motion', 'Motion respects reduced-motion', moving);
+    } catch (error) {
+      findings.push({
+        id: tasteFindingId('motion', page, width, opts.kind),
+        label: 'Motion respects reduced-motion',
+        status: 'unknown',
+        kind: 'failure',
+        detail: `The motion check could not run: ${String(error)}`,
+        page,
+        width,
+      });
+    }
   } finally {
-    if (window.webContents.debugger.isAttached())
+    if (!window.isDestroyed() && window.webContents.debugger.isAttached())
       window.webContents.debugger.detach();
   }
   return findings;

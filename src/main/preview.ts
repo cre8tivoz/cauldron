@@ -107,7 +107,10 @@ export class Preview {
     this.lastUrl = url;
   }
 
+  private loadSeq = 0;
+
   async load(url: string): Promise<void> {
+    const token = ++this.loadSeq;
     this.lastUrl = url;
     const contents = this.webContents;
     if (!contents) return;
@@ -115,20 +118,23 @@ export class Preview {
       await contents.loadURL(url);
     } catch (error) {
       // Chromium fires ERR_ABORTED (-3) if Astro's route watcher reloads while
-      // loadURL is in flight; retry once rather than surfacing a false error.
+      // loadURL is in flight; retry once only if no newer navigation started.
       if (!isNavigationAborted(error)) throw error;
+      if (this.loadSeq !== token) return;
       const current = this.webContents;
       if (!current) return;
       try {
         await current.loadURL(url);
       } catch (retryError) {
         if (!isNavigationAborted(retryError)) throw retryError;
+        if (this.loadSeq !== token) return;
         current.reload();
       }
     }
   }
 
   reload(): void {
+    this.loadSeq += 1;
     this.webContents?.reload();
   }
 

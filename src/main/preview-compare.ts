@@ -34,6 +34,8 @@ export class PreviewCompare {
   private url: string | null = null;
   /** Genuine load failures, per frame, for the interface and for tests. */
   private errors = new Map<CompareFrameId, string>();
+  /** Monotonic per-frame navigation token to prevent stale ERR_ABORTED retries. */
+  private loadSeq = new Map<CompareFrameId, number>();
 
   attach(window: BrowserWindow, preloadPath: string): void {
     this.window = window;
@@ -93,23 +95,32 @@ export class PreviewCompare {
     url: string,
   ): Promise<void> {
     if (view.webContents.isDestroyed()) return;
+    const token = (this.loadSeq.get(id) ?? 0) + 1;
+    this.loadSeq.set(id, token);
     try {
       await view.webContents.loadURL(url);
+      if (this.loadSeq.get(id) !== token) return;
       this.errors.delete(id);
     } catch (error) {
+      if (this.loadSeq.get(id) !== token || view.webContents.isDestroyed())
+        return;
       if (!isNavigationAborted(error)) {
         this.recordError(id, error);
       } else {
         try {
           await view.webContents.loadURL(url);
+          if (this.loadSeq.get(id) !== token) return;
           this.errors.delete(id);
         } catch (retryError) {
+          if (this.loadSeq.get(id) !== token) return;
           if (!isNavigationAborted(retryError))
             this.recordError(id, retryError);
         }
       }
     }
-    this.applyZoom(id, view);
+    if (this.loadSeq.get(id) === token) {
+      this.applyZoom(id, view);
+    }
   }
 
   private recordError(id: CompareFrameId, error: unknown): void {
@@ -148,6 +159,7 @@ export class PreviewCompare {
     for (const [id, view] of this.views) {
       if (ids.has(id)) continue;
       this.views.delete(id);
+      this.loadSeq.delete(id);
       this.removeView(window, view);
     }
 
@@ -158,7 +170,7 @@ export class PreviewCompare {
       this.zoomFor.set(frame.id, frame.zoom);
       let view = this.views.get(frame.id);
       if (!view) {
-        const created = this.createView(window);
+        const created = this.createView(window, frame.id);
         if (!created) continue;
         view = created;
         this.views.set(frame.id, view);
@@ -200,6 +212,7 @@ export class PreviewCompare {
   /** Drop the frames and their processes; called when compare is turned off. */
   clear(): void {
     this.errors.clear();
+    this.loadSeq.clear();
     const window = this.window;
     for (const view of this.views.values()) {
       if (window && !window.isDestroyed()) this.removeView(window, view);
@@ -306,16 +319,19 @@ export class PreviewCompare {
     }
   }
 
-  private createView(window: BrowserWindow): WebContentsView | null {
+  private createView(
+    window: BrowserWindow,
+    id: CompareFrameId,
+  ): WebContentsView | null {
     try {
       const view = new WebContentsView({
         webPreferences: {
           preload: this.preloadPath,
-          // Its own in-memory session, not the single preview's: Chromium keeps
-          // a per-host zoom in a session, and sharing it meant the main preview's
-          // 1:1 entry overrode this view's factor (it reported 0.25 while
-          // painting 1:1 — measured). No `persist:` prefix, so nothing is stored.
-          partition: 'cauldron-preview-compare',
+          // Dedicated in-memory session per compare frame: Chromium stores
+          // per-origin zoom factors per session, so sharing one partition across
+          // phone/tablet/desktop frames let sibling zoom updates overwrite each
+          // other. No `persist:` prefix, so nothing is stored on disk.
+          partition: `cauldron-preview-compare-${id}`,
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true,

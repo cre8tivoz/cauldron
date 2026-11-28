@@ -6195,7 +6195,7 @@ test('WDL-244 compare frames stay isolated and only allow click-to-select picks'
   );
   // Compare frames stay in their own locked-down session and flag themselves
   // as compare frames so inline editing and section drag remain disabled.
-  assert.match(source, /partition: 'cauldron-preview-compare'/);
+  assert.match(source, /partition: `cauldron-preview-compare-\$\{id\}`/);
   assert.match(source, /configurePreviewSecurity/);
   assert.match(source, /preview:compare-frame/);
   assert.equal(
@@ -9153,6 +9153,121 @@ test('M16: duplicatePageSection returns extraWrites for cauldron/responsive.css 
   assert.ok(
     indexSrc.includes('claimCheckedForRun(state.agentRunId, extra.file)'),
   );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+const {
+  parseVercelUrl: parseVercelUrlM8,
+  parseGitHubPagesUrl: parseGitHubPagesUrlM8,
+} = await import('../src/main/publishing.ts');
+const {
+  firstExisting: firstExistingM9,
+  parseLoginShellPathOutput: parseLoginShellPathOutputM9,
+} = await import('../src/main/runtime.ts');
+
+test('M5: taste-check wraps the entire debugger session in try/finally so detach always runs', () => {
+  const tasteSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/taste-check.ts'),
+    'utf8',
+  );
+  const attachIdx = tasteSrc.indexOf(
+    "window.webContents.debugger.attach('1.3');",
+  );
+  const domEnableIdx = tasteSrc.indexOf("sendCommand('DOM.enable')");
+  const tryIdx = tasteSrc.indexOf('try {', attachIdx);
+  const detachIdx = tasteSrc.indexOf('window.webContents.debugger.detach();');
+  assert.ok(attachIdx !== -1 && tryIdx > attachIdx && tryIdx < domEnableIdx);
+  assert.ok(detachIdx > domEnableIdx);
+  assert.ok(
+    tasteSrc.includes(
+      'if (!window.isDestroyed() && window.webContents.debugger.isAttached())',
+    ),
+  );
+});
+
+test('M6 & M7: compare frames use per-frame partitions and preview/compare guard ERR_ABORTED retries with loadSeq', () => {
+  const compareSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/preview-compare.ts'),
+    'utf8',
+  );
+  assert.ok(
+    compareSrc.includes('partition: `cauldron-preview-compare-${id}`'),
+    'compare frames must each have their own session partition',
+  );
+  assert.equal(
+    compareSrc.includes("partition: 'cauldron-preview-compare'"),
+    false,
+  );
+  assert.ok(
+    compareSrc.includes('private loadSeq = new Map<CompareFrameId, number>()'),
+  );
+  assert.ok(compareSrc.includes('if (this.loadSeq.get(id) !== token) return;'));
+
+  const previewSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/preview.ts'),
+    'utf8',
+  );
+  assert.ok(previewSrc.includes('private loadSeq = 0;'));
+  assert.ok(previewSrc.includes('const token = ++this.loadSeq;'));
+  assert.ok(previewSrc.includes('if (this.loadSeq !== token) return;'));
+});
+
+test('M8: parseVercelUrl handles colon labels and parseGitHubPagesUrl preserves custom CNAME domains', () => {
+  assert.equal(
+    parseVercelUrlM8(
+      'Inspect: https://vercel.com/team/app\nPreview: https://preview-abc.vercel.app\nProduction: https://prod-site.vercel.app',
+    ),
+    'https://prod-site.vercel.app',
+  );
+  assert.equal(
+    parseVercelUrlM8(
+      'Production: https://prod-site.vercel.app\nAliased: https://custom.example.com',
+    ),
+    'https://custom.example.com',
+  );
+  assert.equal(
+    parseGitHubPagesUrlM8('{"html_url":"https://billyhaddad.au/"}'),
+    'https://billyhaddad.au/',
+  );
+  assert.equal(
+    parseGitHubPagesUrlM8('https://docs.example.org/\n'),
+    'https://docs.example.org/',
+  );
+  assert.equal(
+    parseGitHubPagesUrlM8('https://github.com/cre8tivoz/cauldron'),
+    undefined,
+  );
+  assert.equal(
+    parseGitHubPagesUrlM8('Live at https://cre8tivoz.github.io/cauldron/'),
+    'https://cre8tivoz.github.io/cauldron/',
+  );
+});
+
+test('M9: runtime skips executable directories, strips login shell banners, and supports fish/fnm/volta/mise', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-m9-'));
+  const subDir = path.join(dir, 'node');
+  fs.mkdirSync(subDir);
+  const realBin = path.join(dir, 'real-node');
+  fs.writeFileSync(realBin, '#!/bin/sh\necho ok\n', { mode: 0o755 });
+
+  assert.equal(
+    firstExistingM9([subDir, realBin]),
+    realBin,
+    'firstExisting must skip executable directories',
+  );
+
+  const noisyOutput = `Welcome to zsh!\n__CAULDRON_PATH_START__${dir}:/definitely-not-a-dir-cauldron__CAULDRON_PATH_END__\nMOTD footer\n`;
+  assert.deepEqual(parseLoginShellPathOutputM9(noisyOutput), [dir]);
+
+  const runtimeSrc = fs.readFileSync(
+    path.join(repoRoot, 'src/main/runtime.ts'),
+    'utf8',
+  );
+  assert.ok(runtimeSrc.includes('fnm/node-versions'));
+  assert.ok(runtimeSrc.includes('mise/installs/node'));
+  assert.ok(runtimeSrc.includes('.volta/bin/node'));
+  assert.ok(runtimeSrc.includes("string join ':' $PATH"));
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
