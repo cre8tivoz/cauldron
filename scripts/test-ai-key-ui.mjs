@@ -1,6 +1,6 @@
 // Packaged-app acceptance for Your AI key (WDL-243).
 //
-//   npm run package && npm run test:ai-key:ui
+//   CAULDRON_BUNDLE_E2E=1 npm run package && npm run test:ai-key:ui
 //
 // Drives the real Cauldron.app hidden, on a scratch profile and Chromium's mock
 // keychain, against a local stand-in for an OpenAI-compatible provider. No real
@@ -25,7 +25,9 @@ const exe = path.resolve(
   'Cauldron',
 );
 if (!fs.existsSync(exe))
-  throw new Error('Package the app first (out/ missing).');
+  throw new Error(
+    'Package a harness-enabled build first (CAULDRON_BUNDLE_E2E=1 npm run package).',
+  );
 
 const FAKE_KEY = 'sk-or-v1-acceptance-0000000000000000';
 const PROOF_FILE = 'src/pages/key-agent-proof.astro';

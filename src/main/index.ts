@@ -178,6 +178,19 @@ const ASTRO_VERSION_TESTED = '7.4.7';
 // disabled in packaged production builds unless E2E_HARNESS_ENABLED was
 // explicitly bundled at build time.
 const TEST_OVERRIDES_ENABLED = !app.isPackaged || E2E_HARNESS_ENABLED;
+// Fail closed if a packaged acceptance runner launches a production build
+// without the bundled E2E harness, so it can never touch the real user profile
+// or real keychain.
+if (
+  BACKGROUND_TEST &&
+  process.env.CAULDRON_TEST_USER_DATA &&
+  !TEST_OVERRIDES_ENABLED
+) {
+  console.error(
+    'Refusing to run a background test against a production package: rebuild with CAULDRON_BUNDLE_E2E=1 npm run package so CAULDRON_TEST_USER_DATA and the mock keychain stay isolated from the real user profile.',
+  );
+  app.exit(1);
+}
 // Test runs can keep their app data in their own folder, so parallel or
 // repeated harness runs never share recovery, conflict or run records. The
 // variable is only ever set by a test run.

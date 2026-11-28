@@ -4,7 +4,7 @@
 //   - every screen that is built from a site's own files says so and offers
 //     the two real actions, instead of rendering controls that do nothing;
 //   - creating a project with "Create and prepare" lands you in that project.
-// Run: npm run package && node scripts/test-app-shell.mjs
+// Run: CAULDRON_BUNDLE_E2E=1 npm run package && node scripts/test-app-shell.mjs
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -23,7 +23,9 @@ const exe = path.join(
   'Cauldron',
 );
 if (!fs.existsSync(exe))
-  throw new Error('Package the app first (out/ missing).');
+  throw new Error(
+    'Package a harness-enabled build first (CAULDRON_BUNDLE_E2E=1 npm run package).',
+  );
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'cauldron-shell-'));
 const parent = path.join(work, 'projects');

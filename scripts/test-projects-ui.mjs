@@ -26,7 +26,9 @@ const exe = path.join(
   'Cauldron',
 );
 if (!fs.existsSync(exe))
-  throw new Error('Package the app first (out/ missing).');
+  throw new Error(
+    'Package a harness-enabled build first (CAULDRON_BUNDLE_E2E=1 npm run package).',
+  );
 
 const scratch =
   process.env.CAULDRON_TEST_DIR ||

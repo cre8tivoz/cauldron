@@ -9310,6 +9310,10 @@ test('M2: quit handlers cancel all detached child trees immediately and prepareD
   assert.ok(prepBody.includes("detached: process.platform !== 'win32'"));
   assert.ok(prepBody.includes('if (finished) return;'));
   assert.ok(prepBody.includes('if (finished || cancelled) return;'));
+  assert.ok(
+    depsSrc.includes('cancel: (immediate?: boolean) => cancelFn(immediate)'),
+    'startInstallMissingPackages must forward immediate cancellation flag',
+  );
 });
 
 test('M3: runAction edit actions return structured errors instead of throwing on missing file or directory', () => {
@@ -9357,6 +9361,12 @@ test('M4: test userData, mock keychain, and test AI base URL are gated behind TE
     indexSrc.includes(
       'return TEST_OVERRIDES_ENABLED && process.env.CAULDRON_TEST_USER_DATA',
     ),
+  );
+  assert.ok(
+    indexSrc.includes(
+      'Refusing to run a background test against a production package',
+    ),
+    'packaged production binary must fail closed if driven by a background test',
   );
 });
 

@@ -13,7 +13,11 @@ const exe = path.join(
   'Cauldron',
 );
 if (!fs.existsSync(exe)) {
-  console.error('Packaged binary not found at ' + exe);
+  console.error(
+    'Harness-enabled packaged binary not found at ' +
+      exe +
+      ' (run CAULDRON_BUNDLE_E2E=1 npm run package).',
+  );
   process.exit(1);
 }
 
